@@ -20,6 +20,16 @@ jobs:
             const labels = issue.labels.map(l => l.name);
             const body = issue.body || '';
 
+            // Construct → Discord User ID mapping
+            // To add a new construct: add entry with Discord user ID
+            // Get ID: Right-click user in Discord → Copy User ID
+            const OPERATOR_MAP = {
+              'loa': '970593060553646101',
+              'sigil': '259646475666063360',
+              'loa-constructs': '970593060553646101'
+              // Add more constructs here as needed
+            };
+
             // Extract routing from labels or body
             let toConstruct = 'unknown';
             const toLabel = labels.find(l => l.startsWith('to:'));
@@ -134,8 +144,13 @@ jobs:
               }]
             };
 
-            // Add @here for game-changing
-            if (isGameChanging) {
+            // Ping specific operator instead of @here
+            const operatorDiscordId = OPERATOR_MAP[toConstruct];
+            if (operatorDiscordId) {
+              // Targeted ping to the construct's operator
+              payload.content = `<@${operatorDiscordId}>`;
+            } else if (isGameChanging) {
+              // Fallback to @here only for game-changing if no mapping exists
               payload.content = "@here";
             }
 
