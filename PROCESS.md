@@ -1457,16 +1457,32 @@ When resuming interrupted work:
 # → Review CHANGELOG.md for new features
 
 # ─────────────────────────────────────────────────────────
+# COMPOUND LEARNING (after development cycle)
+# ─────────────────────────────────────────────────────────
+
+# 14. Extract learnings from cycle (optional but recommended)
+/compound
+# → Analyzes all trajectory logs from the cycle
+# → Detects cross-session patterns
+# → Extracts qualified patterns as reusable skills
+# → Generates cycle changelog
+
+# 15. Review pending skills (if patterns extracted)
+/skill-audit --pending
+# → Review extracted skills
+# → Approve, reject, or merge
+
+# ─────────────────────────────────────────────────────────
 # STARTING A NEW DEVELOPMENT CYCLE (after MVP complete)
 # ─────────────────────────────────────────────────────────
 
-# 14. Archive completed cycle
+# 16. Archive completed cycle
 /archive-cycle "MVP Complete"
 # → Creates snapshot in grimoires/loa/archive/
 # → Preserves all sprint artifacts
 # → Clears active cycle in ledger
 
-# 15. Start fresh with new requirements
+# 17. Start fresh with new requirements
 /plan-and-analyze
 # → Creates new cycle in ledger
 # → Sprint numbering continues (sprint-1 → global sprint-4, etc.)
@@ -1499,6 +1515,14 @@ Detailed specifications for complex behaviors:
 - `.claude/protocols/synthesis-checkpoint.md` - Pre-`/clear` validation (7 steps)
 - `.claude/protocols/attention-budget.md` - Token thresholds (Green/Yellow/Red)
 - `.claude/protocols/jit-retrieval.md` - Lightweight identifiers (97% token reduction)
+
+**v1.10.0 Compound Learning & Visual Communication**:
+- `.claude/protocols/visual-communication.md` - Beautiful Mermaid integration, diagram standards
+- `.claude/commands/compound.md` - End-of-cycle learning extraction
+- `.claude/commands/retrospective-batch.md` - Multi-session pattern analysis
+- `.claude/schemas/compound-trajectory-events.schema.json` - Trajectory event types
+- `.claude/schemas/learnings.schema.json` - Learning effectiveness tracking
+- `.claude/schemas/patterns.schema.json` - Cross-session pattern registry
 
 ### Helper Scripts
 
