@@ -5,6 +5,291 @@ All notable changes to Loa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.26.0] - 2026-02-04 — Workspace Cleanup & Post-PR Validation
+
+### Why This Release
+
+This release introduces **workspace cleanup** for fresh development cycles and completes the **Post-PR Validation Loop** integration. Together, these features ensure both clean starting conditions and rigorous post-PR quality gates.
+
+*"Archive the past, validate the future."*
+
+### Added
+
+#### Workspace Cleanup (#160)
+
+Automated archiving of previous cycle artifacts during `/simstim` and `/autonomous` preflight:
+
+```bash
+# Interactive mode (default)
+workspace-cleanup.sh                    # Prompt with 5s timeout
+
+# Autonomous mode
+workspace-cleanup.sh --yes --json       # Archive without prompt
+
+# Preview mode
+workspace-cleanup.sh --dry-run          # Show what would be archived
+```
+
+**4-Stage Archive Process**:
+| Stage | Description |
+|-------|-------------|
+| 1. Copy | Copy files to staging directory |
+| 2. Verify | SHA256 checksum verification |
+| 3. Finalize | Rename staging to archive with manifest |
+| 4. Remove | Delete originals (with transaction log) |
+
+**Security Features**:
+- Symlink rejection (no following)
+- Path traversal prevention (`..` blocked)
+- Absolute path rejection
+- Realpath containment validation
+- Writability and ownership checks
+
+**Integration Points**:
+- `simstim-orchestrator.sh` - Preflight cleanup (respects `--resume`, `--no-clean`)
+- `autonomous-agent/SKILL.md` - Phase 0.0 with fail-closed policy
+
+**Configuration** (`.loa.config.yaml`):
+```yaml
+workspace_cleanup:
+  enabled: true
+  default_action: archive
+  retention:
+    max_age_days: 90
+    max_count: 10
+  security:
+    follow_symlinks: false
+```
+
+**Files**:
+- `.claude/scripts/workspace-cleanup.sh` - Main script (~1100 lines)
+- `.claude/scripts/tests/test-workspace-cleanup.bats` - 30 unit tests
+
+#### Post-PR Validation Integration (#158, #159)
+
+Complete post-PR validation loop with `/autonomous` integration:
+
+**Workflow**:
+```
+PR_CREATED → POST_PR_AUDIT → CONTEXT_CLEAR → E2E_TESTING → FLATLINE_PR → READY_FOR_HITL
+```
+
+**Scripts**:
+| Script | Purpose |
+|--------|---------|
+| `post-pr-orchestrator.sh` | Main orchestrator with state machine |
+| `post-pr-state.sh` | State management with locking |
+| `post-pr-audit.sh` | PR audit with finding classification |
+| `post-pr-e2e.sh` | E2E test runner with failure tracking |
+| `post-pr-context-clear.sh` | Checkpoint writer for fresh context |
+
+**Exit Codes**:
+| Code | Meaning | Action |
+|------|---------|--------|
+| 0 | Success | READY_FOR_HITL |
+| 1 | Invalid args | Error |
+| 2 | Timeout | HALT |
+| 3 | Phase failure | HALT |
+| 4 | Flatline blocker | HALT |
+| 5 | User interrupt | HALT |
+
+**Configuration** (`.loa.config.yaml`):
+```yaml
+post_pr_validation:
+  enabled: true
+  phases:
+    audit: { enabled: true, max_iterations: 5 }
+    context_clear: { enabled: true }
+    e2e: { enabled: true, max_iterations: 3 }
+    flatline: { enabled: false }  # ~$1.50 cost
+```
+
+### Fixed
+
+- **Empty array bug** in `workspace-cleanup.sh` - `validate_scanned_paths()` now correctly handles empty result arrays
+- **Test assertions** - Fixed 6 failing tests in `test-workspace-cleanup.bats`
+- **Unsafe command execution** in `post-pr-audit.sh` - Replaced `bash -c "$cmd"` with array-based execution
+
+### Related PRs
+
+- PR #158: Post-PR Validation Loop v1.25.0
+- PR #159: Autonomous Post-PR Integration (Phase 5.5)
+- PR #160: Workspace Cleanup
+
+---
+
+## [1.25.0] - 2026-02-03 — Post-PR Validation Loop
+
+### Why This Release
+
+This release introduces the **Post-PR Validation Loop**, an automated quality assurance process that runs after PR creation. It ensures code is thoroughly reviewed before human review begins.
+
+*"Trust but verify—automatically."*
+
+### Added
+
+#### Post-PR Validation Command
+
+```bash
+# Full validation loop
+.claude/scripts/post-pr-orchestrator.sh --pr-url <url>
+
+# Dry run
+.claude/scripts/post-pr-orchestrator.sh --dry-run --pr-url <url>
+
+# Resume from checkpoint
+.claude/scripts/post-pr-orchestrator.sh --resume --pr-url <url>
+```
+
+#### Validation Phases
+
+| Phase | Description | Fix Loop |
+|-------|-------------|----------|
+| POST_PR_AUDIT | Security/quality audit | Yes (max 5) |
+| CONTEXT_CLEAR | Save checkpoint, prompt `/clear` | No |
+| E2E_TESTING | Fresh-eyes build & test | Yes (max 3) |
+| FLATLINE_PR | Multi-model review (~$1.50) | No |
+
+#### Circuit Breakers
+
+- Same finding 3x → Audit escalation
+- Same failure 2x → E2E escalation
+
+#### Finding Identity Algorithm
+
+Stable 16-char hash for deduplication:
+```
+SHA256(category|rule_id|file|normalized_line|severity)[:16]
+```
+
+Line normalization: ±5 tolerance (round to nearest 10)
+
+### Related PRs
+
+- PR #158: Post-PR Validation Loop v1.25.0
+
+---
+
+## [1.23.0] - 2026-02-03 — Flatline-Enhanced Compound Learning
+
+### Why This Release
+
+This release connects the **Flatline Protocol** to the **Compound Learning** pipeline, enabling consensus-based learning extraction and validation.
+
+*"When two models agree on a learning, promote it. When they disagree, investigate."*
+
+### Added
+
+#### Flatline → Learning Capture
+
+HIGH_CONSENSUS insights from Flatline reviews become learning candidates:
+
+```bash
+# Extract learnings from Flatline results
+.claude/scripts/flatline-learning-extractor.sh --results flatline-results.json
+
+# Validate borderline learning
+.claude/scripts/flatline-validate-learning.sh --learning learning.json --dry-run
+```
+
+#### 3-Layer Circular Prevention
+
+Prevents Flatline from validating its own outputs:
+| Layer | Check | Action |
+|-------|-------|--------|
+| L1 | `source: flatline` | Skip |
+| L2 | Validation history | Skip if seen |
+| L3 | Rate limit | 30s cooldown |
+
+#### Semantic Similarity
+
+Embedding-based duplicate detection before upstream proposal:
+```bash
+.claude/scripts/flatline-semantic-similarity.sh --learning learning.json --threshold 0.85
+```
+
+#### Pre-Proposal Review
+
+Adversarial review of upstream proposals:
+```bash
+.claude/scripts/flatline-proposal-review.sh --proposal proposal.json
+```
+
+#### Rejection Pattern Analysis
+
+Root cause tracking for rejected proposals:
+```bash
+.claude/scripts/flatline-rejection-analysis.sh --rejection rejection.json
+```
+
+#### New Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `flatline-learning-extractor.sh` | Extract learnings from HIGH_CONSENSUS |
+| `flatline-validate-learning.sh` | Single-learning 2-model validator |
+| `flatline-semantic-similarity.sh` | Embedding-based duplicate detection |
+| `flatline-proposal-review.sh` | Pre-proposal adversarial review |
+| `flatline-rejection-analysis.sh` | Root cause pattern tracking |
+| `lib/api-resilience.sh` | API retry, circuit breaker, budget controls |
+
+#### Consensus Mapping
+
+| GPT Vote | Opus Vote | Consensus | Action |
+|----------|-----------|-----------|--------|
+| approve | approve | APPROVE | Promote |
+| reject | reject | REJECT | Demote |
+| mixed | - | DISPUTED | Human review |
+
+### Configuration
+
+```yaml
+flatline_integration:
+  learning_extraction:
+    enabled: true
+    source_marker: true
+  validation:
+    max_per_cycle: 10
+    daily_budget: 50
+  semantic_similarity:
+    threshold: 0.85
+    model: text-embedding-3-small
+```
+
+### Related PRs
+
+- PR #156: Flatline-Enhanced Compound Learning v1.23.0
+
+---
+
+## [1.22.1] - 2026-02-03 — Constructs Skill Discovery Fix
+
+### Fixed
+
+#### Constructs Skill Symlinks (#153)
+
+Fixed skill symlink location so Claude Code can discover installed pack skills:
+
+**Before** (broken):
+```
+.claude/constructs/skills/observer/analyzing-gaps → ../../packs/observer/skills/analyzing-gaps
+```
+
+**After** (fixed):
+```
+.claude/skills/analyzing-gaps → ../constructs/packs/observer/skills/analyzing-gaps
+```
+
+- Skills now symlink directly to `.claude/skills/<skill>`
+- Added collision detection for existing framework skills
+- Uninstall correctly removes individual skill symlinks
+
+### Related PRs
+
+- PR #153: fix(constructs): symlink skills to .claude/skills/ for Claude Code discovery
+
+---
+
 ## [1.24.0] - 2026-02-03 — Simstim HITL Workflow
 
 ### Why This Release
@@ -235,7 +520,7 @@ autonomous_mode:
 
 ### Related PRs
 
-- PR #XXX: Autonomous Flatline Integration v1.22.0
+- PR #151: Autonomous Flatline Integration v1.22.0
 
 ---
 
