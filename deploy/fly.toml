@@ -1,0 +1,33 @@
+# deploy/fly.toml — Fly.io fallback deployment config (T-5.4)
+
+app = "loa-finn"
+primary_region = "iad"
+
+[build]
+  dockerfile = "deploy/Dockerfile"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[mounts]
+  source = "finn_data"
+  destination = "/data"
+
+[checks.health]
+  port = 3000
+  type = "http"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"
+  method = "GET"
+  path = "/health"

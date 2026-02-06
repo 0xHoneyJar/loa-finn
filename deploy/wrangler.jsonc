@@ -1,0 +1,42 @@
+// deploy/wrangler.jsonc — Cloudflare Workers container config (SDD §7.1, T-5.3)
+{
+  "$schema": "https://json.schemastore.org/wrangler",
+  "name": "loa-finn",
+  "main": "dist/index.js",
+  "compatibility_date": "2026-02-06",
+
+  // Container deployment (Workers Containers)
+  "containers": {
+    "instance_type": "standard-4",
+    "max_instances": 1
+  },
+
+  // R2 bucket for persistence tier 2
+  "r2_buckets": [
+    {
+      "binding": "FINN_DATA",
+      "bucket_name": "loa-finn-data"
+    }
+  ],
+
+  // Cron triggers for scheduled sync tasks
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"  // Health + R2 sync check every 5 minutes
+    ]
+  },
+
+  // Environment variables (non-secret)
+  "vars": {
+    "NODE_ENV": "production",
+    "PORT": "3000",
+    "HOST": "0.0.0.0",
+    "MODEL": "claude-opus-4-6",
+    "THINKING_LEVEL": "medium",
+    "DATA_DIR": "/data"
+  }
+
+  // Secrets configured via: wrangler secret put <KEY>
+  // Required: ANTHROPIC_API_KEY, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
+  //           R2_ENDPOINT, FINN_AUTH_TOKEN
+}

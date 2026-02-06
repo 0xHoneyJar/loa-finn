@@ -1,0 +1,100 @@
+# .github/workflows/finn-deploy.yml — loa-finn deploy pipeline (T-5.5)
+
+name: Finn Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "deploy/**"
+      - "package.json"
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/0xhoneyjar/loa-finn:latest
+            ghcr.io/0xhoneyjar/loa-finn:${{ github.sha }}
+
+      - name: Deploy to target
+        env:
+          DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET || 'fly' }}
+        run: |
+          if [ "$DEPLOY_TARGET" = "cf" ]; then
+            echo "Deploying to Cloudflare Workers..."
+            # npx wrangler deploy --config deploy/wrangler.jsonc
+            echo "CF deploy skipped — configure CLOUDFLARE_API_TOKEN secret"
+          else
+            echo "Deploying to Fly.io..."
+            # fly deploy --config deploy/fly.toml
+            echo "Fly deploy skipped — configure FLY_API_TOKEN secret"
+          fi
+
+  smoke-test:
+    name: Smoke Test
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: vars.DEPLOY_URL != ''
+    steps:
+      - name: Health check
+        run: |
+          DEPLOY_URL="${{ vars.DEPLOY_URL }}"
+          echo "Testing ${DEPLOY_URL}/health ..."
+
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${DEPLOY_URL}/health" 2>/dev/null || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed!"
+              curl -s "${DEPLOY_URL}/health" | jq .
+              exit 0
+            fi
+            echo "Attempt $i: status=$STATUS, retrying in 5s..."
+            sleep 5
+          done
+
+          echo "ERROR: Health check failed after 60s"
+          exit 1
+
+      - name: API smoke test
+        run: |
+          DEPLOY_URL="${{ vars.DEPLOY_URL }}"
+          AUTH_TOKEN="${{ secrets.FINN_AUTH_TOKEN }}"
+
+          # Create session
+          RESP=$(curl -s -X POST "${DEPLOY_URL}/api/sessions" \
+            -H "Authorization: Bearer ${AUTH_TOKEN}" \
+            -H "Content-Type: application/json")
+          echo "Create session: $RESP"
+
+          SESSION_ID=$(echo "$RESP" | jq -r '.sessionId')
+          if [ "$SESSION_ID" = "null" ] || [ -z "$SESSION_ID" ]; then
+            echo "ERROR: Failed to create session"
+            exit 1
+          fi
+
+          echo "Smoke test passed: session=$SESSION_ID"

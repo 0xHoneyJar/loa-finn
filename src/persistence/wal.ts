@@ -13,7 +13,9 @@ import {
 } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { ulid } from "ulid"
+import { monotonicFactory } from "ulid"
+
+const ulid = monotonicFactory()
 
 // WAL entry types matching SDD §3.3.1
 export type WALEntryType = "session" | "bead" | "memory" | "config"

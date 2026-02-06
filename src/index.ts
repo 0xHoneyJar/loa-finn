@@ -141,9 +141,54 @@ async function main() {
   })
 
   // 10. Start HTTP server
-  serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
+  const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
     console.log(`[finn] loa-finn ready on :${info.port}`)
   })
+
+  // 11. Graceful shutdown handler (T-5.8)
+  let shuttingDown = false
+  const gracefulShutdown = async (signal: string) => {
+    if (shuttingDown) return
+    shuttingDown = true
+    const start = Date.now()
+    console.log(`[finn] ${signal} received, shutting down gracefully...`)
+
+    // Stop scheduler (no new tasks)
+    scheduler.stop()
+
+    // Stop identity watcher
+    identity.stopWatching()
+
+    // Close HTTP server (stop accepting new connections)
+    server.close()
+
+    // Final R2 sync
+    try {
+      const syncResult = await r2Sync.sync()
+      console.log(`[finn] final sync: ${syncResult.filesUploaded} files`)
+    } catch (err) {
+      console.error("[finn] final sync failed:", err)
+    }
+
+    const duration = Date.now() - start
+    console.log(`[finn] shutdown complete in ${duration}ms`)
+    process.exit(0)
+  }
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"))
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"))
+
+  // Force exit after 30s
+  const forceExitTimer = () => {
+    setTimeout(() => {
+      if (shuttingDown) {
+        console.error("[finn] forced shutdown after 30s timeout")
+        process.exit(1)
+      }
+    }, 30_000).unref()
+  }
+  process.on("SIGTERM", forceExitTimer)
+  process.on("SIGINT", forceExitTimer)
 }
 
 main().catch((err) => {
