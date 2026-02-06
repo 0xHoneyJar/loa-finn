@@ -109,6 +109,14 @@ async function main() {
     rmSync(jailRoot, { recursive: true, force: true })
   })
 
+  await test("git with no subcommand is denied (F-4)", () => {
+    const { sandbox } = makeSandbox()
+    assert.throws(
+      () => sandbox.execute("git"),
+      (err: unknown) => err instanceof SandboxError && /Subcommand required/.test(err.message),
+    )
+  })
+
   await test("git push is denied", () => {
     const { sandbox } = makeSandbox()
     assert.throws(
@@ -306,6 +314,16 @@ async function main() {
     const redacted = redactor.redact(output)
     assert.ok(!redacted.includes("sk-ant-api-XXXXXXXXXXXXXXXXXXXXXXXXX"))
     assert.ok(redacted.includes("[REDACTED]"))
+  })
+
+  await test("pattern-matched secret preserves surrounding context (F-2)", () => {
+    const redactor = new SecretRedactor({})
+    const output = 'token: "abc123def456ghi789jkl012mnop"'
+    const redacted = redactor.redact(output)
+    // The "token: " prefix should be preserved, only the secret value replaced
+    assert.ok(redacted.includes("token:"), `Expected 'token:' prefix preserved, got: ${redacted}`)
+    assert.ok(redacted.includes("[REDACTED]"))
+    assert.ok(!redacted.includes("abc123def456ghi789jkl012mnop"))
   })
 
   await test("non-secret output is unchanged", () => {

@@ -1,15 +1,16 @@
 // src/agent/session.ts — createLoaSession() factory (SDD §3.1.1)
 
-import { createAgentSession, SessionManager, readTool, editTool, writeTool, createBashTool } from "@mariozechner/pi-coding-agent"
+import { createAgentSession, SessionManager, createReadTool, createEditTool, createWriteTool, createBashTool } from "@mariozechner/pi-coding-agent"
 import { getModel } from "@mariozechner/pi-ai"
 import type { AgentSession } from "@mariozechner/pi-coding-agent"
 import type { ThinkingLevel } from "@mariozechner/pi-ai"
 import { createLoaResourceLoader } from "./resource-loader.js"
 import { getCustomTools } from "./tools.js"
-import { ToolSandbox } from "./sandbox.js"
+import { ToolSandbox, SandboxError } from "./sandbox.js"
 import { AuditLog } from "./audit-log.js"
 import type { FinnConfig } from "../config.js"
 import { mkdirSync } from "node:fs"
+import { readFile, writeFile, access, mkdir } from "node:fs/promises"
 
 export interface LoaSessionOptions {
   config: FinnConfig
@@ -75,11 +76,58 @@ export async function createLoaSession(options: LoaSessionOptions): Promise<LoaS
     },
   })
 
+  // Create jail-wrapped file tools (F-1: file tools must validate paths against jail)
+  const jail = sandbox.getJail()
+  const cwd = process.cwd()
+
+  const jailedReadTool = createReadTool(cwd, {
+    operations: {
+      readFile: async (absolutePath: string) => {
+        jail.validatePath(absolutePath)
+        return readFile(absolutePath)
+      },
+      access: async (absolutePath: string) => {
+        jail.validatePath(absolutePath)
+        await access(absolutePath)
+      },
+    },
+  })
+
+  const jailedWriteTool = createWriteTool(cwd, {
+    operations: {
+      writeFile: async (absolutePath: string, content: string) => {
+        jail.validatePath(absolutePath)
+        await writeFile(absolutePath, content)
+      },
+      mkdir: async (dir: string) => {
+        jail.validatePath(dir)
+        await mkdir(dir, { recursive: true })
+      },
+    },
+  })
+
+  const jailedEditTool = createEditTool(cwd, {
+    operations: {
+      readFile: async (absolutePath: string) => {
+        jail.validatePath(absolutePath)
+        return readFile(absolutePath)
+      },
+      writeFile: async (absolutePath: string, content: string) => {
+        jail.validatePath(absolutePath)
+        await writeFile(absolutePath, content)
+      },
+      access: async (absolutePath: string) => {
+        jail.validatePath(absolutePath)
+        await access(absolutePath)
+      },
+    },
+  })
+
   // Create the Pi agent session
   const { session } = await createAgentSession({
     model,
     thinkingLevel: config.thinkingLevel,
-    tools: [readTool, sandboxedBashTool, editTool, writeTool],
+    tools: [jailedReadTool, sandboxedBashTool, jailedEditTool, jailedWriteTool],
     customTools: getCustomTools(),
     resourceLoader,
     sessionManager,

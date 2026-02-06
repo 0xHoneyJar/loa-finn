@@ -93,7 +93,9 @@ export class SecretRedactor {
     for (const pattern of this.secretPatterns) {
       // Reset lastIndex for global regexes
       pattern.lastIndex = 0
-      result = result.replace(pattern, "[REDACTED]")
+      result = result.replace(pattern, (match, group1) =>
+        group1 ? match.replace(group1, "[REDACTED]") : "[REDACTED]",
+      )
     }
 
     return result
@@ -262,7 +264,18 @@ export class ToolSandbox {
     }
 
     // 4. Subcommand validation
-    if (policy.subcommands.length > 0 && cmd.args.length > 0) {
+    if (policy.subcommands.length > 0) {
+      if (cmd.args.length === 0) {
+        const entry: AuditEntry = {
+          timestamp: new Date().toISOString(),
+          action: "deny",
+          command: cmd.binary,
+          args: cmd.args,
+          reason: "subcommand_required",
+        }
+        this.auditLog.append(entry)
+        throw new SandboxError(`Subcommand required for: ${cmd.binary}`)
+      }
       const subcommand = cmd.args[0]
       if (!policy.subcommands.includes(subcommand)) {
         const entry: AuditEntry = {
