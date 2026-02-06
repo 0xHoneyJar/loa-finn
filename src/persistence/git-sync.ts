@@ -1,12 +1,20 @@
 // src/persistence/git-sync.ts — Git archival sync (SDD §3.3.3, T-3.3)
+// Uses execFileSync (no shell) to prevent command injection from config values.
 
-import { execSync } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { ulid } from "ulid"
 import type { FinnConfig } from "../config.js"
 import type { WALManager } from "./upstream.js"
+
+/** Validate git ref name — reject shell metacharacters and path traversal. */
+function validateRef(name: string, label: string): void {
+  if (!name || /[;&|`$(){}!\s\\]/.test(name) || name.includes("..")) {
+    throw new Error(`Invalid git ${label}: "${name}" contains unsafe characters`)
+  }
+}
 
 export interface SnapshotResult {
   commitHash: string
@@ -30,6 +38,11 @@ export class GitSync {
     this.cwd = process.cwd()
     this.branch = config.git.archiveBranch
     this.remote = config.git.remote
+
+    // Validate config values at construction time
+    if (this.branch) validateRef(this.branch, "branch")
+    if (this.remote) validateRef(this.remote, "remote")
+
     if (config.git.token) {
       this.status = "ok"
     }
@@ -58,7 +71,7 @@ export class GitSync {
       this.ensureArchiveBranch()
 
       // Create temporary worktree on the archive branch
-      this.git(`worktree add "${worktreeDir}" ${this.branch}`)
+      this.git("worktree", "add", worktreeDir, this.branch)
 
       try {
         const filesToStage: string[] = []
@@ -80,13 +93,13 @@ export class GitSync {
 
         if (existsSync(join(this.cwd, "grimoires/loa"))) {
           copyDir(join(this.cwd, "grimoires/loa"), join(worktreeDir, "grimoires/loa"))
-          this.gitAt(worktreeDir, "add grimoires/loa/")
+          this.gitAt(worktreeDir, "add", "grimoires/loa/")
           filesToStage.push("grimoires/loa/")
         }
 
         if (existsSync(join(this.cwd, ".beads"))) {
           copyDir(join(this.cwd, ".beads"), join(worktreeDir, ".beads"))
-          this.gitAt(worktreeDir, "add .beads/")
+          this.gitAt(worktreeDir, "add", ".beads/")
           filesToStage.push(".beads/")
         }
 
@@ -98,14 +111,14 @@ export class GitSync {
           bootEpoch: ulid(),
         }
         writeFileSync(join(worktreeDir, "snapshot-manifest.json"), JSON.stringify(manifest, null, 2))
-        this.gitAt(worktreeDir, "add snapshot-manifest.json")
+        this.gitAt(worktreeDir, "add", "snapshot-manifest.json")
         filesToStage.push("snapshot-manifest.json")
 
         // Commit in the worktree
         const commitMsg = `chore(sync): auto-sync state [${snapshotId}]`
-        this.gitAt(worktreeDir, `commit -m "${commitMsg}" --allow-empty`)
+        this.gitAt(worktreeDir, "commit", "-m", commitMsg, "--allow-empty")
 
-        const commitHash = this.gitAt(worktreeDir, "rev-parse HEAD").trim()
+        const commitHash = this.gitAt(worktreeDir, "rev-parse", "HEAD").trim()
 
         return {
           commitHash,
@@ -116,7 +129,7 @@ export class GitSync {
       } finally {
         // Always clean up worktree
         try {
-          this.git(`worktree remove "${worktreeDir}" --force`)
+          this.git("worktree", "remove", worktreeDir, "--force")
         } catch {
           // Best-effort cleanup
         }
@@ -135,13 +148,14 @@ export class GitSync {
     try {
       // Check for divergence
       try {
-        this.git(`fetch ${this.remote} ${this.branch}`)
-        const localHead = this.git(`rev-parse ${this.branch}`).trim()
-        const remoteHead = this.git(`rev-parse ${this.remote}/${this.branch}`).trim()
+        this.git("fetch", this.remote, this.branch)
+        const localHead = this.git("rev-parse", this.branch).trim()
+        const remoteRef = `${this.remote}/${this.branch}`
+        const remoteHead = this.git("rev-parse", remoteRef).trim()
 
         if (localHead !== remoteHead) {
           // Check if local is ahead of remote (fast-forward possible)
-          const mergeBase = this.git(`merge-base ${this.branch} ${this.remote}/${this.branch}`).trim()
+          const mergeBase = this.git("merge-base", this.branch, remoteRef).trim()
           if (mergeBase !== remoteHead) {
             console.error("[git-sync] branches have diverged, halting git sync")
             this.status = "conflict"
@@ -152,7 +166,7 @@ export class GitSync {
         // Remote branch may not exist yet, which is fine
       }
 
-      this.git(`push ${this.remote} ${this.branch}`)
+      this.git("push", this.remote, this.branch)
       this.status = "ok"
       return true
     } catch (err) {
@@ -168,18 +182,19 @@ export class GitSync {
     if (!this.isConfigured) return undefined
 
     try {
-      this.git(`fetch ${this.remote} ${this.branch}`)
+      this.git("fetch", this.remote, this.branch)
+      const remoteRef = `${this.remote}/${this.branch}`
 
       // Read manifest directly from remote branch (no checkout)
       try {
-        const manifestJson = this.git(`show ${this.remote}/${this.branch}:snapshot-manifest.json`)
+        const manifestJson = this.git("show", `${remoteRef}:snapshot-manifest.json`)
         const manifest = JSON.parse(manifestJson)
-        const commitHash = this.git(`rev-parse ${this.remote}/${this.branch}`).trim()
+        const commitHash = this.git("rev-parse", remoteRef).trim()
 
         // Extract files from remote branch into working directory
         const restorePath = (remotePath: string, localPath: string) => {
           try {
-            const content = this.git(`show ${this.remote}/${this.branch}:${remotePath}`)
+            const content = this.git("show", `${remoteRef}:${remotePath}`)
             mkdirSync(join(localPath, ".."), { recursive: true })
             writeFileSync(localPath, content)
           } catch {
@@ -207,25 +222,25 @@ export class GitSync {
 
   private ensureArchiveBranch(): void {
     try {
-      this.git(`rev-parse --verify ${this.branch}`)
+      this.git("rev-parse", "--verify", this.branch)
     } catch {
       // Create orphan branch
-      this.git(`checkout --orphan ${this.branch}`)
-      this.git("rm -rf . 2>/dev/null || true")
-      this.git(`commit --allow-empty -m "chore: initialize archive branch"`)
+      this.git("checkout", "--orphan", this.branch)
+      try { this.git("rm", "-rf", ".") } catch { /* empty repo is fine */ }
+      this.git("commit", "--allow-empty", "-m", "chore: initialize archive branch")
     }
   }
 
-  private git(args: string): string {
-    return execSync(`git ${args}`, {
+  private git(...args: string[]): string {
+    return execFileSync("git", args, {
       cwd: this.cwd,
       encoding: "utf-8",
       timeout: 30_000,
     })
   }
 
-  private gitAt(cwd: string, args: string): string {
-    return execSync(`git ${args}`, {
+  private gitAt(cwd: string, ...args: string[]): string {
+    return execFileSync("git", args, {
       cwd,
       encoding: "utf-8",
       timeout: 30_000,
