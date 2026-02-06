@@ -31,6 +31,53 @@ You are a Loa agent — a persistent, self-healing AI assistant.
 - Learn from every interaction
 `
 
+/** Race a promise against a timeout. Returns null on timeout. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => {
+      setTimeout(() => {
+        console.warn(`[recovery] ${label} timed out after ${ms}ms`)
+        resolve(null)
+      }, ms)
+    }),
+  ])
+}
+
+// Per-source and overall recovery timeouts (DD-12, issue #15)
+const SOURCE_AVAILABLE_TIMEOUT = 5_000
+const SOURCE_RESTORE_TIMEOUT = 30_000
+const OVERALL_RECOVERY_DEADLINE = 120_000
+
+/**
+ * TimeoutSource — wraps an IRecoverySource with per-operation timeouts.
+ * Prevents a hung source from blocking the entire recovery cascade (issue #15).
+ */
+class TimeoutSource implements IRecoverySource {
+  readonly name: string
+
+  constructor(private inner: IRecoverySource) {
+    this.name = inner.name
+  }
+
+  async isAvailable(): Promise<boolean> {
+    const result = await withTimeout(
+      this.inner.isAvailable(),
+      SOURCE_AVAILABLE_TIMEOUT,
+      `${this.name}.isAvailable`,
+    )
+    return result ?? false
+  }
+
+  async restore(): Promise<Map<string, Buffer> | null> {
+    return withTimeout(
+      this.inner.restore(),
+      SOURCE_RESTORE_TIMEOUT,
+      `${this.name}.restore`,
+    )
+  }
+}
+
 /**
  * R2RecoverySource — adapts ObjectStoreSync.restore() to IRecoverySource.
  * When T-7.4 implements ICheckpointStorage, this can switch to MountRecoverySource.
@@ -153,18 +200,18 @@ export async function runRecovery(
     }
   }
 
-  // Build recovery sources
+  // Build recovery sources (wrapped with per-source timeouts, issue #15)
   const sources: IRecoverySource[] = []
 
   if (r2Sync.isConfigured) {
-    sources.push(new R2RecoverySource(r2Sync, config.dataDir))
+    sources.push(new TimeoutSource(new R2RecoverySource(r2Sync, config.dataDir)))
   }
 
   if (gitSync.isConfigured) {
-    sources.push(new GitRecoverySource(new FinnGitRestoreClient(gitSync)))
+    sources.push(new TimeoutSource(new GitRecoverySource(new FinnGitRestoreClient(gitSync))))
   }
 
-  // Template fallback (always available)
+  // Template fallback (always available, no timeout needed — pure in-memory)
   sources.push(new TemplateRecoverySource(buildTemplates(config)))
 
   // Run recovery engine
@@ -178,7 +225,30 @@ export async function runRecovery(
     },
   })
 
-  const result = await engine.run()
+  // Overall boot deadline (DD-12, issue #15)
+  const recoveryResult = await withTimeout(
+    engine.run(),
+    OVERALL_RECOVERY_DEADLINE,
+    "overall recovery",
+  )
+
+  // If overall timeout hit, fall through to template
+  if (!recoveryResult) {
+    console.error("[recovery] overall deadline exceeded, falling back to template")
+    const templateSource = new TemplateRecoverySource(buildTemplates(config))
+    const templateFiles = await templateSource.restore()
+    const filesRestored = templateFiles ? writeFiles(templateFiles) : 0
+    return {
+      source: "template",
+      mode: "clean" as RecoveryMode,
+      state: "DEGRADED" as RecoveryState,
+      filesRestored,
+      walEntriesReplayed: 0,
+      duration: Date.now() - start,
+    }
+  }
+
+  const result = recoveryResult
 
   // Write restored files to disk
   let filesRestored = 0
