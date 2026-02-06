@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { ulid } from "ulid"
 import type { FinnConfig } from "../config.js"
-import type { WAL } from "./wal.js"
+import type { WALManager } from "./upstream.js"
 
 export interface SnapshotResult {
   commitHash: string
@@ -25,7 +25,7 @@ export class GitSync {
 
   constructor(
     private config: FinnConfig,
-    private wal: WAL,
+    private wal: WALManager,
   ) {
     this.cwd = process.cwd()
     this.branch = config.git.archiveBranch
@@ -52,7 +52,7 @@ export class GitSync {
 
     try {
       const snapshotId = ulid()
-      const walCheckpoint = (await this.wal.getHeadEntryId()) ?? ""
+      const walCheckpoint = String(this.wal.getStatus().seq)
 
       // Ensure archive branch exists
       this.ensureArchiveBranch()

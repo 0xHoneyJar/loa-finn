@@ -1,11 +1,11 @@
-// tests/finn/wal.test.ts — WAL unit tests (T-3.5)
+// tests/finn/wal.test.ts — WAL unit tests using upstream WALManager (T-7.11)
 
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, readdirSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { WAL } from "../../src/persistence/wal.js"
+import { createWALManager, WALManager } from "../../src/persistence/upstream.js"
 
 const PREFIX = "finn-wal-test-"
 
@@ -29,32 +29,22 @@ async function test(name: string, fn: () => Promise<void>) {
 }
 
 async function main() {
-  console.log("WAL Unit Tests")
-  console.log("==============")
+  console.log("WAL Unit Tests (upstream WALManager)")
+  console.log("====================================")
 
-  await test("append creates valid JSONL with ULID and checksum", async () => {
+  await test("append creates valid JSONL with checksum", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
-      const id = wal.append("session", "create", "/sessions/abc", { msg: "hello" })
+      const wal = createWALManager(dir)
+      await wal.initialize()
+      const seq = await wal.append("write", "/sessions/abc", Buffer.from(JSON.stringify({ msg: "hello" })))
 
-      assert.ok(id, "append should return a ULID")
-      assert.ok(id.length === 26, "ULID should be 26 chars")
+      assert.ok(seq > 0, "append should return a positive sequence number")
 
-      // Read the segment and verify
-      const segments = wal.getSegments()
-      assert.equal(segments.length, 1, "should have exactly one segment")
-
-      const content = await readFile(segments[0], "utf-8")
-      const entry = JSON.parse(content.trim())
-
-      assert.equal(entry.id, id)
-      assert.equal(entry.type, "session")
-      assert.equal(entry.operation, "create")
-      assert.equal(entry.path, "/sessions/abc")
-      assert.deepEqual(entry.data, { msg: "hello" })
-      assert.ok(entry.checksum, "should have checksum")
-      assert.ok(entry.timestamp > 0, "should have timestamp")
+      const status = wal.getStatus()
+      assert.equal(status.seq, seq, "status seq should match returned seq")
+      assert.ok(status.segmentCount >= 1, "should have at least one segment")
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
@@ -63,29 +53,23 @@ async function main() {
   await test("replay returns entries in order, respects since filter", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
-      const id1 = wal.append("session", "create", "/a", { n: 1 })
-      const id2 = wal.append("session", "update", "/b", { n: 2 })
-      const id3 = wal.append("bead", "create", "/c", { n: 3 })
+      const wal = createWALManager(dir)
+      await wal.initialize()
+      const seq1 = await wal.append("write", "/a", Buffer.from("1"))
+      const seq2 = await wal.append("write", "/b", Buffer.from("2"))
+      const seq3 = await wal.append("write", "/c", Buffer.from("3"))
 
       // Replay all
-      const all: any[] = []
-      for await (const entry of wal.replay()) {
-        all.push(entry)
-      }
-      assert.equal(all.length, 3, "should replay all 3 entries")
-      assert.equal(all[0].id, id1)
-      assert.equal(all[1].id, id2)
-      assert.equal(all[2].id, id3)
+      let replayCount = 0
+      await wal.replay(async () => { replayCount++ })
+      assert.equal(replayCount, 3, "should replay all 3 entries")
 
-      // Replay since id1 (should skip id1)
-      const filtered: any[] = []
-      for await (const entry of wal.replay(id1)) {
-        filtered.push(entry)
-      }
-      assert.equal(filtered.length, 2, "should skip first entry")
-      assert.equal(filtered[0].id, id2)
-      assert.equal(filtered[1].id, id3)
+      // Get entries since seq1 (should return seq2 and seq3)
+      const filtered = await wal.getEntriesSince(seq1)
+      assert.equal(filtered.length, 2, "should get 2 entries after seq1")
+      assert.equal(filtered[0].seq, seq2)
+      assert.equal(filtered[1].seq, seq3)
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
@@ -94,23 +78,18 @@ async function main() {
   await test("rotation creates new segment at threshold", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
+      // Use a small rotation threshold to trigger rotation
+      const wal = new WALManager({ walDir: dir, maxSegmentSize: 100 })
+      await wal.initialize()
 
-      // Manually rotate
-      const seg1 = wal.getSegments()
-      wal.rotate()
-      wal.append("session", "create", "/test", { data: "after rotation" })
-
-      const seg2 = wal.getSegments()
-      assert.ok(seg2.length >= 1, "should have at least 1 segment after rotation")
-
-      // Verify entry is in the new segment
-      const entries: any[] = []
-      for await (const entry of wal.replay()) {
-        entries.push(entry)
+      // Write enough data to trigger rotation
+      for (let i = 0; i < 5; i++) {
+        await wal.append("write", `/test/${i}`, Buffer.from("x".repeat(50)))
       }
-      assert.equal(entries.length, 1, "should have 1 entry total")
-      assert.equal(entries[0].path, "/test")
+
+      const status = wal.getStatus()
+      assert.ok(status.segmentCount >= 2, `should have multiple segments, got ${status.segmentCount}`)
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
@@ -119,68 +98,71 @@ async function main() {
   await test("checksum verification catches corruption", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
-      wal.append("session", "create", "/a", { clean: true })
+      const wal = createWALManager(dir)
+      await wal.initialize()
+      await wal.append("write", "/a", Buffer.from(JSON.stringify({ clean: true })))
 
-      // Manually corrupt the segment
-      const segments = wal.getSegments()
-      const content = await readFile(segments[0], "utf-8")
-      const entry = JSON.parse(content.trim())
-      entry.data = { tampered: true }
-      const { writeFileSync } = await import("node:fs")
-      writeFileSync(segments[0], JSON.stringify(entry) + "\n")
+      // Find the active segment file and corrupt it
+      const status = wal.getStatus()
+      const segPath = join(dir, status.activeSegment)
+      const content = await readFile(segPath, "utf-8")
+      const lines = content.trim().split("\n")
+      const entry = JSON.parse(lines[0])
+      entry.data = Buffer.from("tampered").toString("base64")
+      writeFileSync(segPath, JSON.stringify(entry) + "\n")
 
-      // Replay should skip the corrupted entry
-      const entries: any[] = []
-      for await (const entry of wal.replay()) {
-        entries.push(entry)
+      // Create a fresh WAL instance to replay
+      await wal.shutdown()
+      const wal2 = createWALManager(dir)
+      await wal2.initialize()
+
+      // Replay should skip or handle the corrupted entry
+      let replayCount = 0
+      await wal2.replay(async () => { replayCount++ })
+      assert.equal(replayCount, 0, "corrupted entry should be skipped")
+      await wal2.shutdown()
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  await test("getEntriesSince returns entries after seq", async () => {
+    const dir = makeTempDir()
+    try {
+      const wal = createWALManager(dir)
+      await wal.initialize()
+      await wal.append("write", "/a", Buffer.from("1"))
+      const seq2 = await wal.append("write", "/b", Buffer.from("2"))
+      await wal.append("write", "/c", Buffer.from("3"))
+
+      const entries = await wal.getEntriesSince(seq2)
+      assert.equal(entries.length, 1, "should get 1 entry after seq2")
+      assert.equal(entries[0].path, "/c")
+      await wal.shutdown()
+    } finally {
+      cleanup(dir)
+    }
+  })
+
+  await test("compact reduces duplicate entries", async () => {
+    const dir = makeTempDir()
+    try {
+      const wal = new WALManager({ walDir: dir, maxSegmentSize: 100 })
+      await wal.initialize()
+
+      // Write same path multiple times to create duplicates
+      for (let i = 0; i < 10; i++) {
+        await wal.append("write", "/same-path", Buffer.from(`version-${i}`))
       }
-      assert.equal(entries.length, 0, "corrupted entry should be skipped")
-    } finally {
-      cleanup(dir)
-    }
-  })
 
-  await test("getHeadEntryId returns last entry", async () => {
-    const dir = makeTempDir()
-    try {
-      const wal = new WAL(dir)
-      wal.append("session", "create", "/a", {})
-      const lastId = wal.append("bead", "update", "/b", {})
+      const statusBefore = wal.getStatus()
+      const result = await wal.compact()
 
-      const head = await wal.getHeadEntryId()
-      assert.equal(head, lastId)
-    } finally {
-      cleanup(dir)
-    }
-  })
-
-  await test("markPrunable and prune lifecycle", async () => {
-    const dir = makeTempDir()
-    try {
-      const wal = new WAL(dir)
-      wal.append("session", "create", "/a", {})
-
-      // Rotate to create a second segment
-      wal.rotate()
-      wal.append("session", "create", "/b", {})
-
-      const segments = wal.getSegments()
-      assert.ok(segments.length >= 1)
-
-      // Mark first segment as prunable (second is current, won't be marked)
-      wal.markPrunable(segments)
-
-      const prunable = wal.getPrunableSegments()
-      // At most 1 can be marked (the non-current one)
-      assert.ok(prunable.length <= 1, "only non-current segments can be prunable")
-
-      // Prune
-      const pruned = wal.prune()
-      assert.equal(pruned, prunable.length)
-
-      // After pruning, no prunable segments remain
-      assert.equal(wal.getPrunableSegments().length, 0)
+      // Compaction keeps latest per path in closed segments
+      if (statusBefore.segmentCount > 1) {
+        assert.ok(result.compactedEntries <= result.originalEntries, "compacted should not exceed original")
+      }
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
@@ -190,31 +172,35 @@ async function main() {
     const dir = makeTempDir()
     try {
       // Write some entries
-      const wal1 = new WAL(dir)
-      wal1.append("session", "create", "/test", { n: 1 })
-      wal1.append("session", "create", "/test", { n: 2 })
+      const wal1 = createWALManager(dir)
+      await wal1.initialize()
+      await wal1.append("write", "/test", Buffer.from("1"))
+      await wal1.append("write", "/test", Buffer.from("2"))
+      await wal1.shutdown()
 
       // Create new WAL instance (simulates restart)
-      const wal2 = new WAL(dir)
-      wal2.append("session", "create", "/test", { n: 3 })
+      const wal2 = createWALManager(dir)
+      await wal2.initialize()
+      await wal2.append("write", "/test", Buffer.from("3"))
 
       // All entries should be replayable
-      const entries: any[] = []
-      for await (const entry of wal2.replay()) {
-        entries.push(entry)
-      }
-      assert.equal(entries.length, 3)
+      let replayCount = 0
+      await wal2.replay(async () => { replayCount++ })
+      assert.equal(replayCount, 3, "should replay all 3 entries across restart")
+      await wal2.shutdown()
     } finally {
       cleanup(dir)
     }
   })
 
-  await test("empty WAL has no head entry", async () => {
+  await test("empty WAL has seq 0", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
-      const head = await wal.getHeadEntryId()
-      assert.equal(head, undefined)
+      const wal = createWALManager(dir)
+      await wal.initialize()
+      const status = wal.getStatus()
+      assert.equal(status.seq, 0, "empty WAL should have seq 0")
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }

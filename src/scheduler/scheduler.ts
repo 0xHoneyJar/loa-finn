@@ -1,6 +1,6 @@
 // src/scheduler/scheduler.ts — Configurable periodic task execution (SDD §3.4.1, T-4.1)
 
-import { CircuitBreaker, type CircuitBreakerConfig } from "./circuit-breaker.js"
+import { CircuitBreaker, type CircuitBreakerState } from "../persistence/upstream.js"
 
 export interface ScheduledTaskDef {
   id: string
@@ -8,7 +8,7 @@ export interface ScheduledTaskDef {
   intervalMs: number
   jitterMs: number
   handler: () => Promise<void>
-  circuitBreakerConfig?: CircuitBreakerConfig
+  circuitBreakerConfig?: { maxFailures?: number; resetTimeMs?: number }
 }
 
 interface RunningTask {
@@ -26,7 +26,7 @@ export interface TaskStatus {
   state: "running" | "waiting" | "error"
   lastRun: number | undefined
   lastError: string | undefined
-  circuitBreakerState: string
+  circuitBreakerState: CircuitBreakerState
   circuitBreakerFailures: number
 }
 
@@ -41,10 +41,19 @@ export class Scheduler {
   }
 
   register(def: ScheduledTaskDef): void {
-    const cb = new CircuitBreaker(def.id, def.circuitBreakerConfig)
-    if (this.onCircuitChange) {
-      cb.onTransition(this.onCircuitChange)
-    }
+    const taskId = def.id
+    const cb = new CircuitBreaker(
+      {
+        maxFailures: def.circuitBreakerConfig?.maxFailures ?? 3,
+        resetTimeMs: def.circuitBreakerConfig?.resetTimeMs ?? 300_000,
+        halfOpenRetries: 1,
+      },
+      {
+        onStateChange: this.onCircuitChange
+          ? (from, to) => this.onCircuitChange!(taskId, from, to)
+          : undefined,
+      },
+    )
 
     this.tasks.set(def.id, {
       def,
@@ -77,10 +86,10 @@ export class Scheduler {
 
   getStatus(): TaskStatus[] {
     return Array.from(this.tasks.values()).map((t) => {
-      const stats = t.circuitBreaker.getStats()
+      const cbState = t.circuitBreaker.getState()
       let state: "running" | "waiting" | "error" = "waiting"
       if (t.running) state = "running"
-      else if (t.lastError && stats.state === "open") state = "error"
+      else if (t.lastError && cbState === "OPEN") state = "error"
 
       return {
         id: t.def.id,
@@ -88,8 +97,8 @@ export class Scheduler {
         state,
         lastRun: t.lastRun,
         lastError: t.lastError,
-        circuitBreakerState: stats.state,
-        circuitBreakerFailures: stats.failureCount,
+        circuitBreakerState: cbState,
+        circuitBreakerFailures: t.circuitBreaker.getFailureCount(),
       }
     })
   }

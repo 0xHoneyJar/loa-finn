@@ -1,7 +1,7 @@
 // src/persistence/r2-sync.ts — Incremental sync to Cloudflare R2 (SDD §3.3.2, T-3.2)
 
 import { createHash } from "node:crypto"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import {
@@ -13,7 +13,7 @@ import {
 } from "@aws-sdk/client-s3"
 import { ulid } from "ulid"
 import type { FinnConfig } from "../config.js"
-import type { WAL } from "./wal.js"
+import type { WALManager } from "./upstream.js"
 
 export interface SyncResult {
   filesUploaded: number
@@ -26,6 +26,7 @@ export interface R2Checkpoint {
   timestamp: number
   walSegments: string[]       // WAL segment keys in R2
   walHeadEntryId: string      // Last WAL entry ID in checkpoint
+  walHeadSeq: number          // Last WAL seq in checkpoint (upstream)
   objects: Array<{
     key: string
     sha256: string
@@ -43,7 +44,7 @@ export class ObjectStoreSync {
 
   constructor(
     private config: FinnConfig,
-    private wal: WAL,
+    private wal: WALManager,
   ) {
     this.bucket = config.r2.bucket
     this.dataDir = config.dataDir
@@ -64,7 +65,7 @@ export class ObjectStoreSync {
     return !!(this.config.r2.endpoint && this.config.r2.accessKeyId && this.config.r2.secretAccessKey)
   }
 
-  /** Incremental sync: upload new WAL segments and update checkpoint. */
+  /** Incremental sync: upload WAL entries since last checkpoint and update manifest. */
   async sync(): Promise<SyncResult> {
     const start = Date.now()
     let filesUploaded = 0
@@ -75,63 +76,64 @@ export class ObjectStoreSync {
     }
 
     try {
-      // Phase 1: Upload WAL segments not yet in checkpoint
-      const segments = this.wal.getSegments()
-      const alreadySynced = new Set(this.lastCheckpoint?.walSegments ?? [])
+      const walStatus = this.wal.getStatus()
+      const lastSeq = this.lastCheckpoint?.walHeadSeq ?? 0
 
-      for (const segPath of segments) {
-        const key = `wal/${segPath.split("/").pop()}`
-        if (alreadySynced.has(key)) continue
-
-        const content = readFileSync(segPath)
-        const sha256 = createHash("sha256").update(content).digest("hex")
-
-        await this.client.send(new PutObjectCommand({
-          Bucket: this.bucket,
-          Key: key,
-          Body: content,
-          ContentType: "application/x-ndjson",
-          Metadata: { sha256 },
-        }))
-
-        filesUploaded++
-        bytesUploaded += content.length
+      if (walStatus.seq <= lastSeq) {
+        return { filesUploaded: 0, bytesUploaded: 0, duration: Date.now() - start }
       }
 
-      // Phase 2: Upload checkpoint only after all objects confirmed
-      const walHead = await this.wal.getHeadEntryId()
-      if (!walHead) {
-        return { filesUploaded, bytesUploaded, duration: Date.now() - start }
+      // Get entries since last checkpoint
+      const entries = await this.wal.getEntriesSince(lastSeq)
+      if (entries.length === 0) {
+        return { filesUploaded: 0, bytesUploaded: 0, duration: Date.now() - start }
       }
 
+      // Upload entries as a single JSONL batch
+      const batchKey = `wal/batch-${walStatus.seq}.jsonl`
+      const content = entries.map(e => JSON.stringify(e)).join("\n") + "\n"
+      const contentBuf = Buffer.from(content)
+      const sha256 = createHash("sha256").update(contentBuf).digest("hex")
+
+      await this.client.send(new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: batchKey,
+        Body: contentBuf,
+        ContentType: "application/x-ndjson",
+        Metadata: { sha256 },
+      }))
+
+      filesUploaded++
+      bytesUploaded += contentBuf.length
+
+      // Build and upload checkpoint
+      const allSegments = [...(this.lastCheckpoint?.walSegments ?? []), batchKey]
       const checkpoint: R2Checkpoint = {
         checkpointId: ulid(),
         timestamp: Date.now(),
-        walSegments: segments.map((s) => `wal/${s.split("/").pop()}`),
-        walHeadEntryId: walHead,
-        objects: [], // Populated below
+        walSegments: allSegments,
+        walHeadEntryId: entries[entries.length - 1].id,
+        walHeadSeq: walStatus.seq,
+        objects: [],
         bootEpoch: this.bootEpoch,
       }
 
-      // Verify all referenced objects exist via HeadObject
-      for (const segKey of checkpoint.walSegments) {
-        try {
-          const head = await this.client.send(new HeadObjectCommand({
-            Bucket: this.bucket,
-            Key: segKey,
-          }))
-          checkpoint.objects.push({
-            key: segKey,
-            sha256: head.Metadata?.sha256 ?? "",
-            size: head.ContentLength ?? 0,
-          })
-        } catch {
-          console.error(`[r2-sync] object verification failed for ${segKey}, aborting checkpoint`)
-          return { filesUploaded, bytesUploaded, duration: Date.now() - start }
-        }
+      // Verify the just-uploaded object
+      try {
+        const head = await this.client.send(new HeadObjectCommand({
+          Bucket: this.bucket,
+          Key: batchKey,
+        }))
+        checkpoint.objects.push({
+          key: batchKey,
+          sha256: head.Metadata?.sha256 ?? "",
+          size: head.ContentLength ?? 0,
+        })
+      } catch {
+        console.error(`[r2-sync] object verification failed for ${batchKey}, aborting checkpoint`)
+        return { filesUploaded, bytesUploaded, duration: Date.now() - start }
       }
 
-      // Write checkpoint
       await this.client.send(new PutObjectCommand({
         Bucket: this.bucket,
         Key: "checkpoint.json",

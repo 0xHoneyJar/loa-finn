@@ -1,7 +1,11 @@
-// src/beads/bridge.ts — Interface to beads_rust CLI (SDD §3.5, T-4.7)
+// src/beads/bridge.ts — Interface to beads_rust CLI (SDD §3.5, T-4.7, T-7.8)
+// Uses upstream BeadsWALAdapter for WAL-backed bead transition logging.
 
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
+import type { WALManager } from "../persistence/upstream.js"
+import { BeadsWALAdapter } from "../persistence/upstream.js"
+import type { BeadOperation, IBeadsWAL } from "../persistence/upstream.js"
 
 const execFileAsync = promisify(execFile)
 
@@ -41,9 +45,15 @@ export class BeadsBridge {
   private available = false
   private version: string | undefined
   private healthStatus: BeadsHealth["status"] = "unavailable"
+  private walAdapter: BeadsWALAdapter | undefined
 
   /** Boot-time check: is br available and compatible? */
-  async init(): Promise<void> {
+  async init(wal?: WALManager): Promise<void> {
+    // Initialize WAL adapter if WAL is provided
+    if (wal) {
+      this.walAdapter = new BeadsWALAdapter(wal as unknown as IBeadsWAL, { pathPrefix: ".beads/wal" })
+    }
+
     try {
       const { stdout } = await execFileAsync("br", ["--version"], { timeout: BR_TIMEOUT_MS })
       const match = stdout.trim().match(/(\d+\.\d+\.\d+)/)
@@ -89,7 +99,18 @@ export class BeadsBridge {
       const { stdout } = await this.exec(args)
       // Parse bead ID from output
       const match = stdout.match(/bd-[a-z0-9]+/)
-      return match?.[0]
+      const beadId = match?.[0]
+
+      // Log to WAL
+      if (beadId && this.walAdapter) {
+        await this.walAdapter.recordTransition({
+          operation: "create",
+          beadId,
+          payload: { title, labels },
+        })
+      }
+
+      return beadId
     } catch (err) {
       console.error("[beads] create failed:", err)
       return undefined
@@ -112,6 +133,16 @@ export class BeadsBridge {
         }
       }
       await this.exec(args)
+
+      // Log to WAL
+      if (this.walAdapter) {
+        const op: BeadOperation = updates.status === "closed" ? "close" : "update"
+        await this.walAdapter.recordTransition({
+          operation: op,
+          beadId: id,
+          payload: updates as Record<string, unknown>,
+        })
+      }
     } catch (err) {
       console.error("[beads] update failed:", err)
     }
@@ -128,6 +159,11 @@ export class BeadsBridge {
     } catch {
       return []
     }
+  }
+
+  /** Get the WAL adapter for replaying bead transitions. */
+  getWALAdapter(): BeadsWALAdapter | undefined {
+    return this.walAdapter
   }
 
   private async exec(args: string[]): Promise<{ stdout: string; stderr: string }> {

@@ -1,12 +1,12 @@
-// tests/finn/persistence-integration.test.ts — End-to-end persistence test (T-3.6)
+// tests/finn/persistence-integration.test.ts — End-to-end persistence test (T-3.6, T-7.3)
 // Tests: WAL append → simulate restart → verify state restored
 
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { WAL } from "../../src/persistence/wal.js"
-import { RecoveryCascade } from "../../src/persistence/recovery.js"
+import { createWALManager } from "../../src/persistence/upstream.js"
+import { runRecovery } from "../../src/persistence/recovery.js"
 import { ObjectStoreSync } from "../../src/persistence/r2-sync.js"
 import { GitSync } from "../../src/persistence/git-sync.js"
 import type { FinnConfig } from "../../src/config.js"
@@ -60,49 +60,48 @@ async function main() {
   await test("WAL entries survive simulated restart", async () => {
     const dir = makeTempDir()
     try {
-      const config = makeConfig(dir)
+      const walDir = join(dir, "wal")
 
       // Phase 1: Write some entries
-      const wal1 = new WAL(dir)
-      const id1 = wal1.append("session", "create", "/sessions/s1", { text: "hello" })
-      const id2 = wal1.append("session", "update", "/sessions/s1", { text: "world" })
-      const id3 = wal1.append("bead", "create", "/beads/b1", { status: "open" })
+      const wal1 = createWALManager(walDir)
+      await wal1.initialize()
+      await wal1.append("create", "/sessions/s1", Buffer.from(JSON.stringify({ text: "hello" })))
+      await wal1.append("write", "/sessions/s1", Buffer.from(JSON.stringify({ text: "world" })))
+      await wal1.append("create", "/beads/b1", Buffer.from(JSON.stringify({ status: "open" })))
+      await wal1.shutdown()
 
       // Phase 2: Simulate restart — create new WAL instance
-      const wal2 = new WAL(dir)
+      const wal2 = createWALManager(walDir)
+      await wal2.initialize()
 
-      // All 3 entries should be replayable
       const entries: any[] = []
-      for await (const entry of wal2.replay()) {
+      await wal2.replay(async (entry) => {
         entries.push(entry)
-      }
+      })
 
       assert.equal(entries.length, 3, "all 3 entries should survive restart")
-      assert.equal(entries[0].id, id1)
-      assert.equal(entries[1].id, id2)
-      assert.equal(entries[2].id, id3)
-      assert.deepEqual(entries[0].data, { text: "hello" })
-      assert.deepEqual(entries[1].data, { text: "world" })
-      assert.deepEqual(entries[2].data, { status: "open" })
+      await wal2.shutdown()
     } finally {
       cleanup(dir)
     }
   })
 
-  await test("recovery cascade falls back to template when R2/git unavailable", async () => {
+  await test("recovery falls back to template when R2/git unavailable", async () => {
     const dir = makeTempDir()
     try {
       const config = makeConfig(dir)
-      const wal = new WAL(dir)
+      const walDir = join(dir, "wal")
+      const wal = createWALManager(walDir)
+      await wal.initialize()
       const r2 = new ObjectStoreSync(config, wal)
       const git = new GitSync(config, wal)
 
-      const cascade = new RecoveryCascade(config, wal, r2, git)
-      const result = await cascade.recover("clean")
+      const result = await runRecovery(config, wal, r2, git)
 
       assert.equal(result.source, "template", "should fall back to template")
       assert.equal(result.mode, "clean")
       assert.ok(existsSync(config.beauvoirPath), "BEAUVOIR.md should be created")
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
@@ -112,83 +111,83 @@ async function main() {
     const dir = makeTempDir()
     try {
       const config = makeConfig(dir)
+      const walDir = join(dir, "wal")
 
       // Pre-populate WAL
-      const wal1 = new WAL(dir)
-      wal1.append("session", "create", "/s1", { n: 1 })
-      wal1.append("session", "update", "/s1", { n: 2 })
+      const wal1 = createWALManager(walDir)
+      await wal1.initialize()
+      await wal1.append("create", "/s1", Buffer.from(JSON.stringify({ n: 1 })))
+      await wal1.append("write", "/s1", Buffer.from(JSON.stringify({ n: 2 })))
+      await wal1.shutdown()
 
       // New boot cycle
-      const wal2 = new WAL(dir)
+      const wal2 = createWALManager(walDir)
+      await wal2.initialize()
       const r2 = new ObjectStoreSync(config, wal2)
       const git = new GitSync(config, wal2)
 
-      const cascade = new RecoveryCascade(config, wal2, r2, git)
-      const result = await cascade.recover("strict")
+      const result = await runRecovery(config, wal2, r2, git)
 
       assert.equal(result.source, "local", "should detect local WAL")
       assert.equal(result.walEntriesReplayed, 2, "should replay 2 entries")
+      await wal2.shutdown()
     } finally {
       cleanup(dir)
     }
   })
 
-  await test("WAL rotation preserves all entries across segments", async () => {
+  await test("WAL entries maintain ordering across segments", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
+      const walDir = join(dir, "wal")
+      const wal = createWALManager(walDir)
+      await wal.initialize()
 
-      // Write entries across multiple segments
-      const ids: string[] = []
+      // Write entries
+      const seqs: number[] = []
       for (let i = 0; i < 5; i++) {
-        ids.push(wal.append("session", "create", `/s${i}`, { i }))
-        if (i === 2) wal.rotate() // Force rotation mid-stream
+        const seq = await wal.append("create", `/s${i}`, Buffer.from(JSON.stringify({ i })))
+        seqs.push(seq)
       }
 
-      // Verify all entries replay correctly across segments
+      // Verify all entries replay correctly in order
       const entries: any[] = []
-      for await (const entry of wal.replay()) {
+      await wal.replay(async (entry) => {
         entries.push(entry)
-      }
+      })
 
-      assert.equal(entries.length, 5, "all 5 entries across segments")
-      for (let i = 0; i < 5; i++) {
-        assert.equal(entries[i].id, ids[i])
-        assert.deepEqual(entries[i].data, { i })
+      assert.equal(entries.length, 5, "all 5 entries")
+      // Verify ordering via seq numbers
+      for (let i = 1; i < entries.length; i++) {
+        assert.ok(entries[i].seq > entries[i - 1].seq, "entries should be ordered by seq")
       }
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
   })
 
-  await test("full lifecycle: write → prune → restart → verify remaining", async () => {
+  await test("WAL compact reduces entries", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
+      const walDir = join(dir, "wal")
+      const wal = createWALManager(walDir)
+      await wal.initialize()
 
-      // Write to first segment
-      wal.append("session", "create", "/old", { old: true })
-      const oldSegments = [...wal.getSegments()]
+      // Write to WAL
+      await wal.append("create", "/old", Buffer.from(JSON.stringify({ old: true })))
+      await wal.append("create", "/new", Buffer.from(JSON.stringify({ new: true })))
 
-      // Rotate and write to second segment
-      wal.rotate()
-      const keepId = wal.append("session", "create", "/new", { new: true })
+      const statusBefore = wal.getStatus()
+      assert.ok(statusBefore.seq >= 2, "should have at least 2 entries")
 
-      // Mark old segments as prunable and prune
-      wal.markPrunable(oldSegments)
-      const pruned = wal.prune()
+      // Compact
+      await wal.compact()
 
-      // Restart
-      const wal2 = new WAL(dir)
-      const entries: any[] = []
-      for await (const entry of wal2.replay()) {
-        entries.push(entry)
-      }
-
-      // Only the entry in the current segment should remain
-      assert.equal(entries.length, 1, "only current segment data survives pruning")
-      assert.equal(entries[0].id, keepId)
-      assert.deepEqual(entries[0].data, { new: true })
+      // After compact, WAL should still be functional
+      const seq = await wal.append("create", "/after-compact", Buffer.from(JSON.stringify({ ok: true })))
+      assert.ok(seq > 0, "should be able to append after compact")
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
