@@ -1,5 +1,7 @@
 // src/gateway/server.ts — Hono HTTP server with routes (SDD §3.2.1, T-2.1)
 
+import { readFile } from "node:fs/promises"
+import { resolve } from "node:path"
 import { Hono } from "hono"
 import type { FinnConfig } from "../config.js"
 import { SessionRouter } from "./sessions.js"
@@ -17,6 +19,16 @@ export function createApp(config: FinnConfig, options?: AppOptions) {
 
   // Global middleware
   app.use("*", corsMiddleware(config))
+
+  // Serve WebChat UI
+  app.get("/", async (c) => {
+    try {
+      const html = await readFile(resolve("public/index.html"), "utf-8")
+      return c.html(html)
+    } catch {
+      return c.text("WebChat UI not found. Place index.html in public/.", 404)
+    }
+  })
 
   // Health endpoint (no auth required)
   app.get("/health", (c) => {

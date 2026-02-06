@@ -23,10 +23,12 @@
     "@mariozechner/pi-coding-agent": "~0.52.6",
     "@sinclair/typebox": "^0.34.48",
     "hono": "^4.0.0",
-    "ulid": "^2.0.0"
+    "ulid": "^2.0.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0"
   },

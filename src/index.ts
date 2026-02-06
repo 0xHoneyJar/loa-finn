@@ -9,11 +9,14 @@ import { GitSync } from "./persistence/git-sync.js"
 import { RecoveryCascade } from "./persistence/recovery.js"
 import { WALPruner } from "./persistence/pruner.js"
 import { createApp } from "./gateway/server.js"
+import { handleWebSocket } from "./gateway/ws.js"
+import { validateWsToken } from "./gateway/auth.js"
 import { Scheduler } from "./scheduler/scheduler.js"
 import { HealthAggregator } from "./scheduler/health.js"
 import { BeadsBridge } from "./beads/bridge.js"
 import { CompoundLearning } from "./learning/compound.js"
 import { serve } from "@hono/node-server"
+import { WebSocketServer } from "ws"
 
 async function main() {
   const bootStart = Date.now()
@@ -147,7 +150,43 @@ async function main() {
   const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
     const health = healthAggregator.check()
     console.log(`[finn] loa-finn ready on :${info.port} (boot: ${bootDuration}ms, status: ${health.status})`)
+    console.log(`[finn] webchat: http://${config.host === "0.0.0.0" ? "localhost" : config.host}:${info.port}/`)
   })
+
+  // 10b. WebSocket upgrade handler
+  const wss = new WebSocketServer({ noServer: true })
+  server.on("upgrade", (request, socket, head) => {
+    const url = new URL(request.url ?? "/", `http://${request.headers.host}`)
+    const match = url.pathname.match(/^\/ws\/(.+)$/)
+    if (!match) {
+      socket.destroy()
+      return
+    }
+
+    const sessionId = match[1]
+    const token = url.searchParams.get("token") ?? undefined
+
+    // Validate auth if configured
+    if (!validateWsToken(token, config)) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n")
+      socket.destroy()
+      return
+    }
+
+    const clientIp = request.headers["cf-connecting-ip"] as string
+      ?? (request.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim()
+      ?? request.socket.remoteAddress
+      ?? "unknown"
+
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      handleWebSocket(ws, sessionId, clientIp, {
+        config,
+        getSession: (id) => router.get(id),
+        resumeSession: (id) => router.resume(id),
+      })
+    })
+  })
+  console.log(`[finn] websocket handler attached`)
 
   // 11. Graceful shutdown handler (T-5.8)
   let shuttingDown = false

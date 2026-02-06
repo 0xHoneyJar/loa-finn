@@ -1,5 +1,6 @@
 // src/gateway/ws.ts — WebSocket handler with Pi event bridging (SDD §3.2.2, T-2.4)
 
+import { WebSocket as WsWebSocket } from "ws"
 import type { AgentSession, AgentSessionEvent } from "@mariozechner/pi-coding-agent"
 import type { FinnConfig } from "../config.js"
 import { validateWsToken } from "./auth.js"
@@ -31,7 +32,7 @@ export interface WsHandlerOptions {
 }
 
 export function handleWebSocket(
-  ws: WebSocket,
+  ws: WsWebSocket,
   sessionId: string,
   clientIp: string,
   options: WsHandlerOptions,
@@ -52,7 +53,7 @@ export function handleWebSocket(
   let authenticated = false
 
   function send(msg: WsOutMessage): void {
-    if (ws.readyState === WebSocket.OPEN) {
+    if (ws.readyState === WsWebSocket.OPEN) {
       ws.send(JSON.stringify(msg))
     }
   }
