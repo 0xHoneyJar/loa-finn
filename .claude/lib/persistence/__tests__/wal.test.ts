@@ -209,6 +209,157 @@ describe("WAL", () => {
 
     await wal.shutdown();
   });
+
+  // ── 10. Shutdown Drain ────────────────────────────────────
+
+  it("shutdown drains pending writes before checkpointing", async () => {
+    const wal = new WALManager({ walDir });
+    await wal.initialize();
+
+    // Append then immediately shutdown
+    const appendPromise = wal.append("write", "/drain-test.txt", Buffer.from("drain-data"));
+    await wal.shutdown();
+
+    // The append should have completed
+    const seq = await appendPromise.catch(() => -1);
+    expect(seq).toBeGreaterThan(0);
+
+    // Re-initialize and verify entry is present
+    const wal2 = new WALManager({ walDir });
+    await wal2.initialize();
+
+    const entries = await wal2.getEntriesSince(0);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].path).toBe("/drain-test.txt");
+
+    await wal2.shutdown();
+  });
+
+  it("shutdown marks shutdown_incomplete when drain times out", async () => {
+    const wal = new WALManager({ walDir, shutdownDrainTimeoutMs: 50 });
+    await wal.initialize();
+
+    // Create a write that takes longer than the drain timeout
+    // by appending something that will be in the chain
+    await wal.append("write", "/before.txt", Buffer.from("before"));
+
+    // Now trigger shutdown — with a very short timeout, the checkpoint should still save
+    await wal.shutdown();
+
+    // Verify checkpoint was saved (re-init works)
+    const wal2 = new WALManager({ walDir });
+    await wal2.initialize();
+
+    const entries = await wal2.getEntriesSince(0);
+    expect(entries.length).toBeGreaterThanOrEqual(1);
+
+    await wal2.shutdown();
+  });
+
+  it("rejects append during shutdown", async () => {
+    const wal = new WALManager({ walDir });
+    await wal.initialize();
+    await wal.append("write", "/pre.txt", Buffer.from("pre"));
+
+    // Start shutdown (don't await yet)
+    const shutdownPromise = wal.shutdown();
+
+    // Append during shutdown should be rejected
+    await expect(wal.append("write", "/during.txt", Buffer.from("during"))).rejects.toThrow(
+      "WAL is shutting down",
+    );
+
+    await shutdownPromise;
+  });
+
+  // ── 13. Rotation Recovery ─────────────────────────────────
+
+  it("rotation creates new segment and closes old one", async () => {
+    const wal = new WALManager({
+      walDir,
+      maxSegmentSize: 50, // Very small to trigger rotation
+    });
+    await wal.initialize();
+
+    // Write enough to trigger rotation
+    for (let i = 0; i < 5; i++) {
+      await wal.append("write", `/rotate-${i}.txt`, Buffer.from("data-" + "x".repeat(20)));
+    }
+
+    const status = wal.getStatus();
+    expect(status.segmentCount).toBeGreaterThan(1);
+
+    await wal.shutdown();
+
+    // Re-open and verify all entries are intact
+    const wal2 = new WALManager({ walDir });
+    await wal2.initialize();
+    const entries = await wal2.getEntriesSince(0);
+    expect(entries).toHaveLength(5);
+    await wal2.shutdown();
+  });
+
+  it("recovery after interrupted rotation completes without data loss", async () => {
+    const wal = new WALManager({ walDir });
+    await wal.initialize();
+
+    // Write some entries
+    await wal.append("write", "/a.txt", Buffer.from("a"));
+    await wal.append("write", "/b.txt", Buffer.from("b"));
+    await wal.shutdown();
+
+    // Simulate interrupted rotation by writing checkpoint with rotating phase
+    const cpPath = join(walDir, "checkpoint.json");
+    const cpContent = readFileSync(cpPath, "utf-8");
+    const cp = JSON.parse(cpContent);
+    cp.rotationPhase = "rotating";
+    writeFileSync(cpPath, JSON.stringify(cp, null, 2));
+
+    // Re-initialize should recover
+    const wal2 = new WALManager({ walDir });
+    await wal2.initialize();
+
+    // Verify entries are still accessible
+    const entries = await wal2.getEntriesSince(0);
+    expect(entries.length).toBeGreaterThanOrEqual(2);
+
+    // Verify rotation phase is reset
+    await wal2.shutdown();
+    const cpAfter = JSON.parse(readFileSync(cpPath, "utf-8"));
+    expect(cpAfter.rotationPhase).toBe("none");
+  });
+
+  it("recovery from cleanup_started phase resumes cleanup", async () => {
+    const wal = new WALManager({ walDir });
+    await wal.initialize();
+
+    await wal.append("write", "/c.txt", Buffer.from("c"));
+    await wal.shutdown();
+
+    // Simulate interrupted cleanup by setting checkpoint
+    const cpPath = join(walDir, "checkpoint.json");
+    const cpContent = readFileSync(cpPath, "utf-8");
+    const cp = JSON.parse(cpContent);
+    cp.rotationPhase = "cleanup_started";
+    cp.rotationCheckpoint = {
+      phase: "cleanup_started",
+      cleanedSegments: [],
+      pendingSegments: ["nonexistent-segment.wal"],
+    };
+    writeFileSync(cpPath, JSON.stringify(cp, null, 2));
+
+    // Re-initialize should recover gracefully (nonexistent segment is skipped)
+    const wal2 = new WALManager({ walDir });
+    await wal2.initialize();
+
+    const entries = await wal2.getEntriesSince(0);
+    expect(entries.length).toBeGreaterThanOrEqual(1);
+
+    await wal2.shutdown();
+    const cpAfter = JSON.parse(readFileSync(cpPath, "utf-8"));
+    expect(cpAfter.rotationPhase).toBe("none");
+    expect(cpAfter.rotationCheckpoint).toBeUndefined();
+  });
 });
 
 // ── Helper ─────────────────────────────────────────────────

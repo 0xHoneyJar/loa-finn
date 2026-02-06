@@ -36,7 +36,15 @@ export interface WALCheckpoint {
   activeSegment: string;
   segments: WALSegment[];
   lastCheckpointAt: string;
-  rotationPhase: "none" | "checkpoint_written" | "rotating";
+  rotationPhase: "none" | "checkpoint_written" | "rotating" | "segments_rotated" | "cleanup_started" | "cleanup_complete";
+  /** Set when shutdown drain timed out — indicates possible incomplete writes */
+  shutdownIncomplete?: boolean;
+  /** Per-segment cleanup tracking for crash recovery */
+  rotationCheckpoint?: {
+    phase: string;
+    cleanedSegments: string[];
+    pendingSegments: string[];
+  };
 }
 
 // ── ID Generation ────────────────────────────────────────────

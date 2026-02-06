@@ -162,3 +162,50 @@ describe("Quality Gates Scoring", () => {
     expect(fs.existsSync(storeFile)).toBe(true);
   });
 });
+
+describe("LearningStore Concurrency", () => {
+  it("10 concurrent addLearning calls result in all 10 learnings present", async () => {
+    const store = new LearningStore({ basePath: tmpDir });
+
+    // Fire 10 concurrent addLearning calls
+    const promises = Array.from({ length: 10 }, (_, i) =>
+      store.addLearning({
+        ...makeHighQualityLearning(),
+        trigger: `Concurrent trigger ${i}`,
+      }),
+    );
+
+    const results = await Promise.all(promises);
+
+    // All 10 should have unique IDs
+    const ids = new Set(results.map((r) => r.id));
+    expect(ids.size).toBe(10);
+
+    // All 10 should be in the store
+    const allLearnings = await store.getLearnings();
+    expect(allLearnings).toHaveLength(10);
+
+    // Verify each trigger is unique and present
+    const triggers = allLearnings.map((l) => l.trigger);
+    for (let i = 0; i < 10; i++) {
+      expect(triggers).toContain(`Concurrent trigger ${i}`);
+    }
+  });
+
+  it("concurrent recordApplication calls do not lose updates", async () => {
+    const store = new LearningStore({ basePath: tmpDir });
+
+    const learning = await store.addLearning(makeHighQualityLearning());
+
+    // Fire 5 concurrent recordApplication calls
+    const promises = Array.from({ length: 5 }, () =>
+      store.recordApplication(learning.id, true),
+    );
+
+    await Promise.all(promises);
+
+    const updated = await store.getLearning(learning.id);
+    expect(updated!.effectiveness!.applications).toBe(5);
+    expect(updated!.effectiveness!.successes).toBe(5);
+  });
+});

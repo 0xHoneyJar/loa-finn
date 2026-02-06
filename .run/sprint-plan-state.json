@@ -1,28 +1,28 @@
 {
-  "plan_id": "plan-20260206-refactor01",
-  "branch": "loa-update-review",
-  "state": "JACKED_OUT",
+  "plan_id": "plan-20260206-hardening01",
+  "branch": "feature/hardening-sprint-plan",
+  "state": "RUNNING",
   "timestamps": {
-    "started": "2026-02-06T09:45:00Z",
-    "last_activity": "2026-02-06T22:55:00Z",
-    "completed": "2026-02-06T22:55:00Z"
+    "started": "2026-02-06T12:49:00Z",
+    "last_activity": "2026-02-06T12:49:00Z"
   },
   "sprints": {
-    "total": 1,
-    "completed": 1,
+    "total": 2,
+    "completed": 0,
     "current": "sprint-1",
     "list": [
-      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Persistence Refactoring", "global_id": 7}
+      {"id": "sprint-1", "status": "pending", "cycles": 0, "label": "Upstream Persistence Hardening", "global_id": 8},
+      {"id": "sprint-2", "status": "pending", "cycles": 0, "label": "Tool Execution Sandbox", "global_id": 9}
     ]
   },
   "options": {
     "from": 1,
-    "to": 1,
+    "to": 2,
     "max_cycles": 20,
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 1,
+    "total_cycles": 0,
     "total_files_changed": 0,
     "total_findings_fixed": 0
   }

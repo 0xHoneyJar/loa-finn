@@ -7,7 +7,7 @@
 
 import { createHash } from "crypto";
 import { existsSync } from "fs";
-import { readFile, writeFile, mkdir, rename, unlink, readdir, stat } from "fs/promises";
+import { readFile, writeFile, mkdir, rename, unlink, readdir, stat, open } from "fs/promises";
 import { join, dirname, resolve, normalize } from "path";
 
 export interface ICheckpointStorage {
@@ -68,7 +68,36 @@ export class MountCheckpointStorage implements ICheckpointStorage {
       await mkdir(dirname(path), { recursive: true });
       const tmpPath = `${path}.tmp.${process.pid}`;
       await writeFile(tmpPath, content);
+
+      // Fsync the temp file before rename to ensure data is on disk
+      let fd;
+      try {
+        fd = await open(tmpPath, "r");
+        await fd.sync();
+      } catch {
+        // File fsync failed — do NOT rename (fail-closed)
+        try {
+          await unlink(tmpPath);
+        } catch { /* cleanup best-effort */ }
+        return false;
+      } finally {
+        if (fd) await fd.close().catch(() => {});
+      }
+
       await rename(tmpPath, path);
+
+      // Fsync the parent directory to ensure the rename is durable
+      let dirFd;
+      try {
+        dirFd = await open(dirname(path), "r");
+        await dirFd.sync();
+      } catch {
+        // Dir fsync failure: rename already happened, data is likely durable
+        console.warn(`[Checkpoint] Directory fsync failed for ${dirname(path)} — rename already succeeded`);
+      } finally {
+        if (dirFd) await dirFd.close().catch(() => {});
+      }
+
       return true;
     } catch {
       return false;
