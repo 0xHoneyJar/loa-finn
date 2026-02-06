@@ -25,6 +25,18 @@ integrity_enforcement: strict
 drift_resolution: code
 
 # =============================================================================
+# Beads-First Architecture (v1.29.0)
+# =============================================================================
+# Beads task tracking is the EXPECTED DEFAULT, not optional
+beads:
+  mode: required
+  opt_out:
+    confirmation_interval_hours: 24
+    require_reason: true
+  autonomous:
+    requires_beads: true
+
+# =============================================================================
 # Agent Configuration
 # =============================================================================
 disabled_agents: []
@@ -96,7 +108,7 @@ memory:
   # -------------------------------------------------------------------------
   qmd:
     # Master toggle for QMD integration
-    enabled: false
+    enabled: true
     # QMD binary path (or just 'qmd' for PATH)
     binary: qmd
     # Index storage location
@@ -1604,9 +1616,11 @@ simstim:
     auto_accept_high_consensus: true
     show_disputed: true
     show_blockers: true
+    beads_loop: true
     phases:
       - prd
       - sdd
       - sprint
+      - beads
   defaults:
     timeout_hours: 24
