@@ -423,3 +423,575 @@
     }
   }
 }
+{
+  "type": "flatline_protocol",
+  "event": "complete",
+  "timestamp": "2026-02-06T08:12:16Z",
+  "state": "DONE",
+  "data": {
+    "consensus_summary": {
+      "high_consensus_count": 5,
+      "disputed_count": 0,
+      "low_value_count": 0,
+      "blocker_count": 5,
+      "model_agreement_percent": 100
+    },
+    "high_consensus": [
+      {
+        "id": "IMP-001",
+        "description": "Real operational gap for any S3/R2-backed checkpoint store: without explicit retry/backoff, timeouts, and idempotency guidance, transient 429/503/network failures can cause failed checkpoints or partial writes. Actionable (define retry policy, per-operation timeouts, error classification, and safe retry semantics for begin/finalize). High ROI and low-to-moderate implementation cost.",
+        "gpt_score": 880,
+        "opus_score": 870,
+        "delta": 10,
+        "average_score": 875,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-002",
+        "description": "Valuable for making the SDD self-contained and reviewable, but there’s a trade-off: duplicating upstream interfaces can drift. Best practice is to include method signatures + behavioral expectations and explicitly pin the upstream version/commit. Actionable and improves maintainability, moderate doc effort.",
+        "gpt_score": 720,
+        "opus_score": 830,
+        "delta": 110,
+        "average_score": 775,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-004",
+        "description": "Security is under-specified: credential sourcing/rotation and token handling are essential, and path traversal prevention must be clearly enforced at adapter boundaries (key normalization, allowlist prefixes, reject '..', URL-encoding rules). Actionable via a security considerations section + explicit validation rules. High ROI, moderate effort.",
+        "gpt_score": 840,
+        "opus_score": 820,
+        "delta": 20,
+        "average_score": 830,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-006",
+        "description": "Boot-phase failure handling is important, especially with a BLOCKING recovery step and platform time limits. Actionable: define per-phase timeouts, retry limits, and whether the system can start in degraded/read-only mode. Moderate complexity but strong operational payoff.",
+        "gpt_score": 760,
+        "opus_score": 780,
+        "delta": 20,
+        "average_score": 770,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-010",
+        "description": "Core functional gap: if LearningStore mutations aren’t clearly journaled and replayed, durability between checkpoints is undefined and can lead to silent data loss. Actionable to specify write-ahead behavior, ordering (WAL append before ack), replay rules, and checkpoint compaction. High impact, reasonable effort.",
+        "gpt_score": 820,
+        "opus_score": 740,
+        "delta": 80,
+        "average_score": 780,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      }
+    ],
+    "disputed": [],
+    "low_value": [],
+    "blockers": [
+      {
+        "id": "SKP-001",
+        "concern": "CF Workers compatibility claims appear incorrect/inconsistent (fs-ext.flock, child_process, boot-time assumptions)",
+        "severity": "CRITICAL",
+        "severity_score": 950,
+        "why_matters": "If this runs in Cloudflare Workers (or any serverless runtime without full Node APIs), fs locking, filesystem watchers, and child_process will fail at runtime. The SDD asserts compatibility via fallbacks, but Workers do not provide a writable local filesystem in the same way, nor do they allow child_process at any time. A false assumption here causes immediate boot failure or silent loss of persistence guarantees.",
+        "location": "Section 9: Risk Mitigations (CF Workers Compatibility); Sections 3.6 (IdentityLoader FileWatcher), 3.8 (BeadsRecoveryHandler br CLI), 4 (Boot Sequence)",
+        "recommendation": "Explicitly define the target runtime(s) (Node container vs CF Workers). If Workers are a target, remove/replace fs-ext, fs.watch, and child_process usage; provide Workers-native storage and locking semantics (e.g., Durable Objects/KV/R2 only) and a beads recovery strategy that does not shell out. Add a runtime capability matrix and automated runtime smoke tests.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-002",
+        "concern": "Checkpointing design likely incorrect: writing WAL entries as individual files and relying on non-specified APIs (getEntriesSince, entry.id) may not match upstream WALManager/CheckpointProtocol contracts",
+        "severity": "CRITICAL",
+        "severity_score": 900,
+        "why_matters": "The R2 sync task assumes WALManager can enumerate entries since a seq and that each entry has a stable id suitable for file naming. If upstream WALManager does not expose getEntriesSince (or if entries are segment-based, not entry-file-based), checkpoints will be incomplete or inconsistent. This can lead to unrecoverable state after restart because the checkpoint does not represent a coherent snapshot.",
+        "location": "Section 6: R2 Sync Task (Updated); Section 3.3 (WAL API mapping); Section 3.1 (CheckpointProtocol integration)",
+        "recommendation": "Align the checkpoint content with upstream CheckpointProtocol expectations (likely manifest + blob set derived from upstream checkpoint builder). Replace ad-hoc 'wal/{entry.id}.json' with upstream-provided serialization/segment export. Add an integration test that restores from R2-only and validates full state equivalence.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-003",
+        "concern": "Two-source pruning guard is insufficiently defined and may prune data that is not actually durable/consistent in both backends",
+        "severity": "CRITICAL",
+        "severity_score": 880,
+        "why_matters": "The pruner checks only 'r2Storage.isAvailable()' and 'gitPush.currentStatus !== conflict'. Availability and non-conflict do not prove that (a) the latest WAL seq is included in the latest R2 checkpoint, (b) git snapshot includes the same seq, or (c) both are finalized and immutable. Pruning based on weak signals can delete the only copy of recent WAL entries.",
+        "location": "Section 3.9: Pruner Refactor; Section 5: Health Aggregator (r2.lastCheckpoint is optional and not used for pruning)",
+        "recommendation": "Define a durability watermark protocol: record last durable seq for R2 and git (e.g., in WAL or a durable metadata file), require both >= compactableSeq before compact/prune. Make prune decision based on confirmed seq, not availability. Add failure-mode tests: partial checkpoint finalize, git push succeeds but snapshot missing files, etc.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-004",
+        "concern": "Recovery ordering and semantics may cause stale/partial restores; 'all-or-nothing' git restore returning null on any missing file can block recovery unnecessarily",
+        "severity": "HIGH",
+        "severity_score": 760,
+        "why_matters": "A single missing file in git causes the entire git source to be rejected, even if most of the snapshot is usable. Combined with source priority, this can lead to falling back to templates (data loss) or repeated degraded loops. Also, MountRecoverySource over R2 storage implies a filesystem-like mount; if it expects atomic manifests and consistent file sets, adapter behavior must match exactly.",
+        "location": "Section 3.2: GitRecoverySource.restore(); Section 3.5: RecoveryEngine sources order",
+        "recommendation": "Clarify recovery contract: is partial restore allowed? If not, ensure snapshot creation guarantees completeness and include integrity metadata. Consider returning a structured error (missing paths) and letting RecoveryEngine decide. Add tests for missing/extra files, manifest mismatch, and source fallback behavior.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-005",
+        "concern": "Security model for R2 and git credentials is underspecified (storage of secrets, rotation, least privilege, audit, and integrity guarantees)",
+        "severity": "HIGH",
+        "severity_score": 740,
+        "why_matters": "R2 access keys and git tokens are powerful. Without clear secret storage, rotation, and scoping, compromise leads to data exfiltration or tampering. Additionally, storing SHA-256 in object metadata is not an authenticity mechanism; an attacker with write access can update both content and metadata.",
+        "location": "Section 3.1 (R2CheckpointStorage credentials, checksum metadata); Section 3.2 (git token); Missing dedicated Security Requirements section",
+        "recommendation": "Add explicit security requirements: secret source (env/secret manager), rotation cadence, IAM policies (bucket/prefix scoped), git token scopes, and logging redaction. Add authenticity: sign manifests (HMAC/KMS) or use immutable object versioning + server-side encryption + strict ACLs.",
+        "source": "opus_skeptic"
+      }
+    ],
+    "phase": "sdd",
+    "document": "/home/merlin/Documents/thj/code/loa-finn/grimoires/loa/sdd-refactor-persistence.md",
+    "domain": " software design document adopt",
+    "execution": {
+      "mode": "interactive",
+      "mode_reason": "CLI flag --interactive",
+      "run_id": null
+    },
+    "timestamp": "2026-02-06T08:12:16Z",
+    "metrics": {
+      "total_latency_ms": 212000,
+      "cost_cents": 0,
+      "cost_usd": 0
+    }
+  }
+}
+{
+  "type": "flatline_protocol",
+  "event": "complete",
+  "timestamp": "2026-02-06T08:16:57Z",
+  "state": "DONE",
+  "data": {
+    "consensus_summary": {
+      "high_consensus_count": 5,
+      "disputed_count": 1,
+      "low_value_count": 0,
+      "blocker_count": 6,
+      "model_agreement_percent": 90
+    },
+    "high_consensus": [
+      {
+        "id": "IMP-001",
+        "description": "Real gap for an S3/R2-backed checkpoint store: without explicit timeout/retry/backoff and error classification, production behavior under 5xx/SlowDown/network jitter is undefined and can violate Worker execution limits. Actionable to specify retry policy (max attempts, exponential backoff + jitter, per-op timeouts, idempotency notes) and which errors are terminal vs transient. High ROI, modest doc + implementation effort.",
+        "gpt_score": 880,
+        "opus_score": 870,
+        "delta": 10,
+        "average_score": 875,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-002",
+        "description": "Critical correctness gap: multi-instance concurrency is a primary failure mode for checkpoint/WAL systems (rolling deploys, parallel Workers). If locking/intent semantics and conflict resolution aren’t specified, you risk corruption, lost updates, or permanent wedging on stale intents. Actionable: define single-writer vs multi-writer assumption, leader election/lease strategy (or explicit prohibition), stale-intent detection rationale, and conflict handling. High impact, necessary for safe ops.",
+        "gpt_score": 920,
+        "opus_score": 750,
+        "delta": 170,
+        "average_score": 835,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-003",
+        "description": "Legitimate security/design gap: accepting arbitrary relativePath without a normative validation spec invites key-space escape and unintended deletes/overwrites (even if R2 isn’t a POSIX FS, prefix-based keying still has traversal-like issues). Actionable: define allowed character set, normalization rules, explicit rejection of '..', leading '/', '\\\\', control chars/nulls, and canonical prefixing. Good ROI and aligns with the test mention.",
+        "gpt_score": 860,
+        "opus_score": 830,
+        "delta": 30,
+        "average_score": 845,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-005",
+        "description": "Valuable and fairly actionable: importing a large upstream surface without a compatibility contract is a real maintenance risk. Version pinning + an API surface/contract test (or type-test) is straightforward and prevents surprise breakage. Not always “critical” at runtime, but high leverage for long-term stability and rollback planning.",
+        "gpt_score": 780,
+        "opus_score": 780,
+        "delta": 0,
+        "average_score": 780,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-007",
+        "description": "Behavioral contract gap: changing WAL replay from generator to callback affects recovery correctness and caller control flow (early exit, error propagation). Actionable to specify whether callback exceptions abort replay, how partial progress is handled, and whether replay is strictly ordered. Moderate effort, meaningful risk reduction.",
+        "gpt_score": 740,
+        "opus_score": 740,
+        "delta": 0,
+        "average_score": 740,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      }
+    ],
+    "disputed": [
+      {
+        "id": "IMP-009",
+        "description": "Somewhat domain-specific but likely not critical to the persistence refactor’s core risks. Defining thresholds/eviction helps prevent unbounded growth and makes behavior predictable, but it may belong in a product/ML behavior spec rather than the persistence SDD unless it impacts storage sizing and durability. Actionable, moderate priority.",
+        "gpt_score": 520,
+        "opus_score": 900,
+        "delta": 380,
+        "average_score": 710,
+        "would_integrate": false,
+        "agreement": "DISPUTED"
+      }
+    ],
+    "low_value": [],
+    "blockers": [
+      {
+        "id": "SKP-001",
+        "concern": "Assumption that `.claude/lib/persistence/` is stable and compatible across environments is unproven (System Zone + upstream API drift risk)",
+        "severity": "CRITICAL",
+        "severity_score": 920,
+        "why_matters": "This design hard-couples Finn to a vendored upstream library that is not versioned as a normal dependency. If upstream changes file layout, runtime assumptions, or subtle semantics (WAL ordering, checkpoint manifest format, recovery behavior), Finn can break at build-time or—worse—silently corrupt persistence. The mitigation claims only one import file needs updating, but behavioral drift is the real risk.",
+        "location": "Section 2 (DD-1), Section 9 (Import Path Stability), Appendix Import Map",
+        "recommendation": "Pin the upstream persistence framework to an explicit version/commit hash and add a compatibility test suite that runs against that pinned snapshot. Introduce a thin internal facade (Finn-owned interfaces) so upstream changes are isolated. Add a startup self-check that validates expected upstream version and critical invariants (manifest schema, WAL entry schema).",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-002",
+        "concern": "Checkpointing design likely incorrect/inefficient: treating WAL entries as individual files (`wal/${entry.id}.json`) may explode object counts and costs, and may not match upstream CheckpointProtocol expectations",
+        "severity": "CRITICAL",
+        "severity_score": 900,
+        "why_matters": "R2/S3 list operations are slow/expensive at scale; thousands of tiny objects will degrade performance and increase failure rates. If CheckpointProtocol expects a manifest + a bounded set of files (e.g., segment blobs), mapping each entry to a file can cause huge checkpoints, long finalize times, and timeouts. It also increases the chance of partial availability and inconsistent restores.",
+        "location": "Section 6 (R2 Sync Task), Section 3.1 (R2CheckpointStorage), Section 3.3 (WAL mapping)",
+        "recommendation": "Align checkpoint payloads with WAL segment boundaries (upload segments or compacted snapshots), not per-entry objects. Define object naming/versioning strategy, maximum object count per checkpoint, and pagination handling. Add load tests for 10^5+ entries and verify restore time and list performance.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-003",
+        "concern": "Recovery ordering and source semantics are underspecified; risk of restoring stale/incorrect state (R2 vs Git vs Template) without strong freshness guarantees",
+        "severity": "CRITICAL",
+        "severity_score": 880,
+        "why_matters": "The cascade `[mountSource(R2), gitSource, templateSource]` assumes R2 is freshest and correct, but there is no explicit version/epoch comparison between sources. A stale R2 checkpoint could override a newer Git snapshot, or vice versa. TemplateSource as last resort can mask catastrophic data loss by booting with defaults, potentially overwriting later via sync tasks.",
+        "location": "Section 3.5 (Recovery Engine Migration), Section 4 (Boot Sequence Phase 4), Section 5 (Health mapping)",
+        "recommendation": "Define a global monotonic version (e.g., WAL seq + timestamp) embedded in both R2 manifests and Git snapshot manifests, and require recovery to pick the newest consistent source. Add a 'do-not-overwrite' safety latch: if recovery falls back to template, disable outbound sync until an operator confirms.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-004",
+        "concern": "Two-source pruning guard is too weak: it checks availability/conflict status, not that both backends have actually persisted the same checkpoint/seq",
+        "severity": "HIGH",
+        "severity_score": 760,
+        "why_matters": "Pruning WAL based on `r2Storage.isAvailable()` and `gitPush.currentStatus !== 'conflict'` can delete the only copy of recent data if sync tasks are lagging, partially failed, or succeeded for an older seq. Availability is not confirmation. This is a classic data-loss footgun.",
+        "location": "Section 3.9 (Pruner Refactor), Section 4 (Scheduler tasks), Section 5 (Health checks)",
+        "recommendation": "Track last-confirmed durable seq per backend (R2 manifest seq, Git snapshot seq). Only compact/prune entries strictly below `min(r2ConfirmedSeq, gitConfirmedSeq)`. Persist these confirmations locally and expose them in health. Add chaos tests where one backend lags or returns stale data.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-005",
+        "concern": "WAL API mapping is incomplete and potentially wrong: `getEntriesSince()` is used but not defined in the upstream mapping; replay semantics changed (generator → callback) may break ordering/idempotency assumptions",
+        "severity": "HIGH",
+        "severity_score": 740,
+        "why_matters": "The SDD shows callers using `wal.getEntriesSince(sinceSeq)` (Section 6) but the earlier mapping table only mentions `replay(callback, { sinceSeq })`. If Finn relies on a non-existent helper, implementation will diverge or be rushed. More importantly, changing replay semantics can introduce subtle bugs: duplicate application, missed entries, or out-of-order processing—especially around compaction/rotation.",
+        "location": "Section 3.3 (API mapping), Section 6 (R2 Sync Task)",
+        "recommendation": "Define the exact upstream WAL API surface used by Finn and update all call sites accordingly. Add explicit invariants: ordering, exactly-once vs at-least-once replay, behavior across compaction. Add tests for replay across segment boundaries and after crash mid-append.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-006",
+        "concern": "Security model for R2 and Git credentials is missing (storage of secrets, rotation, least privilege, audit, and SSRF/endpoint abuse)",
+        "severity": "HIGH",
+        "severity_score": 720,
+        "why_matters": "R2 adapter takes raw `accessKeyId/secretAccessKey/endpoint` with no mention of secret storage, rotation, or scoping. A compromised token can exfiltrate or delete checkpoints. Custom endpoints can be abused for SSRF if configurable. Git token usage is also underspecified (scopes, storage, redaction in logs).",
+        "location": "Section 3.1 (R2CheckpointStorage constructor), Section 3.2 (GitRecoverySource config), Section 9 (Risk mitigations)",
+        "recommendation": "Add explicit security requirements: secret source (env/secret manager), rotation cadence, least-privilege IAM policy (read/write prefixes only), server-side encryption expectations, and log redaction. Validate/allowlist R2 endpoints. Add threat model for checkpoint tampering and rollback attacks.",
+        "source": "opus_skeptic"
+      }
+    ],
+    "phase": "sdd",
+    "document": "grimoires/loa/sdd-refactor-persistence.md",
+    "domain": " software design document adopt",
+    "execution": {
+      "mode": "interactive",
+      "mode_reason": "CLI flag --interactive",
+      "run_id": null
+    },
+    "timestamp": "2026-02-06T08:16:57Z",
+    "metrics": {
+      "total_latency_ms": 217000,
+      "cost_cents": 0,
+      "cost_usd": 0
+    }
+  }
+}
+{
+  "type": "flatline_protocol",
+  "event": "complete",
+  "timestamp": "2026-02-06T08:21:00Z",
+  "state": "DONE",
+  "data": {
+    "consensus_summary": {
+      "high_consensus_count": 4,
+      "disputed_count": 0,
+      "low_value_count": 0,
+      "blocker_count": 6,
+      "model_agreement_percent": 100
+    },
+    "high_consensus": [
+      {
+        "id": "IMP-001",
+        "description": "Real gap for a persistence adapter: transient S3/R2 failures are common and a two-phase checkpoint protocol is especially sensitive to partial failure. This is actionable (define retry/backoff, idempotency expectations, error taxonomy, and how orphan intents are handled) and relatively low cost with high operational ROI.",
+        "gpt_score": 880,
+        "opus_score": 870,
+        "delta": 10,
+        "average_score": 875,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-002",
+        "description": "Important for long-term maintainability: the SDD should either inline the interface contracts or pin and reference exact upstream definitions. However, 'silently fail to compile' is overstated (TypeScript would fail loudly), and inlining full interfaces can create duplication. Still valuable to specify version/contract source of truth and how compatibility is ensured.",
+        "gpt_score": 760,
+        "opus_score": 820,
+        "delta": 60,
+        "average_score": 790,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-004",
+        "description": "Legitimate deployment gap: even in pre-prod, there can be in-flight WAL data during rollout, and format/path mismatches can cause startup failure or data loss. Actionable via explicit cutover procedure (separate dirs, drain step, or delete/rename policy) with clear acceptance criteria.",
+        "gpt_score": 820,
+        "opus_score": 810,
+        "delta": 10,
+        "average_score": 815,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-009",
+        "description": "Shutdown semantics matter for correctness and platform constraints. Adding explicit deadlines and best-effort ordering is actionable and prevents hangs. Cost is moderate (plumbing timeouts/cancellation), but the SDD should at least specify the intended guarantees and maximum shutdown window.",
+        "gpt_score": 720,
+        "opus_score": 850,
+        "delta": 130,
+        "average_score": 785,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      }
+    ],
+    "disputed": [],
+    "low_value": [],
+    "blockers": [
+      {
+        "id": "SKP-001",
+        "concern": "Hard dependency on `.claude/lib/persistence/` as an internal, non-versioned upstream API (import path + behavior) without pinning, vendoring, or compatibility contract",
+        "severity": "CRITICAL",
+        "severity_score": 920,
+        "why_matters": "If the upstream library changes its exports, semantics, or file layout, Finn can break at build time or—worse—at runtime. The SDD assumes System Zone is stable, but stability is asserted, not guaranteed by a versioning mechanism. This is a single point of failure for core persistence primitives.",
+        "location": "Section 2 (DD-1), Section 9 (Import Path Stability), Appendix Import Map",
+        "recommendation": "Introduce an explicit version pin/lock (e.g., git submodule/tag, npm package with semver, or vendored snapshot). Add a compatibility test suite that runs against the pinned upstream. Define an upgrade process and a rollback that does not rely on upstream staying unchanged.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-002",
+        "concern": "R2 checkpointing design appears to upload per-WAL-entry JSON files and relies on `getEntriesSince()` which is not mapped/defined in the WALManager API mapping",
+        "severity": "CRITICAL",
+        "severity_score": 900,
+        "why_matters": "The R2 sync task (§6) may not compile or may be inefficient/incorrect: the SDD maps `replay()` but then uses `wal.getEntriesSince(sinceSeq)` and `entry.id` (while earlier mapping says ULID→sequence and `getStatus().seq`). If the upstream WAL doesn’t provide this method or uses different identifiers, checkpointing will silently miss data or duplicate it. Also, per-entry objects in R2 can explode object counts and costs and degrade list performance.",
+        "location": "Section 3.3 (WAL API mapping), Section 6 (R2 Sync Task)",
+        "recommendation": "Align the sync algorithm to the actual upstream WAL API (e.g., use `replay(callback, { sinceSeq })`). Define the canonical identifier (seq vs id) and checkpoint file layout (segment-based or batch files). Add load tests and cost modeling for object count growth; consider bundling entries per segment/checkpoint.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-003",
+        "concern": "Two-source pruning guard is logically weak: it checks only `r2Storage.isAvailable()` and `gitPush.currentStatus !== 'conflict'`, not that both backends have actually persisted the same checkpoint/seq",
+        "severity": "CRITICAL",
+        "severity_score": 880,
+        "why_matters": "Pruning/compaction can delete the only copy of data if R2 is reachable but behind, or git is 'ok' but last push failed, or either backend has partial data. Availability is not confirmation. This can cause irrecoverable data loss after compaction.",
+        "location": "Section 3.9 (Pruner Refactor), Section 4 Phase 9 task wal_prune",
+        "recommendation": "Track and persist an explicit 'confirmed durable seq' per backend (e.g., last finalized checkpoint manifest version/seq for R2; last pushed commit/manifest seq for git). Only compact/prune up to min(confirmedSeqR2, confirmedSeqGit). Add integrity checks and alarms when backends diverge.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-004",
+        "concern": "Recovery is blocking at boot with limited failure-mode handling; loop detection may brick startup without a safe fallback or operator override",
+        "severity": "HIGH",
+        "severity_score": 760,
+        "why_matters": "Boot sequence Phase 4 runs `await recovery.run()` blocking. If R2 is slow/unreachable and git is slow/unreachable, startup may hang or fail repeatedly. `LOOP_DETECTED` is treated as fatal/unhealthy, but there is no documented escape hatch (e.g., force template recovery, ignore a bad source, or start in read-only mode). This can cause prolonged downtime.",
+        "location": "Section 4 (Boot Sequence), Section 3.5 (RecoveryEngine config), Section 5 (Health mapping)",
+        "recommendation": "Define explicit timeouts per source, a maximum boot recovery time, and a deterministic fallback policy. Add an operator override flag/env (e.g., FORCE_TEMPLATE_RECOVERY, DISABLE_GIT_SOURCE, DISABLE_R2_SOURCE). Ensure recovery emits actionable diagnostics and persists last-known-good state.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-005",
+        "concern": "CF Workers compatibility claims conflict with use of `child_process.exec` and filesystem locking/watching assumptions; environment constraints are unclear",
+        "severity": "HIGH",
+        "severity_score": 740,
+        "why_matters": "The SDD states `br` CLI runs at boot 'before CF Workers restrictions apply to the container', which is not a reliable model for Workers (no child_process at all). Similarly, `fs-ext.flock` and `fs.watch` behavior varies across platforms and container runtimes. If deployment target is actually Workers, this will fail outright; if it's Node containers, the Workers discussion is misleading and risks wrong operational assumptions.",
+        "location": "Section 9 (CF Workers Compatibility), Section 3.8 (BeadsRecoveryHandler brCommand)",
+        "recommendation": "Clarify the runtime target(s) (Workers vs Node). If Workers is a target, remove child_process dependency or gate it behind a platform capability check and provide a pure-JS alternative. Add platform-specific CI runs. Document required filesystem semantics (locking, watch) and fallbacks.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-006",
+        "concern": "Security model for R2 and Git credentials is not specified (storage, rotation, least privilege, audit), and checksum metadata is not an authenticity guarantee",
+        "severity": "HIGH",
+        "severity_score": 720,
+        "why_matters": "Access keys/tokens are mentioned but there is no plan for secret management, rotation, scoping, or incident response. Storing SHA-256 in object metadata only detects accidental corruption, not malicious tampering by an attacker with write access. Git token usage and remote URL handling can leak secrets in logs or process lists.",
+        "location": "Section 3.1 (R2CheckpointStorage config), Section 3.2 (GitRecoverySource token), Section 9 (Risk mitigations lacks security)",
+        "recommendation": "Define secret storage (env/secret manager), rotation cadence, and IAM policies (read/write separation, prefix scoping). Add optional signing (HMAC or asymmetric) for manifests/checkpoints. Ensure logs redact secrets. Add threat model for R2/Git compromise and recovery steps.",
+        "source": "opus_skeptic"
+      }
+    ],
+    "phase": "sdd",
+    "document": "grimoires/loa/sdd-refactor-persistence.md",
+    "domain": " software design document adopt",
+    "execution": {
+      "mode": "interactive",
+      "mode_reason": "CLI flag --interactive",
+      "run_id": null
+    },
+    "timestamp": "2026-02-06T08:21:00Z",
+    "metrics": {
+      "total_latency_ms": 214000,
+      "cost_cents": 0,
+      "cost_usd": 0
+    }
+  }
+}
+{
+  "type": "flatline_protocol",
+  "event": "complete",
+  "timestamp": "2026-02-06T08:24:47Z",
+  "state": "DONE",
+  "data": {
+    "consensus_summary": {
+      "high_consensus_count": 4,
+      "disputed_count": 1,
+      "low_value_count": 0,
+      "blocker_count": 6,
+      "model_agreement_percent": 90
+    },
+    "high_consensus": [
+      {
+        "id": "IMP-001",
+        "description": "Real operational gap for a refactor that removes substantial custom code and introduces a critical-path dependency (T-7.1). However, requiring a rollback plan per task can be heavier than needed; a single sprint-level rollback strategy plus a couple of high-risk task notes may be more proportionate. Actionable if framed as: revert commits + feature flag / compatibility toggle + data compatibility notes.",
+        "gpt_score": 720,
+        "opus_score": 920,
+        "delta": 200,
+        "average_score": 820,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-002",
+        "description": "High ROI, low effort, and directly reduces sprint ambiguity/risk. Pinning the upstream Loa version (and/or commit SHA) plus documenting the consumed API surface is essential when integrating upstream primitives; otherwise breakages can invalidate multiple tasks mid-sprint. Clear acceptance criteria: lockfile update + documented imports + upgrade policy.",
+        "gpt_score": 910,
+        "opus_score": 850,
+        "delta": 60,
+        "average_score": 880,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-004",
+        "description": "Important integration detail: upstream primitives will fail in real life (init, IO, parse, recovery). Defining error contracts (abort vs degrade vs retry) makes acceptance criteria testable and prevents undefined boot behavior. Slight risk of over-specifying every edge case; keep it to key lifecycle boundaries and user-visible behavior.",
+        "gpt_score": 780,
+        "opus_score": 750,
+        "delta": 30,
+        "average_score": 765,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      },
+      {
+        "id": "IMP-006",
+        "description": "Domain-appropriate and high impact: concurrency/race conditions in WAL + compaction + remote checkpointing are catastrophic and hard to debug. The sprint touches multiple writers/readers, so documenting the concurrency/locking model (and what upstream guarantees) is essential. Actionable: state invariants, locking strategy, and whether compact/checkpoint are mutually exclusive with append.",
+        "gpt_score": 880,
+        "opus_score": 780,
+        "delta": 100,
+        "average_score": 830,
+        "would_integrate": true,
+        "agreement": "HIGH"
+      }
+    ],
+    "disputed": [
+      {
+        "id": "IMP-003",
+        "description": "Critical correctness gap if any existing environments have old WAL segments. Without a legacy-read/migration story, recovery and compaction can fail and violate the sprint’s kill→restart→resume criterion. Actionable: add backward-compatible decoder, one-time migration, or explicit incompatibility + wipe procedure (with guardrails).",
+        "gpt_score": 960,
+        "opus_score": 480,
+        "delta": 480,
+        "average_score": 720,
+        "would_integrate": true,
+        "agreement": "DISPUTED"
+      }
+    ],
+    "low_value": [],
+    "blockers": [
+      {
+        "id": "SKP-001",
+        "concern": "Path-prefix encoding replaces explicit WAL entry typing, risking collisions, ambiguous semantics, and broken replay/compaction invariants",
+        "severity": "CRITICAL",
+        "severity_score": 900,
+        "why_matters": "The plan removes the explicit `type` field and encodes it into path prefixes (e.g., `sessions/`, `.beads/`). If any caller constructs paths inconsistently (missing prefix, double prefix, case differences, leading slashes), compaction (keep-latest-per-path) and recovery replay can silently misbehave, causing data loss or incorrect state reconstruction.",
+        "location": "T-7.1: Replace WAL with upstream WALManager (Description + Acceptance Criteria); T-7.9: compaction keep-latest-per-path",
+        "recommendation": "Define and enforce a canonical path schema (single function to build paths) with validation at append-time; add migration tests that compare old WAL semantics vs new path-prefix semantics; add a guard that rejects unknown prefixes and normalizes paths (no leading '/', no duplicate separators).",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-002",
+        "concern": "Kill -9 (SIGKILL) durability is assumed but not specified (fsync/atomicity), risking unreplayable or corrupted WAL segments",
+        "severity": "CRITICAL",
+        "severity_score": 880,
+        "why_matters": "Exit criteria and T-7.12 explicitly include SIGKILL. If WALManager does not guarantee record atomicity (length-prefix + checksum) and periodic fsync, a kill can leave partial writes that break parsing or cause silent truncation. Without a documented corruption-handling strategy, restart/resume can fail intermittently.",
+        "location": "Exit Criteria; T-7.12 Integration test; T-7.1 boot/shutdown sequence",
+        "recommendation": "Confirm WALManager’s crash-safety properties (atomic append format, checksum, truncation-on-corruption). Add a test that kills during active writes and validates recovery truncates safely. Document fsync policy and performance tradeoffs; ensure recovery tolerates partial tail records.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-003",
+        "concern": "Boot blocks on `recovery.run()` with no timeout/backoff policy, risking startup hangs and cascading outages",
+        "severity": "HIGH",
+        "severity_score": 760,
+        "why_matters": "If mountSource/gitSource/R2/templateSource are slow, misconfigured, or rate-limited, the process may never become healthy/ready. This is especially risky if running under an orchestrator with health checks that kill/restart repeatedly, amplifying the problem.",
+        "location": "T-7.3 Acceptance Criteria: 'Boot blocks until recovery.run() completes'",
+        "recommendation": "Add a bounded startup policy: per-source timeouts, overall deadline, and a degraded-but-running mode when local WAL is sufficient. Emit readiness states separately from liveness; ensure loop detection doesn’t require full completion to serve minimal functionality.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-004",
+        "concern": "Two-phase checkpoint protocol details are underspecified (idempotency, concurrent checkpoints, stale intent races), risking orphaned intents or inconsistent remote state",
+        "severity": "HIGH",
+        "severity_score": 740,
+        "why_matters": "CheckpointProtocol begin/finalize implies intent objects and cleanup. Without explicit rules for retries, concurrent runs, and crash mid-finalize, you can end up with multiple intents, partial uploads, or a finalized checkpoint missing files. Cleanup 'after each sync' can also delete a still-in-progress intent if clocks/leases aren’t handled.",
+        "location": "T-7.4 Acceptance Criteria: beginCheckpoint/finalizeCheckpoint; stale intent cleanup",
+        "recommendation": "Specify intent naming, leasing/TTL, and idempotent finalize semantics. Add concurrency guard (single-flight) and retry strategy. Add tests for crash between begin and finalize and for two overlapping sync invocations.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-007",
+        "concern": "Beads recovery via `br` CLI introduces command-injection and portability risks; validation rules may be insufficient",
+        "severity": "CRITICAL",
+        "severity_score": 840,
+        "why_matters": "Even with alphanumeric/underscore/hyphen validation, invoking a shell/CLI during recovery is risky (argument parsing quirks, environment manipulation, PATH hijacking, unexpected locale/encoding). Also, replaying WAL entries into an external tool can fail due to version mismatch, missing binary, or non-deterministic behavior, breaking boot recovery.",
+        "location": "T-7.8 Acceptance Criteria: 'Recovery replays WAL entries through br CLI commands'; shell escape validation",
+        "recommendation": "Avoid shell invocation; call a library API or spawn with execFile and fixed argv (no shell). Pin and verify `br` version; fail gracefully if missing. Add an allowlist for all arguments, not just bead inputs. Add integration tests that simulate missing/old `br` binary.",
+        "source": "opus_skeptic"
+      },
+      {
+        "id": "SKP-008",
+        "concern": "Compaction/pruning safety depends on external confirmations (R2 + git) but the definition of 'checkpoint exists' and 'git status ok' is vague, risking premature deletion",
+        "severity": "CRITICAL",
+        "severity_score": 820,
+        "why_matters": "If 'checkpoint exists' means an intent exists but not finalized, or if git 'ok' ignores push failures/remote lag, compaction could delete WAL history needed for recovery. Also, keep-latest-per-path compaction can break if ordering/seq semantics differ across segments or if multiple logical records share a path.",
+        "location": "T-7.9 Acceptance Criteria; T-7.4 checkpoint protocol; T-7.1 WAL status/seq",
+        "recommendation": "Define strict confirmation: only finalized checkpoints with manifest + verified hashes; git ok must include remote up-to-date and last push success. Add a 'minimum retained segments/time' floor. Add a recovery drill test: compact, then restore from both sources, then verify full state.",
+        "source": "opus_skeptic"
+      }
+    ],
+    "phase": "sprint",
+    "document": "grimoires/loa/sprint-refactor-persistence.md",
+    "domain": " sprint 7 persistence refactoring",
+    "execution": {
+      "mode": "interactive",
+      "mode_reason": "CLI flag --interactive",
+      "run_id": null
+    },
+    "timestamp": "2026-02-06T08:24:47Z",
+    "metrics": {
+      "total_latency_ms": 215000,
+      "cost_cents": 0,
+      "cost_usd": 0
+    }
+  }
+}

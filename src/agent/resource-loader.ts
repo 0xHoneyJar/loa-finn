@@ -3,7 +3,7 @@
 
 import { DefaultResourceLoader } from "@mariozechner/pi-coding-agent"
 import type { ResourceLoader } from "@mariozechner/pi-coding-agent"
-import { IdentityLoader } from "./identity.js"
+import { readFile } from "node:fs/promises"
 
 export interface LoaResourceLoaderOptions {
   cwd: string
@@ -14,14 +14,19 @@ export interface LoaResourceLoaderOptions {
 export async function createLoaResourceLoader(
   options: LoaResourceLoaderOptions,
 ): Promise<ResourceLoader> {
-  const identity = new IdentityLoader(options.beauvoirPath)
-  const systemPrompt = await identity.load()
+  // Load raw BEAUVOIR.md content for system prompt injection
+  let systemPrompt: string | undefined
+  try {
+    systemPrompt = await readFile(options.beauvoirPath, "utf-8")
+    if (!systemPrompt.trim()) systemPrompt = undefined
+  } catch {
+    // BEAUVOIR.md doesn't exist yet, that's fine
+  }
 
   // Build context from grimoires if NOTES.md exists
   let appendPrompt: string | undefined
   if (options.notesPath) {
     try {
-      const { readFile } = await import("node:fs/promises")
       const notes = await readFile(options.notesPath, "utf-8")
       if (notes.trim()) {
         appendPrompt = `\n\n## Recent Learnings\n\n${notes.slice(0, 4000)}`
@@ -33,7 +38,7 @@ export async function createLoaResourceLoader(
 
   const loader = new DefaultResourceLoader({
     cwd: options.cwd,
-    systemPrompt: systemPrompt || undefined,
+    systemPrompt,
     appendSystemPrompt: appendPrompt,
     noExtensions: true,
     noSkills: true,

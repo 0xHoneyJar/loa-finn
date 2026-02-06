@@ -1,10 +1,10 @@
-// tests/finn/compound-cycle.test.ts — End-to-end compound learning cycle (T-6.5)
+// tests/finn/compound-cycle.test.ts — End-to-end compound learning cycle (T-6.5, T-7.7)
 
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { WAL } from "../../src/persistence/wal.js"
+import { createWALManager } from "../../src/persistence/upstream.js"
 import { CompoundLearning, type TrajectoryEntry } from "../../src/learning/compound.js"
 
 function makeTempDir(): string {
@@ -37,7 +37,9 @@ async function main() {
   await test("trajectory entries are logged to JSONL", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
+      const walDir = join(dir, "wal")
+      const wal = createWALManager(walDir)
+      await wal.initialize()
       const compound = new CompoundLearning(dir, wal)
 
       const entry: TrajectoryEntry = {
@@ -59,6 +61,7 @@ async function main() {
       const parsed = JSON.parse(lines[lines.length - 1])
       assert.equal(parsed.sessionId, "test-session-1")
       assert.equal(parsed.type, "tool_start")
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
@@ -67,7 +70,9 @@ async function main() {
   await test("extract finds error → success patterns", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
+      const walDir = join(dir, "wal")
+      const wal = createWALManager(walDir)
+      await wal.initialize()
       const compound = new CompoundLearning(dir, wal)
       const sessionId = "test-session-extract"
 
@@ -93,6 +98,7 @@ async function main() {
       const candidates = await compound.extract(sessionId)
       assert.ok(candidates.length >= 1, "should find at least 1 error→success pattern")
       assert.equal(candidates[0].trigger, "tool:bash:error")
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
@@ -101,7 +107,9 @@ async function main() {
   await test("evaluate filters by quality gates", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
+      const walDir = join(dir, "wal")
+      const wal = createWALManager(walDir)
+      await wal.initialize()
       const compound = new CompoundLearning(dir, wal)
 
       // Good candidate (passes 3+ gates)
@@ -126,15 +134,18 @@ async function main() {
       assert.equal(qualified.length, 1, "only good candidate should pass")
       assert.equal(qualified[0].trigger, "tool:bash:error")
       assert.ok(qualified[0].qualityScore >= 0.75, "quality score should be high")
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
   })
 
-  await test("persist writes to NOTES.md and WAL", async () => {
+  await test("persist writes to LearningStore and WAL", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
+      const walDir = join(dir, "wal")
+      const wal = createWALManager(walDir)
+      await wal.initialize()
       const compound = new CompoundLearning(dir, wal)
 
       const learnings = compound.evaluate([
@@ -149,17 +160,16 @@ async function main() {
 
       await compound.persist(learnings)
 
-      // Check NOTES.md was updated
-      const notesPath = join(grimoireDir, "NOTES.md")
-      assert.ok(existsSync(notesPath), "NOTES.md should exist")
+      // Check LearningStore has the learning
+      const store = await compound.getStore().loadStore()
+      assert.ok(store.learnings.length >= 1, "LearningStore should have at least 1 learning")
+      assert.equal(store.learnings[0].trigger, "tool:bash:error")
+      assert.ok(store.learnings[0].solution.includes("sudo"), "solution should be preserved")
 
-      const content = readFileSync(notesPath, "utf-8")
-      assert.ok(content.includes("tool:bash:error"), "learning should be in NOTES.md")
-      assert.ok(content.includes("sudo"), "resolution should be in NOTES.md")
-
-      // Check WAL entry was created
-      const head = await wal.getHeadEntryId()
-      assert.ok(head, "WAL should have entries")
+      // Check WAL has entries
+      const status = wal.getStatus()
+      assert.ok(status.seq > 0, "WAL should have entries")
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
@@ -168,7 +178,9 @@ async function main() {
   await test("loadForContext returns formatted learnings", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
+      const walDir = join(dir, "wal")
+      const wal = createWALManager(walDir)
+      await wal.initialize()
       const compound = new CompoundLearning(dir, wal)
 
       // First persist some learnings
@@ -186,7 +198,8 @@ async function main() {
       // Load for context
       const context = await compound.loadForContext()
       assert.ok(context.includes("Recent Learnings"), "should have header")
-      assert.ok(context.includes("pattern:retry"), "should include learning")
+      assert.ok(context.includes("pattern:retry"), "should include learning trigger")
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }
@@ -195,7 +208,9 @@ async function main() {
   await test("full cycle: log → extract → evaluate → persist → load", async () => {
     const dir = makeTempDir()
     try {
-      const wal = new WAL(dir)
+      const walDir = join(dir, "wal")
+      const wal = createWALManager(walDir)
+      await wal.initialize()
       const compound = new CompoundLearning(dir, wal)
       const sessionId = "full-cycle-test"
 
@@ -233,6 +248,7 @@ async function main() {
       // Learnings may or may not pass quality gates depending on the pattern
       // The important thing is the cycle completes without error
       assert.ok(typeof context === "string", "loadForContext should return a string")
+      await wal.shutdown()
     } finally {
       cleanup(dir)
     }

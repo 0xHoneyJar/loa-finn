@@ -13,7 +13,7 @@
     "test:persist": "tsx tests/finn/persistence-integration.test.ts",
     "test:cb": "tsx tests/finn/circuit-breaker.test.ts",
     "test:compound": "tsx tests/finn/compound-cycle.test.ts",
-    "test:finn": "tsx tests/finn/wal.test.ts && tsx tests/finn/persistence-integration.test.ts && tsx tests/finn/circuit-breaker.test.ts && tsx tests/finn/compound-cycle.test.ts"
+    "test:finn": "tsx tests/finn/wal.test.ts && tsx tests/finn/persistence-integration.test.ts && tsx tests/finn/circuit-breaker.test.ts && tsx tests/finn/compound-cycle.test.ts && tsx tests/finn/walpath-validation.test.ts && tsx tests/finn/kill-restart-resume.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.984.0",

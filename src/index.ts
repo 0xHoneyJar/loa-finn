@@ -1,12 +1,14 @@
 // src/index.ts — loa-finn entry point (SDD §10.2)
-// Boot sequence: config → identity → persistence → recovery → gateway → scheduler → serve
+// Boot sequence: config → validate → identity → persistence → recovery → gateway → scheduler → serve
 
 import { loadConfig } from "./config.js"
 import { IdentityLoader } from "./agent/identity.js"
-import { WAL } from "./persistence/wal.js"
+import { createWALManager } from "./persistence/upstream.js"
+import { walPath } from "./persistence/wal-path.js"
+import { validateUpstreamPersistence } from "./persistence/upstream-check.js"
 import { ObjectStoreSync } from "./persistence/r2-sync.js"
 import { GitSync } from "./persistence/git-sync.js"
-import { RecoveryCascade } from "./persistence/recovery.js"
+import { runRecovery } from "./persistence/recovery.js"
 import { WALPruner } from "./persistence/pruner.js"
 import { createApp } from "./gateway/server.js"
 import { handleWebSocket } from "./gateway/ws.js"
@@ -17,6 +19,7 @@ import { BeadsBridge } from "./beads/bridge.js"
 import { CompoundLearning } from "./learning/compound.js"
 import { serve } from "@hono/node-server"
 import { WebSocketServer } from "ws"
+import { join } from "node:path"
 
 async function main() {
   const bootStart = Date.now()
@@ -26,37 +29,49 @@ async function main() {
   const config = loadConfig()
   console.log(`[finn] config loaded: model=${config.model}, port=${config.port}`)
 
-  // 2. Load identity
-  const identity = new IdentityLoader(config.beauvoirPath)
-  await identity.load()
-  console.log(`[finn] identity loaded: checksum=${identity.getChecksum().slice(0, 8)}`)
+  // 1b. Validate upstream persistence framework (DD-1)
+  validateUpstreamPersistence()
+  console.log("[finn] upstream persistence validated")
 
-  // 3. Initialize persistence
-  const wal = new WAL(config.dataDir)
+  // 2. Load identity (upstream IdentityLoader with FileWatcher hot-reload)
+  const identity = new IdentityLoader({
+    beauvoirPath: config.beauvoirPath,
+    notesPath: "grimoires/loa/NOTES.md",
+  })
+  const identityDoc = await identity.load()
+  const validation = identity.validate()
+  console.log(`[finn] identity loaded: v${identityDoc.version}, checksum=${identityDoc.checksum.slice(0, 8)}, valid=${validation.valid}`)
+
+  // 3. Initialize persistence (upstream WALManager)
+  const walDir = join(config.dataDir, "wal")
+  const wal = createWALManager(walDir)
+  await wal.initialize()
+
   const r2Sync = new ObjectStoreSync(config, wal)
   const gitSync = new GitSync(config, wal)
-  const pruner = new WALPruner(wal, r2Sync, gitSync)
-  console.log(`[finn] persistence initialized: wal=${wal.getSegments().length} segments`)
+  const pruner = new WALPruner(wal)
 
-  // 4. Recovery cascade
-  const recovery = new RecoveryCascade(config, wal, r2Sync, gitSync)
-  const recoveryResult = await recovery.recover("strict")
-  console.log(`[finn] recovery: source=${recoveryResult.source}, mode=${recoveryResult.mode}, entries=${recoveryResult.walEntriesReplayed}`)
+  const walStatus = wal.getStatus()
+  console.log(`[finn] persistence initialized: wal seq=${walStatus.seq}, segments=${walStatus.segmentCount}`)
 
-  // 5. Initialize beads bridge
+  // 4. Recovery cascade (upstream RecoveryEngine)
+  const recoveryResult = await runRecovery(config, wal, r2Sync, gitSync)
+  console.log(`[finn] recovery: source=${recoveryResult.source}, mode=${recoveryResult.mode}, state=${recoveryResult.state}, entries=${recoveryResult.walEntriesReplayed}`)
+
+  // 5. Initialize beads bridge (with WAL-backed transition logging)
   const beads = new BeadsBridge()
-  await beads.init()
+  await beads.init(wal)
   console.log(`[finn] beads: available=${beads.isAvailable}`)
 
   // 6. Initialize compound learning
   const compound = new CompoundLearning(config.dataDir, wal)
 
   // 7. Create gateway (with health aggregator once available)
-  // We create a placeholder and update after scheduler init
   const { app, router } = createApp(config)
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()
+  let identityWatching = false
   const healthAggregator = new HealthAggregator({
     config,
     wal,
@@ -65,12 +80,21 @@ async function main() {
     scheduler,
     getSessionCount: () => router.getActiveCount(),
     getBeadsAvailable: () => beads.isAvailable,
+    getRecoveryState: () => ({
+      state: recoveryResult.state,
+      source: recoveryResult.source,
+    }),
+    getIdentityStatus: () => ({
+      checksum: identity.getIdentity()?.checksum ?? "",
+      watching: identityWatching,
+    }),
+    getLearningCounts: () => ({ total: 0, active: 0 }), // Updated async by health task
   })
 
   // Log circuit breaker transitions to WAL
   scheduler.onCircuitTransition((taskId, from, to) => {
     console.log(`[scheduler] circuit breaker ${taskId}: ${from} -> ${to}`)
-    wal.append("config", "update", `circuit-breaker/${taskId}`, { taskId, from, to })
+    wal.append("write", walPath("config", `circuit-breaker-${taskId}`), Buffer.from(JSON.stringify({ taskId, from, to })))
   })
 
   // Register scheduled tasks
@@ -82,6 +106,9 @@ async function main() {
     handler: async () => {
       const result = await r2Sync.sync()
       if (result.filesUploaded > 0) {
+        // Report confirmed seq to pruner
+        const cp = r2Sync.getLastCheckpoint()
+        if (cp?.walHeadSeq) pruner.setConfirmedR2Seq(cp.walHeadSeq)
         console.log(`[r2-sync] uploaded ${result.filesUploaded} files (${result.bytesUploaded}B) in ${result.duration}ms`)
       }
     },
@@ -95,8 +122,13 @@ async function main() {
     handler: async () => {
       const snapshot = await gitSync.snapshot()
       if (snapshot) {
-        await gitSync.push()
-        console.log(`[git-sync] snapshot ${snapshot.snapshotId} pushed`)
+        const pushed = await gitSync.push()
+        if (pushed) {
+          // Report confirmed seq to pruner
+          const seq = parseInt(snapshot.walCheckpoint, 10)
+          if (!isNaN(seq)) pruner.setConfirmedGitSeq(seq)
+          console.log(`[git-sync] snapshot ${snapshot.snapshotId} pushed`)
+        }
       }
     },
   })
@@ -115,16 +147,6 @@ async function main() {
   })
 
   scheduler.register({
-    id: "identity_reload",
-    name: "Identity Reload",
-    intervalMs: 60_000,
-    jitterMs: 5000,
-    handler: async () => {
-      await identity.checkAndReload()
-    },
-  })
-
-  scheduler.register({
     id: "wal_prune",
     name: "WAL Prune",
     intervalMs: 3600_000,
@@ -132,7 +154,7 @@ async function main() {
     handler: async () => {
       const result = await pruner.pruneConfirmed()
       if (result.segmentsPruned > 0) {
-        console.log(`[wal-prune] pruned ${result.segmentsPruned} segments`)
+        console.log(`[wal-prune] pruned ${result.segmentsPruned} entries (ratio: ${result.compactionRatio.toFixed(2)})`)
       }
     },
   })
@@ -140,10 +162,12 @@ async function main() {
   scheduler.start()
   console.log(`[finn] scheduler started: ${scheduler.getStatus().length} tasks`)
 
-  // 9. Start watching identity file
-  identity.watch((content) => {
-    console.log(`[finn] identity updated (${content.length} chars)`)
+  // 9. Start watching identity file (FileWatcher with polling fallback)
+  identity.startWatching(() => {
+    const doc = identity.getIdentity()
+    console.log(`[finn] identity reloaded: v${doc?.version}, checksum=${doc?.checksum.slice(0, 8)}`)
   })
+  identityWatching = true
 
   // 10. Start HTTP server
   const bootDuration = Date.now() - bootStart
@@ -201,6 +225,7 @@ async function main() {
 
     // Stop identity watcher
     identity.stopWatching()
+    identityWatching = false
 
     // Close HTTP server (stop accepting new connections)
     server.close()
@@ -212,6 +237,9 @@ async function main() {
     } catch (err) {
       console.error("[finn] final sync failed:", err)
     }
+
+    // Shutdown WAL (flush + release lock)
+    await wal.shutdown()
 
     const duration = Date.now() - start
     console.log(`[finn] shutdown complete in ${duration}ms`)

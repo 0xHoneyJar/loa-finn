@@ -1,10 +1,12 @@
-// src/learning/compound.ts — Compound learning cycle (SDD §3.6, T-4.6)
+// src/learning/compound.ts — Compound learning cycle (SDD §3.6, T-4.6, T-7.7)
+// Uses upstream LearningStore for persistence, WALManager for trajectory logging.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
-import { appendFile, readFile, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { ulid } from "ulid"
-import type { WAL } from "../persistence/wal.js"
+import type { WALManager } from "../persistence/upstream.js"
+import { LearningStore } from "../persistence/upstream.js"
+import { walPath } from "../persistence/wal-path.js"
 
 export interface TrajectoryEntry {
   timestamp: number
@@ -38,13 +40,19 @@ export interface QualifiedLearning {
 
 export class CompoundLearning {
   private trajectoryDir: string
+  private learningStore: LearningStore
 
   constructor(
     private dataDir: string,
-    private wal: WAL,
+    private wal: WALManager,
   ) {
     this.trajectoryDir = join("grimoires/loa/a2a/trajectory")
     mkdirSync(this.trajectoryDir, { recursive: true })
+
+    // Initialize upstream LearningStore (disk-backed, WAL logged separately)
+    this.learningStore = new LearningStore({
+      basePath: join("grimoires/loa"),
+    })
   }
 
   /** Log a trajectory entry for the current session. */
@@ -118,7 +126,7 @@ export class CompoundLearning {
 
         if (gates >= 3) {
           return {
-            id: ulid(),
+            id: `learning-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             trigger: c.trigger,
             context: c.context,
             resolution: c.resolution,
@@ -132,43 +140,41 @@ export class CompoundLearning {
       .filter((l): l is QualifiedLearning => l !== null)
   }
 
-  /** Persist qualified learnings to NOTES.md and WAL. */
+  /** Persist qualified learnings via upstream LearningStore + WAL. */
   async persist(learnings: QualifiedLearning[]): Promise<void> {
-    if (learnings.length === 0) return
-
-    const notesPath = join("grimoires/loa", "NOTES.md")
-
-    // Append learnings to NOTES.md
-    let content = ""
-    try {
-      content = await readFile(notesPath, "utf-8")
-    } catch {
-      content = "# NOTES.md\n\n## Learnings\n"
-    }
-
-    const newEntries = learnings
-      .map(
-        (l) =>
-          `- **${l.trigger}**: ${l.resolution} (confidence: ${l.confidence.toFixed(2)}, quality: ${l.qualityScore.toFixed(2)})`,
-      )
-      .join("\n")
-
-    if (content.includes("## Learnings")) {
-      content = content.replace("## Learnings", `## Learnings\n${newEntries}`)
-    } else {
-      content += `\n## Learnings\n${newEntries}\n`
-    }
-
-    await writeFile(notesPath, content)
-
-    // Log to WAL
     for (const learning of learnings) {
-      this.wal.append("memory", "create", `learnings/${learning.id}`, learning)
+      // Store in LearningStore (writes to disk)
+      const stored = await this.learningStore.addLearning({
+        source: "error-cycle",
+        trigger: learning.trigger,
+        pattern: learning.context,
+        solution: learning.resolution,
+        target: "openclaw", // Not "loa" to skip self-improvement approval flow
+      })
+
+      // Also log to WAL for upstream sync
+      const data = Buffer.from(JSON.stringify(stored))
+      const filename = stored.id.replace(/[^a-zA-Z0-9_-]/g, "-")
+      await this.wal.append("write", walPath("learnings", filename), data)
     }
   }
 
   /** Load recent learnings formatted for system prompt injection. */
   async loadForContext(limit = 20): Promise<string> {
+    // Load from upstream LearningStore
+    const store = await this.learningStore.loadStore()
+    const active = store.learnings
+      .filter((l) => l.status === "active" || l.status === "pending")
+      .slice(0, limit)
+
+    if (active.length > 0) {
+      const lines = active.map(
+        (l) => `- **${l.trigger}**: ${l.solution}`,
+      )
+      return `## Recent Learnings from Prior Sessions\n${lines.join("\n")}`
+    }
+
+    // Fallback: read from NOTES.md for backward compatibility
     const notesPath = join("grimoires/loa", "NOTES.md")
     try {
       const content = await readFile(notesPath, "utf-8")
@@ -182,5 +188,10 @@ export class CompoundLearning {
     } catch {
       return ""
     }
+  }
+
+  /** Get the underlying LearningStore for advanced queries. */
+  getStore(): LearningStore {
+    return this.learningStore
   }
 }
