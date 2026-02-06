@@ -5,8 +5,13 @@ import type { FinnConfig } from "../config.js"
 import { SessionRouter } from "./sessions.js"
 import { authMiddleware, corsMiddleware } from "./auth.js"
 import { rateLimitMiddleware } from "./rate-limit.js"
+import type { HealthAggregator } from "../scheduler/health.js"
 
-export function createApp(config: FinnConfig) {
+export interface AppOptions {
+  healthAggregator?: HealthAggregator
+}
+
+export function createApp(config: FinnConfig, options?: AppOptions) {
   const app = new Hono()
   const router = new SessionRouter(config)
 
@@ -15,6 +20,9 @@ export function createApp(config: FinnConfig) {
 
   // Health endpoint (no auth required)
   app.get("/health", (c) => {
+    if (options?.healthAggregator) {
+      return c.json(options.healthAggregator.check())
+    }
     return c.json({
       status: "healthy",
       uptime: process.uptime(),
