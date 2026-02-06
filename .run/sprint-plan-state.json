@@ -1,0 +1,34 @@
+{
+  "plan_id": "plan-20260206-finn01",
+  "branch": "feature/sprint-plan-release",
+  "state": "JACKED_OUT",
+  "timestamps": {
+    "started": "2026-02-06T02:55:00Z",
+    "last_activity": "2026-02-06T05:30:00Z",
+    "completed": "2026-02-06T05:30:00Z"
+  },
+  "sprints": {
+    "total": 6,
+    "completed": 6,
+    "current": null,
+    "list": [
+      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Agent Core"},
+      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Gateway + Auth"},
+      {"id": "sprint-3", "status": "completed", "cycles": 1, "label": "Persistence"},
+      {"id": "sprint-4", "status": "completed", "cycles": 1, "label": "Scheduler & Compound"},
+      {"id": "sprint-5", "status": "completed", "cycles": 1, "label": "Deployment"},
+      {"id": "sprint-6", "status": "completed", "cycles": 1, "label": "Loa Integration"}
+    ]
+  },
+  "options": {
+    "from": 1,
+    "to": 6,
+    "max_cycles": 20,
+    "timeout_hours": 8
+  },
+  "metrics": {
+    "total_cycles": 6,
+    "total_files_changed": 40,
+    "total_findings_fixed": 1
+  }
+}

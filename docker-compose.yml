@@ -1,0 +1,20 @@
+# docker-compose.yml — Local dev with production parity (T-5.2)
+
+services:
+  loa-finn:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - finn-data:/data
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=/data
+    restart: unless-stopped
+
+volumes:
+  finn-data:
