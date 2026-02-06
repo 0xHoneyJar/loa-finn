@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>loa-finn</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0d1117;
+    --chat-bg: #161b22;
+    --user-accent: #1f6feb;
+    --agent-text: #c9d1d9;
+    --tool-orange: #f0883e;
+    --border: #30363d;
+    --muted: #8b949e;
+    --error-red: #f85149;
+    --success-green: #3fb950;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--agent-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-size: 16px;
+    font-weight: 600;
+    font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.5px;
+  }
+
+  #status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  #status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+
+  #status-dot.connected { background: var(--success-green); }
+  #status-dot.error { background: var(--error-red); }
+  #status-dot.connecting { background: var(--tool-orange); animation: pulse 1s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  #settings-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+
+  #settings-btn:hover { border-color: var(--agent-text); color: var(--agent-text); }
+
+  /* Settings panel */
+  #settings-panel {
+    display: none;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--chat-bg);
+  }
+
+  #settings-panel.visible { display: block; }
+
+  #settings-panel label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  #settings-panel input {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--agent-text);
+    font-size: 13px;
+    font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+    margin-bottom: 8px;
+  }
+
+  #settings-panel input:focus { outline: none; border-color: var(--user-accent); }
+
+  .settings-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .settings-row button {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  #save-settings {
+    background: var(--user-accent);
+    color: #fff;
+  }
+
+  #clear-session {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+
+  #clear-session:hover { border-color: var(--error-red); color: var(--error-red); }
+
+  /* Messages area */
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .message {
+    max-width: 85%;
+    padding: 10px 14px;
+    border-radius: 10px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .message.user {
+    align-self: flex-end;
+    background: var(--user-accent);
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    border-bottom-right-radius: 4px;
+  }
+
+  .message.agent {
+    align-self: flex-start;
+    background: var(--bg);
+    color: var(--agent-text);
+    font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+
+  .message.system {
+    align-self: center;
+    background: none;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 4px 0;
+  }
+
+  /* Tool indicators */
+  .tool-indicator {
+    align-self: flex-start;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+    border: 1px solid color-mix(in srgb, var(--tool-orange) 30%, transparent);
+    background: color-mix(in srgb, var(--tool-orange) 8%, transparent);
+    color: var(--tool-orange);
+    max-width: 90%;
+    overflow: hidden;
+  }
+
+  .tool-indicator .tool-name {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .tool-indicator .tool-args {
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tool-indicator .tool-result {
+    display: block;
+    margin-top: 4px;
+    color: var(--agent-text);
+    font-size: 11px;
+    white-space: pre-wrap;
+    max-height: 100px;
+    overflow-y: auto;
+  }
+
+  .tool-indicator .tool-error {
+    color: var(--error-red);
+  }
+
+  .tool-indicator .spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid color-mix(in srgb, var(--tool-orange) 30%, transparent);
+    border-top-color: var(--tool-orange);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Turn end / usage */
+  .turn-end {
+    align-self: center;
+    font-size: 11px;
+    color: var(--muted);
+    padding: 2px 0;
+    border-top: 1px solid var(--border);
+    width: 100%;
+    text-align: center;
+    margin-top: 4px;
+  }
+
+  /* Input area */
+  #input-area {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--chat-bg);
+    flex-shrink: 0;
+  }
+
+  #message-input {
+    flex: 1;
+    padding: 10px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--agent-text);
+    font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    resize: none;
+    min-height: 42px;
+    max-height: 150px;
+    line-height: 1.4;
+  }
+
+  #message-input:focus { outline: none; border-color: var(--user-accent); }
+
+  #message-input::placeholder { color: var(--muted); }
+
+  #send-btn, #abort-btn {
+    padding: 0 18px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    flex-shrink: 0;
+    transition: opacity 0.2s;
+  }
+
+  #send-btn {
+    background: var(--user-accent);
+    color: #fff;
+  }
+
+  #send-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  #abort-btn {
+    background: var(--error-red);
+    color: #fff;
+    display: none;
+  }
+
+  #abort-btn.visible { display: block; }
+
+  /* Scrollbar */
+  #messages::-webkit-scrollbar { width: 6px; }
+  #messages::-webkit-scrollbar-track { background: transparent; }
+  #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  #messages::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    #app { max-width: 100%; }
+    .message { max-width: 92%; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>loa-finn</h1>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div id="status-indicator">
+        <div id="status-dot"></div>
+        <span id="status-text">disconnected</span>
+      </div>
+      <button id="settings-btn" type="button">settings</button>
+    </div>
+  </header>
+
+  <div id="settings-panel">
+    <label for="token-input">Auth Token</label>
+    <input id="token-input" type="password" placeholder="Bearer token" autocomplete="off">
+    <label for="host-input">Server Host</label>
+    <input id="host-input" type="text" placeholder="localhost:3000">
+    <div class="settings-row">
+      <button id="save-settings" type="button">Save</button>
+      <button id="clear-session" type="button">Clear Session</button>
+    </div>
+  </div>
+
+  <div id="messages"></div>
+
+  <div id="input-area">
+    <textarea id="message-input" rows="1" placeholder="Send a message..."></textarea>
+    <button id="send-btn" type="button" disabled>Send</button>
+    <button id="abort-btn" type="button">Stop</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  "use strict";
+
+  // --- State ---
+  var ws = null;
+  var sessionId = localStorage.getItem("finn_session_id") || null;
+  var authToken = localStorage.getItem("finn_auth_token") || "";
+  var serverHost = localStorage.getItem("finn_server_host") || location.host || "localhost:3000";
+  var isStreaming = false;
+  var currentAgentEl = null;
+  var reconnectAttempts = 0;
+  var maxReconnectAttempts = 5;
+  var reconnectTimer = null;
+  var pingTimer = null;
+
+  // --- DOM refs ---
+  var messagesEl = document.getElementById("messages");
+  var inputEl = document.getElementById("message-input");
+  var sendBtn = document.getElementById("send-btn");
+  var abortBtn = document.getElementById("abort-btn");
+  var statusDot = document.getElementById("status-dot");
+  var statusText = document.getElementById("status-text");
+  var settingsBtn = document.getElementById("settings-btn");
+  var settingsPanel = document.getElementById("settings-panel");
+  var tokenInput = document.getElementById("token-input");
+  var hostInput = document.getElementById("host-input");
+  var saveSettings = document.getElementById("save-settings");
+  var clearSession = document.getElementById("clear-session");
+
+  // --- Settings ---
+  tokenInput.value = authToken;
+  hostInput.value = serverHost;
+
+  settingsBtn.addEventListener("click", function() {
+    settingsPanel.classList.toggle("visible");
+  });
+
+  saveSettings.addEventListener("click", function() {
+    authToken = tokenInput.value.trim();
+    serverHost = hostInput.value.trim() || "localhost:3000";
+    localStorage.setItem("finn_auth_token", authToken);
+    localStorage.setItem("finn_server_host", serverHost);
+    settingsPanel.classList.remove("visible");
+    addSystemMessage("Settings saved.");
+    // Reconnect with new settings
+    if (ws) { ws.close(); }
+    sessionId = localStorage.getItem("finn_session_id");
+    boot();
+  });
+
+  clearSession.addEventListener("click", function() {
+    localStorage.removeItem("finn_session_id");
+    sessionId = null;
+    messagesEl.innerHTML = "";
+    if (ws) { ws.close(); }
+    addSystemMessage("Session cleared. A new session will be created.");
+    boot();
+  });
+
+  // --- Auto-resize textarea ---
+  inputEl.addEventListener("input", function() {
+    this.style.height = "auto";
+    this.style.height = Math.min(this.scrollHeight, 150) + "px";
+    updateSendButton();
+  });
+
+  inputEl.addEventListener("keydown", function(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  sendBtn.addEventListener("click", sendMessage);
+
+  abortBtn.addEventListener("click", function() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "abort" }));
+      addSystemMessage("Abort requested.");
+    }
+  });
+
+  // --- Helpers ---
+  function updateSendButton() {
+    sendBtn.disabled = !inputEl.value.trim() || !ws || ws.readyState !== WebSocket.OPEN;
+  }
+
+  function setStatus(state, text) {
+    statusDot.className = state;
+    statusText.textContent = text;
+    updateSendButton();
+  }
+
+  function scrollToBottom() {
+    requestAnimationFrame(function() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    });
+  }
+
+  function escapeHtml(text) {
+    var el = document.createElement("span");
+    el.textContent = text;
+    return el.innerHTML;
+  }
+
+  // --- Message rendering ---
+  function addUserMessage(text) {
+    var el = document.createElement("div");
+    el.className = "message user";
+    el.textContent = text;
+    messagesEl.appendChild(el);
+    scrollToBottom();
+  }
+
+  function addSystemMessage(text) {
+    var el = document.createElement("div");
+    el.className = "message system";
+    el.textContent = text;
+    messagesEl.appendChild(el);
+    scrollToBottom();
+  }
+
+  function ensureAgentMessage() {
+    if (!currentAgentEl) {
+      currentAgentEl = document.createElement("div");
+      currentAgentEl.className = "message agent";
+      currentAgentEl.textContent = "";
+      messagesEl.appendChild(currentAgentEl);
+    }
+    return currentAgentEl;
+  }
+
+  function appendAgentDelta(delta) {
+    var el = ensureAgentMessage();
+    el.textContent += delta;
+    scrollToBottom();
+  }
+
+  function finalizeAgentMessage() {
+    currentAgentEl = null;
+  }
+
+  function addToolStart(toolName, args) {
+    finalizeAgentMessage();
+    var el = document.createElement("div");
+    el.className = "tool-indicator";
+    el.id = "tool-active-" + toolName + "-" + Date.now();
+
+    var spinner = document.createElement("span");
+    spinner.className = "spinner";
+    el.appendChild(spinner);
+
+    var nameSpan = document.createElement("span");
+    nameSpan.className = "tool-name";
+    nameSpan.textContent = toolName;
+    el.appendChild(nameSpan);
+
+    if (args) {
+      var argsSpan = document.createElement("span");
+      argsSpan.className = "tool-args";
+      var summary = summarizeArgs(args);
+      argsSpan.textContent = summary;
+      argsSpan.title = JSON.stringify(args, null, 2);
+      el.appendChild(argsSpan);
+    }
+
+    el.dataset.toolName = toolName;
+    messagesEl.appendChild(el);
+    scrollToBottom();
+    return el;
+  }
+
+  function addToolEnd(toolName, result, isError) {
+    // Find the most recent active tool indicator for this tool
+    var indicators = messagesEl.querySelectorAll('.tool-indicator[data-tool-name="' + toolName + '"]');
+    var el = indicators.length > 0 ? indicators[indicators.length - 1] : null;
+
+    if (el) {
+      // Remove spinner
+      var spinner = el.querySelector(".spinner");
+      if (spinner) { el.removeChild(spinner); }
+
+      // Add result if present
+      if (result) {
+        var resultEl = document.createElement("span");
+        resultEl.className = isError ? "tool-result tool-error" : "tool-result";
+        var truncated = result.length > 300 ? result.substring(0, 300) + "..." : result;
+        resultEl.textContent = truncated;
+        resultEl.title = result;
+        el.appendChild(resultEl);
+      }
+
+      // Visual state change
+      if (isError) {
+        el.style.borderColor = "color-mix(in srgb, var(--error-red) 30%, transparent)";
+        el.style.color = "var(--error-red)";
+      } else {
+        el.style.borderColor = "color-mix(in srgb, var(--success-green) 30%, transparent)";
+        el.style.opacity = "0.7";
+      }
+    }
+    scrollToBottom();
+  }
+
+  function addTurnEnd(data) {
+    finalizeAgentMessage();
+    if (data && data.usage) {
+      var el = document.createElement("div");
+      el.className = "turn-end";
+      el.textContent = "turn complete | in: " + (data.usage.input || 0) + " out: " + (data.usage.output || 0) + " tokens";
+      messagesEl.appendChild(el);
+      scrollToBottom();
+    }
+  }
+
+  function summarizeArgs(args) {
+    if (!args) return "";
+    if (typeof args === "string") return args.substring(0, 60);
+    if (args.command) return args.command.substring(0, 80);
+    if (args.path) return args.path;
+    if (args.file_path) return args.file_path;
+    if (args.query) return args.query.substring(0, 60);
+    var keys = Object.keys(args);
+    if (keys.length === 0) return "";
+    return keys.slice(0, 3).join(", ");
+  }
+
+  // --- Sending ---
+  function sendMessage() {
+    var text = inputEl.value.trim();
+    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+    addUserMessage(text);
+    ws.send(JSON.stringify({ type: "prompt", text: text }));
+
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+    isStreaming = true;
+    abortBtn.classList.add("visible");
+    updateSendButton();
+  }
+
+  // --- WebSocket ---
+  function connectWebSocket() {
+    if (!sessionId) {
+      setStatus("error", "no session");
+      return;
+    }
+
+    setStatus("connecting", "connecting...");
+
+    var protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    var wsUrl = protocol + "//" + serverHost + "/ws/" + sessionId;
+    if (authToken) {
+      wsUrl += "?token=" + encodeURIComponent(authToken);
+    }
+
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (e) {
+      setStatus("error", "connection failed");
+      scheduleReconnect();
+      return;
+    }
+
+    ws.onopen = function() {
+      setStatus("connected", "connected");
+      reconnectAttempts = 0;
+      updateSendButton();
+      startPing();
+    };
+
+    ws.onmessage = function(event) {
+      var msg;
+      try {
+        msg = JSON.parse(event.data);
+      } catch (e) {
+        return;
+      }
+      handleServerMessage(msg);
+    };
+
+    ws.onclose = function(event) {
+      stopPing();
+      setStatus("error", "disconnected");
+      isStreaming = false;
+      abortBtn.classList.remove("visible");
+      finalizeAgentMessage();
+      updateSendButton();
+
+      if (!event.wasClean) {
+        scheduleReconnect();
+      }
+    };
+
+    ws.onerror = function() {
+      // onclose will fire after this
+    };
+  }
+
+  function handleServerMessage(msg) {
+    switch (msg.type) {
+      case "text_delta":
+        if (msg.data && msg.data.delta != null) {
+          appendAgentDelta(msg.data.delta);
+        }
+        break;
+
+      case "tool_start":
+        if (msg.data) {
+          addToolStart(msg.data.toolName || "tool", msg.data.args);
+        }
+        break;
+
+      case "tool_end":
+        if (msg.data) {
+          addToolEnd(
+            msg.data.toolName || "tool",
+            msg.data.result || "",
+            !!msg.data.isError
+          );
+        }
+        break;
+
+      case "turn_end":
+        isStreaming = false;
+        abortBtn.classList.remove("visible");
+        addTurnEnd(msg.data);
+        break;
+
+      case "agent_end":
+        isStreaming = false;
+        abortBtn.classList.remove("visible");
+        finalizeAgentMessage();
+        addSystemMessage("Agent finished.");
+        break;
+
+      case "compaction":
+        var reason = (msg.data && msg.data.reason) ? msg.data.reason : "unknown";
+        addSystemMessage("Context compacted (" + reason + ")");
+        break;
+
+      case "error":
+        var errorMsg = (msg.data && msg.data.message) ? msg.data.message : "Unknown error";
+        var recoverable = msg.data && msg.data.recoverable;
+        addSystemMessage("Error: " + errorMsg + (recoverable ? " (recoverable)" : ""));
+        if (!recoverable) {
+          isStreaming = false;
+          abortBtn.classList.remove("visible");
+          finalizeAgentMessage();
+        }
+        break;
+
+      case "pong":
+        // keepalive acknowledged
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  function scheduleReconnect() {
+    if (reconnectAttempts >= maxReconnectAttempts) {
+      setStatus("error", "failed to reconnect");
+      addSystemMessage("Connection lost. Refresh the page or check settings.");
+      return;
+    }
+
+    reconnectAttempts++;
+    var delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 15000);
+    setStatus("connecting", "reconnecting (" + reconnectAttempts + "/" + maxReconnectAttempts + ")...");
+
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(function() {
+      connectWebSocket();
+    }, delay);
+  }
+
+  function startPing() {
+    stopPing();
+    pingTimer = setInterval(function() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 30000);
+  }
+
+  function stopPing() {
+    if (pingTimer) {
+      clearInterval(pingTimer);
+      pingTimer = null;
+    }
+  }
+
+  // --- Session creation ---
+  function createSession() {
+    setStatus("connecting", "creating session...");
+
+    var protocol = location.protocol === "https:" ? "https:" : "http:";
+    var url = protocol + "//" + serverHost + "/api/sessions";
+    var headers = { "Content-Type": "application/json" };
+    if (authToken) {
+      headers["Authorization"] = "Bearer " + authToken;
+    }
+
+    fetch(url, {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify({}),
+    })
+    .then(function(res) {
+      if (!res.ok) {
+        throw new Error("HTTP " + res.status + ": " + res.statusText);
+      }
+      return res.json();
+    })
+    .then(function(data) {
+      sessionId = data.sessionId;
+      localStorage.setItem("finn_session_id", sessionId);
+      addSystemMessage("Session created: " + sessionId.substring(0, 8) + "...");
+      connectWebSocket();
+    })
+    .catch(function(err) {
+      setStatus("error", "session creation failed");
+      addSystemMessage("Failed to create session: " + err.message);
+      addSystemMessage("Check your auth token and server host in settings.");
+    });
+  }
+
+  // --- Boot ---
+  function boot() {
+    if (sessionId) {
+      addSystemMessage("Resuming session: " + sessionId.substring(0, 8) + "...");
+      connectWebSocket();
+    } else {
+      createSession();
+    }
+  }
+
+  // --- Initialize ---
+  if (!authToken) {
+    settingsPanel.classList.add("visible");
+    addSystemMessage("Configure your auth token and server host to get started.");
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
