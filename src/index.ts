@@ -238,7 +238,9 @@ async function main() {
       console.error("[finn] final sync failed:", err)
     }
 
-    // Shutdown WAL (flush + release lock)
+    // Drain pending WAL writes before shutdown (defensive for upstream #12:
+    // writeChain is private, but compact() awaits it internally)
+    try { await wal.compact() } catch { /* ok if nothing to compact */ }
     await wal.shutdown()
 
     const duration = Date.now() - start
