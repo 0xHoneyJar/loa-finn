@@ -1,0 +1,46 @@
+{
+  "simstim_id": "simstim-20260206-finn01",
+  "schema_version": 1,
+  "state": "RUNNING",
+  "phase": "flatline_complete",
+  "timestamps": {
+    "started": "2026-02-06T01:45:00Z",
+    "last_activity": "2026-02-06T02:51:00Z"
+  },
+  "phases": {
+    "preflight": "completed",
+    "discovery": "completed",
+    "flatline_prd": "completed",
+    "architecture": "completed",
+    "flatline_sdd": "completed",
+    "planning": "completed",
+    "flatline_sprint": "completed",
+    "flatline_beads": "completed",
+    "implementation": "pending",
+    "complete": "pending"
+  },
+  "artifacts": {
+    "prd": { "path": "grimoires/loa/prd.md" },
+    "sdd": { "path": "grimoires/loa/sdd.md" },
+    "sprint": { "path": "grimoires/loa/sprint.md" },
+    "ledger": { "path": "grimoires/loa/ledger.json" },
+    "flatline_prd": { "path": "grimoires/loa/a2a/flatline/prd-review.json" },
+    "flatline_sdd": { "path": "grimoires/loa/a2a/flatline/sdd-review.json" },
+    "flatline_sprint": { "path": "grimoires/loa/a2a/flatline/sprint-review.json" }
+  },
+  "context": {
+    "research": "grimoires/loa/context/research-minimal-pi.md",
+    "research_pr": "https://github.com/0xHoneyJar/loa-finn/pull/4"
+  },
+  "beads": {
+    "total": 53,
+    "epics": 6,
+    "tasks": 46,
+    "pre_existing": 1
+  },
+  "flatline_summary": {
+    "prd": { "high_consensus": 5, "disputed": 0, "blockers": 5, "agreement": "100%" },
+    "sdd": { "high_consensus": 5, "disputed": 0, "blockers": 5, "agreement": "100%" },
+    "sprint": { "high_consensus": 5, "disputed": 0, "blockers": 7, "agreement": "100%" }
+  }
+}

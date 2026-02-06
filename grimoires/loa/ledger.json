@@ -1,0 +1,59 @@
+{
+  "version": "1.0.0",
+  "created": "2026-02-06T02:00:00Z",
+  "current_cycle": "cycle-001",
+  "next_global_sprint_id": 7,
+  "cycles": {
+    "cycle-001": {
+      "label": "loa-finn MVP: Minimal Persistent Loa Agent",
+      "status": "active",
+      "started": "2026-02-06T02:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 1,
+          "label": "Agent Core",
+          "status": "pending",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 2,
+          "label": "Gateway + Auth",
+          "status": "pending",
+          "tasks": 9
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 3,
+          "label": "Persistence",
+          "status": "pending",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 4,
+          "label": "Scheduler & Compound",
+          "status": "pending",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 5,
+          "label": "Deployment",
+          "status": "pending",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-6",
+          "global_id": 6,
+          "label": "Loa Integration",
+          "status": "pending",
+          "tasks": 6
+        }
+      ]
+    }
+  }
+}
