@@ -32,7 +32,6 @@ export interface FinnConfig {
   auth: {
     bearerToken: string
     corsOrigins: string[]
-    csrfEnabled: boolean
     rateLimiting: {
       windowMs: number
       maxRequestsPerWindow: number
@@ -84,7 +83,6 @@ export function loadConfig(): FinnConfig {
     auth: {
       bearerToken: process.env.FINN_AUTH_TOKEN ?? "",
       corsOrigins: (process.env.FINN_CORS_ORIGINS ?? "localhost:*").split(","),
-      csrfEnabled: process.env.FINN_CSRF_ENABLED !== "false",
       rateLimiting: {
         windowMs: parseInt(process.env.FINN_RATE_LIMIT_WINDOW_MS ?? "60000", 10),
         maxRequestsPerWindow: parseInt(process.env.FINN_RATE_LIMIT_MAX ?? "60", 10),

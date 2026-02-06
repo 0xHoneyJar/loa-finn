@@ -19,12 +19,28 @@ interface ManagedSession {
   lastActivity: number
 }
 
+const MAX_SESSIONS = 100
+const SESSION_IDLE_MS = 30 * 60 * 1000 // 30 minutes
+
 export class SessionRouter {
   private sessions = new Map<string, ManagedSession>()
+  private evictionTimer: ReturnType<typeof setInterval>
 
-  constructor(private config: FinnConfig) {}
+  constructor(private config: FinnConfig) {
+    // Evict idle sessions every 60s
+    this.evictionTimer = setInterval(() => this.evictIdle(), 60_000)
+    this.evictionTimer.unref()
+  }
 
   async create(): Promise<{ sessionId: string; session: AgentSession }> {
+    if (this.sessions.size >= MAX_SESSIONS) {
+      // Evict oldest idle session to make room
+      this.evictIdle()
+      if (this.sessions.size >= MAX_SESSIONS) {
+        throw new Error(`Session limit reached (${MAX_SESSIONS})`)
+      }
+    }
+
     const loaSession = await createLoaSession({ config: this.config })
     const now = Date.now()
 
@@ -95,5 +111,26 @@ export class SessionRouter {
 
   getActiveCount(): number {
     return this.sessions.size
+  }
+
+  /** Evict sessions idle longer than SESSION_IDLE_MS. Returns count evicted. */
+  private evictIdle(): number {
+    const now = Date.now()
+    let evicted = 0
+    for (const [id, managed] of this.sessions) {
+      if (now - managed.lastActivity > SESSION_IDLE_MS) {
+        this.sessions.delete(id)
+        evicted++
+      }
+    }
+    if (evicted > 0) {
+      console.log(`[sessions] evicted ${evicted} idle sessions`)
+    }
+    return evicted
+  }
+
+  /** Clean up resources (stop eviction timer). */
+  destroy(): void {
+    clearInterval(this.evictionTimer)
   }
 }

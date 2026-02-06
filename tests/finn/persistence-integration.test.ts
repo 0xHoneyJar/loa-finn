@@ -33,7 +33,6 @@ function makeConfig(dataDir: string): FinnConfig {
     auth: {
       bearerToken: "",
       corsOrigins: ["*"],
-      csrfEnabled: false,
       rateLimiting: { windowMs: 60000, maxRequestsPerWindow: 60 },
     },
     syncIntervalMs: 30000,

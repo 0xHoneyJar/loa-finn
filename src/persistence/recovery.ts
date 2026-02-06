@@ -38,16 +38,21 @@ You are a Loa agent — a persistent, self-healing AI assistant.
 - Learn from every interaction
 `
 
+export type WALEntryHandler = (entry: WALEntry) => void
+
 export class RecoveryCascade {
   private bootEpoch: string
+  private onEntry?: WALEntryHandler
 
   constructor(
     private config: FinnConfig,
     private wal: WAL,
     private r2Sync: ObjectStoreSync,
     private gitSync: GitSync,
+    onEntry?: WALEntryHandler,
   ) {
     this.bootEpoch = ulid()
+    this.onEntry = onEntry
   }
 
   /** Execute the recovery cascade. Priority: R2 → Git → Template. */
@@ -57,11 +62,8 @@ export class RecoveryCascade {
     // Check if local WAL has entries (maybe we just restarted cleanly)
     const localHead = await this.wal.getHeadEntryId()
     if (localHead) {
-      // Local state exists — replay WAL entries
-      let replayCount = 0
-      for await (const _entry of this.wal.replay()) {
-        replayCount++
-      }
+      // Local state exists — replay WAL entries through handler
+      const replayCount = await this.replayWAL()
       return {
         source: "local",
         mode,
@@ -165,10 +167,13 @@ export class RecoveryCascade {
     }
   }
 
-  /** Replay all WAL entries and return count. */
+  /** Replay all WAL entries through the handler and return count. */
   private async replayWAL(): Promise<number> {
     let count = 0
-    for await (const _entry of this.wal.replay()) {
+    for await (const entry of this.wal.replay()) {
+      if (this.onEntry) {
+        this.onEntry(entry)
+      }
       count++
     }
     return count

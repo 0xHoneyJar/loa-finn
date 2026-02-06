@@ -1,8 +1,9 @@
 // src/persistence/git-sync.ts — Git archival sync (SDD §3.3.3, T-3.3)
 
 import { execSync } from "node:child_process"
-import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { tmpdir } from "node:os"
 import { ulid } from "ulid"
 import type { FinnConfig } from "../config.js"
 import type { WAL } from "./wal.js"
@@ -42,9 +43,12 @@ export class GitSync {
     return this.status
   }
 
-  /** Create an immutable snapshot and commit to the archive branch. */
+  /** Create an immutable snapshot and commit to the archive branch.
+   *  Uses a temporary worktree to avoid switching branches on the live server. */
   async snapshot(): Promise<SnapshotResult | undefined> {
     if (!this.isConfigured) return undefined
+
+    const worktreeDir = join(tmpdir(), `finn-archive-${Date.now()}`)
 
     try {
       const snapshotId = ulid()
@@ -53,23 +57,36 @@ export class GitSync {
       // Ensure archive branch exists
       this.ensureArchiveBranch()
 
-      // Save current branch to restore later
-      const currentBranch = this.git("rev-parse --abbrev-ref HEAD").trim()
-
-      // Switch to archive branch
-      this.git(`checkout ${this.branch}`)
+      // Create temporary worktree on the archive branch
+      this.git(`worktree add "${worktreeDir}" ${this.branch}`)
 
       try {
-        // Stage grimoire and beads state
         const filesToStage: string[] = []
 
+        // Copy grimoire and beads state into the worktree
+        const copyDir = (src: string, dest: string) => {
+          if (!existsSync(src)) return
+          mkdirSync(dest, { recursive: true })
+          for (const entry of readdirSync(src, { withFileTypes: true })) {
+            const srcPath = join(src, entry.name)
+            const destPath = join(dest, entry.name)
+            if (entry.isDirectory()) {
+              copyDir(srcPath, destPath)
+            } else {
+              copyFileSync(srcPath, destPath)
+            }
+          }
+        }
+
         if (existsSync(join(this.cwd, "grimoires/loa"))) {
-          this.git("add grimoires/loa/")
+          copyDir(join(this.cwd, "grimoires/loa"), join(worktreeDir, "grimoires/loa"))
+          this.gitAt(worktreeDir, "add grimoires/loa/")
           filesToStage.push("grimoires/loa/")
         }
 
         if (existsSync(join(this.cwd, ".beads"))) {
-          this.git("add .beads/")
+          copyDir(join(this.cwd, ".beads"), join(worktreeDir, ".beads"))
+          this.gitAt(worktreeDir, "add .beads/")
           filesToStage.push(".beads/")
         }
 
@@ -80,16 +97,15 @@ export class GitSync {
           walCheckpoint,
           bootEpoch: ulid(),
         }
-        const manifestPath = "snapshot-manifest.json"
-        writeFileSync(join(this.cwd, manifestPath), JSON.stringify(manifest, null, 2))
-        this.git(`add ${manifestPath}`)
-        filesToStage.push(manifestPath)
+        writeFileSync(join(worktreeDir, "snapshot-manifest.json"), JSON.stringify(manifest, null, 2))
+        this.gitAt(worktreeDir, "add snapshot-manifest.json")
+        filesToStage.push("snapshot-manifest.json")
 
-        // Commit
+        // Commit in the worktree
         const commitMsg = `chore(sync): auto-sync state [${snapshotId}]`
-        this.git(`commit -m "${commitMsg}" --allow-empty`)
+        this.gitAt(worktreeDir, `commit -m "${commitMsg}" --allow-empty`)
 
-        const commitHash = this.git("rev-parse HEAD").trim()
+        const commitHash = this.gitAt(worktreeDir, "rev-parse HEAD").trim()
 
         return {
           commitHash,
@@ -98,8 +114,12 @@ export class GitSync {
           walCheckpoint,
         }
       } finally {
-        // Always restore original branch
-        this.git(`checkout ${currentBranch}`)
+        // Always clean up worktree
+        try {
+          this.git(`worktree remove "${worktreeDir}" --force`)
+        } catch {
+          // Best-effort cleanup
+        }
       }
     } catch (err) {
       console.error("[git-sync] snapshot failed:", err)
@@ -142,36 +162,43 @@ export class GitSync {
     }
   }
 
-  /** Pull latest snapshot from remote (for recovery). */
+  /** Pull latest snapshot from remote (for recovery).
+   *  Uses git show to read from remote branch without checking it out. */
   async restore(): Promise<SnapshotResult | undefined> {
     if (!this.isConfigured) return undefined
 
     try {
       this.git(`fetch ${this.remote} ${this.branch}`)
 
-      const currentBranch = this.git("rev-parse --abbrev-ref HEAD").trim()
-      this.git(`checkout ${this.remote}/${this.branch}`)
-
+      // Read manifest directly from remote branch (no checkout)
       try {
-        // Read manifest if it exists
-        const manifestPath = join(this.cwd, "snapshot-manifest.json")
-        if (existsSync(manifestPath)) {
-          const { readFileSync } = await import("node:fs")
-          const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"))
-          const commitHash = this.git("rev-parse HEAD").trim()
+        const manifestJson = this.git(`show ${this.remote}/${this.branch}:snapshot-manifest.json`)
+        const manifest = JSON.parse(manifestJson)
+        const commitHash = this.git(`rev-parse ${this.remote}/${this.branch}`).trim()
 
-          return {
-            commitHash,
-            snapshotId: manifest.snapshotId,
-            filesIncluded: ["grimoires/loa/", ".beads/", "snapshot-manifest.json"],
-            walCheckpoint: manifest.walCheckpoint,
+        // Extract files from remote branch into working directory
+        const restorePath = (remotePath: string, localPath: string) => {
+          try {
+            const content = this.git(`show ${this.remote}/${this.branch}:${remotePath}`)
+            mkdirSync(join(localPath, ".."), { recursive: true })
+            writeFileSync(localPath, content)
+          } catch {
+            // File may not exist in snapshot
           }
         }
-      } finally {
-        this.git(`checkout ${currentBranch}`)
-      }
 
-      return undefined
+        restorePath("snapshot-manifest.json", join(this.cwd, "snapshot-manifest.json"))
+
+        return {
+          commitHash,
+          snapshotId: manifest.snapshotId,
+          filesIncluded: ["grimoires/loa/", ".beads/", "snapshot-manifest.json"],
+          walCheckpoint: manifest.walCheckpoint,
+        }
+      } catch {
+        // No manifest on remote branch
+        return undefined
+      }
     } catch (err) {
       console.error("[git-sync] restore failed:", err)
       return undefined
@@ -192,6 +219,14 @@ export class GitSync {
   private git(args: string): string {
     return execSync(`git ${args}`, {
       cwd: this.cwd,
+      encoding: "utf-8",
+      timeout: 30_000,
+    })
+  }
+
+  private gitAt(cwd: string, args: string): string {
+    return execSync(`git ${args}`, {
+      cwd,
       encoding: "utf-8",
       timeout: 30_000,
     })

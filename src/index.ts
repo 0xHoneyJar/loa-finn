@@ -218,20 +218,18 @@ async function main() {
     process.exit(0)
   }
 
-  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"))
-  process.on("SIGINT", () => gracefulShutdown("SIGINT"))
-
-  // Force exit after 30s
-  const forceExitTimer = () => {
+  const handleSignal = (signal: string) => {
+    // Start force-exit timer on first signal
     setTimeout(() => {
-      if (shuttingDown) {
-        console.error("[finn] forced shutdown after 30s timeout")
-        process.exit(1)
-      }
+      console.error("[finn] forced shutdown after 30s timeout")
+      process.exit(1)
     }, 30_000).unref()
+
+    gracefulShutdown(signal)
   }
-  process.on("SIGTERM", forceExitTimer)
-  process.on("SIGINT", forceExitTimer)
+
+  process.on("SIGTERM", () => handleSignal("SIGTERM"))
+  process.on("SIGINT", () => handleSignal("SIGINT"))
 }
 
 main().catch((err) => {

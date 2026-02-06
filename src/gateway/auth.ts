@@ -1,14 +1,13 @@
 // src/gateway/auth.ts — Authentication middleware (SDD §3.2.4, T-2.7)
 
-import { timingSafeEqual } from "node:crypto"
+import { createHash, timingSafeEqual } from "node:crypto"
 import type { Context, Next } from "hono"
 import type { FinnConfig } from "../config.js"
 
-/** Timing-safe string comparison */
+/** Timing-safe string comparison (constant-time even for different lengths) */
 function safeCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
-  const bufA = Buffer.from(a)
-  const bufB = Buffer.from(b)
+  const bufA = createHash("sha256").update(a).digest()
+  const bufB = createHash("sha256").update(b).digest()
   return timingSafeEqual(bufA, bufB)
 }
 
@@ -62,13 +61,23 @@ export function corsMiddleware(config: FinnConfig) {
 }
 
 function isOriginAllowed(origin: string, patterns: string[]): boolean {
+  let parsedOrigin: URL
+  try {
+    parsedOrigin = new URL(origin)
+  } catch {
+    return false // Reject malformed origins
+  }
+
   for (const pattern of patterns) {
     if (pattern === "*") return true
     if (pattern.includes("*")) {
-      const regex = new RegExp("^" + pattern.replace(/\*/g, ".*") + "$")
+      // Escape regex special chars except *, then replace * with [a-zA-Z0-9.-]*
+      const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[a-zA-Z0-9.:-]*")
+      const regex = new RegExp("^" + escaped + "$")
       if (regex.test(origin)) return true
-    } else if (origin === pattern || origin.endsWith(pattern)) {
-      return true
+    } else {
+      // Exact match only — no suffix matching (prevents evil.com matching example.com)
+      if (origin === pattern) return true
     }
   }
   return false
