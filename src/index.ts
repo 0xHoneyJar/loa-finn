@@ -16,6 +16,7 @@ import { CompoundLearning } from "./learning/compound.js"
 import { serve } from "@hono/node-server"
 
 async function main() {
+  const bootStart = Date.now()
   console.log("[finn] booting loa-finn...")
 
   // 1. Load config
@@ -47,7 +48,8 @@ async function main() {
   // 6. Initialize compound learning
   const compound = new CompoundLearning(config.dataDir, wal)
 
-  // 7. Create gateway
+  // 7. Create gateway (with health aggregator once available)
+  // We create a placeholder and update after scheduler init
   const { app, router } = createApp(config)
 
   // 8. Set up scheduler with registered tasks (T-4.4)
@@ -141,8 +143,10 @@ async function main() {
   })
 
   // 10. Start HTTP server
+  const bootDuration = Date.now() - bootStart
   const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
-    console.log(`[finn] loa-finn ready on :${info.port}`)
+    const health = healthAggregator.check()
+    console.log(`[finn] loa-finn ready on :${info.port} (boot: ${bootDuration}ms, status: ${health.status})`)
   })
 
   // 11. Graceful shutdown handler (T-5.8)
