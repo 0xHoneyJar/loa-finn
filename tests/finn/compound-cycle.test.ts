@@ -55,7 +55,8 @@ async function main() {
       assert.ok(existsSync(filePath), "trajectory file should exist")
 
       const content = readFileSync(filePath, "utf-8")
-      const parsed = JSON.parse(content.trim())
+      const lines = content.trim().split("\n")
+      const parsed = JSON.parse(lines[lines.length - 1])
       assert.equal(parsed.sessionId, "test-session-1")
       assert.equal(parsed.type, "tool_start")
     } finally {
