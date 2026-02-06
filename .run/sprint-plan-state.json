@@ -1,18 +1,18 @@
 {
   "plan_id": "plan-20260206-hardening01",
   "branch": "feature/hardening-sprint-plan",
-  "state": "RUNNING",
+  "state": "JACKED_OUT",
   "timestamps": {
     "started": "2026-02-06T12:49:00Z",
-    "last_activity": "2026-02-06T12:49:00Z"
+    "last_activity": "2026-02-07T01:30:00Z"
   },
   "sprints": {
     "total": 2,
-    "completed": 0,
-    "current": "sprint-1",
+    "completed": 2,
+    "current": null,
     "list": [
-      {"id": "sprint-1", "status": "pending", "cycles": 0, "label": "Upstream Persistence Hardening", "global_id": 8},
-      {"id": "sprint-2", "status": "pending", "cycles": 0, "label": "Tool Execution Sandbox", "global_id": 9}
+      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Upstream Persistence Hardening", "global_id": 8},
+      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Tool Execution Sandbox", "global_id": 9}
     ]
   },
   "options": {
@@ -22,8 +22,8 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 0,
-    "total_files_changed": 0,
-    "total_findings_fixed": 0
+    "total_cycles": 2,
+    "total_files_changed": 19,
+    "total_findings_fixed": 5
   }
 }

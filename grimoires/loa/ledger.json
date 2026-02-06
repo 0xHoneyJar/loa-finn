@@ -84,14 +84,14 @@
           "local_id": "sprint-1",
           "global_id": 8,
           "label": "Upstream Persistence Hardening",
-          "status": "pending",
+          "status": "completed",
           "tasks": 7
         },
         {
           "local_id": "sprint-2",
           "global_id": 9,
           "label": "Tool Execution Sandbox",
-          "status": "pending",
+          "status": "completed",
           "tasks": 8
         }
       ]
