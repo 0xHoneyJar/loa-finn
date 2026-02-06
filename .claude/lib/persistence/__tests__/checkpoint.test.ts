@@ -159,4 +159,10 @@ describe("MountCheckpointStorage fsync", () => {
     const content = await storage.readFile("overwrite.txt");
     expect(content!.toString()).toBe("v2");
   });
+
+  it("writeFile returns false when path is invalid (triggers catch)", async () => {
+    // Path traversal should be caught by resolvePath and throw, which is caught by the outer try
+    const result = await storage.writeFile("../../../etc/passwd", Buffer.from("nope"));
+    expect(result).toBe(false);
+  });
 });

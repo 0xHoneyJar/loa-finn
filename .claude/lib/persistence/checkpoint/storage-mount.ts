@@ -63,8 +63,8 @@ export class MountCheckpointStorage implements ICheckpointStorage {
   }
 
   async writeFile(relativePath: string, content: Buffer): Promise<boolean> {
-    const path = this.resolvePath(relativePath);
     try {
+      const path = this.resolvePath(relativePath);
       await mkdir(dirname(path), { recursive: true });
       const tmpPath = `${path}.tmp.${process.pid}`;
       await writeFile(tmpPath, content);
