@@ -43,8 +43,13 @@ export interface FinnConfig {
   gitSyncIntervalMs: number
   healthIntervalMs: number
 
-  // Feature flags
-  allowBash: boolean
+  // Sandbox
+  sandbox: {
+    allowBash: boolean
+    jailRoot: string
+    execTimeout: number
+    maxOutput: number
+  }
 }
 
 export function loadConfig(): FinnConfig {
@@ -93,6 +98,11 @@ export function loadConfig(): FinnConfig {
     gitSyncIntervalMs: parseInt(process.env.GIT_SYNC_INTERVAL_MS ?? "3600000", 10),
     healthIntervalMs: parseInt(process.env.HEALTH_INTERVAL_MS ?? "300000", 10),
 
-    allowBash: process.env.FINN_ALLOW_BASH === "true",
+    sandbox: {
+      allowBash: process.env.FINN_ALLOW_BASH === "true",
+      jailRoot: process.env.FINN_SANDBOX_JAIL_ROOT ?? dataDir,
+      execTimeout: parseInt(process.env.FINN_SANDBOX_TIMEOUT ?? "30000", 10),
+      maxOutput: parseInt(process.env.FINN_SANDBOX_MAX_OUTPUT ?? "65536", 10),
+    },
   }
 }

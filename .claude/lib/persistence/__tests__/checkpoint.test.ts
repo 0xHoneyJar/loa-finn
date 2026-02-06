@@ -119,3 +119,50 @@ describe("CheckpointProtocol", () => {
     expect(latest?.version).toBe(5);
   });
 });
+
+describe("MountCheckpointStorage fsync", () => {
+  let mountDir: string;
+  let storage: MountCheckpointStorage;
+
+  beforeEach(() => {
+    mountDir = mkdtempSync(join(tmpdir(), "fsync-test-"));
+    storage = new MountCheckpointStorage(mountDir, "data");
+  });
+
+  afterEach(() => {
+    rmSync(mountDir, { recursive: true, force: true });
+  });
+
+  it("normal write: file fsync + rename + dir fsync returns true", async () => {
+    const result = await storage.writeFile("test.json", Buffer.from('{"ok":true}'));
+    expect(result).toBe(true);
+
+    // Verify file is readable
+    const content = await storage.readFile("test.json");
+    expect(content).not.toBeNull();
+    expect(content!.toString()).toBe('{"ok":true}');
+  });
+
+  it("writeFile creates parent directories", async () => {
+    const result = await storage.writeFile("deep/nested/file.txt", Buffer.from("data"));
+    expect(result).toBe(true);
+
+    const content = await storage.readFile("deep/nested/file.txt");
+    expect(content).not.toBeNull();
+    expect(content!.toString()).toBe("data");
+  });
+
+  it("writeFile overwrites existing file atomically", async () => {
+    await storage.writeFile("overwrite.txt", Buffer.from("v1"));
+    await storage.writeFile("overwrite.txt", Buffer.from("v2"));
+
+    const content = await storage.readFile("overwrite.txt");
+    expect(content!.toString()).toBe("v2");
+  });
+
+  it("writeFile returns false when path is invalid (triggers catch)", async () => {
+    // Path traversal should be caught by resolvePath and throw, which is caught by the outer try
+    const result = await storage.writeFile("../../../etc/passwd", Buffer.from("nope"));
+    expect(result).toBe(false);
+  });
+});
