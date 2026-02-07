@@ -115,6 +115,59 @@ async function main() {
     assert.equal(redactor.redact(input), "[REDACTED:github-pat]")
   })
 
+  // ── Overlapping patterns ───────────────────────────────────
+
+  console.log("\n--- Overlapping Patterns ---")
+
+  await test("built-in patterns take precedence over custom generic patterns", () => {
+    const custom: RedactionPattern[] = [
+      { name: "generic-hex", pattern: /[a-f0-9]{36,}/g, replacement: "[REDACTED:hex]" },
+    ]
+    const customRedactor = new SecretRedactor(custom)
+    // ghp_ pattern is built-in and runs first; generic-hex is appended after
+    const input = "ghp_ABCDEFghijklmnop1234567890ABCDEFGHIJKL"
+    const result = customRedactor.redact(input)
+    assert.equal(result, "[REDACTED:github-pat]", "built-in github-pat should match first")
+  })
+
+  // ── redactError ────────────────────────────────────────────
+
+  console.log("\n--- redactError ---")
+
+  await test("redactError redacts secrets from message and stack", () => {
+    const secret = "ghp_ABCDEFghijklmnop1234567890ABCDEFGHIJKL"
+    const err = new Error(`Auth failed with token ${secret}`)
+    const redacted = redactor.redactError(err)
+    assert.ok(!redacted.message.includes("ghp_"), "message should be redacted")
+    assert.ok(redacted.message.includes("[REDACTED:github-pat]"), "message should have placeholder")
+    assert.ok(redacted.stack, "stack should exist")
+    assert.ok(!redacted.stack!.includes("ghp_"), "stack should be redacted")
+  })
+
+  // ── Constructor validation ─────────────────────────────────
+
+  console.log("\n--- Constructor Validation ---")
+
+  await test("rejects pattern without global flag", () => {
+    const bad: RedactionPattern[] = [
+      { name: "no-global", pattern: /secret/i, replacement: "[REDACTED]" },
+    ]
+    assert.throws(() => new SecretRedactor(bad), /must have the global flag/)
+  })
+
+  await test("redactError preserves error name and redacts cause chain", () => {
+    const secret = "ghp_ABCDEFghijklmnop1234567890ABCDEFGHIJKL"
+    const cause = new Error(`inner: ${secret}`)
+    const outer = new Error(`outer: ${secret}`, { cause })
+    outer.name = "AuthError"
+    const redacted = redactor.redactError(outer)
+    assert.equal(redacted.name, "AuthError", "name preserved")
+    assert.ok(!redacted.message.includes("ghp_"), "outer message redacted")
+    const redactedCause = (redacted as { cause?: unknown }).cause as Error
+    assert.ok(redactedCause instanceof Error, "cause is still an Error")
+    assert.ok(!redactedCause.message.includes("ghp_"), "cause message redacted")
+  })
+
   console.log("\nDone.")
 }
 

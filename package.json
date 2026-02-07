@@ -15,7 +15,10 @@
     "test:compound": "tsx tests/finn/compound-cycle.test.ts",
     "test:finn": "tsx tests/finn/wal.test.ts && tsx tests/finn/persistence-integration.test.ts && tsx tests/finn/circuit-breaker.test.ts && tsx tests/finn/compound-cycle.test.ts && tsx tests/finn/walpath-validation.test.ts && tsx tests/finn/kill-restart-resume.test.ts && tsx tests/finn/sandbox.test.ts",
     "test:sandbox": "tsx tests/finn/sandbox.test.ts",
-    "test:upstream": "vitest run --config .claude/lib/persistence/vitest.config.ts"
+    "test:upstream": "vitest run --config .claude/lib/persistence/vitest.config.ts",
+    "bridgebuilder": "tsx src/bridgebuilder/entry.ts",
+    "bridgebuilder:dry-run": "BRIDGEBUILDER_DRY_RUN=true tsx src/bridgebuilder/entry.ts",
+    "test:bridgebuilder": "tsx tests/finn/bridgebuilder-github.test.ts && tsx tests/finn/bridgebuilder-integration.test.ts && tsx tests/finn/bridgebuilder-launch.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.984.0",

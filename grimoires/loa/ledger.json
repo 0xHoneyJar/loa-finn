@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-003",
-  "next_global_sprint_id": 10,
+  "current_cycle": "cycle-004",
+  "next_global_sprint_id": 12,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -75,8 +75,9 @@
     },
     "cycle-003": {
       "label": "Persistence Hardening & Tool Sandbox",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-06T23:00:00Z",
+      "archived": "2026-02-07T10:00:00Z",
       "prd": "grimoires/loa/prd-hardening.md",
       "sdd": "grimoires/loa/sdd-hardening.md",
       "sprints": [
@@ -91,6 +92,29 @@
           "local_id": "sprint-2",
           "global_id": 9,
           "label": "Tool Execution Sandbox",
+          "status": "completed",
+          "tasks": 8
+        }
+      ]
+    },
+    "cycle-004": {
+      "label": "Bridgebuilder: Autonomous PR Review Agent",
+      "status": "active",
+      "started": "2026-02-07T10:00:00Z",
+      "prd": "grimoires/loa/prd-bridgebuilder.md",
+      "sdd": "grimoires/loa/sdd-bridgebuilder.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 10,
+          "label": "Hexagonal Foundation",
+          "status": "completed",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 11,
+          "label": "Wiring + Integration + Deployment",
           "status": "completed",
           "tasks": 8
         }

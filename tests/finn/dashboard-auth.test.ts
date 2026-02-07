@@ -13,7 +13,7 @@ function test(name: string, fn: () => void | Promise<void>): void {
 
 // ── Helpers ─────────────────────────────────────────────────
 
-const TOKEN = "super-secret-admin-token-99"
+const TOKEN = "super-secret-admin-token-99-abcdef0123456789"  // >= 32 chars required
 
 function makeAuth(bind = "127.0.0.1"): DashboardAuth {
   return new DashboardAuth({ adminToken: TOKEN, bindAddress: bind })
@@ -109,13 +109,27 @@ test("IPv6 mapped localhost (::ffff:127.0.0.1) recognized as local", () => {
   assert.equal(result, null)
 })
 
-test("loopback bind + remote client still requires token for viewer", () => {
+test("[defense-in-depth] loopback bind + remote client requires token (impossible in normal operation)", () => {
   // bindAddress is 127.0.0.1 but client is remote — should not get pass-through
-  // (In practice this scenario shouldn't happen, but defense-in-depth)
+  // This scenario shouldn't happen in practice, but defense-in-depth
   const auth = makeAuth("127.0.0.1")
   const result = auth.checkAccess(req("192.168.1.50"), "viewer")
   assert.notEqual(result, null)
   assert.equal(result!.status, 401)
+})
+
+test("IPv6 mapped non-localhost (::ffff:192.168.1.1) requires token", () => {
+  const auth = makeAuth("127.0.0.1")
+  const result = auth.checkAccess(req("::ffff:192.168.1.1"), "viewer")
+  assert.notEqual(result, null)
+  assert.equal(result!.status, 401)
+})
+
+test("rejects admin token shorter than 32 chars", () => {
+  assert.throws(
+    () => new DashboardAuth({ adminToken: "too-short", bindAddress: "127.0.0.1" }),
+    /Admin token too short/,
+  )
 })
 
 // ── Runner ──────────────────────────────────────────────────

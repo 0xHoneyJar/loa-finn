@@ -1,0 +1,23 @@
+# deploy/railway.toml — Bridgebuilder cron deployment on Railway
+#
+# Required Railway environment variables:
+#   GITHUB_TOKEN          - GitHub PAT with repo scope
+#   BRIDGEBUILDER_REPOS   - Comma-separated "owner/repo" list
+#   ANTHROPIC_API_KEY     - Anthropic API key for LLM reviews
+#
+# Optional:
+#   BRIDGEBUILDER_MODEL               - Default: claude-sonnet-4-5-20250929
+#   BRIDGEBUILDER_MAX_PRS             - Default: 10
+#   BRIDGEBUILDER_MAX_RUNTIME_MINUTES - Default: 25
+#   BRIDGEBUILDER_DRY_RUN             - Default: false
+#   BRIDGEBUILDER_DIMENSIONS          - Default: security,quality,test-coverage
+#   R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY - For persistent context
+
+[build]
+  builder = "dockerfile"
+  dockerfilePath = "deploy/Dockerfile"
+
+[deploy]
+  startCommand = "node dist/src/bridgebuilder/entry.js"
+  cronSchedule = "*/30 * * * *"
+  restartPolicyType = "never"
