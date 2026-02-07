@@ -149,6 +149,22 @@ export class GitHubRestAdapter implements IGitProvider, IReviewPoster {
     })
 
     if (resp.status === 200 || resp.status === 201) return true
+
+    // 422 with REQUEST_CHANGES on own PR → retry as COMMENT (GitHub blocks self-requests)
+    if (resp.status === 422 && input.event === "REQUEST_CHANGES") {
+      const retry = await this.http.request({
+        url: `https://api.github.com/repos/${input.owner}/${input.repo}/pulls/${input.prNumber}/reviews`,
+        method: "POST",
+        headers: { ...this.headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          commit_id: input.headSha,
+          body: input.body,
+          event: "COMMENT",
+        }),
+      })
+      if (retry.status === 200 || retry.status === 201) return true
+    }
+
     if (resp.status === 422) return false // Validation error — PR may have been closed
     throw new Error(`postReview: HTTP ${resp.status}: ${resp.body.slice(0, 200)}`)
   }
