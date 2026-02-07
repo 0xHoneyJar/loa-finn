@@ -31,10 +31,21 @@ export function loadConfig(): BridgebuilderEnvConfig {
   if (!anthropicApiKey) missing.push("ANTHROPIC_API_KEY")
 
   if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(", ")}`)
+    const hints: Record<string, string> = {
+      GITHUB_TOKEN: "Set a GitHub PAT with 'repo' scope (or GitHub App installation token)",
+      BRIDGEBUILDER_REPOS: 'Comma-separated repos, e.g. "owner/repo1,owner/repo2"',
+      ANTHROPIC_API_KEY: "Anthropic API key from console.anthropic.com",
+    }
+    const details = missing.map(v => `  - ${v}: ${hints[v] ?? "(no hint available)"}`).join("\n")
+    throw new Error(`Missing required environment variables:\n${details}`)
   }
 
-  const repos = reposRaw!.split(",").map(r => {
+  const repoEntries = reposRaw!.split(",").filter(r => r.trim().length > 0)
+  if (repoEntries.length === 0) {
+    throw new Error('BRIDGEBUILDER_REPOS is set but contains no valid entries (empty or whitespace-only)')
+  }
+
+  const repos = repoEntries.map(r => {
     const [owner, repo] = r.trim().split("/")
     if (!owner || !repo) throw new Error(`Invalid repo format: "${r}" — expected "owner/repo"`)
     return { owner, repo }

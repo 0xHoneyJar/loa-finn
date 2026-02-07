@@ -2,7 +2,7 @@
 
 import type {
   IGitProvider, IReviewPoster,
-  PullRequest, PullRequestFile, PRReview, PreflightResult,
+  PullRequest, PullRequestFile, PRReview, PreflightResult, RepoPreflightResult,
   PostReviewInput,
 } from "../ports/index.js"
 import type { IHttpClient, HttpResponse } from "../ports/http-client.js"
@@ -115,6 +115,25 @@ export class GitHubRestAdapter implements IGitProvider, IReviewPoster {
       remaining: data.resources.core.remaining,
       scopes,
     }
+  }
+
+  async preflightRepo(owner: string, repo: string): Promise<RepoPreflightResult> {
+    const resp = await this.http.request({
+      url: `https://api.github.com/repos/${owner}/${repo}`,
+      method: "GET",
+      headers: this.headers(),
+    })
+
+    if (resp.status === 200) {
+      return { owner, repo, accessible: true }
+    }
+    if (resp.status === 401 || resp.status === 403) {
+      return { owner, repo, accessible: false, error: `Token lacks access to ${owner}/${repo} — check repo scope or app installation` }
+    }
+    if (resp.status === 404) {
+      return { owner, repo, accessible: false, error: `Repo not found: ${owner}/${repo} — check spelling` }
+    }
+    return { owner, repo, accessible: false, error: `Unexpected HTTP ${resp.status} for ${owner}/${repo}` }
   }
 
   async postReview(input: PostReviewInput): Promise<boolean> {

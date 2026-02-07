@@ -3,25 +3,52 @@
 import { readFileSync } from "node:fs"
 import { loadConfig } from "./config.js"
 import { createAdapters } from "./adapters/index.js"
+import { BridgebuilderLogger } from "./logger.js"
 import { PRReviewTemplate } from "./core/template.js"
 import { BridgebuilderContext } from "./core/context.js"
 import { ReviewPipeline } from "./core/reviewer.js"
 import { RunLease } from "./lease.js"
 import { R2CheckpointStorage } from "../persistence/r2-storage.js"
 
-async function main(): Promise<void> {
-  console.log("[bridgebuilder] Starting...")
-
-  // Step 1: Load config
+async function main(): Promise<number> {
+  // Step 1: Load config (before adapters — no logger yet, but config errors are safe)
   const envConfig = loadConfig()
-  console.log(`[bridgebuilder] Repos: ${envConfig.repos.map(r => `${r.owner}/${r.repo}`).join(", ")}`)
-  console.log(`[bridgebuilder] Model: ${envConfig.model}`)
-  console.log(`[bridgebuilder] Dry run: ${envConfig.dryRun}`)
 
   // Step 2: Create adapters (includes preflight-capable GitHub client)
   const adapters = createAdapters(envConfig)
 
-  // Step 3: Acquire run lease (if R2 available)
+  // Step 3: Create sanitized logger — all runtime logging goes through this
+  const log = new BridgebuilderLogger(adapters.sanitizer)
+
+  log.info("Starting...")
+  log.info(`Repos: ${envConfig.repos.length} configured`)
+  log.info(`Dimensions: ${envConfig.dimensions.join(", ")}`)
+  log.info(`Model: ${envConfig.model}`)
+  log.info(`Dry run: ${envConfig.dryRun}`)
+  log.info(`Max PRs per run: ${envConfig.maxPRsPerRun}`)
+  log.info(`Max runtime: ${envConfig.maxRuntimeMinutes}m`)
+  for (const r of envConfig.repos) {
+    log.debug(`Repo: ${r.owner}/${r.repo}`)
+  }
+
+  // Step 4: Per-repo preflight — validate token can access each configured repo
+  for (const r of envConfig.repos) {
+    const result = await adapters.git.preflightRepo(r.owner, r.repo)
+    if (!result.accessible) {
+      throw new Error(`Preflight failed: ${result.error}`)
+    }
+  }
+  log.info(`Preflight: all ${envConfig.repos.length} repos accessible`)
+
+  // Step 5: Check API quota — skip run if insufficient
+  const quotaCheck = await adapters.git.preflight()
+  if (quotaCheck.remaining < 100) {
+    log.warn(`Insufficient GitHub API quota (${quotaCheck.remaining} remaining, need >= 100) — skipping run`)
+    return 0
+  }
+  log.debug(`API quota: ${quotaCheck.remaining} remaining`)
+
+  // Step 6: Acquire run lease (if R2 available)
   let lease: RunLease | undefined
   const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -36,23 +63,26 @@ async function main(): Promise<void> {
 
     lease = new RunLease(r2, envConfig.maxRuntimeMinutes + 5)
     const acquired = await lease.acquire(runId)
-    if (!acquired) {
-      console.log("[bridgebuilder] Another run is active — exiting cleanly")
-      process.exit(0)
+    if (acquired !== true) {
+      const holder = typeof acquired === "object" && acquired.held ? acquired.heldBy : "unknown"
+      log.info(`Run lease held by ${holder} — exiting cleanly`)
+      return 0
     }
-    console.log(`[bridgebuilder] Lease acquired: ${runId}`)
+    log.info(`Lease acquired: ${runId}`)
   }
 
   try {
-    // Step 4: Load persona
+    // Step 7: Load persona
     let persona: string
+    const personaPath = "grimoires/bridgebuilder/BEAUVOIR.md"
     try {
-      persona = readFileSync("grimoires/bridgebuilder/BEAUVOIR.md", "utf-8")
+      persona = readFileSync(personaPath, "utf-8")
     } catch {
+      log.warn(`BEAUVOIR.md not found at ${personaPath}, using default persona`)
       persona = "You are Bridgebuilder, a constructive code reviewer. Focus on security, quality, and test coverage. Be specific and actionable. Never approve — only COMMENT or REQUEST_CHANGES."
     }
 
-    // Step 5: Wire core pipeline
+    // Step 8: Wire core pipeline
     const config = {
       repos: envConfig.repos,
       maxPRsPerRun: envConfig.maxPRsPerRun,
@@ -73,27 +103,38 @@ async function main(): Promise<void> {
       adapters.sanitizer, persona, config,
     )
 
-    // Step 6: Run
+    // Step 9: Run
     const summary = await pipeline.run(runId)
 
-    console.log("[bridgebuilder] Run complete:")
-    console.log(`  PRs found:  ${summary.totalPRs}`)
-    console.log(`  Reviewed:   ${summary.reviewed}`)
-    console.log(`  Skipped:    ${summary.skipped}`)
-    console.log(`  Errors:     ${summary.errors}`)
-    console.log(`  Tokens:     ${summary.tokenUsage.input} in / ${summary.tokenUsage.output} out`)
-    console.log(`  Duration:   ${Math.round(summary.durationMs / 1000)}s`)
+    // Step 10: Handle zero PRs
+    if (summary.totalPRs === 0) {
+      log.info(`No open PRs found across ${envConfig.repos.length} repos — nothing to review`)
+      return 0
+    }
 
-    process.exit(summary.errors > 0 ? 1 : 0)
+    log.info("Run complete:")
+    log.info(`  PRs found:  ${summary.totalPRs}`)
+    log.info(`  Reviewed:   ${summary.reviewed}`)
+    log.info(`  Skipped:    ${summary.skipped}`)
+    log.info(`  Errors:     ${summary.errors}`)
+    log.info(`  Tokens:     ${summary.tokenUsage.input} in / ${summary.tokenUsage.output} out`)
+    log.info(`  Duration:   ${Math.round(summary.durationMs / 1000)}s`)
+
+    return summary.errors > 0 ? 1 : 0
   } finally {
     if (lease) {
-      await lease.release().catch(() => {})
-      console.log("[bridgebuilder] Lease released")
+      await lease.release(runId).catch(() => {})
+      log.info("Lease released")
     }
   }
 }
 
-main().catch((err) => {
-  console.error("[bridgebuilder] Fatal error:", err)
-  process.exit(1)
-})
+main()
+  .then((code) => {
+    process.exitCode = code
+  })
+  .catch((err) => {
+    // Fatal fallback — no logger available (adapters may have failed to initialize)
+    console.error("[bridgebuilder] Fatal error:", err)
+    process.exitCode = 1
+  })

@@ -6,7 +6,7 @@ import { createHash } from "node:crypto"
 import type {
   IGitProvider, IReviewPoster, IContextStore, ILLMProvider,
   IHasher, IOutputSanitizer,
-  PullRequest, PullRequestFile, PRReview, PreflightResult,
+  PullRequest, PullRequestFile, PRReview, PreflightResult, RepoPreflightResult,
   PostReviewInput, ReviewEvent,
   ReviewRequest, ReviewResponse,
   ContextData, ReviewRecord,
@@ -73,6 +73,7 @@ function createTestGit(state: MockGitState): IGitProvider {
     async getPRFiles(_o, _r, prNumber) { return state.files.get(prNumber) ?? [] },
     async getPRReviews(_o, _r, prNumber) { return state.reviews.get(prNumber) ?? [] },
     async preflight(): Promise<PreflightResult> { return { remaining: 5000, scopes: ["repo"] } },
+    async preflightRepo(owner, repo): Promise<RepoPreflightResult> { return { owner, repo, accessible: true } },
   }
 }
 

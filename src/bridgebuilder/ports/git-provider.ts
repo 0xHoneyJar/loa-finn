@@ -36,6 +36,13 @@ export interface PreflightResult {
   scopes: string[]
 }
 
+export interface RepoPreflightResult {
+  owner: string
+  repo: string
+  accessible: boolean
+  error?: string
+}
+
 export interface IGitProvider {
   /** List open PRs for a repo. Returns ALL open PRs (handles pagination internally). */
   listOpenPRs(owner: string, repo: string): Promise<PullRequest[]>
@@ -50,6 +57,9 @@ export interface IGitProvider {
    */
   getPRReviews(owner: string, repo: string, prNumber: number): Promise<PRReview[]>
 
-  /** Validate GitHub connectivity and token permissions. */
+  /** Validate GitHub connectivity and token permissions via rate_limit endpoint. */
   preflight(): Promise<PreflightResult>
+
+  /** Validate token can access a specific repo. Returns structured result per repo. */
+  preflightRepo(owner: string, repo: string): Promise<RepoPreflightResult>
 }

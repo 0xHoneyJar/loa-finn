@@ -5,6 +5,7 @@ export type {
   PullRequestFile,
   PRReview,
   PreflightResult,
+  RepoPreflightResult,
   IGitProvider,
 } from "./git-provider.js"
 
