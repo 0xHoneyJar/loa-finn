@@ -277,6 +277,45 @@ async function main() {
     await rm(dir, { recursive: true })
   })
 
+  await test("array containing secrets gets redacted (H-1)", async () => {
+    const dir = await makeTempDir()
+    const filePath = join(dir, "audit.jsonl")
+    const trail = new AuditTrail(filePath)
+    trail.setRunContext({ jobId: "job-1", runUlid: "ulid-1", templateId: "tpl-1" })
+
+    await trail.recordIntent({
+      action: "multi_auth",
+      target: "api.example.com",
+      params: {
+        // Key "values" is NOT a secret key pattern, so only ghp_ prefixed items get redacted
+        values: ["ghp_secret1", "ghp_secret2", "normal-value"],
+        names: ["alice", "bob"],
+        nested: [{ token: "inner-secret", name: "safe" }],
+      },
+    })
+
+    const content = await readFile(filePath, "utf-8")
+    const record = JSON.parse(content.trim())
+
+    // String items matching secret VALUE patterns (ghp_ prefix) should be redacted
+    const values = record.params.values as string[]
+    assert.equal(values[0], "[REDACTED]")
+    assert.equal(values[1], "[REDACTED]")
+    assert.equal(values[2], "normal-value")
+
+    // Non-secret string arrays should be preserved
+    const names = record.params.names as string[]
+    assert.equal(names[0], "alice")
+    assert.equal(names[1], "bob")
+
+    // Objects within arrays should have their secrets redacted
+    const nested = record.params.nested as Array<Record<string, unknown>>
+    assert.equal(nested[0].token, "[REDACTED]")
+    assert.equal(nested[0].name, "safe")
+
+    await rm(dir, { recursive: true })
+  })
+
   await test("nested secret params get redacted", async () => {
     const dir = await makeTempDir()
     const filePath = join(dir, "audit.jsonl")

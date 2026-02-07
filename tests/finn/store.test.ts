@@ -118,6 +118,35 @@ async function main() {
     await cleanup(testDir)
   })
 
+  await test("read falls back to .tmp when primary and .bak are missing (H-4)", async () => {
+    testDir = await setup()
+    const filePath = join(testDir, "tmp-recovery.json")
+    const tmpPath = filePath + ".tmp"
+
+    // Only .tmp exists — simulates crash between rename(primary,.bak) and rename(.tmp,primary)
+    await writeFile(tmpPath, JSON.stringify({ fromTmp: true }), "utf-8")
+
+    const store = new AtomicJsonStore<{ fromTmp: boolean }>(filePath)
+    const result = await store.read()
+    assert.deepEqual(result, { fromTmp: true })
+    await cleanup(testDir)
+  })
+
+  await test("read prefers primary over .tmp", async () => {
+    testDir = await setup()
+    const filePath = join(testDir, "prefer-primary.json")
+    const tmpPath = filePath + ".tmp"
+
+    // Both primary and .tmp exist
+    await writeFile(filePath, JSON.stringify({ source: "primary" }), "utf-8")
+    await writeFile(tmpPath, JSON.stringify({ source: "tmp" }), "utf-8")
+
+    const store = new AtomicJsonStore<{ source: string }>(filePath)
+    const result = await store.read()
+    assert.deepEqual(result, { source: "primary" })
+    await cleanup(testDir)
+  })
+
   await test("throws StoreCorruptionError when both primary and .bak are corrupt", async () => {
     testDir = await setup()
     const filePath = join(testDir, "both-corrupt.json")

@@ -7,8 +7,15 @@ export interface BashPolicy {
   command: string
   /** Allowed subcommands. If undefined, all subcommands allowed. */
   allowedSubcommands?: string[]
-  /** Explicitly denied subcommands. Checked before allowedSubcommands. */
-  deniedSubcommands?: string[]
+  /** Explicitly denied arguments. Checked before allowedSubcommands. */
+  deniedArgs?: string[]
+  /**
+   * Execution mode. Must be "execFile" — callers MUST use array-based
+   * execution (no shell interpretation). This field enforces the contract
+   * that checkBashCommand is a validation helper, not the security boundary.
+   * The actual security boundary is execFile with shell:false.
+   */
+  executionMode: "execFile"
 }
 
 export interface NetworkPolicy {
@@ -34,17 +41,17 @@ const GIT_DENIED_SUBCOMMANDS = [
 
 /** Bash policies for cron agent sessions. (SDD §4.2) */
 export const CRON_BASH_POLICIES: BashPolicy[] = [
-  { command: "git", allowedSubcommands: GIT_ALLOWED_SUBCOMMANDS, deniedSubcommands: GIT_DENIED_SUBCOMMANDS },
-  { command: "br", allowedSubcommands: ["list", "get", "sync"] },
-  { command: "ls" },
-  { command: "cat" },
-  { command: "wc" },
-  { command: "head" },
-  { command: "tail" },
-  { command: "grep" },
-  { command: "find" },
-  { command: "npm", allowedSubcommands: ["install", "test", "run"], deniedSubcommands: ["-g", "--global"] },
-  { command: "pnpm", allowedSubcommands: ["install", "test", "run"], deniedSubcommands: ["-g", "--global"] },
+  { command: "git", allowedSubcommands: GIT_ALLOWED_SUBCOMMANDS, deniedArgs: GIT_DENIED_SUBCOMMANDS, executionMode: "execFile" },
+  { command: "br", allowedSubcommands: ["list", "get", "sync"], executionMode: "execFile" },
+  { command: "ls", executionMode: "execFile" },
+  { command: "cat", executionMode: "execFile" },
+  { command: "wc", executionMode: "execFile" },
+  { command: "head", executionMode: "execFile" },
+  { command: "tail", executionMode: "execFile" },
+  { command: "grep", executionMode: "execFile" },
+  { command: "find", executionMode: "execFile" },
+  { command: "npm", allowedSubcommands: ["install", "test", "run"], deniedArgs: ["-g", "--global"], executionMode: "execFile" },
+  { command: "pnpm", allowedSubcommands: ["install", "test", "run"], deniedArgs: ["-g", "--global"], executionMode: "execFile" },
 ]
 // NOTE: `gh` is intentionally NOT included — all GitHub access must go through MCP tools.
 
@@ -73,11 +80,11 @@ export function checkBashCommand(
     return { allowed: false, reason: `Command "${command}" is not in cron bash allowlist` }
   }
 
-  // Check denied subcommands first
-  if (policy.deniedSubcommands && args.length > 0) {
+  // Check denied args first (flags and subcommands that are never allowed)
+  if (policy.deniedArgs && args.length > 0) {
     for (const arg of args) {
-      if (policy.deniedSubcommands.includes(arg)) {
-        return { allowed: false, reason: `Subcommand "${arg}" is denied for "${command}"` }
+      if (policy.deniedArgs.includes(arg)) {
+        return { allowed: false, reason: `Argument "${arg}" is denied for "${command}"` }
       }
     }
   }

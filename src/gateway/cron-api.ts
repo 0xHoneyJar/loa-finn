@@ -206,7 +206,21 @@ export class CronApi {
       return { status: 400, body: { error: "Request body required", code: "INVALID_REQUEST" } }
     }
 
-    const ok = await this.deps.cronService.updateJob(id, body)
+    // Field allowlist — only mutable fields are forwarded to the service layer.
+    // Prevents mass-assignment of internal state (circuitBreaker, currentRunUlid, etc.)
+    const MUTABLE_FIELDS = new Set(["name", "schedule", "enabled", "config", "concurrencyPolicy", "oneShot"])
+    const sanitized: Record<string, unknown> = {}
+    for (const key of Object.keys(body)) {
+      if (MUTABLE_FIELDS.has(key)) {
+        sanitized[key] = body[key]
+      }
+    }
+
+    if (Object.keys(sanitized).length === 0) {
+      return { status: 400, body: { error: "No valid fields to update", code: "VALIDATION_ERROR" } }
+    }
+
+    const ok = await this.deps.cronService.updateJob(id, sanitized)
     if (!ok) {
       return { status: 404, body: { error: "Job not found", code: "JOB_NOT_FOUND" } }
     }
@@ -244,16 +258,15 @@ export class CronApi {
     const limit = Math.min(parseInt(req.query?.["limit"] ?? "50", 10) || 50, 200)
     const offset = parseInt(req.query?.["offset"] ?? "0", 10) || 0
 
-    // Logs are stored as JSONL files in the registry's runs dir.
-    // Since we don't have direct file access here (framework-agnostic),
-    // return job metadata with pagination hints. The actual JSONL reading
-    // will be wired when the Hono routes integrate this class.
+    // TODO: Wire JSONL log reader via a LogReader dependency interface.
+    // Until implemented, return 501 so dashboard consumers display "coming soon"
+    // instead of incorrectly showing "no runs".
     return {
-      status: 200,
+      status: 501,
       body: {
+        error: "Job log retrieval not yet implemented",
+        code: "NOT_IMPLEMENTED",
         jobId: id,
-        logs: [],
-        pagination: { limit, offset, total: 0 },
       },
     }
   }

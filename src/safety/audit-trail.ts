@@ -109,7 +109,15 @@ function redactSecrets(obj: Record<string, unknown>): Record<string, unknown> {
   for (const [key, value] of Object.entries(obj)) {
     if (typeof value === "string" && isSecretValue(key, value)) {
       result[key] = "[REDACTED]"
-    } else if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    } else if (Array.isArray(value)) {
+      result[key] = value.map((item) =>
+        typeof item === "string" && isSecretValue(key, item)
+          ? "[REDACTED]"
+          : typeof item === "object" && item !== null
+            ? redactSecrets(item as Record<string, unknown>)
+            : item,
+      )
+    } else if (typeof value === "object" && value !== null) {
       result[key] = redactSecrets(value as Record<string, unknown>)
     } else {
       result[key] = value

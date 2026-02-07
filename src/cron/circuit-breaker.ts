@@ -45,6 +45,8 @@ export class CircuitBreaker extends EventEmitter {
   private config: Required<CircuitBreakerConfig>
   private _state: CircuitBreakerState
   private readonly now: () => number
+  /** Timestamped failure ring buffer for rolling window enforcement. */
+  private failureTimestamps: number[] = []
 
   constructor(config?: CircuitBreakerConfig, now?: () => number) {
     super()
@@ -103,8 +105,16 @@ export class CircuitBreaker extends EventEmitter {
       return
     }
 
-    this._state.failures += 1
-    this._state.lastFailureAt = this.now()
+    const currentTime = this.now()
+    this._state.lastFailureAt = currentTime
+
+    // Add to rolling window and evict stale entries
+    this.failureTimestamps.push(currentTime)
+    const windowStart = currentTime - this.config.rollingWindowMs
+    this.failureTimestamps = this.failureTimestamps.filter((ts) => ts > windowStart)
+
+    // Sync the scalar counter with the rolling window count
+    this._state.failures = this.failureTimestamps.length
 
     if (this._state.state === "closed" && this._state.failures >= this.config.failureThreshold) {
       this.transitionTo("open")
@@ -134,6 +144,7 @@ export class CircuitBreaker extends EventEmitter {
       this._state.successes = 0
       this._state.openedAt = undefined
       this._state.halfOpenAt = undefined
+      this.failureTimestamps = []
       this.emit("circuit:closed", { from: oldState })
     } else if (newState === "half_open") {
       this._state.halfOpenAt = this.now()

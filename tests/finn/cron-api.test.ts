@@ -232,6 +232,60 @@ test("Invalid body: POST with missing fields returns 400", async () => {
   assert.equal(r3.status, 400)
 })
 
+test("PATCH /api/cron/jobs/:id strips non-mutable fields (C-1 mass-assignment fix)", async () => {
+  const mocks = makeMocks()
+  mocks.jobs["j1"] = { id: "j1", name: "Original", enabled: true, circuitBreaker: { state: "closed" } }
+  const api = new CronApi(makeDeps(mocks))
+  const res = await api.handle(req("PATCH", "/api/cron/jobs/j1", {
+    body: {
+      name: "Updated",
+      enabled: false,
+      circuitBreaker: { state: "open" },  // should be stripped
+      currentRunUlid: "injected-ulid",    // should be stripped
+      _schemaVersion: 999,                // should be stripped
+    },
+  }))
+  assert.equal(res.status, 200)
+  // Verify only mutable fields were forwarded to cronService
+  const updateCall = mocks.calls.find(c => c.method === "updateJob")
+  assert.ok(updateCall, "updateJob should have been called")
+  const updates = updateCall.args[1] as Record<string, unknown>
+  assert.equal(updates.name, "Updated")
+  assert.equal(updates.enabled, false)
+  assert.equal(updates.circuitBreaker, undefined, "circuitBreaker should be stripped")
+  assert.equal(updates.currentRunUlid, undefined, "currentRunUlid should be stripped")
+  assert.equal(updates._schemaVersion, undefined, "_schemaVersion should be stripped")
+})
+
+test("PATCH /api/cron/jobs/:id returns 400 when only non-mutable fields sent", async () => {
+  const mocks = makeMocks()
+  mocks.jobs["j1"] = { id: "j1", name: "Test" }
+  const api = new CronApi(makeDeps(mocks))
+  const res = await api.handle(req("PATCH", "/api/cron/jobs/j1", {
+    body: { circuitBreaker: { state: "open" }, currentRunUlid: "injected" },
+  }))
+  assert.equal(res.status, 400)
+  assert.equal((res.body as any).code, "VALIDATION_ERROR")
+})
+
+test("GET /api/cron/jobs/:id/logs returns 501 Not Implemented (H-2)", async () => {
+  const mocks = makeMocks()
+  mocks.jobs["j1"] = { id: "j1", name: "Has Logs" }
+  const api = new CronApi(makeDeps(mocks))
+  const res = await api.handle(req("GET", "/api/cron/jobs/j1/logs"))
+  assert.equal(res.status, 501)
+  assert.equal((res.body as any).code, "NOT_IMPLEMENTED")
+  assert.equal((res.body as any).jobId, "j1")
+})
+
+test("GET /api/cron/jobs/:id/logs returns 404 for unknown job", async () => {
+  const mocks = makeMocks()
+  const api = new CronApi(makeDeps(mocks))
+  const res = await api.handle(req("GET", "/api/cron/jobs/nonexistent/logs"))
+  assert.equal(res.status, 404)
+  assert.equal((res.body as any).code, "JOB_NOT_FOUND")
+})
+
 test("POST /api/cron/kill-switch with action=deactivate", async () => {
   const mocks = makeMocks()
   const api = new CronApi(makeDeps(mocks))

@@ -113,18 +113,24 @@ export class AtomicJsonStore<T> {
     const backup = await this.tryReadFile(this.bakPath)
     if (backup !== null) return backup
 
-    // Both missing (ENOENT) is not corruption — just no data yet
+    // Try .tmp — covers crash between rename(primary,.bak) and rename(.tmp,primary)
+    const tmp = await this.tryReadFile(this.tmpPath)
+    if (tmp !== null) return tmp
+
+    // All missing (ENOENT) is not corruption — just no data yet
     const primaryExists = await fileExists(this.filePath)
     const bakExists = await fileExists(this.bakPath)
-    if (!primaryExists && !bakExists) return null
+    const tmpExists = await fileExists(this.tmpPath)
+    if (!primaryExists && !bakExists && !tmpExists) return null
 
     // At least one file existed but was unreadable — quarantine what's there
     if (primaryExists) await this.quarantine(this.filePath)
     if (bakExists) await this.quarantine(this.bakPath)
+    if (tmpExists) await this.quarantine(this.tmpPath)
 
     throw new StoreCorruptionError(
       this.filePath,
-      "primary and backup both failed validation",
+      "primary, backup, and tmp all failed validation",
     )
   }
 

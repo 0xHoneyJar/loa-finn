@@ -175,6 +175,57 @@ async function main() {
     assert.equal(cb.state.state, "open")
   })
 
+  // ── 8b. Rolling window evicts stale failures (H-3) ──────────
+
+  await test("rolling window evicts failures outside rollingWindowMs", () => {
+    let now = 0
+    const cb = new CircuitBreaker(
+      { failureThreshold: 3, rollingWindowMs: 5000 },
+      () => now,
+    )
+
+    // Record 2 failures at t=0 and t=1000
+    now = 0
+    cb.recordFailure("transient")
+    now = 1000
+    cb.recordFailure("transient")
+    assert.equal(cb.state.failures, 2)
+
+    // Advance clock past rolling window for the first 2 failures
+    // At t=6000, windowStart = 6000 - 5000 = 1000. Filter keeps ts > 1000.
+    // t=0 is evicted (0 <= 1000), t=1000 is evicted (1000 <= 1000), only new one remains.
+    now = 6000
+    cb.recordFailure("transient")
+    assert.equal(cb.state.failures, 1, "stale failures should be evicted from rolling window")
+    assert.equal(cb.state.state, "closed", "should NOT trip because only 1 in-window failure")
+
+    // Add more failures within the window to trip it
+    now = 7000
+    cb.recordFailure("transient")
+    now = 8000
+    cb.recordFailure("transient")
+    assert.equal(cb.state.state, "open", "should now be open with 3 in-window failures")
+  })
+
+  await test("rolling window: all failures within window counts correctly", () => {
+    let now = 1000
+    const cb = new CircuitBreaker(
+      { failureThreshold: 3, rollingWindowMs: 10_000 },
+      () => now,
+    )
+
+    now = 1000
+    cb.recordFailure("transient")
+    now = 2000
+    cb.recordFailure("transient")
+    now = 3000
+    cb.recordFailure("transient")
+
+    // All 3 within 10s window — should trip
+    assert.equal(cb.state.state, "open")
+    assert.equal(cb.state.failures, 3)
+  })
+
   // ── 9. classifyGitHubFailure ──────────────────────────────
 
   await test("classifyGitHubFailure: 429 = rate_limited", () => {

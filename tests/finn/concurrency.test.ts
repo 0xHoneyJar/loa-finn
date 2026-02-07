@@ -296,6 +296,50 @@ async function main() {
     await cleanup(dir)
   })
 
+  // ── 8. TOCTOU Re-Read on Release (H-5) ──────────────────────
+
+  console.log("\n--- TOCTOU Re-Read on Release (H-5) ---")
+
+  await test("release returns false if lock was broken and re-acquired between reads", async () => {
+    const dir = await setup()
+
+    // Manager A acquires the lock
+    const mgrA = new ConcurrencyManager({ baseDir: dir })
+    await mgrA.acquire("job-toctou")
+
+    // Simulate: someone breaks the lock and a different manager re-acquires it
+    // between the first readLock and the re-read in release()
+    const mgrC = new ConcurrencyManager({ baseDir: dir })
+    await mgrC.breakStaleLock("job-toctou")
+    const reacquired = await mgrC.acquire("job-toctou")
+    assert.ok(reacquired, "mgrC should re-acquire the lock")
+
+    // Now mgrA tries to release — it should fail because the lock is now owned by mgrC
+    const released = await mgrA.release("job-toctou")
+    assert.equal(released, false, "release should fail because lock is now owned by different manager")
+
+    // Lock should still be held by mgrC
+    const lock = await mgrC.readLock("job-toctou")
+    assert.ok(lock, "lock should still exist")
+    assert.equal(lock.bootId, mgrC.getBootId())
+    await cleanup(dir)
+  })
+
+  await test("release returns false if lock disappears between reads", async () => {
+    const dir = await setup()
+    const mgr = new ConcurrencyManager({ baseDir: dir })
+    await mgr.acquire("job-vanish")
+
+    // Another process breaks the lock between reads
+    const mgrBreaker = new ConcurrencyManager({ baseDir: dir })
+    await mgrBreaker.breakStaleLock("job-vanish")
+
+    // release should detect the lock is gone on first readLock
+    const released = await mgr.release("job-vanish")
+    assert.equal(released, false)
+    await cleanup(dir)
+  })
+
   await test("recoverStaleLocks returns empty when baseDir does not exist", async () => {
     const dir = join(tmpdir(), `nonexistent-${Date.now()}`)
     const mgr = new ConcurrencyManager({ baseDir: dir })

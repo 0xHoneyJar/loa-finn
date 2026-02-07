@@ -123,6 +123,15 @@ export class ConcurrencyManager {
       return false
     }
 
+    // TOCTOU mitigation: re-read lock immediately before unlink to minimize
+    // the race window where another process could break+acquire between our
+    // first read and the unlink.
+    const recheck = await this.readLock(jobId)
+    if (!recheck) return false // Lock disappeared between reads
+    if (recheck.bootId !== this.bootId || recheck.pid !== process.pid) {
+      return false // Lock was broken and re-acquired by another process
+    }
+
     try {
       await unlink(lockPath)
       return true

@@ -117,6 +117,44 @@ async function main() {
     assert.equal(result.allowed, true)
   })
 
+  // ── C-2: executionMode Enforcement ─────────────────────────
+
+  console.log("\n--- C-2: executionMode Enforcement ---")
+
+  await test("16. all CRON_BASH_POLICIES have executionMode: 'execFile'", () => {
+    for (const policy of CRON_BASH_POLICIES) {
+      assert.equal(
+        policy.executionMode,
+        "execFile",
+        `Policy for "${policy.command}" missing executionMode: "execFile"`,
+      )
+    }
+  })
+
+  await test("17. BashPolicy type requires executionMode field", () => {
+    // Compile-time check: if executionMode were optional, this test
+    // wouldn't catch it at runtime, so we verify all actual policies
+    // have it set to the only valid value
+    const modes = CRON_BASH_POLICIES.map(p => p.executionMode)
+    const unique = [...new Set(modes)]
+    assert.deepEqual(unique, ["execFile"])
+  })
+
+  await test("18. git push is denied via deniedArgs (not deniedSubcommands)", () => {
+    // Verify the renamed field works correctly
+    const result = checkBashCommand("git", ["push", "origin", "main"])
+    assert.equal(result.allowed, false)
+    assert.ok(result.reason?.includes("denied"))
+    assert.ok(result.reason?.includes("push"))
+  })
+
+  await test("19. npm -g is denied via deniedArgs", () => {
+    const result = checkBashCommand("npm", ["install", "-g", "evil-pkg"])
+    assert.equal(result.allowed, false)
+    assert.ok(result.reason?.includes("denied"))
+    assert.ok(result.reason?.includes("-g"))
+  })
+
   console.log("\nDone.")
 }
 
