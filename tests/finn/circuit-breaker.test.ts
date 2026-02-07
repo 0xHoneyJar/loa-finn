@@ -1,9 +1,13 @@
-// tests/finn/circuit-breaker.test.ts — Upstream circuit breaker tests (T-7.2)
+// tests/finn/circuit-breaker.test.ts — Circuit breaker state machine tests (SDD §4.12, TASK-2.6)
 
 import assert from "node:assert/strict"
-import { CircuitBreaker, PersistenceError } from "../../src/persistence/upstream.js"
+import {
+  CircuitBreaker,
+  classifyGitHubFailure,
+  type FailureClass,
+} from "../../src/cron/circuit-breaker.js"
 
-async function test(name: string, fn: () => Promise<void>) {
+async function test(name: string, fn: () => Promise<void> | void) {
   try {
     await fn()
     console.log(`  PASS  ${name}`)
@@ -18,150 +22,307 @@ async function main() {
   console.log("Circuit Breaker Tests")
   console.log("=====================")
 
-  let now = 0
-  function clock() { return now }
+  // ── 1. Starts in closed state, canExecute returns true ────
 
-  function createCB(config?: { maxFailures?: number; resetTimeMs?: number }) {
-    now = 1000 // Start at a positive time
-    const transitions: string[] = []
-    const cb = new CircuitBreaker(
-      { maxFailures: config?.maxFailures ?? 3, resetTimeMs: config?.resetTimeMs ?? 300_000, halfOpenRetries: 1 },
-      {
-        now: clock,
-        onStateChange: (from, to) => transitions.push(`${from}->${to}`),
-      },
-    )
-    return { cb, transitions }
-  }
-
-  await test("starts in CLOSED state", async () => {
-    const { cb } = createCB()
-    assert.equal(cb.getState(), "CLOSED")
-    assert.equal(cb.getFailureCount(), 0)
+  await test("starts in closed state, canExecute returns true", () => {
+    const cb = new CircuitBreaker()
+    assert.equal(cb.state.state, "closed")
+    assert.equal(cb.state.failures, 0)
+    assert.equal(cb.state.successes, 0)
+    assert.equal(cb.canExecute(), true)
   })
 
-  await test("CLOSED -> OPEN after 3 failures", async () => {
-    const { cb, transitions } = createCB({ maxFailures: 3, resetTimeMs: 100 })
+  // ── 2. recordSuccess resets failure count when closed ─────
+
+  await test("recordSuccess resets failure count when closed", () => {
+    let now = 1000
+    const cb = new CircuitBreaker({ failureThreshold: 5 }, () => now)
+
+    // Record some failures (not enough to trip)
+    cb.recordFailure("transient")
+    cb.recordFailure("transient")
+    assert.equal(cb.state.failures, 2)
+
+    // Success should reset failure count
+    cb.recordSuccess()
+    assert.equal(cb.state.failures, 0)
+    assert.equal(cb.state.state, "closed")
+  })
+
+  // ── 3. Threshold failures -> transitions to open ──────────
+
+  await test("threshold failures transitions to open, canExecute returns false", () => {
+    let now = 1000
+    const cb = new CircuitBreaker({ failureThreshold: 3, openDurationMs: 60_000 }, () => now)
 
     for (let i = 0; i < 3; i++) {
       now += 100
-      try {
-        await cb.execute(async () => { throw new Error("fail") })
-      } catch { /* expected */ }
+      cb.recordFailure("transient")
     }
 
-    assert.equal(cb.getState(), "OPEN")
-    assert.equal(cb.getFailureCount(), 3)
-    assert.ok(transitions.includes("CLOSED->OPEN"))
+    assert.equal(cb.state.state, "open")
+    assert.equal(cb.canExecute(), false)
   })
 
-  await test("OPEN rejects immediately", async () => {
-    const { cb } = createCB({ maxFailures: 1, resetTimeMs: 60_000 })
+  // ── 4. Open -> half_open after timeout elapsed ────────────
 
-    // Trip the breaker
-    now += 100
-    try {
-      await cb.execute(async () => { throw new Error("fail") })
-    } catch { /* expected */ }
+  await test("open -> half_open after timeout elapsed", () => {
+    let now = 1000
+    const cb = new CircuitBreaker({ failureThreshold: 2, openDurationMs: 5000 }, () => now)
 
-    assert.equal(cb.getState(), "OPEN")
+    cb.recordFailure("transient")
+    cb.recordFailure("transient")
+    assert.equal(cb.state.state, "open")
+    assert.equal(cb.canExecute(), false)
 
-    // Attempt should be rejected without calling handler
-    let handlerCalled = false
-    now += 100
-    try {
-      await cb.execute(async () => { handlerCalled = true })
-      assert.fail("should have thrown")
-    } catch (err) {
-      assert.ok(err instanceof PersistenceError)
-      assert.equal(handlerCalled, false, "handler should NOT be called when OPEN")
-    }
+    // Advance clock past openDurationMs
+    now += 5000
+    assert.equal(cb.canExecute(), true)
+    assert.equal(cb.state.state, "half_open")
   })
 
-  await test("OPEN -> HALF_OPEN after cooldown", async () => {
-    const { cb } = createCB({ maxFailures: 1, resetTimeMs: 1000 })
+  // ── 5. Half-open: probe success -> closed ─────────────────
 
-    // Trip the breaker
-    now += 100
-    try {
-      await cb.execute(async () => { throw new Error("fail") })
-    } catch { /* expected */ }
+  await test("half-open: probe successes reaching probeCount transitions to closed", () => {
+    let now = 1000
+    const cb = new CircuitBreaker(
+      { failureThreshold: 2, openDurationMs: 1000, halfOpenProbeCount: 2 },
+      () => now,
+    )
 
-    assert.equal(cb.getState(), "OPEN")
+    // Trip to open
+    cb.recordFailure("transient")
+    cb.recordFailure("transient")
+    assert.equal(cb.state.state, "open")
 
-    // Advance past cooldown
-    now += 1001
-    assert.equal(cb.getState(), "HALF_OPEN")
+    // Advance to half_open
+    now += 1000
+    cb.canExecute()
+    assert.equal(cb.state.state, "half_open")
+
+    // First success — still half_open
+    cb.recordSuccess()
+    assert.equal(cb.state.state, "half_open")
+    assert.equal(cb.state.successes, 1)
+
+    // Second success — transitions to closed
+    cb.recordSuccess()
+    assert.equal(cb.state.state, "closed")
+    assert.equal(cb.state.failures, 0)
+    assert.equal(cb.state.successes, 0)
   })
 
-  await test("HALF_OPEN -> CLOSED on success", async () => {
-    const { cb, transitions } = createCB({ maxFailures: 1, resetTimeMs: 1000 })
+  // ── 6. Half-open: any failure -> back to open ─────────────
 
-    // Trip
-    now += 100
-    try {
-      await cb.execute(async () => { throw new Error("fail") })
-    } catch { /* expected */ }
+  await test("half-open: any failure transitions back to open", () => {
+    let now = 1000
+    const cb = new CircuitBreaker(
+      { failureThreshold: 2, openDurationMs: 1000 },
+      () => now,
+    )
 
-    // Advance past cooldown
-    now += 1001
+    // Trip to open
+    cb.recordFailure("transient")
+    cb.recordFailure("transient")
 
-    // Succeed in half-open
-    const result = await cb.execute(async () => "recovered")
-    assert.equal(result, "recovered")
-    assert.equal(cb.getState(), "CLOSED")
-    assert.equal(cb.getFailureCount(), 0)
-    assert.ok(transitions.includes("HALF_OPEN->CLOSED"))
+    // Advance to half_open
+    now += 1000
+    cb.canExecute()
+    assert.equal(cb.state.state, "half_open")
+
+    // Failure in half_open -> back to open
+    cb.recordFailure("transient")
+    assert.equal(cb.state.state, "open")
   })
 
-  await test("HALF_OPEN -> OPEN on failure", async () => {
-    const { cb } = createCB({ maxFailures: 1, resetTimeMs: 1000 })
+  // ── 7. Expected failures don't count toward threshold ─────
 
-    // Trip
-    now += 100
-    try {
-      await cb.execute(async () => { throw new Error("fail") })
-    } catch { /* expected */ }
+  await test("expected failures don't count toward threshold", () => {
+    let now = 1000
+    const cb = new CircuitBreaker({ failureThreshold: 3 }, () => now)
 
-    // Advance past cooldown
-    now += 1001
-    assert.equal(cb.getState(), "HALF_OPEN")
+    // Record expected failures — should not count
+    cb.recordFailure("expected")
+    cb.recordFailure("expected")
+    cb.recordFailure("expected")
+    cb.recordFailure("expected")
+    assert.equal(cb.state.failures, 0)
+    assert.equal(cb.state.state, "closed")
 
-    // Fail in half-open
-    now += 100
-    try {
-      await cb.execute(async () => { throw new Error("fail again") })
-    } catch { /* expected */ }
-
-    assert.equal(cb.getState(), "OPEN")
+    // Mix expected with real failures
+    cb.recordFailure("transient")
+    cb.recordFailure("expected")
+    cb.recordFailure("transient")
+    assert.equal(cb.state.failures, 2)
+    assert.equal(cb.state.state, "closed")
   })
 
-  await test("manual reset returns to CLOSED", async () => {
-    const { cb } = createCB({ maxFailures: 1, resetTimeMs: 60_000 })
+  // ── 8. rate_limited failures count toward threshold ───────
 
-    // Trip
+  await test("rate_limited failures count toward threshold", () => {
+    let now = 1000
+    const cb = new CircuitBreaker({ failureThreshold: 3 }, () => now)
+
     now += 100
-    try {
-      await cb.execute(async () => { throw new Error("fail") })
-    } catch { /* expected */ }
+    cb.recordFailure("rate_limited")
+    now += 100
+    cb.recordFailure("rate_limited")
+    assert.equal(cb.state.failures, 2)
+    assert.equal(cb.state.state, "closed")
 
-    assert.equal(cb.getState(), "OPEN")
+    now += 100
+    cb.recordFailure("rate_limited")
+    assert.equal(cb.state.state, "open")
+  })
+
+  // ── 9. classifyGitHubFailure ──────────────────────────────
+
+  await test("classifyGitHubFailure: 429 = rate_limited", () => {
+    assert.equal(classifyGitHubFailure(429), "rate_limited")
+  })
+
+  await test("classifyGitHubFailure: 403 + Retry-After = rate_limited", () => {
+    assert.equal(
+      classifyGitHubFailure(403, { "retry-after": "60" }),
+      "rate_limited",
+    )
+    assert.equal(
+      classifyGitHubFailure(403, { "Retry-After": "120" }),
+      "rate_limited",
+    )
+  })
+
+  await test("classifyGitHubFailure: 403 without Retry-After = external", () => {
+    assert.equal(classifyGitHubFailure(403), "external")
+    assert.equal(classifyGitHubFailure(403, {}), "external")
+  })
+
+  await test("classifyGitHubFailure: 5xx = transient", () => {
+    assert.equal(classifyGitHubFailure(500), "transient")
+    assert.equal(classifyGitHubFailure(502), "transient")
+    assert.equal(classifyGitHubFailure(503), "transient")
+  })
+
+  await test("classifyGitHubFailure: 422 = permanent", () => {
+    assert.equal(classifyGitHubFailure(422), "permanent")
+  })
+
+  await test("classifyGitHubFailure: 404 = expected", () => {
+    assert.equal(classifyGitHubFailure(404), "expected")
+  })
+
+  await test("classifyGitHubFailure: other codes = external", () => {
+    assert.equal(classifyGitHubFailure(400), "external")
+    assert.equal(classifyGitHubFailure(401), "external")
+    assert.equal(classifyGitHubFailure(418), "external")
+  })
+
+  // ── 10. Manual reset from open -> closed ──────────────────
+
+  await test("manual reset from open transitions to closed", () => {
+    let now = 1000
+    const cb = new CircuitBreaker({ failureThreshold: 2, openDurationMs: 60_000 }, () => now)
+
+    cb.recordFailure("transient")
+    cb.recordFailure("transient")
+    assert.equal(cb.state.state, "open")
 
     cb.reset()
-    assert.equal(cb.getState(), "CLOSED")
-    assert.equal(cb.getFailureCount(), 0)
+    assert.equal(cb.state.state, "closed")
+    assert.equal(cb.state.failures, 0)
+    assert.equal(cb.state.successes, 0)
+    assert.equal(cb.canExecute(), true)
   })
 
-  await test("success in CLOSED resets nothing but increments count", async () => {
-    const { cb } = createCB()
+  // ── 11. Events emitted: circuit:opened, circuit:closed ────
 
-    now += 100
-    await cb.execute(async () => "ok")
-    now += 100
-    await cb.execute(async () => "ok")
+  await test("emits circuit:opened event on transition to open", () => {
+    let now = 1000
+    const cb = new CircuitBreaker({ failureThreshold: 2 }, () => now)
+    const events: Array<{ from: string }> = []
+    cb.on("circuit:opened", (e) => events.push(e))
 
-    assert.equal(cb.getState(), "CLOSED")
-    assert.equal(cb.getFailureCount(), 0)
+    cb.recordFailure("transient")
+    cb.recordFailure("transient")
+
+    assert.equal(events.length, 1)
+    assert.equal(events[0].from, "closed")
+  })
+
+  await test("emits circuit:closed event on transition to closed", () => {
+    let now = 1000
+    const cb = new CircuitBreaker(
+      { failureThreshold: 2, openDurationMs: 1000, halfOpenProbeCount: 1 },
+      () => now,
+    )
+    const events: Array<{ from: string }> = []
+    cb.on("circuit:closed", (e) => events.push(e))
+
+    // Trip to open
+    cb.recordFailure("transient")
+    cb.recordFailure("transient")
+
+    // Advance to half_open
+    now += 1000
+    cb.canExecute()
+
+    // Succeed to close
+    cb.recordSuccess()
+
+    assert.equal(events.length, 1)
+    assert.equal(events[0].from, "half_open")
+  })
+
+  await test("emits circuit:closed event on manual reset", () => {
+    let now = 1000
+    const cb = new CircuitBreaker({ failureThreshold: 2 }, () => now)
+    const events: Array<{ from: string }> = []
+    cb.on("circuit:closed", (e) => events.push(e))
+
+    cb.recordFailure("transient")
+    cb.recordFailure("transient")
+
+    cb.reset()
+    assert.equal(events.length, 1)
+    assert.equal(events[0].from, "open")
+  })
+
+  // ── 12. restoreState restores from persisted data ─────────
+
+  await test("restoreState restores from persisted data", () => {
+    const cb = new CircuitBreaker()
+    assert.equal(cb.state.state, "closed")
+
+    cb.restoreState({
+      state: "open",
+      failures: 4,
+      successes: 0,
+      openedAt: 5000,
+      lastFailureAt: 4500,
+    })
+
+    assert.equal(cb.state.state, "open")
+    assert.equal(cb.state.failures, 4)
+    assert.equal(cb.state.openedAt, 5000)
+    assert.equal(cb.state.lastFailureAt, 4500)
+  })
+
+  await test("restoreState to half_open allows probing", () => {
+    let now = 10_000
+    const cb = new CircuitBreaker({ halfOpenProbeCount: 1 }, () => now)
+
+    cb.restoreState({
+      state: "half_open",
+      failures: 3,
+      successes: 0,
+      halfOpenAt: 9000,
+    })
+
+    assert.equal(cb.canExecute(), true)
+    assert.equal(cb.state.state, "half_open")
+
+    cb.recordSuccess()
+    assert.equal(cb.state.state, "closed")
   })
 
   console.log("\nDone.")
