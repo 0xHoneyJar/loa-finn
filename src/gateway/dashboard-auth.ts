@@ -54,10 +54,25 @@ function safeCompare(a: string, b: string): boolean {
  * Any valid Bearer token grants operator-level access.
  * Localhost without token grants viewer-level access (when bound to loopback).
  */
+/** Minimum token length to prevent brute-force (256 bits = 32 bytes = 64 hex chars, but 32 chars is the floor). */
+const MIN_TOKEN_LENGTH = 32
+
 export class DashboardAuth {
   private readonly config: DashboardAuthConfig
 
   constructor(config: DashboardAuthConfig) {
+    if (typeof config.adminToken !== "string" || config.adminToken.length === 0) {
+      throw new Error(
+        `Admin token is required. ` +
+        `Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
+      )
+    }
+    if (config.adminToken.length < MIN_TOKEN_LENGTH) {
+      throw new Error(
+        `Admin token too short (${config.adminToken.length} chars, need >= ${MIN_TOKEN_LENGTH}). ` +
+        `Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
+      )
+    }
     this.config = config
   }
 
@@ -69,8 +84,8 @@ export class DashboardAuth {
     const isLoopbackBind = this.config.bindAddress === "127.0.0.1"
     const isLocalClient = isLocalhostAddr(req.remoteAddr)
 
-    // Localhost viewer pass-through: skip token when bound to loopback,
-    // client is local, and only viewer access is needed.
+    // Localhost viewer pass-through: skip token ONLY for viewer role
+    // when bound to loopback and client is local. Operator role always requires token.
     if (isLoopbackBind && isLocalClient && requiredRole === "viewer") {
       return null
     }
