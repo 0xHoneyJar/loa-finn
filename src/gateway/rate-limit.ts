@@ -57,10 +57,20 @@ export class RateLimiter {
   }
 }
 
-function getClientIp(c: Context): string {
-  return c.req.header("CF-Connecting-IP")
-    ?? c.req.header("X-Forwarded-For")?.split(",")[0]?.trim()
-    ?? "unknown"
+/**
+ * Extract client IP — only trust proxy headers when explicitly configured.
+ * Falls back to socket remote address to prevent IP spoofing via forged headers.
+ */
+function getClientIp(c: Context, trustProxy = false): string {
+  if (trustProxy) {
+    const cfIp = c.req.header("CF-Connecting-IP")
+    if (cfIp) return cfIp
+    const xff = c.req.header("X-Forwarded-For")?.split(",")[0]?.trim()
+    if (xff) return xff
+  }
+  // Use the raw connection info when not trusting proxy headers
+  const connInfo = c.env?.remoteAddr ?? c.req.header("X-Real-IP")
+  return connInfo ?? "unknown"
 }
 
 export function rateLimitMiddleware(config: FinnConfig) {

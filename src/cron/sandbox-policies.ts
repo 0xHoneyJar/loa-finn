@@ -90,6 +90,15 @@ export function checkBashCommand(
     }
   }
 
+  // Defense-in-depth: reject shell metacharacters in arguments to prevent
+  // command injection if the caller ever uses shell execution instead of execFile.
+  const SHELL_METACHAR = /[|;&`$()><]/
+  for (const arg of args) {
+    if (SHELL_METACHAR.test(arg)) {
+      return { allowed: false, reason: `Argument "${arg}" contains shell metacharacter` }
+    }
+  }
+
   return { allowed: true }
 }
 

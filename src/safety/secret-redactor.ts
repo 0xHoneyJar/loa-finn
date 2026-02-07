@@ -17,6 +17,7 @@ export class SecretRedactor {
       { name: "github-pat-classic", pattern: /ghp_[A-Za-z0-9_]{36,}/g, replacement: "[REDACTED:github-pat]" },
       { name: "github-pat-fine", pattern: /github_pat_[A-Za-z0-9_]{22,}/g, replacement: "[REDACTED:github-pat]" },
       { name: "github-app", pattern: /ghs_[A-Za-z0-9_]{36,}/g, replacement: "[REDACTED:github-app]" },
+      { name: "github-oauth", pattern: /gho_[A-Za-z0-9_]{36,}/g, replacement: "[REDACTED:github-oauth]" },
       { name: "github-legacy", pattern: /v[0-9]+\.[a-f0-9]{40}/g, replacement: "[REDACTED:github-token]" },
       { name: "aws-key", pattern: /AKIA[0-9A-Z]{16}/g, replacement: "[REDACTED:aws-key]" },
       { name: "generic-key", pattern: /(?:key|token)=[a-f0-9]{32,}/gi, replacement: "[REDACTED:api-key]" },

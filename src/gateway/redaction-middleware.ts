@@ -50,6 +50,8 @@ export class ResponseRedactor {
     if (typeof value === "object") {
       const out: Record<string, unknown> = {}
       for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        // Skip prototype pollution vectors
+        if (k === "__proto__" || k === "constructor" || k === "prototype") continue
         out[k] = this.walk(v, k)
       }
       return out

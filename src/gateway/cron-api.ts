@@ -124,8 +124,8 @@ export class CronApi {
     // POST /api/cron/jobs — create job
     this.route("POST", "/api/cron/jobs", true, (req) => this.createJob(req))
 
-    // GET /api/cron/jobs — list jobs (read-only, no auth required)
-    this.route("GET", "/api/cron/jobs", false, (req) => this.listJobs(req))
+    // GET /api/cron/jobs — list jobs (auth required to prevent data leak)
+    this.route("GET", "/api/cron/jobs", true, (req) => this.listJobs(req))
 
     // PATCH /api/cron/jobs/:id — update job
     this.route("PATCH", "/api/cron/jobs/:id", true, (req) => this.updateJob(req))
@@ -136,8 +136,8 @@ export class CronApi {
     // POST /api/cron/jobs/:id/trigger — manual trigger
     this.route("POST", "/api/cron/jobs/:id/trigger", true, (req) => this.triggerJob(req))
 
-    // GET /api/cron/jobs/:id/logs — paginated run history (read-only)
-    this.route("GET", "/api/cron/jobs/:id/logs", false, (req) => this.getJobLogs(req))
+    // GET /api/cron/jobs/:id/logs — paginated run history (auth required to prevent data leak)
+    this.route("GET", "/api/cron/jobs/:id/logs", true, (req) => this.getJobLogs(req))
 
     // POST /api/cron/kill-switch — kill switch control
     this.route("POST", "/api/cron/kill-switch", true, (req) => this.killSwitch(req))

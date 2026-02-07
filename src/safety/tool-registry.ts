@@ -72,7 +72,13 @@ export const TOOL_REGISTRY: Map<string, ToolRegistryEntry> = new Map([
       { type: "must_be", param: "draft", value: true },
     ],
   }],
-  ["create_branch", { name: "create_branch", capability: "write" }],
+  ["create_branch", {
+    name: "create_branch",
+    capability: "write",
+    paramConstraints: [
+      { type: "pattern", param: "branch", pattern: BRANCH_PATTERN },
+    ],
+  }],
   ["create_or_update_file", {
     name: "create_or_update_file",
     capability: "write",

@@ -123,8 +123,7 @@ test("GET /api/cron/jobs lists all jobs (200)", async () => {
   mocks.jobs["j1"] = { id: "j1", name: "Job 1" }
   mocks.jobs["j2"] = { id: "j2", name: "Job 2" }
   const api = new CronApi(makeDeps(mocks))
-  // No auth token — GET should work without auth
-  const res = await api.handle(req("GET", "/api/cron/jobs", { token: null }))
+  const res = await api.handle(req("GET", "/api/cron/jobs"))
   assert.equal(res.status, 200)
   const body = res.body as any
   assert.equal(body.jobs.length, 2)
@@ -204,13 +203,13 @@ test("Auth required: POST with wrong token returns 401", async () => {
   assert.equal((res.body as any).code, "AUTH_INVALID")
 })
 
-test("Auth not required: GET /api/cron/jobs works without token", async () => {
+test("Auth required: GET /api/cron/jobs without token returns 401", async () => {
   const mocks = makeMocks()
   mocks.jobs["j1"] = { id: "j1" }
   const api = new CronApi(makeDeps(mocks))
   const res = await api.handle(req("GET", "/api/cron/jobs", { token: null }))
-  assert.equal(res.status, 200)
-  assert.equal((res.body as any).jobs.length, 1)
+  assert.equal(res.status, 401)
+  assert.equal((res.body as any).code, "AUTH_REQUIRED")
 })
 
 test("Invalid body: POST with missing fields returns 400", async () => {

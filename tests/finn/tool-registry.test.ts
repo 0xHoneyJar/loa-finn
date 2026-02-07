@@ -255,6 +255,18 @@ async function main() {
     assert.equal(result.valid, false)
   })
 
+  // create_branch: branch pattern constraint (M-7 security fix)
+  await test("create_branch with finn/ branch passes", () => {
+    const result = validateParams("create_branch", { branch: "finn/new-feature" })
+    assert.equal(result.valid, true)
+  })
+
+  await test("create_branch with main branch fails", () => {
+    const result = validateParams("create_branch", { branch: "main" })
+    assert.equal(result.valid, false)
+    assert.ok(result.violations[0].includes("branch"))
+  })
+
   // Tools without constraints
   await test("tool without constraints always passes", () => {
     const result = validateParams("get_pull_request", { any: "params", here: 123 })

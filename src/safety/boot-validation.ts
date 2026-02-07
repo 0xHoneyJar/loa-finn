@@ -46,6 +46,10 @@ export interface BootConfig {
   firewallSelfTest?: () => Promise<boolean>
   dataDir?: string
   pidFilePath?: string
+  /** Gateway bind address — used to enforce auth token on non-loopback. */
+  bindAddress?: string
+  /** Gateway bearer token — must be non-empty when binding to non-loopback. */
+  authToken?: string
 }
 
 /** Required GitHub permissions for agent operation. */
@@ -239,7 +243,18 @@ export async function validateBootSafety(config: BootConfig): Promise<BootResult
     await writeFile(config.pidFilePath, String(process.pid), "utf-8")
   }
 
-  // Step 7: Firewall self-test
+  // Step 7a: Auth token presence when binding to non-loopback
+  if (config.bindAddress && config.bindAddress !== "127.0.0.1" && config.bindAddress !== "::1") {
+    if (!config.authToken) {
+      throw new BootValidationError(
+        BootErrorCode.E_TOKEN_MISSING,
+        `Auth token required when binding to non-loopback address "${config.bindAddress}". Set FINN_AUTH_TOKEN.`,
+        7,
+      )
+    }
+  }
+
+  // Step 7b: Firewall self-test
   if (config.firewallSelfTest) {
     const passed = await config.firewallSelfTest()
     if (!passed) {

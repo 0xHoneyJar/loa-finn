@@ -1,6 +1,6 @@
 // src/gateway/csrf.ts — Double-submit cookie CSRF protection (SDD §6.6, TASK-6.6)
 
-import { randomBytes } from "node:crypto"
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -41,6 +41,13 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
  *    the token submitted in the form body or the `x-csrf-token` header.
  * 3. Bearer-authenticated API requests bypass CSRF entirely.
  */
+/** Timing-safe string comparison via SHA-256 digest. */
+function safeCompare(a: string, b: string): boolean {
+  const bufA = createHash("sha256").update(a).digest()
+  const bufB = createHash("sha256").update(b).digest()
+  return timingSafeEqual(bufA, bufB)
+}
+
 export class CsrfProtection {
   private readonly tokenLength: number
   private readonly cookieName: string
@@ -89,7 +96,7 @@ export class CsrfProtection {
       return { valid: false, error: "CSRF token missing from request" }
     }
 
-    if (cookieToken !== submittedToken) {
+    if (!safeCompare(cookieToken, submittedToken)) {
       return { valid: false, error: "CSRF token mismatch" }
     }
 

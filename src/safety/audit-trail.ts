@@ -8,6 +8,29 @@
 import { createHmac, createHash } from "node:crypto"
 import { appendFile, readFile, stat, rename } from "node:fs/promises"
 
+// Simple async mutex to serialize appendRecord calls and prevent hash chain corruption.
+class Mutex {
+  private queue: Array<() => void> = []
+  private locked = false
+
+  async acquire(): Promise<void> {
+    if (!this.locked) {
+      this.locked = true
+      return
+    }
+    return new Promise<void>((resolve) => this.queue.push(resolve))
+  }
+
+  release(): void {
+    const next = this.queue.shift()
+    if (next) {
+      next()
+    } else {
+      this.locked = false
+    }
+  }
+}
+
 // ── Types ───────────────────────────────────────────────────
 
 /** Phases of an audit record. (SDD §4.3) */
@@ -154,6 +177,7 @@ export class AuditTrail {
   private seq = 0
   private lastHash = "genesis"
   private runContext: RunContext | undefined
+  private readonly mutex = new Mutex()
 
   constructor(filePath: string, options?: AuditTrailOptions) {
     this.filePath = filePath
@@ -353,57 +377,62 @@ export class AuditTrail {
     data: AuditRecordInput | AuditResultInput,
     intentSeq?: number,
   ): Promise<number> {
-    this.seq += 1
-    const currentSeq = this.seq
+    await this.mutex.acquire()
+    try {
+      this.seq += 1
+      const currentSeq = this.seq
 
-    const redactedParams = redactSecrets(data.params)
+      const redactedParams = redactSecrets(data.params)
 
-    // Build the record object (hash and hmac will be computed below)
-    const record: Record<string, unknown> = {
-      seq: currentSeq,
-      prevHash: this.lastHash,
-      phase,
-      ts: new Date(this.now()).toISOString(),
-      jobId: this.runContext?.jobId ?? "",
-      runUlid: this.runContext?.runUlid ?? "",
-      templateId: this.runContext?.templateId ?? "",
-      action: data.action,
-      target: data.target,
-      params: redactedParams,
-      dryRun: data.dryRun ?? false,
-    }
+      // Build the record object (hash and hmac will be computed below)
+      const record: Record<string, unknown> = {
+        seq: currentSeq,
+        prevHash: this.lastHash,
+        phase,
+        ts: new Date(this.now()).toISOString(),
+        jobId: this.runContext?.jobId ?? "",
+        runUlid: this.runContext?.runUlid ?? "",
+        templateId: this.runContext?.templateId ?? "",
+        action: data.action,
+        target: data.target,
+        params: redactedParams,
+        dryRun: data.dryRun ?? false,
+      }
 
-    if (intentSeq !== undefined) {
-      record.intentSeq = intentSeq
-    }
-    if ("dedupeKey" in data && data.dedupeKey !== undefined) {
-      record.dedupeKey = data.dedupeKey
-    }
-    if ("result" in data && data.result !== undefined) {
-      record.result = data.result
-    }
-    if ("error" in data && data.error !== undefined) {
-      record.error = data.error
-    }
-    if ("rateLimitRemaining" in data && data.rateLimitRemaining !== undefined) {
-      record.rateLimitRemaining = data.rateLimitRemaining
-    }
+      if (intentSeq !== undefined) {
+        record.intentSeq = intentSeq
+      }
+      if ("dedupeKey" in data && data.dedupeKey !== undefined) {
+        record.dedupeKey = data.dedupeKey
+      }
+      if ("result" in data && data.result !== undefined) {
+        record.result = data.result
+      }
+      if ("error" in data && data.error !== undefined) {
+        record.error = data.error
+      }
+      if ("rateLimitRemaining" in data && data.rateLimitRemaining !== undefined) {
+        record.rateLimitRemaining = data.rateLimitRemaining
+      }
 
-    // Compute hash from canonical serialization (excludes hash + hmac fields)
-    const canonical = canonicalize(record)
-    const hash = createHash("sha256").update(canonical).digest("hex")
-    record.hash = hash
+      // Compute hash from canonical serialization (excludes hash + hmac fields)
+      const canonical = canonicalize(record)
+      const hash = createHash("sha256").update(canonical).digest("hex")
+      record.hash = hash
 
-    // Compute HMAC if signing key is configured
-    if (this.hmacKey) {
-      record.hmac = createHmac("sha256", this.hmacKey).update(canonical).digest("hex")
+      // Compute HMAC if signing key is configured
+      if (this.hmacKey) {
+        record.hmac = createHmac("sha256", this.hmacKey).update(canonical).digest("hex")
+      }
+
+      // Append the JSON line to the file
+      const line = JSON.stringify(record) + "\n"
+      await appendFile(this.filePath, line, "utf-8")
+
+      this.lastHash = hash
+      return currentSeq
+    } finally {
+      this.mutex.release()
     }
-
-    // Append the JSON line to the file
-    const line = JSON.stringify(record) + "\n"
-    await appendFile(this.filePath, line, "utf-8")
-
-    this.lastHash = hash
-    return currentSeq
   }
 }
