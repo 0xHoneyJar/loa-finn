@@ -11,9 +11,10 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# Copy source and build
+# Copy source and framework lib (persistence types needed by src/)
 COPY tsconfig.json ./
 COPY src/ ./src/
+COPY .claude/lib/ ./.claude/lib/
 RUN pnpm build
 
 # Stage 2: Runtime
