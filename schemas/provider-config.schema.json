@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loa-finn.local/schemas/provider-config.schema.json",
+  "title": "Hounfour Provider Configuration",
+  "description": "JSON Schema for the hounfour section of .loa.config.yaml — providers, aliases, agents, routing, metering, pricing (SDD §5.1)",
+  "type": "object",
+  "properties": {
+    "providers": {
+      "type": "object",
+      "description": "Provider definitions keyed by provider name",
+      "additionalProperties": {
+        "$ref": "#/$defs/ProviderEntry"
+      }
+    },
+    "aliases": {
+      "type": "object",
+      "description": "Model aliases mapping short names to canonical provider:model",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-z0-9_-]+:[a-z0-9_./-]+$"
+      }
+    },
+    "agents": {
+      "type": "object",
+      "description": "Agent→model binding configuration keyed by agent name",
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentBinding"
+      }
+    },
+    "routing": {
+      "$ref": "#/$defs/RoutingConfig"
+    },
+    "metering": {
+      "$ref": "#/$defs/MeteringConfig"
+    },
+    "pricing": {
+      "type": "object",
+      "description": "Pricing entries keyed by canonical provider:model",
+      "additionalProperties": {
+        "$ref": "#/$defs/PricingEntry"
+      }
+    }
+  },
+  "required": ["providers"],
+  "$defs": {
+    "ProviderEntry": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["claude-code", "openai", "openai-compatible"]
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "baseURL": { "type": "string", "format": "uri" },
+            "apiKey": {
+              "type": "string",
+              "description": "API key or {env:VAR_NAME} interpolation pattern"
+            },
+            "connectTimeoutMs": { "type": "integer", "minimum": 100, "default": 5000 },
+            "readTimeoutMs": { "type": "integer", "minimum": 1000, "default": 60000 },
+            "totalTimeoutMs": { "type": "integer", "minimum": 1000, "default": 300000 }
+          }
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelEntry"
+          }
+        },
+        "retryPolicy": {
+          "$ref": "#/$defs/RetryPolicy"
+        }
+      },
+      "required": ["type", "models"]
+    },
+    "ModelEntry": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "capabilities": {
+          "$ref": "#/$defs/ModelCapabilities"
+        },
+        "limit": {
+          "type": "object",
+          "properties": {
+            "context": { "type": "integer", "minimum": 1 },
+            "output": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["context", "output"]
+        },
+        "defaults": {
+          "type": "object",
+          "properties": {
+            "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+            "top_p": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      },
+      "required": ["name", "capabilities", "limit"]
+    },
+    "ModelCapabilities": {
+      "type": "object",
+      "properties": {
+        "tool_calling": { "type": "boolean" },
+        "thinking_traces": { "type": "boolean" },
+        "vision": { "type": "boolean" },
+        "streaming": { "type": "boolean" }
+      },
+      "required": ["tool_calling", "thinking_traces", "vision", "streaming"]
+    },
+    "RetryPolicy": {
+      "type": "object",
+      "properties": {
+        "maxRetries": { "type": "integer", "minimum": 0, "maximum": 10, "default": 3 },
+        "baseDelayMs": { "type": "integer", "minimum": 100, "default": 1000 },
+        "maxDelayMs": { "type": "integer", "minimum": 1000, "default": 30000 },
+        "jitterPercent": { "type": "integer", "minimum": 0, "maximum": 100, "default": 25 },
+        "retryableStatusCodes": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "default": [429, 500, 502, 503, 504]
+        },
+        "retryableErrors": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["timeout", "network_error"]
+        }
+      }
+    },
+    "AgentBinding": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Alias or canonical provider:model"
+        },
+        "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+        "persona": {
+          "type": "string",
+          "description": "Path to persona.md relative to project root"
+        },
+        "requires": {
+          "type": "object",
+          "properties": {
+            "native_runtime": { "type": "boolean" },
+            "tool_calling": {
+              "oneOf": [
+                { "type": "boolean" },
+                { "const": "optional" }
+              ]
+            },
+            "thinking_traces": {
+              "oneOf": [
+                { "enum": ["required", "optional"] },
+                { "const": false }
+              ]
+            }
+          }
+        }
+      },
+      "required": ["model", "requires"]
+    },
+    "RoutingConfig": {
+      "type": "object",
+      "properties": {
+        "default_model": { "type": "string" },
+        "on_budget_exceeded": {
+          "type": "string",
+          "enum": ["block", "downgrade"],
+          "default": "block"
+        },
+        "fallback": {
+          "type": "object",
+          "description": "Fallback chains keyed by canonical provider:model",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "downgrade": {
+          "type": "object",
+          "description": "Downgrade chains keyed by canonical provider:model",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "disabled_providers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "health": {
+          "type": "object",
+          "properties": {
+            "interval_ms": { "type": "integer", "minimum": 1000, "default": 60000 },
+            "timeout_ms": { "type": "integer", "minimum": 500, "default": 5000 },
+            "failure_threshold": { "type": "integer", "minimum": 1, "default": 3 },
+            "recovery_interval_ms": { "type": "integer", "minimum": 1000, "default": 30000 }
+          }
+        }
+      }
+    },
+    "MeteringConfig": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "ledger_path": { "type": "string", "default": "data/hounfour/cost-ledger.jsonl" },
+        "checkpoint_path": { "type": "string", "default": "data/hounfour/budget-checkpoint.json" },
+        "on_ledger_failure": {
+          "type": "string",
+          "enum": ["fail-open", "fail-closed"],
+          "default": "fail-open",
+          "description": "fail-open (default dev): continue on ledger write failure. fail-closed: reject requests when ledger unavailable."
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "project_id": { "type": "string" },
+            "phase_id": { "type": "string" },
+            "sprint_id": { "type": "string" }
+          },
+          "required": ["project_id"]
+        },
+        "budgets": {
+          "type": "object",
+          "description": "Budget limits keyed by scope key (e.g., project_id or project_id:phase_id)",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "limit_usd": { "type": "number", "minimum": 0 },
+              "warn_percent": { "type": "number", "minimum": 0, "maximum": 100, "default": 80 }
+            },
+            "required": ["limit_usd"]
+          }
+        }
+      }
+    },
+    "PricingEntry": {
+      "type": "object",
+      "properties": {
+        "input_per_1m": { "type": "number", "minimum": 0 },
+        "output_per_1m": { "type": "number", "minimum": 0 },
+        "reasoning_per_1m": { "type": "number", "minimum": 0 }
+      },
+      "required": ["input_per_1m", "output_per_1m"]
+    }
+  }
+}

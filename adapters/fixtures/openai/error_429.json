@@ -1,0 +1,18 @@
+{
+  "description": "OpenAI rate limit error response",
+  "provider_type": "openai",
+  "raw_response": {
+    "error": {
+      "message": "Rate limit reached for gpt-4o in organization org-abc on tokens per min (TPM): Limit 30000, Used 29500, Requested 1000.",
+      "type": "tokens",
+      "param": null,
+      "code": "rate_limit_exceeded"
+    }
+  },
+  "http_status": 429,
+  "expected_error": {
+    "code": "provider_error",
+    "status_code": 429,
+    "retryable": true
+  }
+}

@@ -12,12 +12,14 @@ import { rateLimitMiddleware } from "./rate-limit.js"
 import type { HealthAggregator } from "../scheduler/health.js"
 import type { ActivityFeed } from "../dashboard/activity-feed.js"
 import { createActivityHandler } from "../dashboard/activity-handler.js"
+import type { HounfourRouter } from "../hounfour/router.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
   activityFeed?: ActivityFeed
   executor?: SandboxExecutor
   pool?: WorkerPool
+  hounfour?: HounfourRouter
 }
 
 export function createApp(config: FinnConfig, options: AppOptions) {

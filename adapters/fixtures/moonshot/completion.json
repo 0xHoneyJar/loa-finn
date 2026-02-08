@@ -1,0 +1,35 @@
+{
+  "description": "Moonshot standard completion response (no thinking)",
+  "provider_type": "openai-compatible",
+  "raw_response": {
+    "id": "cmpl-moon-abc",
+    "object": "chat.completion",
+    "created": 1707350400,
+    "model": "moonshot-v1-8k",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "I can help you with that analysis."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 20,
+      "completion_tokens": 8,
+      "total_tokens": 28
+    }
+  },
+  "expected": {
+    "content": "I can help you with that analysis.",
+    "thinking": null,
+    "tool_calls": null,
+    "usage": {
+      "prompt_tokens": 20,
+      "completion_tokens": 8,
+      "reasoning_tokens": 0
+    }
+  }
+}
