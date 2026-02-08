@@ -8,9 +8,12 @@ import { SessionRouter } from "./sessions.js"
 import { authMiddleware, corsMiddleware } from "./auth.js"
 import { rateLimitMiddleware } from "./rate-limit.js"
 import type { HealthAggregator } from "../scheduler/health.js"
+import type { ActivityFeed } from "../dashboard/activity-feed.js"
+import { createActivityHandler } from "../dashboard/activity-handler.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
+  activityFeed?: ActivityFeed
 }
 
 export function createApp(config: FinnConfig, options?: AppOptions) {
@@ -43,6 +46,16 @@ export function createApp(config: FinnConfig, options?: AppOptions) {
         sessions: { active: router.getActiveCount() },
       },
     })
+  })
+
+  // Serve Dashboard UI
+  app.get("/dashboard", async (c) => {
+    try {
+      const html = await readFile(resolve("public/dashboard.html"), "utf-8")
+      return c.html(html)
+    } catch {
+      return c.text("Dashboard UI not found. Place dashboard.html in public/.", 404)
+    }
   })
 
   // Auth + rate limit for API routes
@@ -132,6 +145,9 @@ export function createApp(config: FinnConfig, options?: AppOptions) {
       messageCount: session.messages.length,
     })
   })
+
+  // GET /api/dashboard/activity — Bridgebuilder activity feed (SDD §3.2)
+  app.get("/api/dashboard/activity", createActivityHandler(options?.activityFeed))
 
   return { app, router }
 }
