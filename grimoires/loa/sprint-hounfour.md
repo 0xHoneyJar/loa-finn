@@ -176,116 +176,116 @@
 #### T-15.1: HounfourRouter Core (P0, SDD §4.2)
 **Description**: Implement `src/hounfour/router.ts` — central routing with resolveExecution(), invoke(), validateBindings(). Wires registry, budget, health, cheval.
 **Acceptance Criteria**:
-- [ ] `resolveExecution()` implements alias resolution → capability check → budget downgrade → availability fallback
-- [ ] `walkChain()` with ordering, termination, cycle detection, exhaustion behavior (IMP-001)
-- [ ] `invoke()` builds ExecutionContext, creates ModelPortBase adapter, calls port.complete()
-- [ ] Post-invoke: records cost to budget, appends ledger, reports to health prober
-- [ ] `validateBindings()` fails fast at startup on misconfigured bindings
-- [ ] Unit tests: routing resolution, fallback walking, downgrade, native_runtime rejection
+- [x] `resolveExecution()` implements alias resolution → capability check → budget downgrade → availability fallback
+- [x] `walkChain()` with ordering, termination, cycle detection, exhaustion behavior (IMP-001)
+- [x] `invoke()` builds ExecutionContext, creates ModelPortBase adapter, calls port.complete()
+- [x] Post-invoke: records cost to budget, appends ledger, reports to health prober
+- [x] `validateBindings()` fails fast at startup on misconfigured bindings
+- [x] Unit tests: routing resolution, fallback walking, downgrade, native_runtime rejection
 **Assigned**: Claude Code
 **Dependencies**: T-14.3, T-14.4, T-14.7, T-14.8
 
 #### T-15.2: Thinking Trace Normalization (P0, FR-7, SDD §4.10)
 **Description**: Implement thinking trace extraction in cheval.py for Kimi-K2 (`reasoning_content` field). Add content/thinking separation tests.
 **Acceptance Criteria**:
-- [ ] Kimi-K2: `choices[0].message.reasoning_content` → `CompletionResult.thinking`
-- [ ] Non-thinking models (GPT-4o, Qwen3): `thinking = null`
-- [ ] Strict separation: thinking never in content, content never in thinking
-- [ ] Conformance test with golden fixture for Kimi-K2 thinking trace
-- [ ] Ephemeral by default: traces not persisted
+- [x] Kimi-K2: `choices[0].message.reasoning_content` → `CompletionResult.thinking`
+- [x] Non-thinking models (GPT-4o, Qwen3): `thinking = null`
+- [x] Strict separation: thinking never in content, content never in thinking
+- [x] Conformance test with golden fixture for Kimi-K2 thinking trace
+- [x] Ephemeral by default: traces not persisted
 **Assigned**: Claude Code
 **Dependencies**: T-14.5
 
 #### T-15.3: Budget Enforcement — Warn/Block/Downgrade (P1, FR-6)
 **Description**: Add budget enforcement paths to HounfourRouter. Warn at configurable %, block or downgrade at 100%.
 **Acceptance Criteria**:
-- [ ] `budget.isWarning()` triggers console warning with scope and percentage
-- [ ] `budget.isExceeded()` triggers block (BUDGET_EXCEEDED error) or downgrade based on config
-- [ ] Downgrade walks downgrade chain, skipping capability-incompatible entries
-- [ ] Per-iteration budget check in tool-call loop
-- [ ] `getBudgetSnapshot()` method exposed via HealthDeps for dashboard consumption (wired in T-15.9)
-- [ ] Unit tests: warn threshold, block threshold, downgrade path
+- [x] `budget.isWarning()` triggers console warning with scope and percentage
+- [x] `budget.isExceeded()` triggers block (BUDGET_EXCEEDED error) or downgrade based on config
+- [x] Downgrade walks downgrade chain, skipping capability-incompatible entries
+- [x] Per-iteration budget check in tool-call loop
+- [x] `getBudgetSnapshot()` method exposed via HealthDeps for dashboard consumption (wired in T-15.9)
+- [x] Unit tests: warn threshold, block threshold, downgrade path
 **Assigned**: Claude Code
 **Dependencies**: T-15.1, T-14.7
 
 #### T-15.4: Flatline Protocol Refactor (P0)
 **Description**: Replace ad-hoc GPT API calls in `.claude/scripts/gpt-review-api.sh` and `.claude/scripts/flatline-orchestrator.sh` with `model-invoke` via Hounfour.
 **Acceptance Criteria**:
-- [ ] `model-invoke flatline-primary "$prompt_file" --model reviewer` replaces direct OpenAI curl
-- [ ] `model-invoke flatline-challenger "$prompt_file" --model reasoning` replaces direct Moonshot curl
-- [ ] Flatline Protocol produces identical review structure
-- [ ] Cost metered through JSONL ledger with `agent: "flatline-primary"` / `"flatline-challenger"`
-- [ ] Existing Flatline tests still pass
+- [x] `model-invoke flatline-primary "$prompt_file" --model reviewer` replaces direct OpenAI curl
+- [x] `model-invoke flatline-challenger "$prompt_file" --model reasoning` replaces direct Moonshot curl
+- [x] Flatline Protocol produces identical review structure
+- [x] Cost metered through JSONL ledger with `agent: "flatline-primary"` / `"flatline-challenger"`
+- [x] Existing Flatline tests still pass
 **Assigned**: Claude Code
 **Dependencies**: T-14.9 (model-invoke), T-15.1, T-15.2
 
 #### T-15.5: Persona Loader (P0, SDD §4.11, IMP-005)
 **Description**: Implement persona loading mechanism. Read persona.md at invocation time, inject as system message, run injection detection.
 **Acceptance Criteria**:
-- [ ] Persona path resolved from AgentBinding.persona (relative to project root)
-- [ ] Content loaded at invocation time (not cached)
-- [ ] Injected as first system message in CompletionRequest.messages
-- [ ] Injection detection: known patterns scanned, rejected with warning on match
-- [ ] Missing persona file: proceed with user prompt alone (logged warning)
+- [x] Persona path resolved from AgentBinding.persona (relative to project root)
+- [x] Content loaded at invocation time (not cached)
+- [x] Injected as first system message in CompletionRequest.messages
+- [x] Injection detection: known patterns scanned, rejected with warning on match
+- [x] Missing persona file: proceed with user prompt alone (logged warning)
 **Assigned**: Claude Code
 **Dependencies**: T-15.1
 
 #### T-15.6: Capability Checking & Fail-Fast (P0, FR-3)
 **Description**: Implement capability validation at routing time. Hard-fail on native_runtime mismatch, tool_calling requirement, thinking_traces requirement.
 **Acceptance Criteria**:
-- [ ] `native_runtime: true` agent bound to non-Claude provider → hard fail with NATIVE_RUNTIME_REQUIRED
-- [ ] `tool_calling: true` agent bound to non-tool-calling model → hard fail
-- [ ] `thinking_traces: required` agent bound to non-thinking model → hard fail
-- [ ] `thinking_traces: optional` → no failure (soft degradation)
-- [ ] Validation runs at startup (`validateBindings()`) AND at routing time
+- [x] `native_runtime: true` agent bound to non-Claude provider → hard fail with NATIVE_RUNTIME_REQUIRED
+- [x] `tool_calling: true` agent bound to non-tool-calling model → hard fail
+- [x] `thinking_traces: required` agent bound to non-thinking model → hard fail
+- [x] `thinking_traces: optional` → no failure (soft degradation)
+- [x] Validation runs at startup (`validateBindings()`) AND at routing time
 **Assigned**: Claude Code
 **Dependencies**: T-15.1
 
 #### T-15.7: Tool-Call Loop Orchestrator (P0, FR-4, SDD §4.9)
 **Description**: Implement `invokeWithTools()` in HounfourRouter — multi-turn tool-call loop with idempotency, argument validation, repair strategy, context budget tracking.
 **Acceptance Criteria**:
-- [ ] CanonicalMessage format with null content on tool-call turns
-- [ ] Idempotency cache keyed by deterministic key: `hash(tool_name + normalized_args + turn_index)` — handles providers that regenerate tool_call_id on retries
-- [ ] Tool argument validation against JSON schema before execution
-- [ ] Repair strategy: malformed JSON → error fed back, one retry per tool call
-- [ ] Budget check per iteration using ExecutionContext.scopeMeta
-- [ ] Context budget tracking via provider `usage` response (not local estimator): warn at 80% of max_context, abort at 90% (IMP-009)
-- [ ] Loop invariants enforced: `max_iterations` (default: 20), `abort_on_consecutive_failures` (default: 3), `max_wall_time_ms` (default: 120000), `max_total_tool_calls` (default: 50)
-- [ ] Unit tests: idempotency with changing tool_call_id, max iterations, consecutive failures, arg validation, context overflow, partial tool failures, model returning repeated tool_calls
+- [x] CanonicalMessage format with null content on tool-call turns
+- [x] Idempotency cache keyed by deterministic key: `hash(tool_name + normalized_args + turn_index)` — handles providers that regenerate tool_call_id on retries
+- [x] Tool argument validation against JSON schema before execution
+- [x] Repair strategy: malformed JSON → error fed back, one retry per tool call
+- [x] Budget check per iteration using ExecutionContext.scopeMeta
+- [x] Context budget tracking via provider `usage` response (not local estimator): warn at 80% of max_context, abort at 90% (IMP-009)
+- [x] Loop invariants enforced: `max_iterations` (default: 20), `abort_on_consecutive_failures` (default: 3), `max_wall_time_ms` (default: 120000), `max_total_tool_calls` (default: 50)
+- [x] Unit tests: idempotency with changing tool_call_id, max iterations, consecutive failures, arg validation, context overflow, partial tool failures, model returning repeated tool_calls
 **Assigned**: Claude Code
 **Dependencies**: T-15.1, T-14.7
 
 #### T-15.8: Tool-Call E2E Test (P0)
 **Description**: Minimal tool-call roundtrip E2E test per PRD Phase 1 exit criterion: one tool definition sent, one tool_call returned, one tool_result fed back, final content received.
 **Acceptance Criteria**:
-- [ ] Test sends CompletionRequest with one tool definition
-- [ ] Model returns tool_call, normalized to canonical ToolCall
-- [ ] Tool result fed back as CanonicalMessage with role: "tool"
-- [ ] Final response contains content (not another tool call)
-- [ ] Iteration accounting: 2 iterations counted
-- [ ] Budget charged for both iterations
+- [x] Test sends CompletionRequest with one tool definition
+- [x] Model returns tool_call, normalized to canonical ToolCall
+- [x] Tool result fed back as CanonicalMessage with role: "tool"
+- [x] Final response contains content (not another tool call)
+- [x] Iteration accounting: 2 iterations counted
+- [x] Budget charged for both iterations
 **Assigned**: Claude Code
 **Dependencies**: T-15.7
 
 #### T-15.9: HealthProber Stub & Boot Sequence Integration (P0, SDD §8.1, §4.7)
 **Description**: Implement minimal `src/hounfour/health.ts` stub (recordSuccess/recordFailure/isHealthy — default healthy, no background probes). Wire Hounfour into `src/index.ts` boot sequence as step 6e. Extend AppOptions with `hounfour`, HealthDeps with `getProviderHealth`.
 **Acceptance Criteria**:
-- [ ] HealthProber stub: `recordSuccess()`, `recordFailure()`, `isHealthy()` (always returns true — no circuit breaker logic yet)
-- [ ] Step 6e: ProviderRegistry → BudgetEnforcer → HealthProber(stub) → ChevalInvoker → HounfourRouter
-- [ ] Graceful skip when no providers configured (backward compatible per NFR-3)
-- [ ] AppOptions extended with `hounfour?: HounfourRouter`
-- [ ] HealthDeps extended with `getProviderHealth` + `getBudgetSnapshot`
-- [ ] Dashboard health check includes provider status (from stub) and budget snapshot
+- [x] HealthProber stub: `recordSuccess()`, `recordFailure()`, `isHealthy()` (always returns true — no circuit breaker logic yet)
+- [x] Step 6e: ProviderRegistry → BudgetEnforcer → HealthProber(stub) → ChevalInvoker → HounfourRouter
+- [x] Graceful skip when no providers configured (backward compatible per NFR-3)
+- [x] AppOptions extended with `hounfour?: HounfourRouter`
+- [x] HealthDeps extended with `getProviderHealth` + `getBudgetSnapshot`
+- [x] Dashboard health check includes provider status (from stub) and budget snapshot
 **Assigned**: Claude Code
 **Dependencies**: T-15.1, T-15.3
 
 #### T-15.10: Connection Pooling (P1, FR-2)
 **Description**: Configure httpx.Client reuse in cheval.py for self-hosted endpoints. Persistent connections reduce TCP overhead.
 **Acceptance Criteria**:
-- [ ] httpx.Client created per provider with keep-alive
-- [ ] Connection pool size configurable (default: 10 per provider)
-- [ ] Client reused across invocations in human CLI mode
-- [ ] Machine mode: no pooling (subprocess lifecycle is one request)
+- [x] httpx.Client created per provider with keep-alive
+- [x] Connection pool size configurable (default: 10 per provider)
+- [x] Client reused across invocations in human CLI mode
+- [x] Machine mode: no pooling (subprocess lifecycle is one request)
 **Assigned**: Claude Code
 **Dependencies**: T-14.5
 
@@ -302,90 +302,90 @@
 #### T-16.1: Skill Decomposition — persona.md + output-schema.md (P0, FR-8)
 **Description**: Create `persona.md` and `output-schema.md` for all 8 agents. Zero breakage on native_runtime path.
 **Acceptance Criteria**:
-- [ ] All 8 agent skills have `persona.md` (model-agnostic system prompt)
-- [ ] All 8 agent skills have `output-schema.md` (expected output format)
-- [ ] `SKILL.md` unchanged (native_runtime entry point preserved)
-- [ ] `remote_model` reads `persona.md` as system prompt + `output-schema.md` as format instruction
-- [ ] Native_runtime path unaffected (zero regression)
+- [x] All 8 agent skills have `persona.md` (model-agnostic system prompt)
+- [x] All 8 agent skills have `output-schema.md` (expected output format)
+- [x] `SKILL.md` unchanged (native_runtime entry point preserved)
+- [x] `remote_model` reads `persona.md` as system prompt + `output-schema.md` as format instruction
+- [x] Native_runtime path unaffected (zero regression)
 **Assigned**: Claude Code
 **Dependencies**: T-15.5
 
 #### T-16.2: Health Prober & Circuit Breaker — Full Implementation (P0, FR-5, SDD §4.7)
 **Description**: Extend the HealthProber stub from T-15.9 into full implementation in `src/hounfour/health.ts` — per-provider:model health tracking, circuit breaker state machine, per-request feedback, background probes.
 **Acceptance Criteria**:
-- [ ] Health state tracked per `provider:model` pair (SKP-004)
-- [ ] Error taxonomy: 429 NOT health failure, 5xx/timeout/connection refused ARE health failures
-- [ ] Circuit breaker: CLOSED → OPEN (N failures) → HALF_OPEN (interval + jitter) → CLOSED (success)
-- [ ] recordSuccess/recordFailure as primary signal, background probes supplementary
-- [ ] Background probes: provider-specific URL composition (baseURL + probe_path, host_relative)
-- [ ] Requires_auth probes include Bearer token
-- [ ] State transitions logged to WAL
-- [ ] Unit tests: circuit breaker transitions, probe timeout, host-relative URL, 429 vs 5xx taxonomy
+- [x] Health state tracked per `provider:model` pair (SKP-004)
+- [x] Error taxonomy: 429 NOT health failure, 5xx/timeout/connection refused ARE health failures
+- [x] Circuit breaker: CLOSED → OPEN (N failures) → HALF_OPEN (interval + jitter) → CLOSED (success)
+- [x] recordSuccess/recordFailure as primary signal, background probes supplementary
+- [x] Background probes: provider-specific URL composition (baseURL + probe_path, host_relative)
+- [x] Requires_auth probes include Bearer token
+- [x] State transitions logged to WAL
+- [x] Unit tests: circuit breaker transitions, probe timeout, host-relative URL, 429 vs 5xx taxonomy
 **Assigned**: Claude Code
 **Dependencies**: T-15.1
 
 #### T-16.3: Outbound Rate Limiter (P0, SDD §4.8)
 **Description**: Implement `src/hounfour/rate-limiter.ts` — per-provider token bucket for RPM and TPM.
 **Acceptance Criteria**:
-- [ ] Token bucket per provider for RPM and TPM
-- [ ] Request queued (up to timeout) when over limit, not immediately failed
-- [ ] Rate limits configurable per-provider in config
-- [ ] Rate limiter acquire() called once per logical request (not per retry)
-- [ ] Unit tests: bucket depletion, queue timeout, refill
+- [x] Token bucket per provider for RPM and TPM
+- [x] Request queued (up to timeout) when over limit, not immediately failed
+- [x] Rate limits configurable per-provider in config
+- [x] Rate limiter acquire() called once per logical request (not per retry)
+- [x] Unit tests: bucket depletion, queue timeout, refill
 **Assigned**: Claude Code
 **Dependencies**: T-14.4
 
 #### T-16.4: Fallback & Downgrade Chains (P0, FR-5, SDD §4.3)
 **Description**: Integrate walkChain() into live routing. Config-driven fallback (availability) and downgrade (cost) with capability filtering.
 **Acceptance Criteria**:
-- [ ] Fallback triggered when health.isHealthy() returns false
-- [ ] Downgrade triggered when budget.isExceeded() and on_budget_exceeded=downgrade
-- [ ] Both chains skip entries not satisfying agent.requires capabilities
-- [ ] Downgrade impossible for native_runtime agents
-- [ ] Automatic restore when budget resets
-- [ ] Integration test: provider goes down → fallback → recovery → restore
+- [x] Fallback triggered when health.isHealthy() returns false
+- [x] Downgrade triggered when budget.isExceeded() and on_budget_exceeded=downgrade
+- [x] Both chains skip entries not satisfying agent.requires capabilities
+- [x] Downgrade impossible for native_runtime agents
+- [x] Automatic restore when budget resets
+- [x] Integration test: provider goes down → fallback → recovery → restore
 **Assigned**: Claude Code
 **Dependencies**: T-16.2, T-15.3
 
 #### T-16.5: Ledger Rotation (P1, FR-6)
 **Description**: Add size-based and age-based rotation to JSONL cost ledger.
 **Acceptance Criteria**:
-- [ ] Rotate when file exceeds `max_size_mb` (default: 50MB)
-- [ ] Rotate files older than `max_age_days` (default: 30 days)
-- [ ] Archive path: configurable (default: `grimoires/loa/a2a/archive/cost-ledger/`)
-- [ ] Naming: `cost-ledger-{date}-{seq}.jsonl`
-- [ ] Rotation integrated into budget append workflow
+- [x] Rotate when file exceeds `max_size_mb` (default: 50MB)
+- [x] Rotate files older than `max_age_days` (default: 30 days)
+- [x] Archive path: configurable (default: `grimoires/loa/a2a/archive/cost-ledger/`)
+- [x] Naming: `cost-ledger-{date}-{seq}.jsonl`
+- [x] Rotation integrated into budget append workflow
 **Assigned**: Claude Code
 **Dependencies**: T-14.7
 
 #### T-16.6: Fidelity Test Suite (P1, FR-8)
 **Description**: Golden input fidelity tests to verify agent quality across models. Structural assertions (correctness, format, token budget) — not semantic equivalence.
 **Acceptance Criteria**:
-- [ ] Golden inputs for at least 3 agents (translator, reviewer, flatline-challenger)
-- [ ] Structural assertions: output format matches output-schema.md, token count within budget
-- [ ] Tests run against at least 2 non-Claude models
-- [ ] Test results documented with pass/fail per agent per model
+- [x] Golden inputs for at least 3 agents (translator, reviewer, flatline-challenger)
+- [x] Structural assertions: output format matches output-schema.md, token count within budget
+- [x] Tests run against at least 2 non-Claude models
+- [x] Test results documented with pass/fail per agent per model
 **Assigned**: Claude Code
 **Dependencies**: T-16.1
 
 #### T-16.7: `/cost-report` Command (P1, FR-6)
 **Description**: Shell script that reads JSONL ledger, generates per-agent per-model per-provider spend breakdown in markdown.
 **Acceptance Criteria**:
-- [ ] Reads all ledger files (including rotated archives)
-- [ ] Breakdown by: agent, model, provider, phase, sprint
-- [ ] Total cost, average cost per request, request count
-- [ ] Markdown output for embedding in sprint reports
+- [x] Reads all ledger files (including rotated archives)
+- [x] Breakdown by: agent, model, provider, phase, sprint
+- [x] Total cost, average cost per request, request count
+- [x] Markdown output for embedding in sprint reports
 **Assigned**: Claude Code
 **Dependencies**: T-14.7, T-16.5
 
 #### T-16.8: Dockerfile & Deployment Updates (P0, SDD §10.1)
 **Description**: Update `deploy/Dockerfile` to include Python 3.10+, httpx, pyyaml. Copy adapters/ and schemas/ directories.
 **Acceptance Criteria**:
-- [ ] Python 3.10+ installed in container
-- [ ] httpx and pyyaml pip-installed
-- [ ] adapters/ and schemas/ copied to build output
-- [ ] `model-invoke` wrapper script at `.claude/adapters/model-invoke`
-- [ ] Container builds and boots with Hounfour step 6e
+- [x] Python 3.10+ installed in container
+- [x] httpx and pyyaml pip-installed
+- [x] adapters/ and schemas/ copied to build output
+- [x] `model-invoke` wrapper script at `.claude/adapters/model-invoke`
+- [x] Container builds and boots with Hounfour step 6e
 **Assigned**: Claude Code
 **Dependencies**: T-14.5, T-15.9
 

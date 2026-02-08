@@ -157,21 +157,21 @@
           "local_id": "sprint-1",
           "global_id": 14,
           "label": "Foundation & Adapter Core",
-          "status": "pending",
+          "status": "completed",
           "tasks": 11
         },
         {
           "local_id": "sprint-2",
           "global_id": 15,
           "label": "Flatline Integration & Budget",
-          "status": "pending",
+          "status": "completed",
           "tasks": 10
         },
         {
           "local_id": "sprint-3",
           "global_id": 16,
           "label": "Agent Portability & Health",
-          "status": "pending",
+          "status": "completed",
           "tasks": 8
         }
       ]
