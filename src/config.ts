@@ -66,6 +66,9 @@ export interface FinnConfig {
   sandboxMode: "worker" | "child_process" | "disabled"
   /** Dev-only: sync fallback for debugging (never in production) */
   sandboxSyncFallback: boolean
+
+  /** Cheval adapter mode: subprocess (Phase 0-2 default) or sidecar (Phase 3) */
+  chevalMode: "subprocess" | "sidecar"
 }
 
 const VALID_SANDBOX_MODES = ["worker", "child_process", "disabled"] as const
@@ -162,5 +165,7 @@ export function loadConfig(): FinnConfig {
 
     sandboxMode: parseSandboxMode(process.env.SANDBOX_MODE),
     sandboxSyncFallback: parseSyncFallback(process.env.SANDBOX_SYNC_FALLBACK, process.env.NODE_ENV),
+
+    chevalMode: (process.env.CHEVAL_MODE ?? "subprocess") as "subprocess" | "sidecar",
   }
 }

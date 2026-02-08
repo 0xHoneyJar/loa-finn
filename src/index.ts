@@ -220,6 +220,71 @@ async function main() {
     // Non-fatal — loa-finn works without hounfour (backward compatible per NFR-3)
   }
 
+  // 6f. Initialize Cheval sidecar + Orchestrator (Phase 3, T-1.3/T-1.4/T-1.5/T-1.7)
+  let sidecarManager: import("./hounfour/sidecar-manager.js").SidecarManager | undefined
+  let orchestrator: import("./hounfour/orchestrator.js").Orchestrator | undefined
+
+  if (config.chevalMode === "sidecar" && hounfour) {
+    const hmacSecret = process.env.CHEVAL_HMAC_SECRET
+    if (hmacSecret) {
+      try {
+        const { SidecarManager } = await import("./hounfour/sidecar-manager.js")
+        const { SidecarClient } = await import("./hounfour/sidecar-client.js")
+        const { Orchestrator } = await import("./hounfour/orchestrator.js")
+        const { IdempotencyCache } = await import("./hounfour/idempotency.js")
+
+        const chevalPort = parseInt(process.env.CHEVAL_PORT ?? "3001", 10)
+        sidecarManager = new SidecarManager({
+          port: chevalPort,
+          env: {
+            CHEVAL_HMAC_SECRET: hmacSecret,
+            ...(process.env.CHEVAL_HMAC_SECRET_PREV ? { CHEVAL_HMAC_SECRET_PREV: process.env.CHEVAL_HMAC_SECRET_PREV } : {}),
+          },
+        })
+
+        await sidecarManager.start()
+
+        const sidecarClient = new SidecarClient({
+          baseUrl: sidecarManager.baseUrl,
+          hmac: { secret: hmacSecret, secretPrev: process.env.CHEVAL_HMAC_SECRET_PREV },
+        })
+
+        const idempotencyCache = new IdempotencyCache()
+
+        // Create orchestrator with a stub executor (real executor wired in Phase 3 Sprint 2)
+        const stubExecutor = {
+          async execute(toolName: string, args: Record<string, unknown>) {
+            return { output: `Tool ${toolName} not wired yet`, is_error: true }
+          },
+        }
+
+        // Model adapter delegates to HounfourRouter (which selects provider + model)
+        const modelAdapter: import("./hounfour/types.js").ModelPortBase = {
+          async complete(req: import("./hounfour/types.js").CompletionRequest) {
+            return hounfour!.invoke(req.metadata.agent, req.messages[req.messages.length - 1]?.content ?? "")
+          },
+          capabilities() { return { tool_calling: true, thinking_traces: false, vision: false, streaming: false } },
+          async healthCheck() { return { healthy: sidecarManager!.isRunning, latency_ms: 0 } },
+        }
+
+        // Tool executor: stub for Sprint 1, real wiring through HounfourRouter in Sprint 2
+        const toolExecutor: import("./hounfour/orchestrator.js").ToolExecutor = stubExecutor
+
+        orchestrator = new Orchestrator({
+          model: modelAdapter,
+          toolExecutor,
+          idempotencyCache,
+        })
+
+        console.log(`[finn] sidecar started on port ${chevalPort}, orchestrator ready`)
+      } catch (err) {
+        console.error(`[finn] sidecar initialization failed (non-fatal):`, (err as Error).message)
+      }
+    }
+  } else if (config.chevalMode === "sidecar") {
+    console.log("[finn] sidecar mode requested but hounfour not available — skipped")
+  }
+
   // 7. Create gateway (with executor for sandbox, pool for health stats)
   const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour })
 
@@ -394,6 +459,11 @@ async function main() {
     // Close HTTP server first — stop accepting new connections before
     // killing the pool, so in-flight requests don't hit POOL_SHUTTING_DOWN (SD-014)
     server.close()
+
+    // Shutdown sidecar (Phase 3)
+    if (sidecarManager) {
+      try { await sidecarManager.stop() } catch (err) { console.error("[finn] sidecar shutdown error:", err) }
+    }
 
     // Shutdown worker pool (abort running, terminate workers)
     if (pool) {
