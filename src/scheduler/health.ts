@@ -7,6 +7,7 @@ import type { DiskPressureStatus, RecoveryState } from "../persistence/upstream.
 import type { ObjectStoreSync } from "../persistence/r2-sync.js"
 import type { GitSync } from "../persistence/git-sync.js"
 import type { FinnConfig } from "../config.js"
+import type { WorkerPoolStats } from "../agent/worker-pool.js"
 
 export interface HealthStatus {
   status: "healthy" | "degraded" | "unhealthy"
@@ -52,6 +53,10 @@ export interface HealthStatus {
       status: string
       tasks: TaskStatus[]
     }
+    workerPool: {
+      status: string
+      stats?: WorkerPoolStats
+    }
   }
 }
 
@@ -66,6 +71,7 @@ export interface HealthDeps {
   getRecoveryState: () => { state: RecoveryState | "UNKNOWN"; source: string }
   getIdentityStatus: () => { checksum: string; watching: boolean }
   getLearningCounts: () => { total: number; active: number }
+  getWorkerPoolStats: () => WorkerPoolStats | undefined
 }
 
 export class HealthAggregator {
@@ -78,10 +84,12 @@ export class HealthAggregator {
       config, wal, r2Sync, gitSync, scheduler,
       getSessionCount, getBeadsAvailable,
       getRecoveryState, getIdentityStatus, getLearningCounts,
+      getWorkerPoolStats,
     } = this.deps
 
     const schedulerTasks = scheduler.getStatus()
     const beadsAvailable = getBeadsAvailable()
+    const poolStats = getWorkerPoolStats()
     const walStatus = wal.getStatus()
     const diskPressure = wal.getDiskPressure()
     const recoveryInfo = getRecoveryState()
@@ -118,6 +126,10 @@ export class HealthAggregator {
       scheduler: {
         status: schedulerTasks.some((t) => t.circuitBreakerState === "OPEN") ? "partial" : "ok",
         tasks: schedulerTasks,
+      },
+      workerPool: {
+        status: poolStats ? "ok" : "disabled",
+        stats: poolStats,
       },
     }
 

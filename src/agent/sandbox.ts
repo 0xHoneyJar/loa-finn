@@ -1,10 +1,12 @@
 // src/agent/sandbox.ts — Tool execution sandbox (SDD §3.1–3.5, Issue #11)
 
-import { execFileSync, type ExecFileSyncOptions } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import { lstatSync, realpathSync } from "node:fs"
 import { resolve } from "node:path"
 import type { FinnConfig } from "../config.js"
 import { AuditLog, type AuditEntry } from "./audit-log.js"
+import type { SandboxExecutor } from "./sandbox-executor.js"
+import type { ExecSpec } from "./worker-pool.js"
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -164,12 +166,15 @@ export class ToolSandbox {
   private readonly redactor: SecretRedactor
   private readonly auditLog: AuditLog
   private readonly sandboxEnv: Record<string, string>
+  private readonly executor: SandboxExecutor | undefined
+  private executorMissingWarned = false
 
-  constructor(config: FinnConfig["sandbox"], auditLog: AuditLog) {
+  constructor(config: FinnConfig["sandbox"], auditLog: AuditLog, executor?: SandboxExecutor) {
     this.config = config
     this.jail = new FilesystemJail(config.jailRoot)
     this.redactor = new SecretRedactor()
     this.auditLog = auditLog
+    this.executor = executor
     this.sandboxEnv = buildSandboxEnv(this.jail.getJailRoot())
 
     // Resolve binary paths at startup
@@ -230,9 +235,9 @@ export class ToolSandbox {
 
   /**
    * Execute a command through the sandbox pipeline:
-   * Gate → Tokenize → Policy → Jail → Audit → Execute → Redact
+   * Gate → Tokenize → Policy → Jail → Audit → Dispatch → Redact
    */
-  execute(commandString: string): SandboxResult {
+  async execute(commandString: string): Promise<SandboxResult> {
     // 1. Gate check
     if (!this.config.allowBash) {
       const entry: AuditEntry = {
@@ -321,6 +326,37 @@ export class ToolSandbox {
       }
     }
 
+    // 6a. Resolve binary path (realpath for TOCTOU safety)
+    let binaryPath: string
+    try {
+      binaryPath = realpathSync(policy.binary)
+    } catch {
+      const entry: AuditEntry = {
+        timestamp: new Date().toISOString(),
+        action: "deny",
+        command: cmd.binary,
+        args: cmd.args,
+        reason: `binary_not_found_or_unresolvable: ${policy.binary}`,
+      }
+      this.auditLog.append(entry)
+      throw new SandboxError(`Binary not available: ${cmd.binary}`)
+    }
+
+    // 6b. Resolve cwd (realpath to prevent symlink TOCTOU)
+    const cwd = this.jail.getJailRoot()
+
+    // 6c. Build sanitized env (already done at construction — sandboxEnv)
+
+    // 6d. Build immutable ExecSpec
+    const spec: ExecSpec = {
+      binaryPath,
+      args: validatedArgs,
+      cwd,
+      timeoutMs: this.config.execTimeout,
+      env: this.sandboxEnv,
+      maxBuffer: this.config.maxOutput,
+    }
+
     // 7. Audit log (fail-closed for non-read-only)
     const auditEntry: AuditEntry = {
       timestamp: new Date().toISOString(),
@@ -339,57 +375,53 @@ export class ToolSandbox {
       }
     }
 
-    // 8. Execute
-    const startTime = Date.now()
-    const execOptions: ExecFileSyncOptions = {
-      env: this.sandboxEnv,
-      cwd: this.jail.getJailRoot(),
-      timeout: this.config.execTimeout,
-      maxBuffer: this.config.maxOutput,
-      killSignal: "SIGKILL",
+    // 8. Dispatch via executor (SD-013: wired via createExecutor factory)
+    if (!this.executor) {
+      if (!this.executorMissingWarned) {
+        this.executorMissingWarned = true
+        console.warn("[sandbox] executor unavailable — all tool calls will fail. If SANDBOX_MODE is not 'disabled', check worker pool initialization.")
+      }
+      return { stdout: "", stderr: "Sandbox is disabled (no executor available)", exitCode: 1, timedOut: false, truncated: false }
     }
-
-    let stdout = ""
-    let stderr = ""
-    let exitCode = 0
+    const startTime = Date.now()
     let timedOut = false
-    let truncated = false
+    let result: { stdout: string; stderr: string; exitCode: number; truncated: boolean }
 
     try {
-      const result = execFileSync(policy.binary, validatedArgs, {
-        ...execOptions,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      })
-      stdout = typeof result === "string" ? result : ""
+      result = await this.executor.exec(spec)
     } catch (err: unknown) {
-      const execErr = err as {
-        status?: number | null
-        killed?: boolean
-        stdout?: string
-        stderr?: string
-        code?: string
-      }
-
-      exitCode = execErr.status ?? 1
-      stdout = execErr.stdout ?? ""
-      stderr = execErr.stderr ?? ""
-
-      if (execErr.killed || execErr.code === "ETIMEDOUT") {
+      // Map PoolError timeout to SandboxResult (preserve shape for callers)
+      const poolErr = err as { name?: string; code?: string; message?: string }
+      if (poolErr.name === "PoolError" && poolErr.code === "EXEC_TIMEOUT") {
         timedOut = true
-      }
-
-      // Check if output was truncated (maxBuffer exceeded)
-      if (execErr.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-        truncated = true
+        result = {
+          stdout: "",
+          stderr: poolErr.message ?? "Command timed out",
+          exitCode: 137,
+          truncated: false,
+        }
+      } else {
+        // Log execution failure to maintain complete audit trail (SD-010).
+        // Every "allow" entry must have a corresponding outcome.
+        this.auditLog.append({
+          ...auditEntry,
+          duration: Date.now() - startTime,
+          reason: `execution_failed: ${poolErr.code ?? poolErr.message ?? "unknown"}`,
+        })
+        throw err
       }
     }
 
     const duration = Date.now() - startTime
 
+    // Map timeout-like exit codes to timedOut flag
+    if (result.exitCode === 137 || result.exitCode === 143) {
+      timedOut = true
+    }
+
     // 9. Redact secrets from output
-    stdout = this.redactor.redact(stdout)
-    stderr = this.redactor.redact(stderr)
+    let stdout = this.redactor.redact(result.stdout)
+    let stderr = this.redactor.redact(result.stderr)
 
     // Update audit entry with execution details
     this.auditLog.append({
@@ -398,7 +430,7 @@ export class ToolSandbox {
       outputSize: Buffer.byteLength(stdout) + Buffer.byteLength(stderr),
     })
 
-    return { stdout, stderr, exitCode, timedOut, truncated }
+    return { stdout, stderr, exitCode: result.exitCode, timedOut, truncated: result.truncated }
   }
 
   getJail(): FilesystemJail {
@@ -414,9 +446,15 @@ function resolveBinary(name: string): string {
       encoding: "utf-8",
       env: { PATH: process.env.PATH ?? "" },
     })
-    return out.trim()
+    const p = out.trim()
+    // Only accept absolute paths from `which`
+    if (!p.startsWith("/")) {
+      throw new Error(`Non-absolute path from which: ${p}`)
+    }
+    // Canonicalize at startup to avoid later realpathSync throwing
+    return realpathSync(p)
   } catch {
-    // Binary not found — return the name; will fail at exec time
-    return name
+    // Fail closed: sentinel path will deterministically fail at dispatch with ENOENT
+    return `/__missing_binary__/${name}`
   }
 }

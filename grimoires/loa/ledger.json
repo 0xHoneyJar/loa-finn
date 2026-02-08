@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-004",
-  "next_global_sprint_id": 12,
+  "current_cycle": "cycle-005",
+  "next_global_sprint_id": 14,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -99,8 +99,9 @@
     },
     "cycle-004": {
       "label": "Bridgebuilder: Autonomous PR Review Agent",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-07T10:00:00Z",
+      "archived": "2026-02-08T00:00:00Z",
       "prd": "grimoires/loa/prd-bridgebuilder.md",
       "sdd": "grimoires/loa/sdd-bridgebuilder.md",
       "sprints": [
@@ -115,6 +116,29 @@
           "local_id": "sprint-2",
           "global_id": 11,
           "label": "Wiring + Integration + Deployment",
+          "status": "completed",
+          "tasks": 8
+        }
+      ]
+    },
+    "cycle-005": {
+      "label": "Worker Thread Sandbox: Non-Blocking Tool Execution",
+      "status": "active",
+      "started": "2026-02-08T00:00:00Z",
+      "prd": "grimoires/loa/prd-worker-thread-sandbox.md",
+      "sdd": "grimoires/loa/sdd-worker-thread-sandbox.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 12,
+          "label": "Worker Pool Foundation",
+          "status": "completed",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 13,
+          "label": "System Integration",
           "status": "completed",
           "tasks": 8
         }
