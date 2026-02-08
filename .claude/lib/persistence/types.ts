@@ -29,8 +29,7 @@ export type PersistenceErrorCode =
   | "BEADS_SHELL_ESCAPE"
   | "BEADS_WHITELIST_VIOLATION"
   | "DISK_PRESSURE_CRITICAL"
-  | "LOCK_CONTENTION"
-  | "WAL_SHUTTING_DOWN";
+  | "LOCK_CONTENTION";
 
 // ── Error Class ──────────────────────────────────────────────
 
