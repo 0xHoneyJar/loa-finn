@@ -50,6 +50,41 @@ export interface FinnConfig {
     execTimeout: number
     maxOutput: number
   }
+
+  // Worker Pool (Cycle 005)
+  workerPool: {
+    /** Number of interactive-lane workers */
+    interactiveWorkers: number
+    /** Shutdown hard deadline in ms */
+    shutdownDeadlineMs: number
+    /** Max queued jobs per lane */
+    maxQueueDepth: number
+  }
+
+  /** Sandbox execution mode: worker (default), child_process (async fallback), disabled (fail closed) */
+  sandboxMode: "worker" | "child_process" | "disabled"
+  /** Dev-only: sync fallback for debugging (never in production) */
+  sandboxSyncFallback: boolean
+}
+
+const VALID_SANDBOX_MODES = ["worker", "child_process", "disabled"] as const
+type SandboxMode = (typeof VALID_SANDBOX_MODES)[number]
+
+function parseSandboxMode(value: string | undefined): SandboxMode {
+  const v = (value ?? "worker").trim().toLowerCase()
+  if (VALID_SANDBOX_MODES.includes(v as SandboxMode)) return v as SandboxMode
+  throw new Error(`SANDBOX_MODE must be one of ${VALID_SANDBOX_MODES.join(", ")} (got "${value}")`)
+}
+
+function parseSyncFallback(value: string | undefined, nodeEnv: string | undefined): boolean {
+  const enabled = value === "true"
+  if (enabled) {
+    const env = (nodeEnv ?? "").trim().toLowerCase()
+    if (env === "production" || env === "prod") {
+      throw new Error("SANDBOX_SYNC_FALLBACK must not be enabled in production")
+    }
+  }
+  return enabled
 }
 
 export function loadConfig(): FinnConfig {
@@ -104,5 +139,14 @@ export function loadConfig(): FinnConfig {
       execTimeout: parseInt(process.env.FINN_SANDBOX_TIMEOUT ?? "30000", 10),
       maxOutput: parseInt(process.env.FINN_SANDBOX_MAX_OUTPUT ?? "65536", 10),
     },
+
+    workerPool: {
+      interactiveWorkers: parseInt(process.env.FINN_WORKER_POOL_SIZE ?? "2", 10),
+      shutdownDeadlineMs: parseInt(process.env.FINN_WORKER_SHUTDOWN_MS ?? "10000", 10),
+      maxQueueDepth: parseInt(process.env.FINN_WORKER_QUEUE_DEPTH ?? "10", 10),
+    },
+
+    sandboxMode: parseSandboxMode(process.env.SANDBOX_MODE),
+    sandboxSyncFallback: parseSyncFallback(process.env.SANDBOX_SYNC_FALLBACK, process.env.NODE_ENV),
   }
 }

@@ -19,9 +19,11 @@ import { BeadsBridge } from "./beads/bridge.js"
 import { CompoundLearning } from "./learning/compound.js"
 import { ActivityFeed } from "./dashboard/activity-feed.js"
 import { ResilientHttpClient } from "./bridgebuilder/adapters/resilient-http.js"
+import { WorkerPool } from "./agent/worker-pool.js"
 import { serve } from "@hono/node-server"
 import { WebSocketServer } from "ws"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 async function main() {
   const bootStart = Date.now()
@@ -91,8 +93,32 @@ async function main() {
     console.log("[finn] dashboard: activity feed disabled (set GITHUB_TOKEN, BRIDGEBUILDER_REPOS, BRIDGEBUILDER_BOT_USER)")
   }
 
+  // 6c. Initialize worker pool (Cycle 005 — SDD §3.1)
+  let pool: WorkerPool | undefined
+  if (config.sandboxMode !== "disabled") {
+    const workerScript = fileURLToPath(new URL("./agent/sandbox-worker.js", import.meta.url))
+    try {
+      const { accessSync } = await import("node:fs")
+      accessSync(workerScript)
+    } catch {
+      throw new Error(`[finn] worker script not found at ${workerScript}. Check build output paths.`)
+    }
+    pool = new WorkerPool({
+      interactiveWorkers: config.workerPool.interactiveWorkers,
+      workerScript,
+      shutdownDeadlineMs: config.workerPool.shutdownDeadlineMs,
+      maxQueueDepth: config.workerPool.maxQueueDepth,
+    })
+    console.log(`[finn] worker pool initialized: mode=${config.sandboxMode}, ${config.workerPool.interactiveWorkers} interactive + 1 system`)
+  } else {
+    console.log(`[finn] worker pool skipped: SANDBOX_MODE=disabled`)
+  }
+
+  // 6d. Wire pool into GitSync for async git operations
+  if (pool) gitSync.setPool(pool)
+
   // 7. Create gateway (with health aggregator once available)
-  const { app, router } = createApp(config, { activityFeed })
+  const { app, router } = createApp(config, { activityFeed, pool })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()
@@ -114,6 +140,7 @@ async function main() {
       watching: identityWatching,
     }),
     getLearningCounts: () => ({ total: 0, active: 0 }), // Updated async by health task
+    getWorkerPoolStats: () => pool?.stats(),
   })
 
   // Log circuit breaker transitions to WAL
@@ -251,6 +278,11 @@ async function main() {
     // Stop identity watcher
     identity.stopWatching()
     identityWatching = false
+
+    // Shutdown worker pool (abort running, terminate workers)
+    if (pool) {
+      try { await pool.shutdown() } catch (err) { console.error("[finn] pool shutdown error:", err) }
+    }
 
     // Close HTTP server (stop accepting new connections)
     server.close()

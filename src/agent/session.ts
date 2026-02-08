@@ -9,11 +9,13 @@ import { getCustomTools } from "./tools.js"
 import { ToolSandbox, SandboxError } from "./sandbox.js"
 import { AuditLog } from "./audit-log.js"
 import type { FinnConfig } from "../config.js"
+import type { WorkerPool } from "./worker-pool.js"
 import { mkdirSync } from "node:fs"
 import { readFile, writeFile, access, mkdir } from "node:fs/promises"
 
 export interface LoaSessionOptions {
   config: FinnConfig
+  pool?: WorkerPool
   existingSessionId?: string
 }
 
@@ -23,7 +25,7 @@ export interface LoaSession {
 }
 
 export async function createLoaSession(options: LoaSessionOptions): Promise<LoaSession> {
-  const { config, existingSessionId } = options
+  const { config, pool, existingSessionId } = options
 
   // Ensure session directory exists
   mkdirSync(config.sessionDir, { recursive: true })
@@ -51,14 +53,14 @@ export async function createLoaSession(options: LoaSessionOptions): Promise<LoaS
 
   // Initialize sandbox (SDD §3.8)
   const auditLog = new AuditLog(config.dataDir)
-  const sandbox = new ToolSandbox(config.sandbox, auditLog)
+  const sandbox = new ToolSandbox(config.sandbox, auditLog, pool)
 
   // Create sandboxed bash tool using Pi SDK's BashOperations extension point
   const sandboxedBashTool = createBashTool(process.cwd(), {
     operations: {
       exec: async (command, _cwd, options) => {
         try {
-          const result = sandbox.execute(command)
+          const result = await sandbox.execute(command)
           // Stream stdout to the onData callback for Pi SDK truncation/display
           if (result.stdout) {
             options.onData(Buffer.from(result.stdout))

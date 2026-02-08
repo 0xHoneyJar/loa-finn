@@ -1,18 +1,29 @@
-// src/persistence/git-sync.ts — Git archival sync (SDD §3.3.3, T-3.3)
-// Uses execFileSync (no shell) to prevent command injection from config values.
+// src/persistence/git-sync.ts — Git archival sync (SDD §3.3.3, T-3.3 + §3.4 Cycle 005)
+// Async git execution via WorkerPool system lane (non-blocking).
+// Falls back to execFileSync only if no pool provided (legacy compat).
 
 import { execFileSync } from "node:child_process"
-import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { copyFileSync, existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { tmpdir } from "node:os"
 import { ulid } from "ulid"
 import type { FinnConfig } from "../config.js"
 import type { WALManager } from "./upstream.js"
+import type { WorkerPool, ExecSpec } from "../agent/worker-pool.js"
 
-/** Validate git ref name — reject shell metacharacters and path traversal. */
-function validateRef(name: string, label: string): void {
-  if (!name || /[;&|`$(){}!\s\\]/.test(name) || name.includes("..")) {
-    throw new Error(`Invalid git ${label}: "${name}" contains unsafe characters`)
+/** Validate a git branch name — reject option injection, path traversal, and shell metacharacters. */
+function validateBranch(name: string): void {
+  if (!name || name.startsWith("-") || name.includes("\0") || name.includes("..") ||
+      /[;&|`$(){}!\s\\]/.test(name)) {
+    throw new Error(`Invalid git branch: "${name}"`)
+  }
+}
+
+/** Validate a git remote name — not a ref, just a simple identifier. */
+function validateRemote(name: string): void {
+  if (!name || name.startsWith("-") || name.includes("\0") || name.includes("..") ||
+      /[\s;&|`$(){}!\\\/]/.test(name)) {
+    throw new Error(`Invalid git remote: "${name}"`)
   }
 }
 
@@ -30,22 +41,49 @@ export class GitSync {
   private branch: string
   private remote: string
   private status: GitSyncStatus = "unconfigured"
+  private pool: WorkerPool | undefined
+  private gitBinaryPath: string
 
   constructor(
     private config: FinnConfig,
     private wal: WALManager,
+    pool?: WorkerPool,
   ) {
     this.cwd = process.cwd()
     this.branch = config.git.archiveBranch
     this.remote = config.git.remote
+    this.pool = pool
 
     // Validate config values at construction time
-    if (this.branch) validateRef(this.branch, "branch")
-    if (this.remote) validateRef(this.remote, "remote")
+    if (this.branch) validateBranch(this.branch)
+    if (this.remote) validateRemote(this.remote)
+
+    // Resolve git binary path once at construction (SD-006)
+    this.gitBinaryPath = this.resolveGitBinary()
 
     if (config.git.token) {
       this.status = "ok"
     }
+  }
+
+  /** Resolve git binary to absolute path via which + realpath. */
+  private resolveGitBinary(): string {
+    try {
+      const raw = execFileSync("which", ["git"], {
+        encoding: "utf-8",
+        timeout: 5_000,
+        env: { PATH: process.env.PATH ?? "/usr/bin:/usr/local/bin" },
+      }).trim()
+      return realpathSync(raw)
+    } catch {
+      // Fallback to bare "git" — will fail at exec time with a clear error
+      return "git"
+    }
+  }
+
+  /** Attach a WorkerPool after construction (for deferred initialization). */
+  setPool(pool: WorkerPool): void {
+    this.pool = pool
   }
 
   get isConfigured(): boolean {
@@ -68,10 +106,10 @@ export class GitSync {
       const walCheckpoint = String(this.wal.getStatus().seq)
 
       // Ensure archive branch exists
-      this.ensureArchiveBranch()
+      await this.ensureArchiveBranch()
 
       // Create temporary worktree on the archive branch
-      this.git("worktree", "add", worktreeDir, this.branch)
+      await this.git("worktree", "add", worktreeDir, this.branch)
 
       try {
         const filesToStage: string[] = []
@@ -93,13 +131,13 @@ export class GitSync {
 
         if (existsSync(join(this.cwd, "grimoires/loa"))) {
           copyDir(join(this.cwd, "grimoires/loa"), join(worktreeDir, "grimoires/loa"))
-          this.gitAt(worktreeDir, "add", "grimoires/loa/")
+          await this.gitAt(worktreeDir, "add", "grimoires/loa/")
           filesToStage.push("grimoires/loa/")
         }
 
         if (existsSync(join(this.cwd, ".beads"))) {
           copyDir(join(this.cwd, ".beads"), join(worktreeDir, ".beads"))
-          this.gitAt(worktreeDir, "add", ".beads/")
+          await this.gitAt(worktreeDir, "add", ".beads/")
           filesToStage.push(".beads/")
         }
 
@@ -111,14 +149,14 @@ export class GitSync {
           bootEpoch: ulid(),
         }
         writeFileSync(join(worktreeDir, "snapshot-manifest.json"), JSON.stringify(manifest, null, 2))
-        this.gitAt(worktreeDir, "add", "snapshot-manifest.json")
+        await this.gitAt(worktreeDir, "add", "snapshot-manifest.json")
         filesToStage.push("snapshot-manifest.json")
 
         // Commit in the worktree
         const commitMsg = `chore(sync): auto-sync state [${snapshotId}]`
-        this.gitAt(worktreeDir, "commit", "-m", commitMsg, "--allow-empty")
+        await this.gitAt(worktreeDir, "commit", "-m", commitMsg, "--allow-empty")
 
-        const commitHash = this.gitAt(worktreeDir, "rev-parse", "HEAD").trim()
+        const commitHash = (await this.gitAt(worktreeDir, "rev-parse", "HEAD")).trim()
 
         return {
           commitHash,
@@ -129,7 +167,7 @@ export class GitSync {
       } finally {
         // Always clean up worktree
         try {
-          this.git("worktree", "remove", worktreeDir, "--force")
+          await this.git("worktree", "remove", worktreeDir, "--force")
         } catch {
           // Best-effort cleanup
         }
@@ -148,14 +186,14 @@ export class GitSync {
     try {
       // Check for divergence
       try {
-        this.git("fetch", this.remote, this.branch)
-        const localHead = this.git("rev-parse", this.branch).trim()
+        await this.git("fetch", this.remote, this.branch)
+        const localHead = (await this.git("rev-parse", this.branch)).trim()
         const remoteRef = `${this.remote}/${this.branch}`
-        const remoteHead = this.git("rev-parse", remoteRef).trim()
+        const remoteHead = (await this.git("rev-parse", remoteRef)).trim()
 
         if (localHead !== remoteHead) {
           // Check if local is ahead of remote (fast-forward possible)
-          const mergeBase = this.git("merge-base", this.branch, remoteRef).trim()
+          const mergeBase = (await this.git("merge-base", this.branch, remoteRef)).trim()
           if (mergeBase !== remoteHead) {
             console.error("[git-sync] branches have diverged, halting git sync")
             this.status = "conflict"
@@ -166,7 +204,7 @@ export class GitSync {
         // Remote branch may not exist yet, which is fine
       }
 
-      this.git("push", this.remote, this.branch)
+      await this.git("push", this.remote, this.branch)
       this.status = "ok"
       return true
     } catch (err) {
@@ -182,27 +220,27 @@ export class GitSync {
     if (!this.isConfigured) return undefined
 
     try {
-      this.git("fetch", this.remote, this.branch)
+      await this.git("fetch", this.remote, this.branch)
       const remoteRef = `${this.remote}/${this.branch}`
 
       // Read manifest directly from remote branch (no checkout)
       try {
-        const manifestJson = this.git("show", `${remoteRef}:snapshot-manifest.json`)
+        const manifestJson = await this.git("show", `${remoteRef}:snapshot-manifest.json`)
         const manifest = JSON.parse(manifestJson)
-        const commitHash = this.git("rev-parse", remoteRef).trim()
+        const commitHash = (await this.git("rev-parse", remoteRef)).trim()
 
         // Extract files from remote branch into working directory
-        const restorePath = (remotePath: string, localPath: string) => {
+        const restorePath = async (remotePath: string, localPath: string) => {
           try {
-            const content = this.git("show", `${remoteRef}:${remotePath}`)
-            mkdirSync(join(localPath, ".."), { recursive: true })
+            const content = await this.git("show", `${remoteRef}:${remotePath}`)
+            mkdirSync(dirname(localPath), { recursive: true })
             writeFileSync(localPath, content)
           } catch {
             // File may not exist in snapshot
           }
         }
 
-        restorePath("snapshot-manifest.json", join(this.cwd, "snapshot-manifest.json"))
+        await restorePath("snapshot-manifest.json", join(this.cwd, "snapshot-manifest.json"))
 
         return {
           commitHash,
@@ -220,30 +258,78 @@ export class GitSync {
     }
   }
 
-  private ensureArchiveBranch(): void {
+  private async ensureArchiveBranch(): Promise<void> {
     try {
-      this.git("rev-parse", "--verify", this.branch)
+      await this.git("rev-parse", "--verify", this.branch)
     } catch {
       // Create orphan branch
-      this.git("checkout", "--orphan", this.branch)
-      try { this.git("rm", "-rf", ".") } catch { /* empty repo is fine */ }
-      this.git("commit", "--allow-empty", "-m", "chore: initialize archive branch")
+      await this.git("checkout", "--orphan", this.branch)
+      try { await this.git("rm", "-rf", ".") } catch { /* empty repo is fine */ }
+      await this.git("commit", "--allow-empty", "-m", "chore: initialize archive branch")
     }
   }
 
-  private git(...args: string[]): string {
-    return execFileSync("git", args, {
-      cwd: this.cwd,
-      encoding: "utf-8",
-      timeout: 30_000,
-    })
+  private async git(...args: string[]): Promise<string> {
+    if (this.pool) {
+      const spec: ExecSpec = {
+        binaryPath: this.gitBinaryPath,
+        args,
+        cwd: this.cwd,
+        timeoutMs: 30_000,
+        env: { PATH: process.env.PATH ?? "/usr/bin:/usr/local/bin" },
+        maxBuffer: 1_048_576,
+      }
+      const result = await this.pool.exec(spec, "system")
+      if (result.exitCode !== 0) {
+        throw new Error(`git ${args[0]} failed (exit ${result.exitCode}): ${result.stderr}`)
+      }
+      return result.stdout
+    }
+    // Fallback: sync execution when no pool (legacy compat)
+    try {
+      return execFileSync(this.gitBinaryPath, args, {
+        cwd: this.cwd,
+        encoding: "utf-8",
+        timeout: 30_000,
+        env: { PATH: process.env.PATH ?? "/usr/bin:/usr/local/bin" },
+        maxBuffer: 1_048_576,
+      })
+    } catch (e: any) {
+      const code = typeof e?.status === "number" ? e.status : "unknown"
+      const stderr = typeof e?.stderr === "string" ? e.stderr : (Buffer.isBuffer(e?.stderr) ? e.stderr.toString("utf-8") : "")
+      throw new Error(`git ${args[0]} failed (exit ${code}): ${stderr || e?.message || String(e)}`)
+    }
   }
 
-  private gitAt(cwd: string, ...args: string[]): string {
-    return execFileSync("git", args, {
-      cwd,
-      encoding: "utf-8",
-      timeout: 30_000,
-    })
+  private async gitAt(cwd: string, ...args: string[]): Promise<string> {
+    if (this.pool) {
+      const spec: ExecSpec = {
+        binaryPath: this.gitBinaryPath,
+        args,
+        cwd,
+        timeoutMs: 30_000,
+        env: { PATH: process.env.PATH ?? "/usr/bin:/usr/local/bin" },
+        maxBuffer: 1_048_576,
+      }
+      const result = await this.pool.exec(spec, "system")
+      if (result.exitCode !== 0) {
+        throw new Error(`git ${args[0]} failed (exit ${result.exitCode}): ${result.stderr}`)
+      }
+      return result.stdout
+    }
+    // Fallback: sync execution when no pool (legacy compat)
+    try {
+      return execFileSync(this.gitBinaryPath, args, {
+        cwd,
+        encoding: "utf-8",
+        timeout: 30_000,
+        env: { PATH: process.env.PATH ?? "/usr/bin:/usr/local/bin" },
+        maxBuffer: 1_048_576,
+      })
+    } catch (e: any) {
+      const code = typeof e?.status === "number" ? e.status : "unknown"
+      const stderr = typeof e?.stderr === "string" ? e.stderr : (Buffer.isBuffer(e?.stderr) ? e.stderr.toString("utf-8") : "")
+      throw new Error(`git ${args[0]} failed (exit ${code}): ${stderr || e?.message || String(e)}`)
+    }
   }
 }
