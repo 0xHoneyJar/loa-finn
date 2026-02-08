@@ -49,6 +49,18 @@
 #
 # Sources: Issue #161 (Event Bus Architecture), Issue #162 (Construct Manifest Standard)
 
+# Guard: This script uses bash-specific features (BASH_SOURCE, FD redirection
+# with 200>, declare -F, process substitution). Sourcing from zsh or other
+# shells will produce cryptic errors. Detect and fail early with guidance.
+# Fixes #230.
+if [ -z "${BASH_VERSION:-}" ]; then
+    echo "ERROR: event-bus.sh requires bash. Current shell: $(ps -o comm= -p $$ 2>/dev/null || echo unknown)" >&2
+    echo "  When sourcing: bash -c 'source .claude/scripts/lib/event-bus.sh && ...'" >&2
+    echo "  When executing: bash .claude/scripts/lib/event-bus.sh <command>" >&2
+    # 'return' exits when sourced, 'exit' exits when executed
+    return 3 2>/dev/null || exit 3
+fi
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -113,16 +125,35 @@ _require_jq() {
 # actionable install instructions, not cryptic errors.
 # This follows the /loa doctor pattern from Issue #211.
 _require_flock() {
-    if ! command -v flock &>/dev/null; then
+    if command -v flock &>/dev/null; then
+        return 0
+    fi
+
+    # macOS: Homebrew installs util-linux as keg-only — binaries are NOT
+    # symlinked to /opt/homebrew/bin and are NOT on PATH by default.
+    # Check known keg-only paths for both Apple Silicon and Intel Macs.
+    # Fixes #229.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        local keg_paths=(
+            "/opt/homebrew/opt/util-linux/bin"  # Apple Silicon
+            "/usr/local/opt/util-linux/bin"     # Intel Mac
+        )
+        for keg_path in "${keg_paths[@]}"; do
+            if [[ -x "${keg_path}/flock" ]]; then
+                export PATH="${keg_path}:${PATH}"
+                return 0
+            fi
+        done
+
         echo "ERROR: event-bus requires flock for atomic writes." >&2
-        if [[ "$(uname -s)" == "Darwin" ]]; then
-            echo "  Install on macOS: brew install util-linux" >&2
-            echo "  Then add to PATH: export PATH=\"\$(brew --prefix)/opt/util-linux/bin:\$PATH\"" >&2
-        else
-            echo "  Install: apt-get install util-linux" >&2
-        fi
+        echo "  Install on macOS: brew install util-linux" >&2
+        echo "  (flock will be found automatically at Homebrew's keg-only path)" >&2
         return 3
     fi
+
+    echo "ERROR: event-bus requires flock for atomic writes." >&2
+    echo "  Install: apt-get install util-linux" >&2
+    return 3
 }
 
 # =============================================================================

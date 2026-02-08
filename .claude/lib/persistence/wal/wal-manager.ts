@@ -73,8 +73,6 @@ export interface WALManagerConfig {
   maxSegments?: number;
   /** Disk pressure thresholds */
   diskPressure?: Partial<DiskPressureConfig>;
-  /** Timeout in ms to drain pending writes during shutdown. Default: 10000 */
-  shutdownDrainTimeoutMs?: number;
 }
 
 // ── WAL Manager ──────────────────────────────────────────────
@@ -85,7 +83,6 @@ export class WALManager {
   private readonly maxSegmentAge: number;
   private readonly maxSegments: number;
   private readonly pressureConfig: Partial<DiskPressureConfig>;
-  private readonly shutdownDrainTimeoutMs: number;
 
   private checkpoint: WALCheckpoint | null = null;
   private currentSegmentPath: string | null = null;
@@ -95,7 +92,6 @@ export class WALManager {
   private initialized = false;
   private initPromise: Promise<void> | null = null;
   private writeChain: Promise<number> = Promise.resolve(0);
-  private shuttingDown = false;
 
   constructor(config: WALManagerConfig) {
     this.walDir = config.walDir;
@@ -103,7 +99,6 @@ export class WALManager {
     this.maxSegmentAge = config.maxSegmentAge ?? 60 * 60 * 1000;
     this.maxSegments = config.maxSegments ?? 10;
     this.pressureConfig = config.diskPressure ?? {};
-    this.shutdownDrainTimeoutMs = config.shutdownDrainTimeoutMs ?? 10_000;
   }
 
   // ── Lifecycle ────────────────────────────────────────────
@@ -143,36 +138,9 @@ export class WALManager {
 
   async shutdown(): Promise<void> {
     if (!this.initialized) return;
-
-    // Stop accepting new writes
-    this.shuttingDown = true;
-
-    // Drain pending writes with configurable timeout
-    let drainTimedOut = false;
-    try {
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("shutdown_drain_timeout")), this.shutdownDrainTimeoutMs),
-      );
-      await Promise.race([this.writeChain, timeoutPromise]);
-    } catch (e: unknown) {
-      if (e instanceof Error && e.message === "shutdown_drain_timeout") {
-        drainTimedOut = true;
-        console.warn(
-          `[WAL] Shutdown drain timed out after ${this.shutdownDrainTimeoutMs}ms — proceeding with checkpoint`,
-        );
-      }
-      // Other errors from writeChain are non-fatal for shutdown
-    }
-
-    // Mark shutdown_incomplete in checkpoint metadata if drain timed out
-    if (drainTimedOut && this.checkpoint) {
-      this.checkpoint.shutdownIncomplete = true;
-    }
-
     await this.saveCheckpoint();
     await this.releaseLock();
     this.initialized = false;
-    this.shuttingDown = false;
   }
 
   // ── Write Operations ─────────────────────────────────────
@@ -182,11 +150,6 @@ export class WALManager {
    * interleaved file writes (single-writer pattern matches flock design).
    */
   append(operation: WALOperation, path: string, data?: Buffer): Promise<number> {
-    if (this.shuttingDown) {
-      return Promise.reject(
-        new PersistenceError("WAL_SHUTTING_DOWN", "Cannot append: WAL is shutting down"),
-      );
-    }
     // Chain writes to prevent concurrent file corruption
     const next = this.writeChain.then(() => this._doAppend(operation, path, data));
     this.writeChain = next.catch(() => 0); // Keep chain alive on error
@@ -599,70 +562,28 @@ export class WALManager {
   }
 
   private async rotate(): Promise<void> {
-    // Phase 1: Mark rotation intent
     this.checkpoint!.rotationPhase = "checkpoint_written";
     await this.saveCheckpoint();
 
-    // Phase 2: Close active segment and create new one
     this.checkpoint!.rotationPhase = "rotating";
     const active = this.checkpoint!.segments.find((s) => s.id === this.checkpoint!.activeSegment);
     if (active) active.closedAt = new Date().toISOString();
-    await this.saveCheckpoint();
 
     await this.createNewSegment();
-
-    // Phase 3: Segments rotated, ready for cleanup
-    this.checkpoint!.rotationPhase = "segments_rotated";
-    await this.saveCheckpoint();
-
-    // Phase 4: Cleanup old segments
     await this.cleanupOldSegments();
 
-    // Phase 5: Complete
     this.checkpoint!.rotationPhase = "none";
-    this.checkpoint!.rotationCheckpoint = undefined;
     await this.saveCheckpoint();
   }
 
   private async recoverFromInterruptedRotation(): Promise<void> {
-    const phase = this.checkpoint!.rotationPhase;
-
-    switch (phase) {
-      case "checkpoint_written":
-        // Intent only — safe to reset
-        break;
-
-      case "rotating":
-        // Active segment was being closed, new segment may not exist
-        await this.createNewSegment();
-        await this.cleanupOldSegments();
-        break;
-
-      case "segments_rotated":
-        // New segment exists, cleanup may be incomplete
-        await this.cleanupOldSegments();
-        break;
-
-      case "cleanup_started": {
-        // Resume cleanup from where it left off
-        const rc = this.checkpoint!.rotationCheckpoint;
-        if (rc && rc.pendingSegments.length > 0) {
-          await this.cleanupSpecificSegments(rc.pendingSegments);
-        }
-        break;
-      }
-
-      case "cleanup_complete":
-        // Cleanup done, just reset phase
-        break;
-
-      default:
-        // "none" or unknown — nothing to do
-        break;
+    if (this.checkpoint!.rotationPhase === "checkpoint_written") {
+      this.checkpoint!.rotationPhase = "none";
+    } else if (this.checkpoint!.rotationPhase === "rotating") {
+      await this.createNewSegment();
+      await this.cleanupOldSegments();
+      this.checkpoint!.rotationPhase = "none";
     }
-
-    this.checkpoint!.rotationPhase = "none";
-    this.checkpoint!.rotationCheckpoint = undefined;
     await this.saveCheckpoint();
   }
 
@@ -673,44 +594,15 @@ export class WALManager {
     closed.sort((a, b) => new Date(a.closedAt!).getTime() - new Date(b.closedAt!).getTime());
 
     const toRemove = closed.slice(0, closed.length - this.maxSegments);
-    const pendingIds = toRemove.map((s) => s.id);
-
-    // Track cleanup progress in checkpoint
-    this.checkpoint!.rotationPhase = "cleanup_started";
-    this.checkpoint!.rotationCheckpoint = {
-      phase: "cleanup_started",
-      cleanedSegments: [],
-      pendingSegments: pendingIds,
-    };
-    await this.saveCheckpoint();
-
-    await this.cleanupSpecificSegments(pendingIds);
-
-    this.checkpoint!.rotationPhase = "cleanup_complete";
-    await this.saveCheckpoint();
-  }
-
-  private async cleanupSpecificSegments(segmentIds: string[]): Promise<void> {
-    for (const segId of segmentIds) {
+    for (const seg of toRemove) {
       try {
-        const segPath = join(this.walDir, segId);
+        const segPath = join(this.walDir, seg.id);
         await unlink(segPath);
       } catch {
-        // Cleanup failure: log warning, skip segment, continue (no crash loop)
-        console.warn(`[WAL] Failed to cleanup segment ${segId} — will retry on next rotation`);
-        continue;
+        /* ok */
       }
-
-      // Remove from segments list
-      const idx = this.checkpoint!.segments.findIndex((s) => s.id === segId);
+      const idx = this.checkpoint!.segments.findIndex((s) => s.id === seg.id);
       if (idx !== -1) this.checkpoint!.segments.splice(idx, 1);
-
-      // Track progress
-      if (this.checkpoint!.rotationCheckpoint) {
-        this.checkpoint!.rotationCheckpoint.cleanedSegments.push(segId);
-        this.checkpoint!.rotationCheckpoint.pendingSegments =
-          this.checkpoint!.rotationCheckpoint.pendingSegments.filter((id) => id !== segId);
-      }
     }
   }
 

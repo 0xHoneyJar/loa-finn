@@ -37,6 +37,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMPTS_DIR="${SCRIPT_DIR}/../prompts/gpt-review/base"
 CONFIG_FILE=".loa.config.yaml"
 
+# Require bash 4.0+ (associative arrays)
+# shellcheck source=bash-version-guard.sh
+source "$SCRIPT_DIR/bash-version-guard.sh"
+
 # Default models per review type
 declare -A DEFAULT_MODELS=(
   ["prd"]="gpt-5.2"
@@ -62,6 +66,13 @@ RETRY_DELAY=5
 
 # Default max iterations before auto-approve
 DEFAULT_MAX_ITERATIONS=3
+
+# Default token budget for content (rough estimate: bytes / 4)
+# 30k tokens ≈ 120k chars — leaves room for system prompt + context in 128k window
+DEFAULT_MAX_REVIEW_TOKENS=30000
+
+# System zone alert (default: true for code reviews)
+SYSTEM_ZONE_ALERT="${GPT_REVIEW_SYSTEM_ZONE_ALERT:-true}"
 
 log() {
   echo "[gpt-review-api] $*" >&2
@@ -159,8 +170,55 @@ load_config() {
     if [[ -n "$code_model" && "$code_model" != "null" ]]; then
       DEFAULT_MODELS["code"]="$code_model"
     fi
+
+    # Large diff handling config (#226)
+    local max_tokens_val sza_val
+    max_tokens_val=$(yq eval '.gpt_review.max_review_tokens // ""' "$CONFIG_FILE" 2>/dev/null || echo "")
+    if [[ -n "$max_tokens_val" && "$max_tokens_val" != "null" ]]; then
+      DEFAULT_MAX_REVIEW_TOKENS="$max_tokens_val"
+    fi
+    sza_val=$(yq eval '.gpt_review.system_zone_alert // ""' "$CONFIG_FILE" 2>/dev/null || echo "")
+    if [[ -n "$sza_val" && "$sza_val" != "null" ]]; then
+      SYSTEM_ZONE_ALERT="$sza_val"
+    fi
   fi
 }
+
+# =============================================================================
+# System Zone Detection (#226)
+# =============================================================================
+# Detects when review content contains changes to .claude/ (System Zone).
+# System zone files affect framework behavior for ALL future agent sessions
+# and require elevated security scrutiny.
+
+# Detect system zone changes in diff/content
+# Outputs system zone file paths to stdout (one per line)
+# Returns: 0 if system zone changes detected, 1 otherwise
+detect_system_zone_changes() {
+  local content="$1"
+
+  # Match diff headers referencing .claude/ paths
+  local system_files
+  system_files=$(printf '%s' "$content" | grep -oE '(\+\+\+ b/|diff --git a/)\.claude/[^ ]+' \
+    | sed 's|^+++ b/||;s|^diff --git a/||' | sort -u) || true
+
+  if [[ -n "$system_files" ]]; then
+    echo "$system_files"
+    return 0
+  fi
+
+  return 1
+}
+
+# =============================================================================
+# Shared Content Processing Functions
+# =============================================================================
+# file_priority(), estimate_tokens(), prepare_content() are defined in
+# lib-content.sh — a shared library also used by adversarial-review.sh.
+# Sourced here to maintain single source of truth.
+# See: Bridgebuilder Review Finding #1 (PR #235)
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-content.sh"
 
 # Build the system prompt for first review
 # Structure: [Domain Expertise] + [Review Instructions]
@@ -703,17 +761,52 @@ EOF
   local raw_content
   raw_content=$(cat "$content_file")
 
+  # ── System Zone Detection (#226) ──────────────────
+  local system_zone_warning=""
+  if [[ "$SYSTEM_ZONE_ALERT" == "true" ]]; then
+    local system_zone_files=""
+    if system_zone_files=$(detect_system_zone_changes "$raw_content"); then
+      local file_list
+      file_list=$(echo "$system_zone_files" | tr '\n' ', ' | sed 's/,$//')
+      system_zone_warning="SYSTEM ZONE (.claude/) CHANGES DETECTED. These files affect framework behavior for ALL future agent sessions. Apply ELEVATED security scrutiny: ${file_list}"
+      log "WARNING: $system_zone_warning"
+    fi
+  fi
+
+  # ── Smart Content Preparation (#226) ──────────────
+  local max_review_tokens="${GPT_REVIEW_MAX_TOKENS:-$DEFAULT_MAX_REVIEW_TOKENS}"
+  local prepared_content
+  prepared_content=$(prepare_content "$raw_content" "$max_review_tokens")
+
+  # Prepend system zone warning to content if detected
+  if [[ -n "$system_zone_warning" ]]; then
+    prepared_content=">>> ${system_zone_warning}"$'\n\n'"${prepared_content}"
+  fi
+
   # Build user prompt with context
   # User prompt = [Product Context] + [Feature Context] + [Content to Review]
   local user_prompt
-  user_prompt=$(build_user_prompt "$context_file" "$raw_content")
+  user_prompt=$(build_user_prompt "$context_file" "$prepared_content")
 
   # Call API with separated prompts
   local response
   response=$(call_api "$model" "$system_prompt" "$user_prompt" "$timeout")
 
-  # Add iteration to response
-  response=$(echo "$response" | jq --arg iter "$iteration" '. + {iteration: ($iter | tonumber)}')
+  # Add metadata to response
+  local metadata_args=(--arg iter "$iteration")
+  local metadata_jq='. + {iteration: ($iter | tonumber)}'
+
+  if [[ -n "$system_zone_warning" ]]; then
+    metadata_args+=(--argjson system_zone "true")
+    metadata_jq+='' # system_zone added via argjson below
+  fi
+
+  response=$(echo "$response" | jq "${metadata_args[@]}" "$metadata_jq")
+
+  # Add system_zone flag if detected
+  if [[ -n "$system_zone_warning" ]]; then
+    response=$(echo "$response" | jq '. + {system_zone_detected: true}')
+  fi
 
   # Sanitize output: strip ANSI escape codes and control characters
   # Defensive measure against malicious API responses

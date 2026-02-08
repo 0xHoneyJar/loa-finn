@@ -20,6 +20,7 @@
 #   review               Generate improvements (10 items)
 #   skeptic              Generate concerns (devil's advocate)
 #   score                Score items (0-1000)
+#   dissent              Adversarial cross-model code/security review
 #
 # Options:
 #   --input <file>       Input document/items to process
@@ -50,6 +51,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG_FILE="$PROJECT_ROOT/.loa.config.yaml"
 TEMPLATES_DIR="$SCRIPT_DIR/../templates"
+
+# Require bash 4.0+ (associative arrays)
+# shellcheck source=bash-version-guard.sh
+source "$SCRIPT_DIR/bash-version-guard.sh"
 
 # Source cross-platform time utilities
 # shellcheck source=time-lib.sh
@@ -507,6 +512,16 @@ EOF
 }
 EOF
                 ;;
+            dissent)
+                cat <<'EOF'
+{
+    "findings": [
+        {"id": "DISS-001", "severity": "BLOCKING", "category": "null-safety", "anchor": "src/example.ts:processInput", "anchor_type": "function", "scope": "diff", "description": "Mock: unchecked null dereference on user input", "failure_mode": "Runtime TypeError when input is undefined", "suggested_fix": "Add null check before processing"},
+        {"id": "DISS-002", "severity": "ADVISORY", "category": "error-handling", "anchor": "src/example.ts:handleError", "anchor_type": "function", "scope": "diff", "description": "Mock: error handler swallows original stack trace", "failure_mode": "Debugging difficulty in production", "suggested_fix": "Preserve cause chain with Error.cause"}
+    ]
+}
+EOF
+                ;;
         esac
     fi
 }
@@ -591,6 +606,7 @@ Modes:
   review                    Generate improvements (10 items)
   skeptic                   Generate concerns (devil's advocate)
   score                     Score items (0-1000)
+  dissent                   Adversarial cross-model code/security review
 
 Options:
   --input <file>            Input document/items to process (required)
@@ -705,9 +721,9 @@ main() {
     fi
 
     # Validate mode
-    if [[ "$mode" != "review" && "$mode" != "skeptic" && "$mode" != "score" ]]; then
+    if [[ "$mode" != "review" && "$mode" != "skeptic" && "$mode" != "score" && "$mode" != "dissent" ]]; then
         error "Invalid mode: $mode"
-        echo "Valid modes: review, skeptic, score" >&2
+        echo "Valid modes: review, skeptic, score, dissent" >&2
         exit 2
     fi
 

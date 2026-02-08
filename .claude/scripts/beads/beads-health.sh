@@ -29,6 +29,10 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Require bash 4.0+ (associative arrays)
+# shellcheck source=../bash-version-guard.sh
+source "$SCRIPT_DIR/../bash-version-guard.sh"
+
 # Allow PROJECT_ROOT override for testing
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
@@ -373,9 +377,15 @@ main() {
     check_jsonl_sync || true
 
     # Determine overall status
+    # Disable errexit for this assignment: determine_status uses non-zero
+    # return codes to signal status (1=NOT_INSTALLED, 4=DEGRADED, etc.).
+    # With set -e, the command substitution would abort the script before
+    # output_json/output_text runs, producing zero output. Fixes #228.
     local status exit_code
+    set +e
     status=$(determine_status)
     exit_code=$?
+    set -e
 
     # Output results
     if [[ "${OUTPUT_MODE}" == "json" ]]; then

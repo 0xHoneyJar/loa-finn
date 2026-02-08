@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { BeadsRecoveryHandler, type ICommandExecutor } from "../beads/beads-recovery.js";
+import { BeadsRecoveryHandler, type IShellExecutor } from "../beads/beads-recovery.js";
 import {
   BeadsWALAdapter,
   type IBeadsWAL,
@@ -39,14 +39,14 @@ function createMockWAL(): IBeadsWAL & {
   };
 }
 
-// ── Mock Command Executor ─────────────────────────────────
+// ── Mock Shell ─────────────────────────────────────────────
 
-function createMockExecutor(): ICommandExecutor & { calls: { binary: string; args: string[] }[] } {
-  const calls: { binary: string; args: string[] }[] = [];
+function createMockShell(): IShellExecutor & { commands: string[] } {
+  const commands: string[] = [];
   return {
-    calls,
-    async execFile(binary: string, args: string[]) {
-      calls.push({ binary, args });
+    commands,
+    async exec(cmd: string) {
+      commands.push(cmd);
       return { stdout: "", stderr: "" };
     },
   };
@@ -117,15 +117,16 @@ describe("BeadsWALAdapter", () => {
 describe("BeadsRecoveryHandler", () => {
   let wal: ReturnType<typeof createMockWAL>;
   let adapter: BeadsWALAdapter;
-  let executor: ReturnType<typeof createMockExecutor>;
+  let shell: ReturnType<typeof createMockShell>;
 
   beforeEach(() => {
     wal = createMockWAL();
     adapter = new BeadsWALAdapter(wal);
-    executor = createMockExecutor();
+    shell = createMockShell();
   });
 
-  it("recovers by replaying WAL entries through br CLI with argv arrays", async () => {
+  it("recovers by replaying WAL entries through br CLI", async () => {
+    // Record transitions
     await adapter.recordTransition({
       operation: "create",
       beadId: "bead-1",
@@ -137,65 +138,33 @@ describe("BeadsRecoveryHandler", () => {
       payload: { action: "add", labels: ["ready"] },
     });
 
-    const handler = new BeadsRecoveryHandler(adapter, { skipSync: true }, executor);
+    const handler = new BeadsRecoveryHandler(adapter, { skipSync: true }, shell);
     const result = await handler.recover();
 
     expect(result.success).toBe(true);
     expect(result.entriesReplayed).toBe(2);
     expect(result.beadsAffected).toContain("bead-1");
-    expect(executor.calls).toHaveLength(2);
-
-    // Verify argv arrays (not shell strings)
-    expect(executor.calls[0].binary).toBe("br");
-    expect(executor.calls[0].args).toEqual(["create", "Test task", "--type", "task", "--priority", "2"]);
-    expect(executor.calls[1].args[0]).toBe("label");
-    expect(executor.calls[1].args[1]).toBe("add");
+    expect(shell.commands).toHaveLength(2);
+    expect(shell.commands[0]).toContain("create");
+    expect(shell.commands[1]).toContain("label add");
   });
 
-  it("passes shell metacharacters as literal argv values (no injection)", async () => {
+  it("shell-escapes all user values", async () => {
     await adapter.recordTransition({
       operation: "create",
       beadId: "bead-1",
-      payload: { title: "$(rm -rf /)", type: "task", priority: 2 },
+      payload: { title: "O'Reilly book's test; rm -rf /", type: "task", priority: 2 },
     });
 
-    const handler = new BeadsRecoveryHandler(adapter, { skipSync: true }, executor);
+    const handler = new BeadsRecoveryHandler(adapter, { skipSync: true }, shell);
     await handler.recover();
 
-    // The malicious title is passed as a single argv element, not interpreted by shell
-    const args = executor.calls[0].args;
-    expect(args[0]).toBe("create");
-    expect(args[1]).toBe("$(rm -rf /)");  // Literal string, no shell expansion
-    expect(args).toContain("--type");
-  });
-
-  it("adversarial: backtick injection in title is not interpreted", async () => {
-    await adapter.recordTransition({
-      operation: "create",
-      beadId: "bead-1",
-      payload: { title: "`cat /etc/passwd`", type: "task", priority: 2 },
-    });
-
-    const handler = new BeadsRecoveryHandler(adapter, { skipSync: true }, executor);
-    await handler.recover();
-
-    expect(executor.calls[0].args[1]).toBe("`cat /etc/passwd`");
-  });
-
-  it("adversarial: semicolon injection in description is not interpreted", async () => {
-    await adapter.recordTransition({
-      operation: "create",
-      beadId: "bead-1",
-      payload: { title: "safe", type: "task", priority: 2, description: "; rm -rf / #" },
-    });
-
-    const handler = new BeadsRecoveryHandler(adapter, { skipSync: true }, executor);
-    await handler.recover();
-
-    const args = executor.calls[0].args;
-    expect(args).toContain("--description");
-    const descIdx = args.indexOf("--description");
-    expect(args[descIdx + 1]).toBe("; rm -rf / #");
+    // The title should be shell-escaped with single-quote wrapping
+    const cmd = shell.commands[0];
+    // Verify single quotes are escaped with '\'' idiom
+    expect(cmd).toContain("'\\''");
+    // Verify the command uses br create with properly quoted argument
+    expect(cmd).toMatch(/^br create '/);
   });
 
   it("enforces operation and update key whitelists", async () => {
@@ -205,21 +174,22 @@ describe("BeadsRecoveryHandler", () => {
       payload: { title: "New title", malicious_key: "dropped" },
     });
 
-    const handler = new BeadsRecoveryHandler(adapter, { skipSync: true }, executor);
+    const handler = new BeadsRecoveryHandler(adapter, { skipSync: true }, shell);
     await handler.recover();
 
-    const args = executor.calls[0].args;
-    expect(args).toContain("--title");
-    expect(args.join(" ")).not.toContain("malicious_key");
+    // Only whitelisted keys should appear in command
+    const cmd = shell.commands[0];
+    expect(cmd).toContain("--title");
+    expect(cmd).not.toContain("malicious_key");
   });
 
   it("returns empty result when no WAL entries", async () => {
-    const handler = new BeadsRecoveryHandler(adapter, { skipSync: true }, executor);
+    const handler = new BeadsRecoveryHandler(adapter, { skipSync: true }, shell);
     const result = await handler.recover();
 
     expect(result.success).toBe(true);
     expect(result.entriesReplayed).toBe(0);
     expect(result.beadsAffected).toEqual([]);
-    expect(executor.calls).toHaveLength(0);
+    expect(shell.commands).toHaveLength(0);
   });
 });

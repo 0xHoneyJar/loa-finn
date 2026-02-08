@@ -72,19 +72,8 @@ export interface BeadsRecoveryConfig {
 }
 
 /**
- * Injectable command executor. Defaults to child_process.execFile (no shell).
- * Allows testing without actual command execution.
- */
-export interface ICommandExecutor {
-  execFile(
-    binary: string,
-    args: string[],
-    options?: { cwd?: string; timeout?: number },
-  ): Promise<{ stdout: string; stderr: string }>;
-}
-
-/**
- * @deprecated Use ICommandExecutor instead. Kept for backwards compatibility.
+ * Injectable shell executor. Defaults to child_process.exec.
+ * Allows testing without actual shell execution.
  */
 export interface IShellExecutor {
   exec(
@@ -105,36 +94,23 @@ export class BeadsRecoveryHandler {
   private readonly brCommand: string;
   private readonly verbose: boolean;
   private readonly skipSync: boolean;
-  private readonly executor: ICommandExecutor;
+  private readonly shell: IShellExecutor;
 
-  constructor(adapter: BeadsWALAdapter, config?: BeadsRecoveryConfig, executor?: ICommandExecutor | IShellExecutor) {
+  constructor(adapter: BeadsWALAdapter, config?: BeadsRecoveryConfig, shell?: IShellExecutor) {
     this.adapter = adapter;
     this.beadsDir = config?.beadsDir ?? ".beads";
     this.brCommand = config?.brCommand ?? "br";
     this.verbose = config?.verbose ?? false;
     this.skipSync = config?.skipSync ?? false;
 
-    // Accept either new ICommandExecutor or legacy IShellExecutor
-    if (executor && "execFile" in executor) {
-      this.executor = executor;
-    } else if (executor && "exec" in executor) {
-      // Wrap legacy IShellExecutor — still shell-based but behind the interface
-      const legacy = executor as IShellExecutor;
-      this.executor = {
-        execFile: async (binary, args, opts) => {
-          return legacy.exec(`${binary} ${args.map(a => shellEscape(a)).join(" ")}`, opts);
-        },
-      };
-    } else {
-      // Default executor uses child_process.execFile (no shell)
-      this.executor = {
-        execFile: async (binary, args, opts) => {
-          const { execFile } = await import("child_process");
-          const { promisify } = await import("util");
-          return promisify(execFile)(binary, args, opts);
-        },
-      };
-    }
+    // Default shell executor uses child_process
+    this.shell = shell ?? {
+      exec: async (cmd, opts) => {
+        const { exec } = await import("child_process");
+        const { promisify } = await import("util");
+        return promisify(exec)(cmd, opts);
+      },
+    };
 
     // Validate brCommand is safe (no path traversal, no shell metacharacters)
     if (!/^[a-zA-Z0-9._/-]+$/.test(this.brCommand) || /\.\./.test(this.brCommand)) {
@@ -187,7 +163,7 @@ export class BeadsRecoveryHandler {
       // Final sync
       if (!this.skipSync) {
         try {
-          await this.execBr(["sync", "--flush-only"]);
+          await this.execBr("sync --flush-only");
         } catch {
           // Non-fatal
         }
@@ -228,7 +204,7 @@ export class BeadsRecoveryHandler {
         await this.replayClose(beadId, payload);
         break;
       case "reopen":
-        await this.execBr(["reopen", beadId]);
+        await this.execBr(`reopen ${shellEscape(beadId)}`);
         break;
       case "label":
         await this.replayLabel(beadId, payload);
@@ -243,64 +219,62 @@ export class BeadsRecoveryHandler {
   }
 
   private async replayCreate(payload: Record<string, unknown>): Promise<void> {
-    const title = String(payload.title ?? "Untitled");
+    const title = shellEscape(String(payload.title ?? "Untitled"));
     const rawType = String(payload.type ?? "task");
     const type = ALLOWED_TYPES.has(rawType) ? rawType : "task";
     const rawPriority = Number(payload.priority);
     const priority =
       Number.isInteger(rawPriority) && rawPriority >= 0 && rawPriority <= 10 ? rawPriority : 2;
 
-    const args = ["create", title, "--type", type, "--priority", String(priority)];
+    let cmd = `create ${title} --type ${type} --priority ${priority}`;
     if (payload.description) {
-      args.push("--description", String(payload.description));
+      cmd += ` --description ${shellEscape(String(payload.description))}`;
     }
-    await this.execBr(args);
+    await this.execBr(cmd);
   }
 
   private async replayUpdate(beadId: string, payload: Record<string, unknown>): Promise<void> {
-    const args = ["update", beadId];
+    const updates: string[] = [];
     for (const [key, value] of Object.entries(payload)) {
       if (value !== undefined && value !== null && ALLOWED_UPDATE_KEYS.has(key)) {
-        args.push(`--${key}`, String(value));
+        updates.push(`--${key} ${shellEscape(String(value))}`);
       }
     }
-    if (args.length > 2) {
-      await this.execBr(args);
+    if (updates.length > 0) {
+      await this.execBr(`update ${shellEscape(beadId)} ${updates.join(" ")}`);
     }
   }
 
   private async replayClose(beadId: string, payload: Record<string, unknown>): Promise<void> {
-    const args = ["close", beadId];
-    if (payload.reason) {
-      args.push("--reason", String(payload.reason));
-    }
-    await this.execBr(args);
+    const reason = payload.reason ? ` --reason ${shellEscape(String(payload.reason))}` : "";
+    await this.execBr(`close ${shellEscape(beadId)}${reason}`);
   }
 
   private async replayLabel(beadId: string, payload: Record<string, unknown>): Promise<void> {
     const rawAction = String(payload.action ?? "add");
     const action = ALLOWED_LABEL_ACTIONS.has(rawAction) ? rawAction : "add";
 
-    const safeLabels: string[] = [];
+    let escapedLabels: string;
     if (Array.isArray(payload.labels)) {
-      for (const l of payload.labels) {
-        const labelStr = String(l);
-        if (LABEL_PATTERN.test(labelStr)) safeLabels.push(labelStr);
-      }
+      const safeLabels = payload.labels
+        .map((l) => String(l))
+        .filter((l) => LABEL_PATTERN.test(l))
+        .map((l) => shellEscape(l));
+      escapedLabels = safeLabels.join(" ");
     } else {
       const labelStr = String(payload.labels ?? payload.label ?? "");
-      if (LABEL_PATTERN.test(labelStr)) safeLabels.push(labelStr);
+      escapedLabels = LABEL_PATTERN.test(labelStr) ? shellEscape(labelStr) : "";
     }
 
-    if (safeLabels.length > 0) {
-      await this.execBr(["label", action, beadId, ...safeLabels]);
+    if (escapedLabels) {
+      await this.execBr(`label ${action} ${shellEscape(beadId)} ${escapedLabels}`);
     }
   }
 
   private async replayComment(beadId: string, payload: Record<string, unknown>): Promise<void> {
     const text = String(payload.text ?? "");
     if (text) {
-      await this.execBr(["comments", "add", beadId, text]);
+      await this.execBr(`comments add ${shellEscape(beadId)} ${shellEscape(text)}`);
     }
   }
 
@@ -312,13 +286,14 @@ export class BeadsRecoveryHandler {
     if (target) {
       const targetStr = String(target);
       if (BEAD_ID_PATTERN.test(targetStr)) {
-        await this.execBr(["dep", action, beadId, targetStr]);
+        await this.execBr(`dep ${action} ${shellEscape(beadId)} ${shellEscape(targetStr)}`);
       }
     }
   }
 
-  private async execBr(args: string[]): Promise<string> {
-    const { stdout } = await this.executor.execFile(this.brCommand, args, {
+  private async execBr(args: string): Promise<string> {
+    const cmd = `${this.brCommand} ${args}`;
+    const { stdout } = await this.shell.exec(cmd, {
       cwd: this.beadsDir,
       timeout: 30000,
     });
