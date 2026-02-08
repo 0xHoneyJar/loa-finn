@@ -25,3 +25,10 @@
 | Sprint 4 | 67 | COMPLETED | [reviewer.md](sprint-67/reviewer.md) |
 | Sprint 5 | 68 | COMPLETED | [reviewer.md](sprint-68/reviewer.md) |
 | Sprint 6 | 69 | COMPLETED | [reviewer.md](sprint-69/reviewer.md) |
+
+## Cycle-007: Bridgebuilder Refactor — Adopt Upstream Skill
+
+| Sprint | Global ID | Status | Report |
+|--------|-----------|--------|--------|
+| Sprint 1 | 17 | COMPLETED | [reviewer.md](sprint-17/reviewer.md) |
+| Sprint 2 | 18 | COMPLETED | [reviewer.md](sprint-18/reviewer.md) / [engineer-feedback.md](sprint-18/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-18/auditor-sprint-feedback.md) |

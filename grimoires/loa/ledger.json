@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-005",
-  "next_global_sprint_id": 14,
+  "current_cycle": "cycle-007",
+  "next_global_sprint_id": 19,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -123,8 +123,9 @@
     },
     "cycle-005": {
       "label": "Worker Thread Sandbox: Non-Blocking Tool Execution",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-08T00:00:00Z",
+      "archived": "2026-02-08T12:00:00Z",
       "prd": "grimoires/loa/prd-worker-thread-sandbox.md",
       "sdd": "grimoires/loa/sdd-worker-thread-sandbox.md",
       "sprints": [
@@ -139,6 +140,61 @@
           "local_id": "sprint-2",
           "global_id": 13,
           "label": "System Integration",
+          "status": "completed",
+          "tasks": 8
+        }
+      ]
+    },
+    "cycle-006": {
+      "label": "The Hounfour: Multi-Model Provider Abstraction",
+      "status": "archived",
+      "started": "2026-02-08T12:00:00Z",
+      "archived": "2026-02-08T22:00:00Z",
+      "prd": "grimoires/loa/prd-hounfour.md",
+      "sdd": "grimoires/loa/sdd-hounfour.md",
+      "note": "Implemented on feature/hounfour branch (PR #36)",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 14,
+          "label": "Foundation & Adapter Core",
+          "status": "completed",
+          "tasks": 11
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 15,
+          "label": "Flatline Integration & Budget",
+          "status": "completed",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 16,
+          "label": "Agent Portability & Health",
+          "status": "completed",
+          "tasks": 8
+        }
+      ]
+    },
+    "cycle-007": {
+      "label": "Bridgebuilder Refactor: Adopt Upstream Skill",
+      "status": "active",
+      "started": "2026-02-08T23:00:00Z",
+      "prd": "grimoires/loa/prd-bridgebuilder-refactor.md",
+      "sdd": "grimoires/loa/sdd-bridgebuilder-refactor.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 17,
+          "label": "Foundation — Upstream Integration + Finn Adapters",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 18,
+          "label": "Wiring + Cleanup + Deployment",
           "status": "completed",
           "tasks": 8
         }

@@ -1,33 +1,32 @@
 // src/bridgebuilder/logger.ts
-import type { IOutputSanitizer } from "./ports/index.js"
+// SanitizedLogger: wraps upstream ILogger and passes all output through
+// PatternSanitizer before delegating. Defense-in-depth for log output.
 
-export class BridgebuilderLogger {
-  constructor(private readonly sanitizer: IOutputSanitizer) {}
+import type { ILogger, IOutputSanitizer } from "./upstream.js"
 
-  info(msg: string): void {
-    const { sanitizedContent } = this.sanitizer.sanitize(msg)
-    console.log(`[bridgebuilder] ${sanitizedContent}`)
+export class SanitizedLogger implements ILogger {
+  constructor(
+    private readonly inner: ILogger,
+    private readonly sanitizer: IOutputSanitizer,
+  ) {}
+
+  info(message: string, data?: Record<string, unknown>): void {
+    this.inner.info(this.clean(message), data)
   }
 
-  warn(msg: string): void {
-    const { sanitizedContent } = this.sanitizer.sanitize(msg)
-    console.warn(`[bridgebuilder] ${sanitizedContent}`)
+  warn(message: string, data?: Record<string, unknown>): void {
+    this.inner.warn(this.clean(message), data)
   }
 
-  error(msg: string, err?: unknown): void {
-    const { sanitizedContent } = this.sanitizer.sanitize(msg)
-    if (err instanceof Error) {
-      const { sanitizedContent: errMsg } = this.sanitizer.sanitize(err.message)
-      console.error(`[bridgebuilder] ${sanitizedContent}: ${errMsg}`)
-    } else {
-      console.error(`[bridgebuilder] ${sanitizedContent}`)
-    }
+  error(message: string, data?: Record<string, unknown>): void {
+    this.inner.error(this.clean(message), data)
   }
 
-  debug(msg: string): void {
-    if (process.env.BRIDGEBUILDER_DEBUG === "true") {
-      const { sanitizedContent } = this.sanitizer.sanitize(msg)
-      console.log(`[bridgebuilder:debug] ${sanitizedContent}`)
-    }
+  debug(message: string, data?: Record<string, unknown>): void {
+    this.inner.debug(this.clean(message), data)
+  }
+
+  private clean(message: string): string {
+    return this.sanitizer.sanitize(message).sanitizedContent
   }
 }

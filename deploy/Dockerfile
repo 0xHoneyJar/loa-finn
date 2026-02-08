@@ -11,21 +11,25 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# Copy source and framework lib (persistence types needed by src/)
+# Copy source, framework lib, and upstream bridgebuilder skill
 COPY tsconfig.json ./
 COPY src/ ./src/
 COPY .claude/lib/ ./.claude/lib/
+COPY .claude/skills/bridgebuilder-review/ ./.claude/skills/bridgebuilder-review/
 RUN pnpm build
 
 # Stage 2: Runtime
 FROM node:22-slim
 WORKDIR /app
 
-# Install beads_rust CLI
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+# Install beads_rust CLI + gh CLI (upstream GitHubCLIAdapter requires gh)
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gpg \
     && curl -sSL https://github.com/Dicklesworthstone/beads_rust/releases/latest/download/br-linux-amd64 -o /usr/local/bin/br \
     && chmod +x /usr/local/bin/br \
-    && apt-get purge -y curl \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && apt-get purge -y curl gpg \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
@@ -33,6 +37,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
+
+# Copy upstream bridgebuilder skill (runtime import resolution via package.json imports)
+COPY --from=builder /app/.claude/skills/bridgebuilder-review/dist/ ./.claude/skills/bridgebuilder-review/dist/
+COPY --from=builder /app/.claude/skills/bridgebuilder-review/package.json ./.claude/skills/bridgebuilder-review/package.json
 
 # Copy static assets and state
 COPY public/ ./public/

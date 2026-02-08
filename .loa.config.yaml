@@ -1677,3 +1677,11 @@ simstim:
       - beads
   defaults:
     timeout_hours: 24
+
+# =============================================================================
+# Bridgebuilder Configuration
+# =============================================================================
+# Review marker for backward compatibility with existing reviewed PRs.
+# Upstream resolveConfig() picks this up at level 3 (YAML config) precedence.
+bridgebuilder:
+  reviewMarker: finn-review
