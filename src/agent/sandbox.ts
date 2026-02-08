@@ -400,6 +400,13 @@ export class ToolSandbox {
           truncated: false,
         }
       } else {
+        // Log execution failure to maintain complete audit trail (SD-010).
+        // Every "allow" entry must have a corresponding outcome.
+        this.auditLog.append({
+          ...auditEntry,
+          duration: Date.now() - startTime,
+          reason: `execution_failed: ${poolErr.code ?? poolErr.message ?? "unknown"}`,
+        })
         throw err
       }
     }

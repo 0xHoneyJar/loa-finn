@@ -88,6 +88,16 @@ function parseSyncFallback(value: string | undefined, nodeEnv: string | undefine
   return enabled
 }
 
+/** Parse an integer from an environment variable, failing fast on NaN (SD-012). */
+function parseIntEnv(envKey: string, fallback: string): number {
+  const raw = process.env[envKey] ?? fallback
+  const value = parseInt(raw, 10)
+  if (isNaN(value)) {
+    throw new Error(`${envKey} must be a valid integer (got "${raw}")`)
+  }
+  return value
+}
+
 export function loadConfig(): FinnConfig {
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (!anthropicKey) {
@@ -101,7 +111,7 @@ export function loadConfig(): FinnConfig {
     thinkingLevel: (process.env.THINKING_LEVEL ?? "medium") as ThinkingLevel,
     beauvoirPath: process.env.BEAUVOIR_PATH ?? "grimoires/loa/BEAUVOIR.md",
 
-    port: parseInt(process.env.PORT ?? "3000", 10),
+    port: parseIntEnv("PORT", "3000"),
     host: process.env.HOST ?? "0.0.0.0",
 
     dataDir,
@@ -125,29 +135,29 @@ export function loadConfig(): FinnConfig {
       bearerToken: process.env.FINN_AUTH_TOKEN ?? "",
       corsOrigins: (process.env.FINN_CORS_ORIGINS ?? "localhost:*").split(","),
       rateLimiting: {
-        windowMs: parseInt(process.env.FINN_RATE_LIMIT_WINDOW_MS ?? "60000", 10),
-        maxRequestsPerWindow: parseInt(process.env.FINN_RATE_LIMIT_MAX ?? "60", 10),
+        windowMs: parseIntEnv("FINN_RATE_LIMIT_WINDOW_MS", "60000"),
+        maxRequestsPerWindow: parseIntEnv("FINN_RATE_LIMIT_MAX", "60"),
       },
     },
 
-    syncIntervalMs: parseInt(process.env.SYNC_INTERVAL_MS ?? "30000", 10),
-    gitSyncIntervalMs: parseInt(process.env.GIT_SYNC_INTERVAL_MS ?? "3600000", 10),
-    healthIntervalMs: parseInt(process.env.HEALTH_INTERVAL_MS ?? "300000", 10),
+    syncIntervalMs: parseIntEnv("SYNC_INTERVAL_MS", "30000"),
+    gitSyncIntervalMs: parseIntEnv("GIT_SYNC_INTERVAL_MS", "3600000"),
+    healthIntervalMs: parseIntEnv("HEALTH_INTERVAL_MS", "300000"),
 
     sandbox: {
       allowBash: process.env.FINN_ALLOW_BASH === "true",
       jailRoot: process.env.FINN_SANDBOX_JAIL_ROOT ?? dataDir,
-      execTimeout: parseInt(process.env.FINN_SANDBOX_TIMEOUT ?? "30000", 10),
-      maxOutput: parseInt(process.env.FINN_SANDBOX_MAX_OUTPUT ?? "65536", 10),
+      execTimeout: parseIntEnv("FINN_SANDBOX_TIMEOUT", "30000"),
+      maxOutput: parseIntEnv("FINN_SANDBOX_MAX_OUTPUT", "65536"),
     },
 
     workerPool: {
       interactiveWorkers: Math.max(1, Math.min(
-        parseInt(process.env.FINN_WORKER_POOL_SIZE ?? "2", 10),
+        parseIntEnv("FINN_WORKER_POOL_SIZE", "2"),
         Math.max(1, availableParallelism() - 1),
       )),
-      shutdownDeadlineMs: parseInt(process.env.FINN_WORKER_SHUTDOWN_MS ?? "10000", 10),
-      maxQueueDepth: parseInt(process.env.FINN_WORKER_QUEUE_DEPTH ?? "10", 10),
+      shutdownDeadlineMs: parseIntEnv("FINN_WORKER_SHUTDOWN_MS", "10000"),
+      maxQueueDepth: parseIntEnv("FINN_WORKER_QUEUE_DEPTH", "10"),
     },
 
     sandboxMode: parseSandboxMode(process.env.SANDBOX_MODE),

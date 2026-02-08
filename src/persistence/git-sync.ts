@@ -43,6 +43,7 @@ export class GitSync {
   private status: GitSyncStatus = "unconfigured"
   private pool: WorkerPool | undefined
   private gitBinaryPath: string
+  private readonly gitEnv: Record<string, string>
 
   constructor(
     private config: FinnConfig,
@@ -60,6 +61,9 @@ export class GitSync {
 
     // Resolve git binary path once at construction (SD-006)
     this.gitBinaryPath = this.resolveGitBinary()
+
+    // Build minimal env that preserves auth credentials (SD-008)
+    this.gitEnv = this.buildGitEnv()
 
     if (config.git.token) {
       this.status = "ok"
@@ -79,6 +83,24 @@ export class GitSync {
       // Fallback to bare "git" — will fail at exec time with a clear error
       return "git"
     }
+  }
+
+  /** Build a minimal env that includes PATH + auth-related vars (SD-008).
+   *  The previous implementation stripped all env vars except PATH, which
+   *  broke SSH-based git remotes (no SSH_AUTH_SOCK), HTTPS credential
+   *  helpers (no HOME for ~/.gitconfig), and locale (no LANG). */
+  private buildGitEnv(): Record<string, string> {
+    const env: Record<string, string> = {
+      PATH: process.env.PATH ?? "/usr/bin:/usr/local/bin",
+      GIT_TERMINAL_PROMPT: "0",
+    }
+    // Preserve HOME — required for ~/.gitconfig, credential helpers, SSH known_hosts
+    if (process.env.HOME) env.HOME = process.env.HOME
+    // Preserve SSH_AUTH_SOCK — required for SSH-based git remotes
+    if (process.env.SSH_AUTH_SOCK) env.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK
+    // Preserve LANG — prevents encoding issues in git output
+    if (process.env.LANG) env.LANG = process.env.LANG
+    return env
   }
 
   /** Attach a WorkerPool after construction (for deferred initialization). */
@@ -258,14 +280,20 @@ export class GitSync {
     }
   }
 
+  /** Create archive branch without mutating HEAD (SD-009).
+   *  Uses mktree → commit-tree → branch instead of checkout --orphan,
+   *  which would switch the main working directory to the new branch. */
   private async ensureArchiveBranch(): Promise<void> {
     try {
       await this.git("rev-parse", "--verify", this.branch)
     } catch {
-      // Create orphan branch
-      await this.git("checkout", "--orphan", this.branch)
-      try { await this.git("rm", "-rf", ".") } catch { /* empty repo is fine */ }
-      await this.git("commit", "--allow-empty", "-m", "chore: initialize archive branch")
+      // Create orphan branch WITHOUT switching HEAD (SD-009).
+      // Pipe empty input to mktree to create an empty tree object.
+      const emptyTree = (await this.git("mktree")).trim()
+      const commitSha = (await this.git(
+        "commit-tree", emptyTree, "-m", "chore: initialize archive branch",
+      )).trim()
+      await this.git("branch", this.branch, commitSha)
     }
   }
 
@@ -276,7 +304,7 @@ export class GitSync {
         args,
         cwd: this.cwd,
         timeoutMs: 30_000,
-        env: { PATH: process.env.PATH ?? "/usr/bin:/usr/local/bin" },
+        env: this.gitEnv,
         maxBuffer: 1_048_576,
       }
       const result = await this.pool.exec(spec, "system")
@@ -291,7 +319,7 @@ export class GitSync {
         cwd: this.cwd,
         encoding: "utf-8",
         timeout: 30_000,
-        env: { PATH: process.env.PATH ?? "/usr/bin:/usr/local/bin" },
+        env: this.gitEnv,
         maxBuffer: 1_048_576,
       })
     } catch (e: any) {
@@ -308,7 +336,7 @@ export class GitSync {
         args,
         cwd,
         timeoutMs: 30_000,
-        env: { PATH: process.env.PATH ?? "/usr/bin:/usr/local/bin" },
+        env: this.gitEnv,
         maxBuffer: 1_048_576,
       }
       const result = await this.pool.exec(spec, "system")
@@ -323,7 +351,7 @@ export class GitSync {
         cwd,
         encoding: "utf-8",
         timeout: 30_000,
-        env: { PATH: process.env.PATH ?? "/usr/bin:/usr/local/bin" },
+        env: this.gitEnv,
         maxBuffer: 1_048_576,
       })
     } catch (e: any) {

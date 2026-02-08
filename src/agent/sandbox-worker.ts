@@ -148,13 +148,16 @@ parentPort.on("message", async (msg) => {
   try {
     await validateCwd(spec.cwd, jailRoot)
   } catch (err) {
+    // Log detailed error for internal diagnostics but return sanitized
+    // message to prevent jail path disclosure to callers (SD-011)
+    console.error(`[sandbox-worker] cwd validation failed: ${(err as Error).message}`)
     currentJobId = null
     parentPort!.postMessage({
       type: "result",
       jobId,
       result: {
         stdout: "",
-        stderr: `Jail validation failed: ${(err as Error).message}`,
+        stderr: "Working directory validation failed",
         exitCode: 1,
         truncated: false,
         durationMs: 0,
