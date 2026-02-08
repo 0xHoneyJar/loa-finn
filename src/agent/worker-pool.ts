@@ -74,9 +74,21 @@ export interface WorkerPoolConfig {
 }
 
 export interface WorkerPoolStats {
-  interactive: { active: number; idle: number; queued: number }
-  system: { active: boolean; queued: number }
-  totals: { completed: number; failed: number; timedOut: number; avgExecMs: number }
+  interactive: {
+    active: number
+    idle: number
+    queued: number
+  }
+  system: {
+    active: boolean
+    queued: number
+  }
+  totals: {
+    completed: number
+    failed: number
+    timedOut: number
+    avgExecMs: number
+  }
 }
 
 // ── Internal Types ──────────────────────────────────────────
@@ -96,6 +108,8 @@ interface ManagedWorker {
   pendingJob: PendingJob | null
   timeoutTimer: ReturnType<typeof setTimeout> | null
   abortTimer: ReturnType<typeof setTimeout> | null
+  /** Stored resolver for event-driven waitForIdle (SD-015) */
+  idleResolver: (() => void) | null
 }
 
 // ── WorkerPool ──────────────────────────────────────────────
@@ -132,7 +146,7 @@ export class WorkerPool {
    * @param lane - Priority lane (default: "interactive")
    * @param jailRoot - Jail root path for worker-side cwd validation
    */
-  async exec(spec: ExecSpec, lane: PoolLane = "interactive", jailRoot = ""): Promise<ExecResult> {
+  async exec(spec: ExecSpec, lane: PoolLane = "interactive", jailRoot: string = ""): Promise<ExecResult> {
     if (!this.accepting) {
       throw new PoolError(PoolErrorCode.POOL_SHUTTING_DOWN, "Pool is shutting down")
     }
@@ -162,6 +176,7 @@ export class WorkerPool {
             reject(new PoolError(PoolErrorCode.WORKER_UNAVAILABLE, "Interactive queue full"))
             return
           }
+
           // Per-session fairness at >50% capacity (SD-016):
           // Round-robin by sessionId when queue > 50% full
           if (
@@ -202,34 +217,22 @@ export class WorkerPool {
     const allWorkers = [...this.interactiveWorkers, this.systemWorker]
     for (const mw of allWorkers) {
       if (mw.state === "busy" && mw.currentJobId) {
-        try {
-          mw.worker.postMessage({ type: "abort", jobId: mw.currentJobId })
-        } catch { /* worker may already be dead */ }
+        mw.worker.postMessage({ type: "abort", jobId: mw.currentJobId })
       }
     }
 
     // Wait for workers to finish or deadline
-    const hitDeadline = await Promise.race([
-      Promise.all(allWorkers.map((mw) => this.waitForIdle(mw))).then(() => false),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), this.config.shutdownDeadlineMs)),
+    await Promise.race([
+      Promise.all(allWorkers.map((mw) => this.waitForIdle(mw))),
+      new Promise<void>((resolve) => setTimeout(resolve, this.config.shutdownDeadlineMs)),
     ])
-
-    // If deadline hit, reject any still-running jobs to avoid promise leaks
-    if (hitDeadline) {
-      for (const mw of allWorkers) {
-        if (mw.pendingJob) {
-          const job = mw.pendingJob
-          this.clearTimers(mw)
-          this.markIdle(mw)
-          job.reject(new PoolError(PoolErrorCode.POOL_SHUTTING_DOWN, "Pool shutdown deadline exceeded"))
-        }
-      }
-    }
 
     // Terminate all workers
     for (const mw of allWorkers) {
       this.clearTimers(mw)
-      try { await mw.worker.terminate() } catch { /* ok */ }
+      try {
+        await mw.worker.terminate()
+      } catch { /* ok */ }
     }
   }
 
@@ -249,23 +252,20 @@ export class WorkerPool {
         completed: this.completedCount,
         failed: this.failedCount,
         timedOut: this.timedOutCount,
-        avgExecMs: this.completedCount > 0
-          ? Math.round(this.totalExecMs / this.completedCount)
-          : 0,
+        avgExecMs:
+          this.completedCount > 0
+            ? Math.round(this.totalExecMs / this.completedCount)
+            : 0,
       },
     }
   }
 
   // ── Private Methods ─────────────────────────────────────────
 
-  private createBareWorker(): Worker {
-    return new Worker(this.config.workerScript, {
+  private spawnWorker(): ManagedWorker {
+    const worker = new Worker(this.config.workerScript, {
       resourceLimits: { maxOldGenerationSizeMb: 256 },
     })
-  }
-
-  private spawnWorker(): ManagedWorker {
-    const worker = this.createBareWorker()
 
     const mw: ManagedWorker = {
       worker,
@@ -274,17 +274,14 @@ export class WorkerPool {
       pendingJob: null,
       timeoutTimer: null,
       abortTimer: null,
+      idleResolver: null,
     }
 
-    this.wireHandlers(mw)
+    worker.on("message", (msg: any) => this.handleWorkerMessage(mw, msg))
+    worker.on("error", (err: Error) => this.handleWorkerError(mw, err))
+    worker.on("exit", (code: number) => this.handleWorkerExit(mw, code))
 
     return mw
-  }
-
-  private wireHandlers(mw: ManagedWorker): void {
-    mw.worker.on("message", (msg) => this.handleWorkerMessage(mw, msg))
-    mw.worker.on("error", (err) => this.handleWorkerError(mw, err))
-    mw.worker.on("exit", (code) => this.handleWorkerExit(mw, code))
   }
 
   private dispatch(mw: ManagedWorker, job: PendingJob): void {
@@ -317,14 +314,16 @@ export class WorkerPool {
       this.markIdle(mw)
       this.completedCount++
       this.totalExecMs += msg.result.durationMs ?? 0
-      job.resolve(msg.result as ExecResult)
+      job.resolve(msg.result)
       this.drainQueue(mw)
     } else if (msg.type === "aborted" && mw.pendingJob) {
       const job = mw.pendingJob
       this.clearTimers(mw)
       this.markIdle(mw)
       this.timedOutCount++
-      job.reject(new PoolError(PoolErrorCode.EXEC_TIMEOUT, `Command timed out after ${job.spec.timeoutMs}ms`))
+      job.reject(
+        new PoolError(PoolErrorCode.EXEC_TIMEOUT, `Command timed out after ${job.spec.timeoutMs}ms`),
+      )
       this.drainQueue(mw)
     }
   }
@@ -341,8 +340,9 @@ export class WorkerPool {
         const job = mw.pendingJob
         this.clearTimers(mw)
         this.timedOutCount++
-        this.markIdle(mw)
-        job.reject(new PoolError(PoolErrorCode.EXEC_TIMEOUT, "Worker wedged — terminated and replaced"))
+        job.reject(
+          new PoolError(PoolErrorCode.EXEC_TIMEOUT, "Worker wedged — terminated and replaced"),
+        )
         this.replaceWorker(mw)
       }
     }, 10_000)
@@ -357,13 +357,8 @@ export class WorkerPool {
       const job = mw.pendingJob
       this.clearTimers(mw)
       this.failedCount++
-      this.markIdle(mw)
       job.reject(new PoolError(PoolErrorCode.WORKER_CRASHED, "Worker thread crashed"))
-    } else {
-      this.clearTimers(mw)
-      this.markIdle(mw)
     }
-
     if (this.accepting) {
       this.replaceWorker(mw)
     }
@@ -371,18 +366,26 @@ export class WorkerPool {
 
   private replaceWorker(mw: ManagedWorker): void {
     // Terminate old worker (may already be dead)
-    try { mw.worker.terminate() } catch { /* ok */ }
+    try {
+      mw.worker.terminate()
+    } catch { /* ok */ }
 
-    // Create bare Worker (no transient ManagedWorker — avoids duplicate handler leak)
-    mw.worker = this.createBareWorker()
+    // Spawn replacement
+    const replacement = this.spawnWorker()
+
+    // Patch the ManagedWorker in-place so references in arrays still work
+    mw.worker = replacement.worker
     mw.state = "idle"
     mw.currentJobId = null
     mw.pendingJob = null
     mw.timeoutTimer = null
     mw.abortTimer = null
+    mw.idleResolver = null
 
-    // Wire handlers targeting the in-place mw
-    this.wireHandlers(mw)
+    // Re-attach message handlers to the new worker
+    mw.worker.on("message", (msg: any) => this.handleWorkerMessage(mw, msg))
+    mw.worker.on("error", (err: Error) => this.handleWorkerError(mw, err))
+    mw.worker.on("exit", (code: number) => this.handleWorkerExit(mw, code))
 
     // Drain queue with the now-idle replacement
     this.drainQueue(mw)
@@ -394,7 +397,6 @@ export class WorkerPool {
     // Determine which queue this worker serves
     const isSystem = mw === this.systemWorker
     const queue = isSystem ? this.systemQueue : this.interactiveQueue
-
     const next = queue.shift()
     if (next) {
       this.dispatch(mw, next)
@@ -405,6 +407,12 @@ export class WorkerPool {
     mw.state = "idle"
     mw.currentJobId = null
     mw.pendingJob = null
+    // Notify waitForIdle listeners (SD-015)
+    if (mw.idleResolver) {
+      const resolve = mw.idleResolver
+      mw.idleResolver = null
+      resolve()
+    }
   }
 
   private clearTimers(mw: ManagedWorker): void {
@@ -420,19 +428,9 @@ export class WorkerPool {
 
   private waitForIdle(mw: ManagedWorker): Promise<void> {
     if (mw.state === "idle") return Promise.resolve()
+    // Event-driven: store resolver, markIdle() will call it (SD-015)
     return new Promise<void>((resolve) => {
-      const check = setInterval(() => {
-        if (mw.state === "idle") {
-          clearInterval(check)
-          clearTimeout(safety)
-          resolve()
-        }
-      }, 100)
-      // Safety: prevent interval leak if state never flips
-      const safety = setTimeout(() => {
-        clearInterval(check)
-        resolve()
-      }, this.config.shutdownDeadlineMs + 1_000)
+      mw.idleResolver = resolve
     })
   }
 }

@@ -455,24 +455,44 @@ If OS-level isolation is needed in the future (seccomp, namespaces, firejail), t
 
 ### 4.2 Environment Sanitization
 
-Workers receive a minimal env:
+Two distinct env configurations exist for different trust levels:
+
+#### Sandbox Env (interactive lane — user tool execution)
+
+Jail-locked. `HOME` is set to the jail root, preventing access to `~/.gitconfig`, credential helpers, and SSH keys. This is intentional — sandboxed commands must not access host credentials.
 
 ```typescript
-function buildWorkerEnv(config: SandboxConfig): Record<string, string> {
-  const env: Record<string, string> = {
+function buildSandboxEnv(jailRoot: string): Record<string, string> {
+  return {
     PATH: "/usr/local/bin:/usr/bin:/bin",
-    HOME: config.jailRoot,
+    HOME: jailRoot,                    // ← jail root, NOT process.env.HOME
     LANG: "en_US.UTF-8",
+    TERM: "dumb",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
   }
-  // Add explicitly allowlisted vars from config
-  for (const key of config.envAllowlist ?? []) {
-    if (process.env[key]) env[key] = process.env[key]!
+}
+```
+
+#### System Env (system lane — git-sync operations, SD-008)
+
+Auth-preserving. `HOME` is the real home directory, enabling `~/.gitconfig`, credential helpers, and SSH `known_hosts`. `SSH_AUTH_SOCK` is preserved for SSH-based git remotes.
+
+```typescript
+private buildGitEnv(): Record<string, string> {
+  const env: Record<string, string> = {
+    PATH: process.env.PATH ?? "/usr/bin:/usr/local/bin",
+    GIT_TERMINAL_PROMPT: "0",
   }
+  if (process.env.HOME) env.HOME = process.env.HOME
+  if (process.env.SSH_AUTH_SOCK) env.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK
+  if (process.env.LANG) env.LANG = process.env.LANG
   return env
 }
 ```
 
-**Explicitly excluded:** `ANTHROPIC_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN`, `R2_*`, `BRIDGEBUILDER_*`.
+**Explicitly excluded from both:** `ANTHROPIC_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN`, `R2_*`, `BRIDGEBUILDER_*`.
 
 ### 4.3 Output Boundary
 
@@ -505,10 +525,16 @@ Worker scope                              Main thread scope
 | All interactive workers busy | Queue depth > 0 | Jobs wait in FIFO queue | Latency increases, event loop stays free |
 | Pool exhaustion (queue + workers full) | Queue depth > configurable max (default: 10) | Reject with `WORKER_UNAVAILABLE` | Agent receives error, can retry |
 
-### 5.2 Shutdown Sequence
+### 5.2 Shutdown Sequence (SD-014)
+
+Shutdown order: close inbound first, drain internal, flush outbound.
 
 ```
 SIGTERM received
+  │
+  ├─ scheduler.stop()           (no new cron tasks)
+  ├─ identity.stopWatching()
+  ├─ server.close()             (stop accepting HTTP/WS — prevents requests hitting dead pool)
   │
   ├─ pool.shutdown() called
   │   ├─ accepting = false (new jobs rejected)
@@ -519,20 +545,22 @@ SIGTERM received
   │   │   └─ Workers that don't: worker.terminate()
   │   └─ All workers terminated
   │
-  ├─ CronService.stop()
-  ├─ HTTP server close
+  ├─ r2Sync.sync()              (flush outbound state)
+  ├─ wal.compact() + shutdown() (drain WAL writes)
   └─ process.exit(0)
 ```
 
 ### 5.3 Rollback & Emergency Modes
 
-**Production rollback** does NOT use sync fallback. Three emergency modes:
+**Production rollback** does NOT use sync fallback. Three emergency modes, wired via `createExecutor()` factory in `sandbox-executor.ts` (SD-013):
 
 | Mode | Trigger | Behavior |
 |------|---------|----------|
-| **Fail closed** | `SANDBOX_MODE=disabled` | All tool calls return typed `SANDBOX_DISABLED` error. Server stays responsive (health, dashboard, WebSocket). Agent cannot execute commands but doesn't block event loop. |
-| **Child process pool** | `SANDBOX_MODE=child_process` | Replace worker threads with a simple `execFile` (async, no workers). Loses thread pool benefits but maintains non-blocking execution. Single concurrent command per call. |
+| **Fail closed** | `SANDBOX_MODE=disabled` | All tool calls return typed `SANDBOX_DISABLED` error via `DisabledExecutor`. Server stays responsive (health, dashboard, WebSocket). Agent cannot execute commands but doesn't block event loop. |
+| **Child process fallback** | `SANDBOX_MODE=child_process` | `ChildProcessExecutor` uses async `execFile` without worker threads. Loses thread pool benefits but maintains non-blocking execution. Single concurrent command per call. |
 | **Dev-only sync** | `SANDBOX_SYNC_FALLBACK=true` | Falls back to main-thread `execFileSync`. **MUST NOT be set in production** — reintroduces event loop blocking. Gated behind explicit env var. Limited to 1 concurrent sync exec with circuit breaker (3 consecutive sync execs → 5s cooldown) to prevent cascading stall. |
+
+The executor factory (`src/agent/sandbox-executor.ts`) implements the strategy pattern: `createExecutor(mode, pool)` returns the appropriate `SandboxExecutor` implementation. `ToolSandbox` depends on the `SandboxExecutor` interface, not `WorkerPool` directly.
 
 **Recommended rollback sequence:**
 1. First try `SANDBOX_MODE=child_process` (non-blocking, minimal risk)

@@ -3,7 +3,7 @@
 import { createLoaSession } from "../agent/session.js"
 import type { LoaSession } from "../agent/session.js"
 import type { FinnConfig } from "../config.js"
-import type { WorkerPool } from "../agent/worker-pool.js"
+import type { SandboxExecutor } from "../agent/sandbox-executor.js"
 import type { AgentSession } from "@mariozechner/pi-coding-agent"
 import { readdirSync } from "node:fs"
 import { join } from "node:path"
@@ -27,7 +27,7 @@ export class SessionRouter {
   private sessions = new Map<string, ManagedSession>()
   private evictionTimer: ReturnType<typeof setInterval>
 
-  constructor(private config: FinnConfig, private pool?: WorkerPool) {
+  constructor(private config: FinnConfig, private executor?: SandboxExecutor) {
     // Evict idle sessions every 60s
     this.evictionTimer = setInterval(() => this.evictIdle(), 60_000)
     this.evictionTimer.unref()
@@ -42,7 +42,7 @@ export class SessionRouter {
       }
     }
 
-    const loaSession = await createLoaSession({ config: this.config, pool: this.pool })
+    const loaSession = await createLoaSession({ config: this.config, executor: this.executor })
     const now = Date.now()
 
     this.sessions.set(loaSession.sessionId, {
@@ -72,7 +72,7 @@ export class SessionRouter {
     try {
       const loaSession = await createLoaSession({
         config: this.config,
-        pool: this.pool,
+        executor: this.executor,
         existingSessionId: id,
       })
       const now = Date.now()

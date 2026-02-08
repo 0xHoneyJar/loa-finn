@@ -5,7 +5,8 @@ import { lstatSync, realpathSync } from "node:fs"
 import { resolve } from "node:path"
 import type { FinnConfig } from "../config.js"
 import { AuditLog, type AuditEntry } from "./audit-log.js"
-import type { WorkerPool, ExecSpec } from "./worker-pool.js"
+import type { SandboxExecutor } from "./sandbox-executor.js"
+import type { ExecSpec } from "./worker-pool.js"
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -165,15 +166,15 @@ export class ToolSandbox {
   private readonly redactor: SecretRedactor
   private readonly auditLog: AuditLog
   private readonly sandboxEnv: Record<string, string>
-  private readonly pool: WorkerPool | undefined
-  private poolMissingWarned = false
+  private readonly executor: SandboxExecutor | undefined
+  private executorMissingWarned = false
 
-  constructor(config: FinnConfig["sandbox"], auditLog: AuditLog, pool?: WorkerPool) {
+  constructor(config: FinnConfig["sandbox"], auditLog: AuditLog, executor?: SandboxExecutor) {
     this.config = config
     this.jail = new FilesystemJail(config.jailRoot)
     this.redactor = new SecretRedactor()
     this.auditLog = auditLog
-    this.pool = pool
+    this.executor = executor
     this.sandboxEnv = buildSandboxEnv(this.jail.getJailRoot())
 
     // Resolve binary paths at startup
@@ -374,20 +375,20 @@ export class ToolSandbox {
       }
     }
 
-    // 8. Dispatch to worker pool
-    if (!this.pool) {
-      if (!this.poolMissingWarned) {
-        this.poolMissingWarned = true
-        console.warn("[sandbox] pool unavailable — all tool calls will fail. If SANDBOX_MODE is not 'disabled', check worker pool initialization.")
+    // 8. Dispatch via executor (SD-013: wired via createExecutor factory)
+    if (!this.executor) {
+      if (!this.executorMissingWarned) {
+        this.executorMissingWarned = true
+        console.warn("[sandbox] executor unavailable — all tool calls will fail. If SANDBOX_MODE is not 'disabled', check worker pool initialization.")
       }
-      return { stdout: "", stderr: "Sandbox is disabled (no worker pool available)", exitCode: 1, timedOut: false, truncated: false }
+      return { stdout: "", stderr: "Sandbox is disabled (no executor available)", exitCode: 1, timedOut: false, truncated: false }
     }
     const startTime = Date.now()
     let timedOut = false
     let result: { stdout: string; stderr: string; exitCode: number; truncated: boolean }
 
     try {
-      result = await this.pool.exec(spec, "interactive")
+      result = await this.executor.exec(spec)
     } catch (err: unknown) {
       // Map PoolError timeout to SandboxResult (preserve shape for callers)
       const poolErr = err as { name?: string; code?: string; message?: string }

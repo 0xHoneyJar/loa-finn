@@ -9,13 +9,13 @@ import { getCustomTools } from "./tools.js"
 import { ToolSandbox, SandboxError } from "./sandbox.js"
 import { AuditLog } from "./audit-log.js"
 import type { FinnConfig } from "../config.js"
-import type { WorkerPool } from "./worker-pool.js"
+import type { SandboxExecutor } from "./sandbox-executor.js"
 import { mkdirSync } from "node:fs"
 import { readFile, writeFile, access, mkdir } from "node:fs/promises"
 
 export interface LoaSessionOptions {
   config: FinnConfig
-  pool?: WorkerPool
+  executor?: SandboxExecutor
   existingSessionId?: string
 }
 
@@ -25,7 +25,7 @@ export interface LoaSession {
 }
 
 export async function createLoaSession(options: LoaSessionOptions): Promise<LoaSession> {
-  const { config, pool, existingSessionId } = options
+  const { config, executor, existingSessionId } = options
 
   // Ensure session directory exists
   mkdirSync(config.sessionDir, { recursive: true })
@@ -51,9 +51,9 @@ export async function createLoaSession(options: LoaSessionOptions): Promise<LoaS
     sessionManager = SessionManager.create(process.cwd(), config.sessionDir)
   }
 
-  // Initialize sandbox (SDD §3.8)
+  // Initialize sandbox (SDD §3.8) — receives executor from DI chain (SD-013)
   const auditLog = new AuditLog(config.dataDir)
-  const sandbox = new ToolSandbox(config.sandbox, auditLog, pool)
+  const sandbox = new ToolSandbox(config.sandbox, auditLog, executor)
 
   // Create sandboxed bash tool using Pi SDK's BashOperations extension point
   const sandboxedBashTool = createBashTool(process.cwd(), {

@@ -5,6 +5,7 @@ import { resolve } from "node:path"
 import { Hono } from "hono"
 import type { FinnConfig } from "../config.js"
 import type { WorkerPool } from "../agent/worker-pool.js"
+import type { SandboxExecutor } from "../agent/sandbox-executor.js"
 import { SessionRouter } from "./sessions.js"
 import { authMiddleware, corsMiddleware } from "./auth.js"
 import { rateLimitMiddleware } from "./rate-limit.js"
@@ -15,12 +16,13 @@ import { createActivityHandler } from "../dashboard/activity-handler.js"
 export interface AppOptions {
   healthAggregator?: HealthAggregator
   activityFeed?: ActivityFeed
+  executor?: SandboxExecutor
   pool?: WorkerPool
 }
 
 export function createApp(config: FinnConfig, options: AppOptions) {
   const app = new Hono()
-  const router = new SessionRouter(config, options.pool)
+  const router = new SessionRouter(config, options.executor)
 
   // Global middleware
   app.use("*", corsMiddleware(config))

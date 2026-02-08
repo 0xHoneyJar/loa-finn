@@ -20,6 +20,8 @@ import { CompoundLearning } from "./learning/compound.js"
 import { ActivityFeed } from "./dashboard/activity-feed.js"
 import { ResilientHttpClient } from "./bridgebuilder/adapters/resilient-http.js"
 import { WorkerPool } from "./agent/worker-pool.js"
+import { createExecutor } from "./agent/sandbox-executor.js"
+import type { SandboxExecutor } from "./agent/sandbox-executor.js"
 import { serve } from "@hono/node-server"
 import { WebSocketServer } from "ws"
 import { join } from "node:path"
@@ -93,8 +95,9 @@ async function main() {
     console.log("[finn] dashboard: activity feed disabled (set GITHUB_TOKEN, BRIDGEBUILDER_REPOS, BRIDGEBUILDER_BOT_USER)")
   }
 
-  // 6c. Initialize worker pool (Cycle 005 — SDD §3.1)
+  // 6c. Initialize worker pool and executor (Cycle 005 — SDD §3.1, §5.3)
   let pool: WorkerPool | undefined
+  let executor: SandboxExecutor | undefined
   if (config.sandboxMode !== "disabled") {
     const workerScript = fileURLToPath(new URL("./agent/sandbox-worker.js", import.meta.url))
     try {
@@ -109,6 +112,9 @@ async function main() {
       shutdownDeadlineMs: config.workerPool.shutdownDeadlineMs,
       maxQueueDepth: config.workerPool.maxQueueDepth,
     })
+    // Wire executor via factory — routes to WorkerExecutor or ChildProcessExecutor
+    // based on SANDBOX_MODE (SD-013, SDD §5.3)
+    executor = createExecutor(config.sandboxMode, pool)
     console.log(`[finn] worker pool initialized: mode=${config.sandboxMode}, ${config.workerPool.interactiveWorkers} interactive + 1 system`)
   } else {
     console.log(`[finn] worker pool skipped: SANDBOX_MODE=disabled`)
@@ -117,8 +123,8 @@ async function main() {
   // 6d. Wire pool into GitSync for async git operations
   if (pool) gitSync.setPool(pool)
 
-  // 7. Create gateway (with health aggregator once available)
-  const { app, router } = createApp(config, { activityFeed, pool })
+  // 7. Create gateway (with executor for sandbox, pool for health stats)
+  const { app, router } = createApp(config, { activityFeed, executor, pool })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()
@@ -265,6 +271,13 @@ async function main() {
   console.log(`[finn] websocket handler attached`)
 
   // 11. Graceful shutdown handler (T-5.8)
+  // Shutdown order (SD-014): close inbound first, drain internal, flush outbound.
+  //   1. Stop scheduler (no new cron tasks)
+  //   2. Stop identity watcher
+  //   3. Close HTTP server (stop accepting new connections — prevents requests hitting dead pool)
+  //   4. Shutdown worker pool (abort running jobs, terminate workers)
+  //   5. Final R2 sync (flush outbound state)
+  //   6. Drain WAL writes
   let shuttingDown = false
   const gracefulShutdown = async (signal: string) => {
     if (shuttingDown) return
@@ -279,13 +292,14 @@ async function main() {
     identity.stopWatching()
     identityWatching = false
 
+    // Close HTTP server first — stop accepting new connections before
+    // killing the pool, so in-flight requests don't hit POOL_SHUTTING_DOWN (SD-014)
+    server.close()
+
     // Shutdown worker pool (abort running, terminate workers)
     if (pool) {
       try { await pool.shutdown() } catch (err) { console.error("[finn] pool shutdown error:", err) }
     }
-
-    // Close HTTP server (stop accepting new connections)
-    server.close()
 
     // Final R2 sync
     try {
