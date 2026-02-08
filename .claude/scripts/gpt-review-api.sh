@@ -372,14 +372,20 @@ header = "Content-Type: application/json"
 CURLCFG
     echo "header = \"Authorization: Bearer ${OPENAI_API_KEY}\"" >> "$curl_config"
 
-    local curl_output
+    # Write payload to temp file to avoid bash argument size limits (SHELL-002)
+    local payload_file
+    payload_file=$(mktemp)
+    chmod 600 "$payload_file"
+    printf '%s' "$payload" > "$payload_file"
+
+    local curl_output curl_exit
     curl_output=$(curl -s -w "\n%{http_code}" \
       --max-time "$timeout" \
       --config "$curl_config" \
-      -d "$payload" \
+      -d "@${payload_file}" \
       "$api_url" 2>&1) || {
-        rm -f "$curl_config"
-        local curl_exit=$?
+        curl_exit=$?
+        rm -f "$curl_config" "$payload_file"
         if [[ $curl_exit -eq 28 ]]; then
           error "API call timed out after ${timeout}s (attempt $attempt)"
           if [[ $attempt -lt $MAX_RETRIES ]]; then
@@ -394,8 +400,8 @@ CURLCFG
         exit 1
       }
 
-    # Clean up curl config
-    rm -f "$curl_config"
+    # Clean up curl config and payload file
+    rm -f "$curl_config" "$payload_file"
 
     # Extract HTTP code from last line
     http_code=$(echo "$curl_output" | tail -1)
@@ -498,6 +504,7 @@ Options:
   --context <file>       Product/feature context file (USER prompt - WHAT we're reviewing)
   --iteration <N>        Review iteration (1 = first, 2+ = re-review)
   --previous <file>      Previous findings JSON (required for iteration > 1)
+  --output <file>        Write JSON response to file (in addition to stdout)
 
 Prompt Structure:
   SYSTEM: [Domain Expertise from --expertise] + [Review Instructions]
@@ -527,6 +534,7 @@ main() {
   local context_file=""
   local iteration=1
   local previous_file=""
+  local output_file=""
 
   # Parse arguments
   while [[ $# -gt 0 ]]; do
@@ -545,6 +553,10 @@ main() {
         ;;
       --previous)
         previous_file="$2"
+        shift 2
+        ;;
+      --output)
+        output_file="$2"
         shift 2
         ;;
       --help|-h)
@@ -716,7 +728,8 @@ EOF
   # Check for max iterations auto-approve
   if [[ "$iteration" -gt "$MAX_ITERATIONS" ]]; then
     log "Iteration $iteration exceeds max_iterations ($MAX_ITERATIONS) - auto-approving"
-    cat <<EOF
+    local auto_response
+    auto_response=$(cat <<EOF
 {
   "verdict": "APPROVED",
   "summary": "Auto-approved after $MAX_ITERATIONS iterations (max_iterations reached)",
@@ -725,6 +738,13 @@ EOF
   "note": "Review converged by iteration limit. Consider adjusting max_iterations in config if needed."
 }
 EOF
+    )
+    if [[ -n "$output_file" ]]; then
+      mkdir -p "$(dirname "$output_file")"
+      echo "$auto_response" > "$output_file"
+      log "Findings written to: $output_file"
+    fi
+    echo "$auto_response"
     exit 0
   fi
 
@@ -812,7 +832,18 @@ EOF
   # Defensive measure against malicious API responses
   response=$(echo "$response" | tr -d '\033' | tr -d '\000-\010\013\014\016-\037')
 
-  # Output response
+  # Write to output file if --output specified (Issue #249)
+  if [[ -n "$output_file" ]]; then
+    local output_dir
+    output_dir=$(dirname "$output_file")
+    if [[ ! -d "$output_dir" ]]; then
+      mkdir -p "$output_dir"
+    fi
+    echo "$response" > "$output_file"
+    log "Findings written to: $output_file"
+  fi
+
+  # Output response to stdout (always, for backward compat)
   echo "$response"
 }
 

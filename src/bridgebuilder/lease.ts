@@ -79,7 +79,12 @@ export class RunLease {
     return true
   }
 
-  /** Release the lease. Only deletes if we still hold it (prevents split-brain). */
+  /**
+   * Release the lease. Only deletes if we still hold it (prevents split-brain).
+   * TOCTOU: R2 doesn't support conditional delete (DeleteObject with If-Match).
+   * Acceptable risk — worst case is deleting a lease that was concurrently
+   * re-acquired, causing one extra concurrent run.
+   */
   async release(runId: string): Promise<void> {
     const existing = await this.storage.readFile(LEASE_KEY)
     if (!existing) return

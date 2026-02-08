@@ -1,7 +1,7 @@
 // src/dashboard/activity-feed.ts — Core data-fetching module (SDD §3.1)
 // Framework-agnostic — no Hono imports. Uses IHttpClient from bridgebuilder ports.
 
-import type { IHttpClient } from "../bridgebuilder/ports/http-client.js"
+import type { IHttpClient } from "../shared/http-client.js"
 
 // --- Public Interfaces ---
 
