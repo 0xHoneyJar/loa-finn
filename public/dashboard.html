@@ -396,6 +396,7 @@
     localStorage.setItem("finn_dashboard_token", token);
     hideTokenPrompt();
     fetchActivity(false);
+    startAutoRefresh();
   });
 
   tokenInput.addEventListener("keydown", function(e) {
@@ -558,7 +559,8 @@
       tdRepo.title = item.repo;
       tr.appendChild(tdRepo);
 
-      // Target
+      // Target — XSS-safe: all dynamic content via textContent/createElement,
+      // href only set after isValidGitHubUrl() validates https://github.com origin
       var tdTarget = document.createElement("td");
       if (isValidGitHubUrl(item.url)) {
         var link = document.createElement("a");

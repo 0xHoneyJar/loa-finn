@@ -84,11 +84,18 @@ interface GitHubIssueComment {
 }
 
 // --- Constants ---
+//
+// API strategy: REST per-repo endpoints instead of GitHub Search API.
+// Search API has a separate 30 req/min rate limit that is shared across
+// all authenticated integrations — a single greedy consumer can starve
+// every other bot on the same token. Per-repo endpoints use the standard
+// 5,000 req/hr pool, which is both higher and more predictable.
+// See: https://docs.github.com/en/rest/rate-limit
 
-const MAX_PAGES_PER_ENDPOINT = 3
-const PER_PAGE = 100
-const CONCURRENCY_CAP = 3
-const DEFAULT_SINCE_DAYS = 30
+const MAX_PAGES_PER_ENDPOINT = 3  // 3 pages × 100 = 300 items max per endpoint
+const PER_PAGE = 100               // GitHub max per_page
+const CONCURRENCY_CAP = 3          // Max parallel HTTP requests (review + comment fetches)
+const DEFAULT_SINCE_DAYS = 30      // Lookback window for bot activity discovery
 
 // --- ActivityFeed Class ---
 
@@ -281,6 +288,7 @@ export class ActivityFeed {
   /**
    * Fetch formal PR reviews for discovered PRs.
    * Only fetches reviews for PRs the bot actually commented on.
+   * Uses batched concurrency to avoid N+1 sequential requests.
    */
   private async fetchRepoReviews(
     owner: string,
@@ -293,46 +301,71 @@ export class ActivityFeed {
     // Step 1: Discover PRs with bot review activity
     const botPRNumbers = await this.discoverBotReviewedPRs(owner, repo, botUser, since)
 
-    // Step 2: Fetch formal reviews for each discovered PR
-    for (const prNum of botPRNumbers) {
-      try {
-        const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNum}/reviews?per_page=${PER_PAGE}`
-        const resp = await this.http.request({
-          url,
-          method: "GET",
-          headers: this.githubHeaders(),
-        })
-
-        if (resp.status !== 200) continue
-
-        const reviews = JSON.parse(resp.body) as GitHubReview[]
-
-        for (const review of reviews) {
-          if (!review.user || review.user.login !== botUser) continue
-          if (!review.submitted_at || new Date(review.submitted_at) < since) continue
-
-          const body = review.body ?? ""
-          const hasMarker = body.includes(this.config.idempotencyMarkerPrefix)
-          items.push({
-            type: "pr_review",
-            repo: `${owner}/${repo}`,
-            target: {
-              number: prNum,
-              title: "",
-              url: `https://github.com/${owner}/${repo}/pull/${prNum}`,
-              is_pr: true,
-            },
-            verdict: review.state,
-            preview: body.slice(0, 120),
-            body,
-            created_at: review.submitted_at,
-            url: review.html_url,
-            has_marker: hasMarker,
-          })
+    // Step 2: Fetch formal reviews with concurrency cap (avoid N+1 sequential requests)
+    for (let i = 0; i < botPRNumbers.length; i += CONCURRENCY_CAP) {
+      const batch = botPRNumbers.slice(i, i + CONCURRENCY_CAP)
+      const results = await Promise.allSettled(
+        batch.map(prNum => this.fetchSinglePRReviews(owner, repo, prNum, botUser, since))
+      )
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          items.push(...result.value)
         }
-      } catch (err) {
-        console.error(`[dashboard] reviews fetch failed for ${owner}/${repo}#${prNum}:`, err)
       }
+    }
+
+    return items
+  }
+
+  /**
+   * Fetch reviews for a single PR, filtering to bot-authored reviews within the time window.
+   */
+  private async fetchSinglePRReviews(
+    owner: string,
+    repo: string,
+    prNum: number,
+    botUser: string,
+    since: Date,
+  ): Promise<ActivityItem[]> {
+    const items: ActivityItem[] = []
+    const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNum}/reviews?per_page=${PER_PAGE}`
+
+    try {
+      const resp = await this.http.request({
+        url,
+        method: "GET",
+        headers: this.githubHeaders(),
+      })
+
+      if (resp.status !== 200) return items
+
+      const reviews = JSON.parse(resp.body) as GitHubReview[]
+
+      for (const review of reviews) {
+        if (!review.user || review.user.login !== botUser) continue
+        if (!review.submitted_at || new Date(review.submitted_at) < since) continue
+
+        const body = review.body ?? ""
+        const hasMarker = body.includes(this.config.idempotencyMarkerPrefix)
+        items.push({
+          type: "pr_review",
+          repo: `${owner}/${repo}`,
+          target: {
+            number: prNum,
+            title: "",              // Intentionally empty — PR title not available from reviews endpoint
+            url: `https://github.com/${owner}/${repo}/pull/${prNum}`,
+            is_pr: true,
+          },
+          verdict: review.state,
+          preview: body.slice(0, 120),
+          body,
+          created_at: review.submitted_at,
+          url: review.html_url,
+          has_marker: hasMarker,
+        })
+      }
+    } catch (err) {
+      console.error(`[dashboard] reviews fetch failed for ${owner}/${repo}#${prNum}:`, err)
     }
 
     return items
@@ -376,7 +409,7 @@ export class ActivityFeed {
             repo: `${owner}/${repo}`,
             target: {
               number: issueNumber,
-              title: "",
+              title: "",              // Intentionally empty — issue title not available from comments endpoint
               url: comment.html_url.replace(/#.*$/, ""),
               is_pr: false,
             },
