@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bridgebuilder Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0d1117;
+    --card-bg: #161b22;
+    --accent: #1f6feb;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --border: #30363d;
+    --error-red: #f85149;
+    --success-green: #3fb950;
+    --warning-orange: #f0883e;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  #app {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+    letter-spacing: 0.5px;
+  }
+
+  header h1 span { color: var(--text-muted); font-weight: 400; }
+
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+
+  .btn {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .btn:hover { border-color: var(--text); color: var(--text); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { opacity: 0.9; }
+
+  /* Token Modal */
+  #token-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #token-modal.visible { display: flex; }
+
+  .modal-box {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    width: 400px;
+    max-width: 90vw;
+  }
+
+  .modal-box h2 { font-size: 16px; margin-bottom: 12px; }
+
+  .modal-box label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .modal-box input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+    margin-bottom: 16px;
+  }
+
+  .modal-box input:focus { outline: none; border-color: var(--accent); }
+
+  /* Stats Bar */
+  .stats-bar {
+    display: flex;
+    gap: 16px;
+    padding: 12px 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .stat { display: flex; flex-direction: column; }
+  .stat-value { font-size: 20px; font-weight: 600; }
+  .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Filters */
+  .filters {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .filters select {
+    padding: 6px 10px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+  }
+
+  .filters select:focus { outline: none; border-color: var(--accent); }
+
+  .date-btns { display: flex; gap: 4px; }
+
+  .date-btn {
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .date-btn:hover { border-color: var(--text); color: var(--text); }
+  .date-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* Table */
+  .activity-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .activity-table th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+
+  .activity-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    vertical-align: top;
+  }
+
+  .activity-table tr:last-child td { border-bottom: none; }
+  .activity-table tr:hover td { background: rgba(31, 111, 235, 0.05); }
+
+  .type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .type-badge.pr_review { background: rgba(31, 111, 235, 0.15); color: var(--accent); }
+  .type-badge.issue_comment { background: rgba(240, 136, 62, 0.15); color: var(--warning-orange); }
+
+  .verdict-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+
+  .verdict-badge.APPROVED { background: rgba(63, 185, 80, 0.15); color: var(--success-green); }
+  .verdict-badge.CHANGES_REQUESTED { background: rgba(248, 81, 73, 0.15); color: var(--error-red); }
+  .verdict-badge.COMMENTED { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); }
+
+  .target-link {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .target-link:hover { text-decoration: underline; }
+
+  .preview-text {
+    color: var(--text-muted);
+    font-size: 12px;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .marker-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success-green);
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+
+  /* Loading */
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-muted);
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Message states */
+  .message-box {
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    text-align: center;
+    color: var(--text-muted);
+    margin-top: 16px;
+  }
+
+  .message-box.error { border-color: var(--error-red); color: var(--error-red); }
+  .message-box.warning { border-color: var(--warning-orange); color: var(--warning-orange); }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .activity-table { font-size: 12px; }
+    .activity-table th, .activity-table td { padding: 8px; }
+    .preview-text { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>bridgebuilder <span>dashboard</span></h1>
+    <div class="header-actions">
+      <button class="btn" id="refresh-btn" type="button">Refresh</button>
+      <button class="btn" id="logout-btn" type="button">Logout</button>
+    </div>
+  </header>
+
+  <div id="token-modal">
+    <div class="modal-box">
+      <h2>Authentication Required</h2>
+      <label for="token-input">FINN_AUTH_TOKEN</label>
+      <input id="token-input" type="password" placeholder="Enter your auth token" autocomplete="off">
+      <button class="btn btn-primary" id="token-submit" type="button" style="width:100%">Connect</button>
+    </div>
+  </div>
+
+  <div id="content" style="display:none">
+    <div class="stats-bar" id="stats-bar">
+      <div class="stat">
+        <span class="stat-value" id="stat-total">--</span>
+        <span class="stat-label">Total Reviews</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="stat-today">--</span>
+        <span class="stat-label">Today</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="stat-repos">--</span>
+        <span class="stat-label">Repos</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="stat-last">--</span>
+        <span class="stat-label">Last Activity</span>
+      </div>
+    </div>
+
+    <div class="filters">
+      <select id="filter-repo">
+        <option value="">All Repos</option>
+      </select>
+      <select id="filter-type">
+        <option value="">All Types</option>
+        <option value="pr_review">PR Reviews</option>
+        <option value="issue_comment">Issue Comments</option>
+      </select>
+      <div class="date-btns">
+        <button class="date-btn" data-range="24h" type="button">24h</button>
+        <button class="date-btn active" data-range="7d" type="button">7d</button>
+        <button class="date-btn" data-range="30d" type="button">30d</button>
+      </div>
+    </div>
+
+    <div id="table-container"></div>
+  </div>
+
+  <div id="loading" class="loading" style="display:none">
+    <span class="spinner"></span> Loading activity...
+  </div>
+
+  <div id="message" class="message-box" style="display:none"></div>
+</div>
+
+<script>
+(function() {
+  "use strict";
+
+  // --- State ---
+  var token = localStorage.getItem("finn_dashboard_token") || "";
+  var currentData = null;
+  var autoRefreshTimer = null;
+  var currentRange = "7d";
+
+  // --- DOM ---
+  var tokenModal = document.getElementById("token-modal");
+  var tokenInput = document.getElementById("token-input");
+  var tokenSubmit = document.getElementById("token-submit");
+  var content = document.getElementById("content");
+  var loading = document.getElementById("loading");
+  var messageBox = document.getElementById("message");
+  var refreshBtn = document.getElementById("refresh-btn");
+  var logoutBtn = document.getElementById("logout-btn");
+  var filterRepo = document.getElementById("filter-repo");
+  var filterType = document.getElementById("filter-type");
+  var tableContainer = document.getElementById("table-container");
+  var dateBtns = document.querySelectorAll(".date-btn");
+
+  // --- Token Modal ---
+  function showTokenPrompt() {
+    tokenModal.classList.add("visible");
+    content.style.display = "none";
+    tokenInput.value = "";
+    tokenInput.focus();
+  }
+
+  function hideTokenPrompt() {
+    tokenModal.classList.remove("visible");
+    content.style.display = "block";
+  }
+
+  tokenSubmit.addEventListener("click", function() {
+    var val = tokenInput.value.trim();
+    if (!val) return;
+    token = val;
+    localStorage.setItem("finn_dashboard_token", token);
+    hideTokenPrompt();
+    fetchActivity(false);
+    startAutoRefresh();
+  });
+
+  tokenInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") tokenSubmit.click();
+  });
+
+  logoutBtn.addEventListener("click", function() {
+    token = "";
+    localStorage.removeItem("finn_dashboard_token");
+    currentData = null;
+    showTokenPrompt();
+  });
+
+  // --- API ---
+  function fetchActivity(forceRefresh) {
+    var sinceDate = getRangeSince(currentRange);
+    var params = "?since=" + encodeURIComponent(sinceDate);
+
+    var repoVal = filterRepo.value;
+    if (repoVal) params += "&repo=" + encodeURIComponent(repoVal);
+
+    var typeVal = filterType.value;
+    if (typeVal) params += "&type=" + encodeURIComponent(typeVal);
+
+    if (forceRefresh) params += "&refresh=true";
+
+    loading.style.display = "block";
+    messageBox.style.display = "none";
+
+    var headers = {};
+    if (token) {
+      headers["Authorization"] = "Bearer " + token;
+    }
+
+    fetch("/api/dashboard/activity" + params, { headers: headers })
+      .then(function(res) {
+        if (res.status === 401) {
+          token = "";
+          localStorage.removeItem("finn_dashboard_token");
+          showTokenPrompt();
+          throw new Error("AUTH");
+        }
+        if (res.status === 503) {
+          return res.json().then(function(body) {
+            showMessage("GitHub is not configured. Set GITHUB_TOKEN, BRIDGEBUILDER_REPOS, and BRIDGEBUILDER_BOT_USER.", "warning");
+            throw new Error("GITHUB_NOT_CONFIGURED");
+          });
+        }
+        if (!res.ok) {
+          throw new Error("HTTP " + res.status);
+        }
+        return res.json();
+      })
+      .then(function(data) {
+        currentData = data;
+        loading.style.display = "none";
+        renderStats(data);
+        renderRepoFilter(data.repos);
+        renderTable(data.items);
+      })
+      .catch(function(err) {
+        loading.style.display = "none";
+        if (err.message !== "AUTH" && err.message !== "GITHUB_NOT_CONFIGURED") {
+          showMessage("Failed to load activity: " + err.message, "error");
+        }
+      });
+  }
+
+  // --- Rendering ---
+  function renderStats(data) {
+    var total = data.total || 0;
+    var todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    var today = 0;
+    for (var i = 0; i < data.items.length; i++) {
+      if (new Date(data.items[i].created_at) >= todayStart) today++;
+    }
+
+    document.getElementById("stat-total").textContent = String(total);
+    document.getElementById("stat-today").textContent = String(today);
+    document.getElementById("stat-repos").textContent = String(data.repos ? data.repos.length : 0);
+
+    if (data.items.length > 0) {
+      document.getElementById("stat-last").textContent = relativeTime(data.items[0].created_at);
+    } else {
+      document.getElementById("stat-last").textContent = "--";
+    }
+  }
+
+  function renderRepoFilter(repos) {
+    var current = filterRepo.value;
+    // Clear all except first option
+    while (filterRepo.options.length > 1) {
+      filterRepo.remove(1);
+    }
+    if (repos) {
+      for (var i = 0; i < repos.length; i++) {
+        var opt = document.createElement("option");
+        opt.value = repos[i];
+        opt.textContent = repos[i];
+        filterRepo.appendChild(opt);
+      }
+    }
+    // Restore selection
+    filterRepo.value = current;
+  }
+
+  function renderTable(items) {
+    if (!items || items.length === 0) {
+      tableContainer.innerHTML = "";
+      var emptyDiv = document.createElement("div");
+      emptyDiv.className = "message-box";
+      emptyDiv.textContent = "No activity found for the selected filters.";
+      tableContainer.appendChild(emptyDiv);
+      return;
+    }
+
+    var table = document.createElement("table");
+    table.className = "activity-table";
+
+    var thead = document.createElement("thead");
+    var headerRow = document.createElement("tr");
+    var headers = ["Time", "Type", "Repo", "Target", "Verdict", "Preview"];
+    for (var h = 0; h < headers.length; h++) {
+      var th = document.createElement("th");
+      th.textContent = headers[h];
+      headerRow.appendChild(th);
+    }
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    var tbody = document.createElement("tbody");
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var tr = document.createElement("tr");
+
+      // Time
+      var tdTime = document.createElement("td");
+      tdTime.textContent = relativeTime(item.created_at);
+      tdTime.title = new Date(item.created_at).toLocaleString();
+      tr.appendChild(tdTime);
+
+      // Type
+      var tdType = document.createElement("td");
+      var typeBadge = document.createElement("span");
+      typeBadge.className = "type-badge " + item.type;
+      typeBadge.textContent = item.type === "pr_review" ? "PR Review" : "Comment";
+      tdType.appendChild(typeBadge);
+      if (item.has_marker) {
+        var marker = document.createElement("span");
+        marker.className = "marker-indicator";
+        marker.title = "Confirmed Bridgebuilder review";
+        tdType.appendChild(marker);
+      }
+      tr.appendChild(tdType);
+
+      // Repo
+      var tdRepo = document.createElement("td");
+      tdRepo.textContent = item.repo.split("/")[1] || item.repo;
+      tdRepo.title = item.repo;
+      tr.appendChild(tdRepo);
+
+      // Target — XSS-safe: all dynamic content via textContent/createElement,
+      // href only set after isValidGitHubUrl() validates https://github.com origin
+      var tdTarget = document.createElement("td");
+      if (isValidGitHubUrl(item.url)) {
+        var link = document.createElement("a");
+        link.className = "target-link";
+        link.href = item.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "#" + item.target.number;
+        tdTarget.appendChild(link);
+      } else {
+        tdTarget.textContent = "#" + item.target.number;
+      }
+      tr.appendChild(tdTarget);
+
+      // Verdict
+      var tdVerdict = document.createElement("td");
+      if (item.verdict) {
+        var verdictBadge = document.createElement("span");
+        verdictBadge.className = "verdict-badge " + item.verdict;
+        verdictBadge.textContent = formatVerdict(item.verdict);
+        tdVerdict.appendChild(verdictBadge);
+      } else {
+        tdVerdict.textContent = "\u2014";
+      }
+      tr.appendChild(tdVerdict);
+
+      // Preview
+      var tdPreview = document.createElement("td");
+      var previewSpan = document.createElement("span");
+      previewSpan.className = "preview-text";
+      previewSpan.textContent = item.preview || "";
+      previewSpan.title = item.preview || "";
+      tdPreview.appendChild(previewSpan);
+      tr.appendChild(tdPreview);
+
+      tbody.appendChild(tr);
+    }
+
+    table.appendChild(tbody);
+    tableContainer.innerHTML = "";
+    tableContainer.appendChild(table);
+  }
+
+  // --- Helpers ---
+  function relativeTime(isoStr) {
+    var now = Date.now();
+    var then = new Date(isoStr).getTime();
+    var diffSec = Math.floor((now - then) / 1000);
+
+    if (diffSec < 60) return diffSec + "s ago";
+    var diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return diffMin + "m ago";
+    var diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return diffHr + "h ago";
+    var diffDay = Math.floor(diffHr / 24);
+    return diffDay + "d ago";
+  }
+
+  function formatVerdict(v) {
+    if (v === "CHANGES_REQUESTED") return "Changes";
+    if (v === "COMMENTED") return "Comment";
+    if (v === "APPROVED") return "Approved";
+    if (v === "DISMISSED") return "Dismissed";
+    return v;
+  }
+
+  function getRangeSince(range) {
+    var now = new Date();
+    if (range === "24h") now.setDate(now.getDate() - 1);
+    else if (range === "7d") now.setDate(now.getDate() - 7);
+    else now.setDate(now.getDate() - 30);
+    return now.toISOString();
+  }
+
+  function isValidGitHubUrl(url) {
+    if (!url || typeof url !== "string") return false;
+    try {
+      var parsed = new URL(url);
+      return parsed.hostname === "github.com" && parsed.protocol === "https:";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function showMessage(text, type) {
+    messageBox.textContent = text;
+    messageBox.className = "message-box" + (type ? " " + type : "");
+    messageBox.style.display = "block";
+  }
+
+  // --- Filters ---
+  filterRepo.addEventListener("change", function() { fetchActivity(false); });
+  filterType.addEventListener("change", function() { fetchActivity(false); });
+
+  for (var i = 0; i < dateBtns.length; i++) {
+    dateBtns[i].addEventListener("click", function() {
+      for (var j = 0; j < dateBtns.length; j++) dateBtns[j].classList.remove("active");
+      this.classList.add("active");
+      currentRange = this.getAttribute("data-range");
+      fetchActivity(false);
+    });
+  }
+
+  refreshBtn.addEventListener("click", function() { fetchActivity(true); });
+
+  // --- Auto-refresh ---
+  function startAutoRefresh() {
+    stopAutoRefresh();
+    autoRefreshTimer = setInterval(function() {
+      fetchActivity(false);
+    }, 300000); // 5 minutes
+  }
+
+  function stopAutoRefresh() {
+    if (autoRefreshTimer) {
+      clearInterval(autoRefreshTimer);
+      autoRefreshTimer = null;
+    }
+  }
+
+  // --- Boot ---
+  if (!token) {
+    showTokenPrompt();
+  } else {
+    hideTokenPrompt();
+    fetchActivity(false);
+    startAutoRefresh();
+  }
+})();
+</script>
+</body>
+</html>

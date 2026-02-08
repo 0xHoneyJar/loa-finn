@@ -17,6 +17,8 @@ import { Scheduler } from "./scheduler/scheduler.js"
 import { HealthAggregator } from "./scheduler/health.js"
 import { BeadsBridge } from "./beads/bridge.js"
 import { CompoundLearning } from "./learning/compound.js"
+import { ActivityFeed } from "./dashboard/activity-feed.js"
+import { ResilientHttpClient } from "./bridgebuilder/adapters/resilient-http.js"
 import { serve } from "@hono/node-server"
 import { WebSocketServer } from "ws"
 import { join } from "node:path"
@@ -66,8 +68,31 @@ async function main() {
   // 6. Initialize compound learning
   const compound = new CompoundLearning(config.dataDir, wal)
 
+  // 6b. Initialize dashboard activity feed (optional — requires GITHUB_TOKEN)
+  let activityFeed: ActivityFeed | undefined
+  const ghToken = process.env.GITHUB_TOKEN
+  const bbRepos = process.env.BRIDGEBUILDER_REPOS
+  const bbBotUser = process.env.BRIDGEBUILDER_BOT_USER
+  if (ghToken && bbRepos && bbBotUser) {
+    const http = new ResilientHttpClient(ghToken)
+    activityFeed = new ActivityFeed(
+      {
+        githubToken: ghToken,
+        repos: bbRepos.split(",").map(r => r.trim()).filter(Boolean),
+        botUsername: bbBotUser,
+        cacheTtlMs: 300_000,
+        minRefreshIntervalMs: 60_000,
+        idempotencyMarkerPrefix: "<!-- finn-review: ",
+      },
+      http,
+    )
+    console.log(`[finn] dashboard: activity feed initialized for ${bbBotUser}`)
+  } else {
+    console.log("[finn] dashboard: activity feed disabled (set GITHUB_TOKEN, BRIDGEBUILDER_REPOS, BRIDGEBUILDER_BOT_USER)")
+  }
+
   // 7. Create gateway (with health aggregator once available)
-  const { app, router } = createApp(config)
+  const { app, router } = createApp(config, { activityFeed })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()
