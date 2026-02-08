@@ -220,12 +220,12 @@
 **Description**: Modify `src/persistence/git-sync.ts` per SDD §3.4. Change `git()` and `gitAt()` from sync to async, delegating to pool via system lane. Resolve `gitBinaryPath` once at construction.
 
 **Acceptance Criteria**:
-- [ ] `git()` returns `Promise<string>`, uses `pool.exec(spec, "system")`
-- [ ] `gitAt()` returns `Promise<string>`, uses `pool.exec(spec, "system")`
-- [ ] Constructor accepts `WorkerPool` instance
-- [ ] `gitBinaryPath` resolved once via `which("git")` + `realpath` at construction
-- [ ] All callers (`snapshot()`, `push()`, `restore()`) already async — no upstream changes
-- [ ] Error handling preserved (throw on non-zero exit code)
+- [x] `git()` returns `Promise<string>`, uses `pool.exec(spec, "system")`
+- [x] `gitAt()` returns `Promise<string>`, uses `pool.exec(spec, "system")`
+- [x] Constructor accepts `WorkerPool` instance
+- [x] `gitBinaryPath` resolved once via `which("git")` + `realpath` at construction
+- [x] All callers (`snapshot()`, `push()`, `restore()`) already async — no upstream changes
+- [x] Error handling preserved (throw on non-zero exit code)
 
 **File**: `src/persistence/git-sync.ts` (modified)
 
@@ -236,12 +236,12 @@
 **Description**: Modify `src/index.ts` per SDD §3.6. Create `WorkerPool` singleton at startup, pass to `ToolSandbox` and `GitSync` constructors, add SIGTERM shutdown handler. Support `SANDBOX_MODE` config for rollback modes.
 
 **Acceptance Criteria**:
-- [ ] WorkerPool created at startup with config from `src/config.ts`
-- [ ] Pool passed to `ToolSandbox` constructor
-- [ ] Pool passed to `GitSync` constructor
-- [ ] SIGTERM handler calls `pool.shutdown()` before exit
-- [ ] `SANDBOX_MODE=child_process` skips pool creation, uses direct `execFile`
-- [ ] `SANDBOX_MODE=disabled` skips pool, returns `SANDBOX_DISABLED` on all tool calls
+- [x] WorkerPool created at startup with config from `src/config.ts`
+- [x] Pool passed to `ToolSandbox` constructor
+- [x] Pool passed to `GitSync` constructor
+- [x] SIGTERM handler calls `pool.shutdown()` before exit
+- [x] `SANDBOX_MODE=child_process` skips pool creation, uses direct `execFile`
+- [x] `SANDBOX_MODE=disabled` skips pool, returns `SANDBOX_DISABLED` on all tool calls
 
 **File**: `src/index.ts` (modified)
 
@@ -252,9 +252,9 @@
 **Description**: Modify `src/agent/session.ts` per SDD §3.5. Add `await` to the `sandbox.execute()` call in the bash tool wrapper.
 
 **Acceptance Criteria**:
-- [ ] `sandbox.execute(command)` call changed to `await sandbox.execute(command)`
-- [ ] No other changes to session.ts
-- [ ] Pi SDK `createBashTool` already expects async — no interface change needed
+- [x] `sandbox.execute(command)` call changed to `await sandbox.execute(command)`
+- [x] No other changes to session.ts
+- [x] Pi SDK `createBashTool` already expects async — no interface change needed
 
 **File**: `src/agent/session.ts` (modified)
 
@@ -265,9 +265,9 @@
 **Description**: Modify `src/gateway/dashboard.ts` per SDD §6.1 and §6.3. Include `WorkerPoolStats` in health response and dashboard WebSocket status.
 
 **Acceptance Criteria**:
-- [ ] `GET /health` response includes `workerPool` field with interactive/system/totals
-- [ ] Dashboard WebSocket status object includes pool stats
-- [ ] Health endpoint shows child process count for monitoring (SD-015)
+- [x] `GET /health` response includes `workerPool` field with interactive/system/totals
+- [x] Dashboard WebSocket status object includes pool stats
+- [x] Health endpoint shows child process count for monitoring (SD-015)
 
 **File**: `src/gateway/dashboard.ts` (modified)
 
@@ -278,9 +278,9 @@
 **Description**: Update `tests/finn/sandbox.test.ts` — change all `sandbox.execute()` calls to `await sandbox.execute()`. Verify all existing tests pass with the async interface.
 
 **Acceptance Criteria**:
-- [ ] All existing sandbox tests converted to use `await`
-- [ ] No test logic changes — only sync→async adaptation
-- [ ] All tests pass
+- [x] All existing sandbox tests converted to use `await`
+- [x] No test logic changes — only sync→async adaptation
+- [x] All tests pass
 
 **File**: `tests/finn/sandbox.test.ts` (modified)
 
@@ -291,10 +291,10 @@
 **Description**: Create `tests/finn/git-sync-worker.test.ts` per SDD §7.2. Verify git operations run through the pool system lane without blocking the main thread.
 
 **Acceptance Criteria**:
-- [ ] Test: git operations execute via system lane worker
-- [ ] Test: git operations don't block main thread (setTimeout fires during git exec)
-- [ ] Test: git error handling preserved (non-zero exit throws)
-- [ ] All tests pass
+- [x] Test: git operations execute via system lane worker
+- [x] Test: git operations don't block main thread (setTimeout fires during git exec)
+- [x] Test: git error handling preserved (non-zero exit throws)
+- [x] All tests pass
 
 **File**: `tests/finn/git-sync-worker.test.ts` (new)
 
@@ -305,14 +305,14 @@
 **Description**: Create the critical integration test per SDD §7.3 and PRD FR-2. This test is **mandatory before merge** — it validates that Pi SDK's `createBashTool` correctly handles truly async tool execution during streaming.
 
 **Acceptance Criteria**:
-- [ ] Test creates agent session with async bash tool via `createBashTool({ exec: async (cmd) => { ... } })`
-- [ ] Test sends a message that triggers a 5s command (`sleep 5 && echo done`)
-- [ ] Test instruments Pi SDK stream callback/event emitter to capture token events with timestamps
-- [ ] Test uses a countdown latch (not wall-clock timing) to assert: at least 3 token chunks received **after** tool invocation starts and **before** tool result returns — proving event loop was free during exec
-- [ ] Tool start/end detected via: (a) audit log `sandbox_exec` entry timestamp, or (b) wrapping exec callback with before/after hooks
-- [ ] Test verifies tool result stdout contains `done` — proving output was not dropped
-- [ ] Test verifies tool result is incorporated into the agent's final response
-- [ ] Test uses `{ timeout: 30_000 }` and deterministic barriers — no `setTimeout`-based assertions that could flake
+- [x] Test creates agent session with async bash tool via `createBashTool({ exec: async (cmd) => { ... } })`
+- [x] Test sends a message that triggers a 5s command (`sleep 5 && echo done`)
+- [x] Test instruments Pi SDK stream callback/event emitter to capture token events with timestamps
+- [x] Test uses a countdown latch (not wall-clock timing) to assert: at least 3 token chunks received **after** tool invocation starts and **before** tool result returns — proving event loop was free during exec
+- [x] Tool start/end detected via: (a) audit log `sandbox_exec` entry timestamp, or (b) wrapping exec callback with before/after hooks
+- [x] Test verifies tool result stdout contains `done` — proving output was not dropped
+- [x] Test verifies tool result is incorporated into the agent's final response
+- [x] Test uses `{ timeout: 30_000 }` and deterministic barriers — no `setTimeout`-based assertions that could flake
 
 **File**: `tests/finn/pi-sdk-async-compat.test.ts` (new)
 **Priority**: P0 — merge blocker
@@ -324,12 +324,12 @@
 **Description**: Implement automated performance verification per PRD §2 success metrics. Creates a test harness that runs a long tool execution and measures event loop responsiveness, scheduler tick accuracy, and WebSocket keepalive.
 
 **Acceptance Criteria**:
-- [ ] Test runs a 10s `sleep` command via worker pool
-- [ ] During execution, samples `perf_hooks.monitorEventLoopDelay()` — asserts p99 < 50ms
-- [ ] During execution, fires `setInterval(100ms)` and asserts actual intervals < 200ms (scheduler jitter < 100ms)
-- [ ] During execution, sends WebSocket ping and asserts pong received within 1s
-- [ ] Test produces structured pass/fail output with measured values for CI artifacts
-- [ ] Test runs deterministically in CI (no external service dependencies)
+- [x] Test runs a 10s `sleep` command via worker pool
+- [x] During execution, samples `perf_hooks.monitorEventLoopDelay()` — asserts p99 < 50ms
+- [x] During execution, fires `setInterval(100ms)` and asserts actual intervals < 200ms (scheduler jitter < 100ms)
+- [x] During execution, sends WebSocket ping and asserts pong received within 1s
+- [x] Test produces structured pass/fail output with measured values for CI artifacts
+- [x] Test runs deterministically in CI (no external service dependencies)
 
 **File**: `tests/finn/event-loop-freedom.test.ts` (new)
 
