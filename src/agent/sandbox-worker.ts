@@ -163,7 +163,8 @@ parentPort.on("message", async (msg) => {
     return
   }
 
-  // Safety ceiling only — main thread is authoritative for deadline
+  // 2x main-thread timeout as safety ceiling — main thread is authoritative for
+  // deadline enforcement (SDD §3.2). Worker ceiling is a backstop only.
   const safetyCeiling = spec.timeoutMs * 2
 
   const start = performance.now()

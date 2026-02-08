@@ -258,10 +258,14 @@ export class WorkerPool {
 
   // ── Private Methods ─────────────────────────────────────────
 
-  private spawnWorker(): ManagedWorker {
-    const worker = new Worker(this.config.workerScript, {
+  private createBareWorker(): Worker {
+    return new Worker(this.config.workerScript, {
       resourceLimits: { maxOldGenerationSizeMb: 256 },
     })
+  }
+
+  private spawnWorker(): ManagedWorker {
+    const worker = this.createBareWorker()
 
     const mw: ManagedWorker = {
       worker,
@@ -272,11 +276,15 @@ export class WorkerPool {
       abortTimer: null,
     }
 
-    worker.on("message", (msg) => this.handleWorkerMessage(mw, msg))
-    worker.on("error", (err) => this.handleWorkerError(mw, err))
-    worker.on("exit", (code) => this.handleWorkerExit(mw, code))
+    this.wireHandlers(mw)
 
     return mw
+  }
+
+  private wireHandlers(mw: ManagedWorker): void {
+    mw.worker.on("message", (msg) => this.handleWorkerMessage(mw, msg))
+    mw.worker.on("error", (err) => this.handleWorkerError(mw, err))
+    mw.worker.on("exit", (code) => this.handleWorkerExit(mw, code))
   }
 
   private dispatch(mw: ManagedWorker, job: PendingJob): void {
@@ -365,21 +373,16 @@ export class WorkerPool {
     // Terminate old worker (may already be dead)
     try { mw.worker.terminate() } catch { /* ok */ }
 
-    // Spawn replacement
-    const replacement = this.spawnWorker()
-
-    // Patch the ManagedWorker in-place so references in arrays still work
-    mw.worker = replacement.worker
+    // Create bare Worker (no transient ManagedWorker — avoids duplicate handler leak)
+    mw.worker = this.createBareWorker()
     mw.state = "idle"
     mw.currentJobId = null
     mw.pendingJob = null
     mw.timeoutTimer = null
     mw.abortTimer = null
 
-    // Re-attach message handlers to the new worker
-    mw.worker.on("message", (msg) => this.handleWorkerMessage(mw, msg))
-    mw.worker.on("error", (err) => this.handleWorkerError(mw, err))
-    mw.worker.on("exit", (code) => this.handleWorkerExit(mw, code))
+    // Wire handlers targeting the in-place mw
+    this.wireHandlers(mw)
 
     // Drain queue with the now-idle replacement
     this.drainQueue(mw)

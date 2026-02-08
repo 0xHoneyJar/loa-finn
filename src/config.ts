@@ -1,6 +1,7 @@
 // src/config.ts — Configuration loader from environment variables (SDD §4.4)
 
 import type { ThinkingLevel } from "@mariozechner/pi-ai"
+import { availableParallelism } from "node:os"
 
 export interface FinnConfig {
   // Agent
@@ -141,7 +142,10 @@ export function loadConfig(): FinnConfig {
     },
 
     workerPool: {
-      interactiveWorkers: parseInt(process.env.FINN_WORKER_POOL_SIZE ?? "2", 10),
+      interactiveWorkers: Math.max(1, Math.min(
+        parseInt(process.env.FINN_WORKER_POOL_SIZE ?? "2", 10),
+        Math.max(1, availableParallelism() - 1),
+      )),
       shutdownDeadlineMs: parseInt(process.env.FINN_WORKER_SHUTDOWN_MS ?? "10000", 10),
       maxQueueDepth: parseInt(process.env.FINN_WORKER_QUEUE_DEPTH ?? "10", 10),
     },
