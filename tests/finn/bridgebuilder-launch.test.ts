@@ -40,14 +40,14 @@ function createTestSanitizer(): IOutputSanitizer {
   }
 }
 
-function createCapturingLogger(): ILogger & { messages: Array<{ level: string; message: string }> } {
-  const messages: Array<{ level: string; message: string }> = []
+function createCapturingLogger(): ILogger & { messages: Array<{ level: string; message: string; data?: Record<string, unknown> }> } {
+  const messages: Array<{ level: string; message: string; data?: Record<string, unknown> }> = []
   return {
     messages,
-    info(message: string) { messages.push({ level: "info", message }) },
-    warn(message: string) { messages.push({ level: "warn", message }) },
-    error(message: string) { messages.push({ level: "error", message }) },
-    debug(message: string) { messages.push({ level: "debug", message }) },
+    info(message: string, data?: Record<string, unknown>) { messages.push({ level: "info", message, data }) },
+    warn(message: string, data?: Record<string, unknown>) { messages.push({ level: "warn", message, data }) },
+    error(message: string, data?: Record<string, unknown>) { messages.push({ level: "error", message, data }) },
+    debug(message: string, data?: Record<string, unknown>) { messages.push({ level: "debug", message, data }) },
   }
 }
 
@@ -64,33 +64,36 @@ describe("loadFinnConfig", () => {
   }
 
   it("returns r2: null when R2 env vars missing", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test-key-for-config-test"
     delete process.env.R2_ENDPOINT
     delete process.env.R2_BUCKET
     delete process.env.R2_ACCESS_KEY_ID
     delete process.env.R2_SECRET_ACCESS_KEY
 
     const { loadFinnConfig } = await import("../../src/bridgebuilder/config.js")
-    try {
-      const config = await loadFinnConfig()
-      assert.equal(config.r2, null)
-    } catch {
-      // May fail if ANTHROPIC_API_KEY not set
-    }
+    const config = await loadFinnConfig()
+    assert.equal(config.r2, null)
     restoreEnv()
   })
 
   it("has correct lease defaults", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test-key-for-config-test"
     delete process.env.BRIDGEBUILDER_LEASE_TTL_MINUTES
     delete process.env.BRIDGEBUILDER_LEASE_DELAY_MS
 
     const { loadFinnConfig } = await import("../../src/bridgebuilder/config.js")
-    try {
-      const config = await loadFinnConfig()
-      assert.equal(config.lease.ttlMinutes, 30)
-      assert.equal(config.lease.delayMs, 200)
-    } catch {
-      // Expected if env vars not set
-    }
+    const config = await loadFinnConfig()
+    assert.equal(config.lease.ttlMinutes, 30)
+    assert.equal(config.lease.delayMs, 200)
+    restoreEnv()
+  })
+
+  it("throws on non-numeric lease env var", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test-key-for-config-test"
+    process.env.BRIDGEBUILDER_LEASE_TTL_MINUTES = "banana"
+
+    const { loadFinnConfig } = await import("../../src/bridgebuilder/config.js")
+    await assert.rejects(loadFinnConfig(), /BRIDGEBUILDER_LEASE_TTL_MINUTES=banana is not a valid integer/)
     restoreEnv()
   })
 })
@@ -198,6 +201,27 @@ describe("SanitizedLogger wiring", () => {
 
     assert.ok(!inner.messages[0].message.includes("sk-ant-api03-"), "Key must be redacted")
     assert.ok(inner.messages[0].message.includes("[REDACTED]"), "Redaction marker present")
+  })
+
+  it("sanitizes string values in data parameter", () => {
+    const inner = createCapturingLogger()
+    const sanitizer = createTestSanitizer()
+    const log = new SanitizedLogger(inner, sanitizer)
+
+    log.info("Config loaded", { apiKey: "sk-ant-api03-SECRET", count: 42 })
+
+    assert.ok(!JSON.stringify(inner.messages[0].data).includes("sk-ant-api03-"), "Key in data must be redacted")
+    assert.equal(inner.messages[0].data?.apiKey, "[REDACTED]")
+    assert.equal(inner.messages[0].data?.count, 42, "Non-string values pass through unchanged")
+  })
+
+  it("passes undefined data through as undefined", () => {
+    const inner = createCapturingLogger()
+    const sanitizer = createTestSanitizer()
+    const log = new SanitizedLogger(inner, sanitizer)
+
+    log.info("No data")
+    assert.equal(inner.messages[0].data, undefined)
   })
 
   it("passes clean messages through all 4 methods", () => {

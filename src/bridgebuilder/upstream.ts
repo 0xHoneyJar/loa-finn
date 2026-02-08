@@ -1,6 +1,15 @@
 // src/bridgebuilder/upstream.ts
 // Single indirection module re-exporting all upstream bridgebuilder-review skill
 // artifacts. This is the ONLY file in finn that uses #upstream-bridgebuilder/ specifiers.
+//
+// ADR: We chose Node.js subpath imports (#upstream-bridgebuilder/*) over:
+//   - npm package: upstream skill lives in the same monorepo (.claude/skills/), no registry needed
+//   - git submodule: adds operational complexity (recursive clone, submodule sync) for CI/CD
+//   - copy-paste: duplicates code, defeats the purpose of skill extraction
+// Tradeoff: subpath imports require package.json "imports" field and TypeScript NodeNext
+// resolution, but give us compile-time type checking with zero-copy consumption.
+// All upstream imports funnel through this file so changes to the upstream API surface
+// require updating exactly one file — not every consumer in src/bridgebuilder/.
 
 // === Core classes ===
 export { ReviewPipeline } from "#upstream-bridgebuilder/core/reviewer.js"

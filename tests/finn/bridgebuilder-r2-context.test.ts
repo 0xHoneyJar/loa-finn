@@ -330,35 +330,27 @@ describe("loadFinnConfig", () => {
   }
 
   it("returns r2: null when R2 env vars missing", async () => {
-    // Remove R2 vars
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test-key-for-config-test"
     delete process.env.R2_ENDPOINT
     delete process.env.R2_BUCKET
     delete process.env.R2_ACCESS_KEY_ID
     delete process.env.R2_SECRET_ACCESS_KEY
 
     const { loadFinnConfig } = await import("../../src/bridgebuilder/config.js")
-    try {
-      const config = await loadFinnConfig()
-      assert.equal(config.r2, null)
-    } catch {
-      // May fail if ANTHROPIC_API_KEY not set — that's ok
-      // The test is about R2 config being null
-    }
+    const config = await loadFinnConfig()
+    assert.equal(config.r2, null)
     restoreEnv()
   })
 
   it("has correct lease defaults", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test-key-for-config-test"
     delete process.env.BRIDGEBUILDER_LEASE_TTL_MINUTES
     delete process.env.BRIDGEBUILDER_LEASE_DELAY_MS
 
     const { loadFinnConfig } = await import("../../src/bridgebuilder/config.js")
-    try {
-      const config = await loadFinnConfig()
-      assert.equal(config.lease.ttlMinutes, 30)
-      assert.equal(config.lease.delayMs, 200)
-    } catch {
-      // Expected if env vars not set for upstream resolveConfig
-    }
+    const config = await loadFinnConfig()
+    assert.equal(config.lease.ttlMinutes, 30)
+    assert.equal(config.lease.delayMs, 200)
     restoreEnv()
   })
 })

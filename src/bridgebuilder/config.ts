@@ -57,5 +57,8 @@ export async function loadFinnConfig(): Promise<FinnConfig> {
 
 function intEnv(key: string, fallback: number): number {
   const raw = process.env[key]
-  return raw ? parseInt(raw, 10) : fallback
+  if (!raw) return fallback
+  const parsed = parseInt(raw, 10)
+  if (Number.isNaN(parsed)) throw new Error(`${key}=${raw} is not a valid integer`)
+  return parsed
 }
