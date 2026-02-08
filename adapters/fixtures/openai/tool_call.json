@@ -1,0 +1,54 @@
+{
+  "description": "OpenAI tool call response",
+  "provider_type": "openai",
+  "raw_response": {
+    "id": "chatcmpl-tool456",
+    "object": "chat.completion",
+    "created": 1707350400,
+    "model": "gpt-4o-2024-08-06",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "call_abc123",
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "arguments": "{\"city\":\"San Francisco\",\"units\":\"celsius\"}"
+              }
+            }
+          ]
+        },
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 50,
+      "completion_tokens": 25,
+      "total_tokens": 75
+    }
+  },
+  "expected": {
+    "content": "",
+    "thinking": null,
+    "tool_calls": [
+      {
+        "id": "call_abc123",
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "arguments": "{\"city\":\"San Francisco\",\"units\":\"celsius\"}"
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 50,
+      "completion_tokens": 25,
+      "reasoning_tokens": 0
+    }
+  }
+}

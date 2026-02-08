@@ -1,29 +1,30 @@
 {
-  "plan_id": "plan-20260206-hardening01",
-  "branch": "feature/hardening-sprint-plan",
-  "state": "JACKED_OUT",
+  "plan_id": "plan-20260208-hounfour01",
+  "branch": "feature/hounfour",
+  "state": "RUNNING",
   "timestamps": {
-    "started": "2026-02-06T12:49:00Z",
-    "last_activity": "2026-02-07T01:30:00Z"
+    "started": "2026-02-08T07:00:00Z",
+    "last_activity": "2026-02-08T21:00:00Z"
   },
   "sprints": {
-    "total": 2,
+    "total": 3,
     "completed": 2,
-    "current": null,
+    "current": "sprint-3",
     "list": [
-      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Upstream Persistence Hardening", "global_id": 8},
-      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Tool Execution Sandbox", "global_id": 9}
+      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Foundation & Adapter Core", "global_id": 14},
+      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Flatline Integration & Budget", "global_id": 15},
+      {"id": "sprint-3", "status": "in_progress", "cycles": 0, "label": "Agent Portability & Health", "global_id": 16}
     ]
   },
   "options": {
     "from": 1,
-    "to": 2,
+    "to": 3,
     "max_cycles": 20,
     "timeout_hours": 8
   },
   "metrics": {
     "total_cycles": 2,
     "total_files_changed": 19,
-    "total_findings_fixed": 5
+    "total_findings_fixed": 0
   }
 }

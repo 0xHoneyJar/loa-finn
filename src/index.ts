@@ -128,8 +128,100 @@ async function main() {
   // 6d. Wire pool into GitSync for async git operations
   if (pool) gitSync.setPool(pool)
 
+  // 6e. Initialize Hounfour multi-model routing (SDD §4, T-15.9)
+  let hounfour: import("./hounfour/router.js").HounfourRouter | undefined
+  try {
+    const { existsSync: exists, readFileSync: readSync } = await import("node:fs")
+    const providerConfigPath = join(process.cwd(), ".loa.config.json")
+    if (exists(providerConfigPath)) {
+      const rawConfig = JSON.parse(readSync(providerConfigPath, "utf-8"))
+      if (rawConfig.providers && Object.keys(rawConfig.providers).length > 0) {
+        const { ProviderRegistry } = await import("./hounfour/registry.js")
+        const { BudgetEnforcer } = await import("./hounfour/budget.js")
+        const { ChevalInvoker } = await import("./hounfour/cheval-invoker.js")
+        const { FullHealthProber } = await import("./hounfour/health.js")
+        const { ProviderRateLimiter } = await import("./hounfour/rate-limiter.js")
+        const { HounfourRouter } = await import("./hounfour/router.js")
+
+        const registry = ProviderRegistry.fromConfig(rawConfig)
+        const budgetDir = join(config.dataDir, "hounfour")
+        const budget = new BudgetEnforcer({
+          ledgerPath: join(budgetDir, "cost-ledger.jsonl"),
+          checkpointPath: join(budgetDir, "budget-checkpoint.json"),
+          onLedgerFailure: rawConfig.metering?.on_failure ?? "fail-open",
+          warnPercent: rawConfig.metering?.warn_percent ?? 80,
+          budgets: rawConfig.metering?.budgets ?? {},
+        })
+
+        // Restore budget state from checkpoint (O(1))
+        await budget.initFromCheckpoint()
+
+        // Full health prober with circuit breaker and WAL logging (T-16.2, T-16.4)
+        const healthConfig = rawConfig.routing?.health ?? {}
+        // Adapt upstream WALManager to WALLike interface for HealthProber
+        const walAdapter = {
+          append(_type: string, _operation: string, path: string, data: unknown): string {
+            wal.append("write", path, Buffer.from(JSON.stringify(data)))
+            return `wal-${Date.now()}`
+          },
+        }
+        const healthProber = new FullHealthProber(
+          {
+            unhealthy_threshold: healthConfig.failure_threshold ?? 3,
+            recovery_threshold: 1,
+            recovery_interval_ms: healthConfig.recovery_interval_ms ?? 30_000,
+            recovery_jitter_percent: 20,
+          },
+          { wal: walAdapter },
+        )
+
+        // Per-provider rate limiter (T-16.3)
+        const rateLimitConfigs: Record<string, { rpm: number; tpm: number; queue_timeout_ms: number }> = {}
+        for (const [name, pConfig] of Object.entries(rawConfig.providers ?? {})) {
+          const rl = (pConfig as Record<string, unknown>).rate_limit as Record<string, number> | undefined
+          if (rl) {
+            rateLimitConfigs[name] = {
+              rpm: rl.rpm ?? 60,
+              tpm: rl.tpm ?? 100_000,
+              queue_timeout_ms: rl.queue_timeout_ms ?? 30_000,
+            }
+          }
+        }
+        const rateLimiter = new ProviderRateLimiter(rateLimitConfigs)
+        const hmacSecret = process.env.CHEVAL_HMAC_SECRET
+        if (!hmacSecret) {
+          console.warn("[finn] CHEVAL_HMAC_SECRET not set — hounfour disabled")
+        } else {
+          const invoker = new ChevalInvoker({ hmac: { secret: hmacSecret } })
+          const scopeMeta = {
+            project_id: rawConfig.project_id ?? "default",
+            phase_id: rawConfig.phase_id ?? "phase-0",
+            sprint_id: rawConfig.sprint_id ?? "sprint-0",
+          }
+
+          hounfour = new HounfourRouter({
+            registry, budget, health: healthProber, cheval: invoker,
+            scopeMeta, rateLimiter,
+            projectRoot: process.cwd(),
+          })
+
+          // Validate all bindings at startup
+          hounfour.validateBindings()
+          console.log(`[finn] hounfour initialized: ${Object.keys(rawConfig.providers).length} providers, ${Object.keys(rawConfig.agents ?? {}).length} agents`)
+        }
+      } else {
+        console.log("[finn] hounfour: no providers configured — skipped")
+      }
+    } else {
+      console.log("[finn] hounfour: .loa.config.json not found — skipped")
+    }
+  } catch (err) {
+    console.error(`[finn] hounfour initialization failed (non-fatal):`, (err as Error).message)
+    // Non-fatal — loa-finn works without hounfour (backward compatible per NFR-3)
+  }
+
   // 7. Create gateway (with executor for sandbox, pool for health stats)
-  const { app, router } = createApp(config, { activityFeed, executor, pool })
+  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()
@@ -152,6 +244,8 @@ async function main() {
     }),
     getLearningCounts: () => ({ total: 0, active: 0 }), // Updated async by health task
     getWorkerPoolStats: () => pool?.stats(),
+    getProviderHealth: hounfour ? () => hounfour!.healthSnapshot().providers : undefined,
+    getBudgetSnapshot: hounfour ? () => hounfour!.budgetSnapshot() : undefined,
   })
 
   // Log circuit breaker transitions to WAL

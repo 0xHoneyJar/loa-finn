@@ -126,6 +126,7 @@
       "status": "archived",
       "started": "2026-02-08T00:00:00Z",
       "archived": "2026-02-08T12:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-08-worker-thread-sandbox/",
       "prd": "grimoires/loa/prd-worker-thread-sandbox.md",
       "sdd": "grimoires/loa/sdd-worker-thread-sandbox.md",
       "sprints": [

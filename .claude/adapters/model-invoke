@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# model-invoke — CLI wrapper for Hounfour model invocation (SDD §6.1, T-14.9)
+# Usage: model-invoke <agent> <prompt-file> [--model alias]
+#
+# Delegates to src/hounfour/cli.ts via tsx for development,
+# or the compiled JS in production.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Use tsx for development, node for production
+if command -v tsx &>/dev/null; then
+  exec tsx "$PROJECT_ROOT/src/hounfour/cli.ts" "$@"
+else
+  exec node "$PROJECT_ROOT/dist/hounfour/cli.js" "$@"
+fi

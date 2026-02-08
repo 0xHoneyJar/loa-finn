@@ -1,0 +1,139 @@
+{
+  "consensus_summary": {
+    "high_consensus_count": 5,
+    "disputed_count": 0,
+    "low_value_count": 0,
+    "blocker_count": 6,
+    "model_agreement_percent": 100
+  },
+  "high_consensus": [
+    {
+      "id": "IMP-001",
+      "description": "Real gap for a sequential, dependency-heavy plan: without explicit partial-completion criteria and rollback/forward strategy, a single failed integration task can stall subsequent sprints. Actionable if framed as: (a) definition of 'done' per sprint, (b) what can start if a dependency is incomplete, (c) feature flags / compatibility shims, (d) rollback steps for config/schema/CLI changes. Moderate effort to document; implementation impact depends on how much is already implicitly handled via git reverts and flags.",
+      "gpt_score": 780,
+      "opus_score": 920,
+      "delta": 140,
+      "average_score": 850,
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-002",
+      "description": "Critical operational security gap: the document references HMAC signing and an env var secret but omits provisioning/rotation/bootstrap, which is required for the mechanism to work in real deployments and CI. Highly actionable: define secret source (env/secret manager), generation, rotation cadence, dual-secret overlap, and local-dev bootstrap. Low-to-moderate effort with high ROI and risk reduction.",
+      "gpt_score": 900,
+      "opus_score": 720,
+      "delta": 180,
+      "average_score": 810,
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-004",
+      "description": "Material gap: multi-provider support plus BYOK implies a credential lifecycle, and the current references to env interpolation/scoping don\u2019t cover validation, missing/invalid key behavior, or separation of user vs system credentials. This will surface immediately during smoke tests and is security-relevant. Actionable as a small spec + acceptance criteria (startup checks, error messages, scoping rules, redaction).",
+      "gpt_score": 820,
+      "opus_score": 750,
+      "delta": 70,
+      "average_score": 785,
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-007",
+      "description": "Good domain-specific catch: subprocess-per-request overhead compounds in tool-call loops, and the plan\u2019s pooling priority may not benefit the dominant machine-mode path. Actionable as either (a) quantify expected overhead and accept it, (b) adjust priorities (in-process path earlier), or (c) redesign loop to minimize invocations. Moderate-to-high implementation implications, but important to address before committing to the loop architecture.",
+      "gpt_score": 760,
+      "opus_score": 730,
+      "delta": 30,
+      "average_score": 745,
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-010",
+      "description": "Provider-specific timeout semantics are important and currently underspecified, especially since timeouts feed retries and health probing/circuit breaking. Actionable: add config fields (connect/read/total), defaults per provider class, and guidance for long-reasoning models vs local inference. Moderate effort with strong reliability ROI.",
+      "gpt_score": 720,
+      "opus_score": 870,
+      "delta": 150,
+      "average_score": 795,
+      "would_integrate": true,
+      "agreement": "HIGH"
+    }
+  ],
+  "disputed": [],
+  "low_value": [],
+  "blockers": [
+    {
+      "id": "SKP-001",
+      "concern": "Single-engineer, sequential sprints with many P0 tasks creates a critical schedule/quality bottleneck",
+      "severity": "CRITICAL",
+      "severity_score": 920,
+      "why_matters": "The plan assumes one AI engineer can design security specs, implement TS router + Python adapter, write schemas, fixtures, E2E tests, and Docker updates in ~1 session per sprint. Any slip blocks all downstream sprints due to strict sequencing, and rushed work increases defect/security risk.",
+      "location": "Sprint Overview; Sprint Dependencies; all Sprint 1-3 task lists",
+      "recommendation": "De-scope to a thin vertical slice per sprint (one provider + ledger + CLI first), convert some P0 items to P1, add explicit timeboxes, and introduce parallelizable checkpoints (e.g., fixtures/schema can proceed while adapter is built). Add a contingency plan if a sprint exceeds one session.",
+      "source": "opus_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "HMAC request-signing spec is underspecified and likely to fail in real deployments (canonicalization, clock skew, key management, rotation)",
+      "severity": "CRITICAL",
+      "severity_score": 880,
+      "why_matters": "Signing 'raw request file bytes' is brittle across platforms/encodings/newlines and makes interop fragile. A 30s replay window assumes synchronized clocks. There is no key rotation, secret distribution, or compromise recovery plan. If signing breaks, all invocations fail; if signing is weak, bypass/replay becomes feasible.",
+      "location": "T-14.1 (HMAC spec), T-14.5 (HMAC validation), T-14.8 (HMAC signing), Risk Mitigation (missing)",
+      "recommendation": "Define a canonical JSON serialization for bytes-to-sign (sorted keys, UTF-8, no whitespace), include nonce + request_id + body hash, allow configurable clock skew, and specify secret storage/rotation (env var source, rotation cadence, dual-key grace). Add negative tests for newline/encoding differences and replay attempts.",
+      "source": "opus_skeptic"
+    },
+    {
+      "id": "SKP-003",
+      "concern": "Budget/ledger 'fail-open' behavior can silently disable cost controls and undermine enforcement guarantees",
+      "severity": "CRITICAL",
+      "severity_score": 860,
+      "why_matters": "If ledger writes fail (disk full, permissions, container FS), counters are not updated and enforcement may never trigger, enabling unbounded spend. This is especially risky because budget enforcement is a core goal in Sprint 2, but the underlying mechanism explicitly tolerates write failure.",
+      "location": "T-14.7 (fail-open default), T-15.3 (budget enforcement relies on counters)",
+      "recommendation": "Make fail-open a deliberate, explicit config with safe default = fail-closed for enforcement-critical scopes. At minimum: emit loud alerts, mark budget state as 'unknown', and optionally block/downgrade when ledger is unhealthy. Add integration tests simulating disk-full/permission errors.",
+      "source": "opus_skeptic"
+    },
+    {
+      "id": "SKP-004",
+      "concern": "Tool-call loop has hidden complexity: idempotency, schema validation, repair, and context budgeting can deadlock or mischarge",
+      "severity": "HIGH",
+      "severity_score": 770,
+      "why_matters": "Idempotency keyed by (trace_id, tool_call_id) assumes stable tool_call_id across retries/providers; many models generate new IDs on retries. Repair strategy ('one retry') may still loop with partial failures. Context budget tracking at 80/90% is underspecified (token estimation vs actual). Mis-accounting can cause runaway loops or premature aborts.",
+      "location": "T-15.7 (invokeWithTools), T-15.8 (tool-call E2E), T-15.3 (per-iteration budget check)",
+      "recommendation": "Define deterministic idempotency keys (e.g., hash of tool name + normalized args + turn index), specify token counting method (provider usage vs local estimator), and add explicit loop invariants (max wall time, max tool calls, max tokens). Add tests for changing tool_call_id, partial tool failures, and provider returning tool_call repeatedly.",
+      "source": "opus_skeptic"
+    },
+    {
+      "id": "SKP-005",
+      "concern": "Provider normalization assumptions may break across OpenAI-compatible variants (tool_calls, usage, streaming, error formats)",
+      "severity": "HIGH",
+      "severity_score": 740,
+      "why_matters": "The plan relies on 'OpenAI-compatible request building' and fixture-based normalization, but real providers diverge: usage fields missing/renamed, tool call schemas differ, reasoning fields vary, and error payloads are inconsistent. This can corrupt CompletionResult, cost calculation, and tool-call orchestration.",
+      "location": "T-14.5 (normalization), T-14.10 (fixtures), T-15.2 (thinking traces), T-15.8 (tool-call E2E)",
+      "recommendation": "Document a strict adapter contract per provider with explicit mapping tables and fallback behaviors when fields are missing. Add fuzz/contract tests for missing usage, malformed tool_calls, and non-JSON error bodies. Consider provider-specific parsers rather than a single 'OpenAI format' assumption.",
+      "source": "opus_skeptic"
+    },
+    {
+      "id": "SKP-006",
+      "concern": "Security gaps around secrets and data leakage: env interpolation, subprocess env scoping, temp files, and logs",
+      "severity": "HIGH",
+      "severity_score": 720,
+      "why_matters": "Env interpolation `{env:VAR}` can accidentally pull wrong secrets or allow unexpected variable expansion. Temp request files (even 0600) can leak via backups, crash dumps, or misconfigured /tmp mounts. Stderr diagnostics risk leaking prompts, API keys, or HMAC material. Persona loading and injection detection are weakly defined and may be bypassed.",
+      "location": "T-14.3 ({env:VAR}), T-14.8 (temp files + env scoping), T-14.5 (stderr diagnostics), T-15.5 (injection detection)",
+      "recommendation": "Add explicit redaction rules for logs, forbid printing request bodies/headers, and ensure temp files are securely deleted. Validate env var names against an allowlist. Define injection detection scope/false positives and add tests. Consider using stdin pipes instead of temp files, or encrypt-at-rest for temp artifacts if unavoidable.",
+      "source": "opus_skeptic"
+    }
+  ],
+  "phase": "sprint",
+  "document": "grimoires/loa/sprint-hounfour.md",
+  "domain": " branch feature hounfour sprint",
+  "execution": {
+    "mode": "hitl",
+    "mode_reason": "Simstim workflow active (.run/simstim-state.json state=RUNNING)",
+    "run_id": null
+  },
+  "timestamp": "2026-02-08T06:29:31Z",
+  "metrics": {
+    "total_latency_ms": 209000,
+    "cost_cents": 0,
+    "cost_usd": 0
+  }
+}

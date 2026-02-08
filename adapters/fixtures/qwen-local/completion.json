@@ -1,0 +1,35 @@
+{
+  "description": "Qwen3-Coder-Next self-hosted completion via vLLM/SGLang",
+  "provider_type": "openai-compatible",
+  "raw_response": {
+    "id": "cmpl-qwen-001",
+    "object": "chat.completion",
+    "created": 1707350400,
+    "model": "Qwen/Qwen3-Coder-Next",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Here is the refactored function using TypeScript."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 100,
+      "completion_tokens": 10,
+      "total_tokens": 110
+    }
+  },
+  "expected": {
+    "content": "Here is the refactored function using TypeScript.",
+    "thinking": null,
+    "tool_calls": null,
+    "usage": {
+      "prompt_tokens": 100,
+      "completion_tokens": 10,
+      "reasoning_tokens": 0
+    }
+  }
+}

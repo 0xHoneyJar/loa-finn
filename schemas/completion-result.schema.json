@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loa-finn.local/schemas/completion-result.schema.json",
+  "title": "CompletionResult v1.0",
+  "description": "Normalized response schema from cheval.py — provider-agnostic completion result (SDD §4.2)",
+  "type": "object",
+  "properties": {
+    "content": {
+      "type": "string",
+      "description": "Model response content text"
+    },
+    "thinking": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "null" }
+      ],
+      "description": "Thinking/reasoning trace. null for non-thinking models (never fabricated)."
+    },
+    "tool_calls": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ToolCall" }
+        },
+        { "type": "null" }
+      ],
+      "description": "Tool calls requested by the model. null when no tools requested."
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "prompt_tokens": { "type": "integer", "minimum": 0 },
+        "completion_tokens": { "type": "integer", "minimum": 0 },
+        "reasoning_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "0 if provider does not report reasoning tokens"
+        }
+      },
+      "required": ["prompt_tokens", "completion_tokens", "reasoning_tokens"]
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "model": { "type": "string" },
+        "provider_request_id": { "type": "string" },
+        "latency_ms": { "type": "number", "minimum": 0 },
+        "trace_id": { "type": "string" }
+      },
+      "required": ["model", "latency_ms", "trace_id"]
+    }
+  },
+  "required": ["content", "thinking", "tool_calls", "usage", "metadata"],
+  "$defs": {
+    "ToolCall": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "const": "function" },
+        "function": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "arguments": {
+              "type": "string",
+              "description": "JSON-encoded function arguments"
+            }
+          },
+          "required": ["name", "arguments"]
+        }
+      },
+      "required": ["id", "type", "function"]
+    }
+  }
+}

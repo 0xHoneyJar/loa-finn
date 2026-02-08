@@ -22,8 +22,10 @@ RUN pnpm build
 FROM node:22-slim
 WORKDIR /app
 
-# Install beads_rust CLI + gh CLI (upstream GitHubCLIAdapter requires gh)
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gpg \
+# Install Python 3, httpx, pyyaml for cheval.py + beads_rust CLI + gh CLI (upstream GitHubCLIAdapter requires gh)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates gpg python3 python3-pip \
+    && pip3 install --no-cache-dir --break-system-packages httpx pyyaml \
     && curl -sSL https://github.com/Dicklesworthstone/beads_rust/releases/latest/download/br-linux-amd64 -o /usr/local/bin/br \
     && chmod +x /usr/local/bin/br \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -47,8 +49,14 @@ COPY public/ ./public/
 COPY grimoires/ ./grimoires/
 COPY .beads/ ./.beads/
 
-# Create data directory
-RUN mkdir -p /data/sessions /data/wal
+# Copy Hounfour adapters and schemas (T-16.8)
+COPY adapters/ ./adapters/
+COPY schemas/ ./schemas/
+
+# Create data directory and non-root user
+RUN mkdir -p /data/sessions /data/wal \
+    && addgroup --system finn && adduser --system --ingroup finn finn \
+    && chown -R finn:finn /data /app
 
 ENV NODE_ENV=production
 ENV DATA_DIR=/data
@@ -56,6 +64,8 @@ ENV PORT=3000
 ENV HOST=0.0.0.0
 
 EXPOSE 3000
+
+USER finn
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
