@@ -78,7 +78,12 @@ async function main() {
   const bbRepos = process.env.BRIDGEBUILDER_REPOS
   const bbBotUser = process.env.BRIDGEBUILDER_BOT_USER
   if (ghToken && bbRepos && bbBotUser) {
-    const http = new ResilientHttpClient(ghToken)
+    const http = new ResilientHttpClient({
+      maxRetries: 3,
+      baseDelayMs: 1000,
+      rateLimitBuffer: 10,
+      redactPatterns: [],
+    })
     activityFeed = new ActivityFeed(
       {
         githubToken: ghToken,
