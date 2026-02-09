@@ -2,7 +2,7 @@
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
   "current_cycle": "cycle-008",
-  "next_global_sprint_id": 19,
+  "next_global_sprint_id": 22,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -233,6 +233,5 @@
         }
       ]
     }
-  },
-  "next_global_sprint_id": 22
+  }
 }
