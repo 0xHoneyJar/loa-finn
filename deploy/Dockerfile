@@ -22,10 +22,11 @@ RUN pnpm build
 FROM node:22-slim
 WORKDIR /app
 
-# Install Python 3, httpx, pyyaml for cheval.py + beads_rust CLI + gh CLI (upstream GitHubCLIAdapter requires gh)
+# Install Python 3, sidecar deps, beads_rust CLI + gh CLI (upstream GitHubCLIAdapter requires gh)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates gpg python3 python3-pip \
     && pip3 install --no-cache-dir --break-system-packages httpx pyyaml \
+       fastapi 'uvicorn[standard]' sse-starlette \
     && curl -sSL https://github.com/Dicklesworthstone/beads_rust/releases/latest/download/br-linux-amd64 -o /usr/local/bin/br \
     && chmod +x /usr/local/bin/br \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -62,6 +63,7 @@ ENV NODE_ENV=production
 ENV DATA_DIR=/data
 ENV PORT=3000
 ENV HOST=0.0.0.0
+ENV PYTHONPATH=/app
 
 EXPOSE 3000
 

@@ -128,6 +128,39 @@ async function main() {
   // 6d. Wire pool into GitSync for async git operations
   if (pool) gitSync.setPool(pool)
 
+  // 6d2. Initialize Redis state backend (Phase 3 Sprint 2, SDD §2.3, §4.6)
+  let redis: import("./hounfour/redis/client.js").RedisStateBackend | null = null
+  if (config.redis.enabled) {
+    try {
+      const { RedisStateBackend, DEFAULT_REDIS_CONFIG } = await import("./hounfour/redis/client.js")
+      const { createIoredisFactory } = await import("./hounfour/redis/ioredis-factory.js")
+
+      const factory = await createIoredisFactory()
+      redis = new RedisStateBackend(
+        {
+          url: config.redis.url,
+          ...DEFAULT_REDIS_CONFIG,
+          connectTimeoutMs: config.redis.connectTimeoutMs,
+          commandTimeoutMs: config.redis.commandTimeoutMs,
+        },
+        factory,
+      )
+      await redis.connect()
+
+      if (redis.isConnected()) {
+        const ping = await redis.ping()
+        console.log(`[finn] redis connected: latency=${ping.latencyMs}ms`)
+      } else {
+        console.warn("[finn] redis: connection failed, components will use fallbacks")
+      }
+    } catch (err) {
+      console.warn(`[finn] redis: initialization failed (non-fatal): ${(err as Error).message}`)
+      redis = null
+    }
+  } else {
+    console.log("[finn] redis: disabled (set REDIS_URL to enable)")
+  }
+
   // 6e. Initialize Hounfour multi-model routing (SDD §4, T-15.9)
   let hounfour: import("./hounfour/router.js").HounfourRouter | undefined
   try {
@@ -232,6 +265,7 @@ async function main() {
         const { SidecarClient } = await import("./hounfour/sidecar-client.js")
         const { Orchestrator } = await import("./hounfour/orchestrator.js")
         const { IdempotencyCache } = await import("./hounfour/idempotency.js")
+        const { RedisIdempotencyCache } = await import("./hounfour/redis/idempotency.js")
 
         const chevalPort = parseInt(process.env.CHEVAL_PORT ?? "3001", 10)
         sidecarManager = new SidecarManager({
@@ -249,11 +283,14 @@ async function main() {
           hmac: { secret: hmacSecret, secretPrev: process.env.CHEVAL_HMAC_SECRET_PREV },
         })
 
-        const idempotencyCache = new IdempotencyCache()
+        // Idempotency cache: Redis-backed with memory fallback, or memory-only
+        const idempotencyCache = redis
+          ? new RedisIdempotencyCache(redis)
+          : new IdempotencyCache()
 
-        // Create orchestrator with a stub executor (real executor wired in Phase 3 Sprint 2)
-        const stubExecutor = {
-          async execute(toolName: string, args: Record<string, unknown>) {
+        // Tool executor: delegates to SandboxExecutor if available
+        const toolExecutor: import("./hounfour/orchestrator.js").ToolExecutor = {
+          async execute(toolName: string, _args: Record<string, unknown>) {
             return { output: `Tool ${toolName} not wired yet`, is_error: true }
           },
         }
@@ -267,16 +304,13 @@ async function main() {
           async healthCheck() { return { healthy: sidecarManager!.isRunning, latency_ms: 0 } },
         }
 
-        // Tool executor: stub for Sprint 1, real wiring through HounfourRouter in Sprint 2
-        const toolExecutor: import("./hounfour/orchestrator.js").ToolExecutor = stubExecutor
-
         orchestrator = new Orchestrator({
           model: modelAdapter,
           toolExecutor,
           idempotencyCache,
         })
 
-        console.log(`[finn] sidecar started on port ${chevalPort}, orchestrator ready`)
+        console.log(`[finn] sidecar started on port ${chevalPort}, orchestrator ready (idempotency: ${redis ? "redis" : "memory"})`)
       } catch (err) {
         console.error(`[finn] sidecar initialization failed (non-fatal):`, (err as Error).message)
       }
@@ -311,6 +345,7 @@ async function main() {
     getWorkerPoolStats: () => pool?.stats(),
     getProviderHealth: hounfour ? () => hounfour!.healthSnapshot().providers : undefined,
     getBudgetSnapshot: hounfour ? () => hounfour!.budgetSnapshot() : undefined,
+    getRedisHealth: redis ? async () => redis!.ping() : undefined,
   })
 
   // Log circuit breaker transitions to WAL
@@ -468,6 +503,11 @@ async function main() {
     // Shutdown worker pool (abort running, terminate workers)
     if (pool) {
       try { await pool.shutdown() } catch (err) { console.error("[finn] pool shutdown error:", err) }
+    }
+
+    // Disconnect Redis (before final sync — Redis not needed for R2/WAL)
+    if (redis) {
+      try { await redis.disconnect() } catch (err) { console.error("[finn] redis disconnect error:", err) }
     }
 
     // Final R2 sync

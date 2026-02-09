@@ -79,6 +79,7 @@ export interface HealthDeps {
   getWorkerPoolStats: () => WorkerPoolStats | undefined
   getProviderHealth?: () => Record<string, { healthy: boolean; models: Record<string, { healthy: boolean }> }> | undefined
   getBudgetSnapshot?: () => { spent_usd: number; limit_usd: number; percent_used: number } | undefined
+  getRedisHealth?: () => Promise<{ connected: boolean; latencyMs: number }>
 }
 
 export class HealthAggregator {

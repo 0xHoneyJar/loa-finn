@@ -1,0 +1,6 @@
+event: chunk
+data: {"delta":"Partial","tool_calls":null}
+
+event: error
+data: {"code":"STREAM_INTERRUPTED","message":"Provider closed connection"}
+

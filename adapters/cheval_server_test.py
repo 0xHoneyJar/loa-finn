@@ -231,14 +231,30 @@ def test_hmac_endpoint_binding():
 # --- Streaming Endpoint Tests ---
 
 
-def test_invoke_stream_returns_501():
-    """POST /invoke/stream should return 501 in Sprint 1."""
-    body = '{"test": true}'
-    headers = sign_request("POST", "/invoke/stream", body, "trace-stream")
+def test_invoke_stream_invalid_json_returns_400():
+    """POST /invoke/stream with invalid JSON should return 400."""
+    body = "not json {"
+    headers = sign_request("POST", "/invoke/stream", body, "trace-stream-bad")
     response = client.post("/invoke/stream", content=body.encode("utf-8"), headers=headers)
-    assert_eq(response.status_code, 501, "stream status")
+    assert_eq(response.status_code, 400, "stream invalid json status")
     data = response.json()
-    assert_eq(data["error"], "NOT_IMPLEMENTED", "stream error code")
+    assert_eq(data["error"], "INVALID_JSON", "stream invalid json error")
+
+
+def test_invoke_stream_missing_provider_returns_400():
+    """POST /invoke/stream with missing provider should return 400."""
+    body = json.dumps({"model": "test", "messages": [], "metadata": {"trace_id": "t-s1"}})
+    headers = sign_request("POST", "/invoke/stream", body, "t-s1")
+    response = client.post("/invoke/stream", content=body.encode("utf-8"), headers=headers)
+    assert_eq(response.status_code, 400, "stream missing provider status")
+    data = response.json()
+    assert_eq(data["error"], "MISSING_PROVIDER", "stream missing provider error")
+
+
+def test_invoke_stream_hmac_required():
+    """POST /invoke/stream without HMAC should be rejected."""
+    response = client.post("/invoke/stream", content=b'{"test": true}')
+    assert_eq(response.status_code, 403, "stream missing HMAC status")
 
 
 # --- /invoke Endpoint Tests ---
@@ -367,7 +383,10 @@ def main():
     print()
     print("Streaming endpoint:")
     nonce_cache.clear()
-    test("POST /invoke/stream returns 501", test_invoke_stream_returns_501)
+    test("POST /invoke/stream invalid JSON returns 400", test_invoke_stream_invalid_json_returns_400)
+    nonce_cache.clear()
+    test("POST /invoke/stream missing provider returns 400", test_invoke_stream_missing_provider_returns_400)
+    test("POST /invoke/stream HMAC required", test_invoke_stream_hmac_required)
 
     print()
     print("/invoke endpoint:")

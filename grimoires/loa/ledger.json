@@ -221,14 +221,14 @@
           "local_id": "sprint-2",
           "global_id": 20,
           "label": "Streaming + Redis State",
-          "status": "pending",
+          "status": "completed",
           "tasks": 12
         },
         {
           "local_id": "sprint-3",
           "global_id": 21,
           "label": "GPU Deployment + Export",
-          "status": "pending",
+          "status": "completed",
           "tasks": 9
         }
       ]

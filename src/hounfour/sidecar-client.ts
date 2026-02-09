@@ -14,8 +14,11 @@ import type {
   ModelCapabilities,
   HealthStatus,
   ModelPortBase,
+  ModelPortStreaming,
+  StreamChunk,
 } from "./types.js"
 import { DEFAULT_RETRY_POLICY } from "./types.js"
+import { parseSSE } from "./sse-consumer.js"
 
 // --- SidecarClient ---
 
@@ -103,6 +106,16 @@ export class SidecarClient {
     return result
   }
 
+  /** Expose base URL for SidecarModelAdapter streaming (undici needs full URL) */
+  getBaseUrl(): string {
+    return this.config.baseUrl
+  }
+
+  /** Expose HMAC secret for SidecarModelAdapter streaming (signs /invoke/stream separately) */
+  getHmacSecret(): string {
+    return this.config.hmac.secret
+  }
+
   /** Health check — GET /healthz */
   async healthCheck(): Promise<{ status: string; uptime_s: number }> {
     const response = await fetch(`${this.config.baseUrl}/healthz`, {
@@ -134,7 +147,7 @@ export class SidecarClient {
  * Replaces ChevalModelAdapter (subprocess) with HTTP-based communication.
  * Retry logic is handled by the sidecar — this adapter does a single invoke.
  */
-export class SidecarModelAdapter implements ModelPortBase {
+export class SidecarModelAdapter implements ModelPortBase, ModelPortStreaming {
   constructor(
     private client: SidecarClient,
     private resolvedModel: ResolvedModel,
@@ -146,6 +159,124 @@ export class SidecarModelAdapter implements ModelPortBase {
     return this.client.invoke(chevalReq)
   }
 
+  /**
+   * Streaming completion via POST /invoke/stream.
+   *
+   * Returns an AsyncGenerator<StreamChunk> yielding SSE events.
+   * Uses undici (Node.js built-in) for reliable streaming support.
+   *
+   * Cancellation:
+   *   - Accepts optional AbortSignal from caller (Orchestrator)
+   *   - Creates internal AbortController linked to external signal
+   *   - Internal abort triggered only on consumer cancellation (generator.return/throw)
+   *   - External abort (Orchestrator.cancel()) also triggers abort
+   */
+  async *stream(
+    request: CompletionRequest,
+    options?: { signal?: AbortSignal },
+  ): AsyncGenerator<StreamChunk> {
+    const abortController = new AbortController()
+    let completed = false
+
+    // Link external signal to internal controller
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        abortController.abort()
+      } else {
+        options.signal.addEventListener(
+          "abort",
+          () => abortController.abort(),
+          { once: true },
+        )
+      }
+    }
+
+    try {
+      const chevalReq = this.buildChevalRequest(request)
+      const bodyJson = JSON.stringify(chevalReq)
+
+      const hmacHeaders = signRequest(
+        "POST",
+        "/invoke/stream",
+        bodyJson,
+        request.metadata.trace_id,
+        this.client.getHmacSecret(),
+      )
+
+      const response = await fetch(
+        `${this.client.getBaseUrl()}/invoke/stream`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...hmacHeaders,
+          },
+          body: bodyJson,
+          signal: abortController.signal,
+        },
+      )
+
+      // Validate response status
+      if (!response.ok) {
+        const body = await response.text()
+        yield {
+          event: "error",
+          data: {
+            code: `SIDECAR_${response.status}`,
+            message: body.slice(0, 500),
+          },
+        } as StreamChunk
+        return
+      }
+
+      // Validate content-type
+      const contentType = response.headers.get("content-type") ?? ""
+      if (!contentType.includes("text/event-stream")) {
+        yield {
+          event: "error",
+          data: {
+            code: "INVALID_CONTENT_TYPE",
+            message: `Expected text/event-stream, got ${contentType}`,
+          },
+        } as StreamChunk
+        return
+      }
+
+      // response.body is a ReadableStream<Uint8Array> — convert to AsyncIterable
+      if (!response.body) {
+        yield {
+          event: "error",
+          data: {
+            code: "SIDECAR_STREAM_ERROR",
+            message: "Response body is null",
+          },
+        } as StreamChunk
+        return
+      }
+
+      // Parse SSE from response body stream
+      for await (const chunk of parseSSE(response.body)) {
+        yield chunk
+      }
+      completed = true
+    } catch (err) {
+      if (!abortController.signal.aborted) {
+        yield {
+          event: "error",
+          data: {
+            code: "SIDECAR_STREAM_ERROR",
+            message: String(err),
+          },
+        } as StreamChunk
+      }
+    } finally {
+      // Abort only if stream was NOT fully consumed (consumer cancelled early)
+      if (!completed) {
+        abortController.abort()
+      }
+    }
+  }
+
   capabilities(): ModelCapabilities {
     const model = this.providerConfig.models.get(this.resolvedModel.modelId)
     if (!model) {
@@ -153,7 +284,10 @@ export class SidecarModelAdapter implements ModelPortBase {
         `Model ${this.resolvedModel.modelId} not found in provider ${this.resolvedModel.provider}`,
       )
     }
-    return model.capabilities
+    return {
+      ...model.capabilities,
+      streaming: true, // Sidecar always supports streaming
+    }
   }
 
   async healthCheck(): Promise<HealthStatus> {

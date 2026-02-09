@@ -32,6 +32,7 @@ from typing import Any, Optional
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from sse_starlette.sse import EventSourceResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
@@ -42,6 +43,7 @@ from cheval import (  # noqa: E402
     build_openai_request,
     normalize_response,
 )
+from sse_decoder import sse_decode  # noqa: E402
 
 # --- Configuration ---
 
@@ -504,12 +506,176 @@ async def invoke(request: Request) -> JSONResponse:
 
 
 @app.post("/invoke/stream")
-async def invoke_stream(request: Request) -> JSONResponse:
-    """Streaming completion (Sprint 2 — T-2.1, T-2.3). Returns 501 in Sprint 1."""
-    return JSONResponse(
-        status_code=501,
-        content={"error": "NOT_IMPLEMENTED", "message": "Streaming not available until Sprint 2"},
+async def invoke_stream(request: Request) -> Response:
+    """Streaming completion via SSE (T-2.3).
+
+    Emits wire contract events: chunk, tool_call, usage, done, error.
+    Normalizes provider-specific formats (e.g., OpenAI [DONE] sentinel).
+    Cancels upstream on client disconnect.
+    """
+    body = await request.body()
+    try:
+        cheval_request = json.loads(body)
+    except json.JSONDecodeError:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "INVALID_JSON", "message": "Request body is not valid JSON"},
+        )
+
+    provider = cheval_request.get("provider", {})
+    provider_name = provider.get("name", "unknown")
+    base_url = provider.get("base_url", "")
+    api_key = provider.get("api_key", "")
+
+    if not base_url or not api_key:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "MISSING_PROVIDER", "message": "Missing provider base_url or api_key"},
+        )
+
+    trace_id = cheval_request.get("metadata", {}).get("trace_id", "")
+    retry_config = cheval_request.get("retry", {})
+
+    openai_body = build_openai_request(cheval_request)
+    openai_body["stream"] = True
+    # Request usage in streaming (OpenAI extension)
+    openai_body["stream_options"] = {"include_usage": True}
+
+    url = "/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "X-Request-ID": trace_id,
+    }
+
+    client = pool_manager.get_or_create(
+        provider_name=provider_name,
+        base_url=base_url.rstrip("/"),
+        connect_timeout_ms=provider.get("connect_timeout_ms", 5000),
+        read_timeout_ms=provider.get("read_timeout_ms", 60000),
+        total_timeout_ms=provider.get("total_timeout_ms", 300000),
     )
+
+    async def event_generator():
+        finish_reason = "stop"
+        try:
+            async with client.stream("POST", url, json=openai_body, headers=headers) as response:
+                if response.status_code != 200:
+                    error_body = await response.aread()
+                    error_text = error_body.decode("utf-8", errors="replace")[:200]
+                    yield {
+                        "event": "error",
+                        "data": json.dumps({
+                            "code": f"PROVIDER_{response.status_code}",
+                            "message": error_text,
+                        }),
+                    }
+                    return
+
+                async for sse_event in sse_decode(response.aiter_bytes()):
+                    # OpenAI [DONE] sentinel — stop iterating
+                    if sse_event.data == "[DONE]":
+                        break
+
+                    try:
+                        data = json.loads(sse_event.data)
+                    except json.JSONDecodeError:
+                        continue  # Skip unparseable events
+
+                    # Extract from OpenAI choices[0].delta format
+                    choices = data.get("choices", [])
+                    usage = data.get("usage")
+
+                    # Usage event (OpenAI sends this with stream_options.include_usage)
+                    if usage and not choices:
+                        yield {
+                            "event": "usage",
+                            "data": json.dumps({
+                                "prompt_tokens": usage.get("prompt_tokens", 0),
+                                "completion_tokens": usage.get("completion_tokens", 0),
+                                "reasoning_tokens": usage.get("reasoning_tokens", 0),
+                            }),
+                        }
+                        continue
+
+                    if not choices:
+                        continue
+
+                    choice = choices[0]
+                    delta = choice.get("delta", {})
+                    choice_finish = choice.get("finish_reason")
+
+                    if choice_finish:
+                        finish_reason = choice_finish
+
+                    # Tool call chunks
+                    tool_calls = delta.get("tool_calls")
+                    if tool_calls:
+                        for tc in tool_calls:
+                            tc_data: dict[str, Any] = {"index": tc.get("index", 0)}
+                            if "id" in tc:
+                                tc_data["id"] = tc["id"]
+                            fn = tc.get("function", {})
+                            fn_data: dict[str, Any] = {}
+                            if "name" in fn:
+                                fn_data["name"] = fn["name"]
+                            fn_data["arguments"] = fn.get("arguments", "")
+                            tc_data["function"] = fn_data
+                            yield {
+                                "event": "tool_call",
+                                "data": json.dumps(tc_data),
+                            }
+                        continue
+
+                    # Text content chunk
+                    content = delta.get("content")
+                    if content is not None:
+                        yield {
+                            "event": "chunk",
+                            "data": json.dumps({
+                                "delta": content,
+                                "tool_calls": None,
+                            }),
+                        }
+
+                    # Usage embedded in a choice event (some providers)
+                    if usage:
+                        yield {
+                            "event": "usage",
+                            "data": json.dumps({
+                                "prompt_tokens": usage.get("prompt_tokens", 0),
+                                "completion_tokens": usage.get("completion_tokens", 0),
+                                "reasoning_tokens": usage.get("reasoning_tokens", 0),
+                            }),
+                        }
+
+            # Emit done event after stream completes
+            yield {
+                "event": "done",
+                "data": json.dumps({"finish_reason": finish_reason}),
+            }
+
+        except httpx.RemoteProtocolError:
+            yield {
+                "event": "error",
+                "data": json.dumps({
+                    "code": "STREAM_INTERRUPTED",
+                    "message": "Provider closed connection",
+                }),
+            }
+        except asyncio.CancelledError:
+            # Client disconnected — cancel upstream
+            pass
+        except Exception as e:
+            yield {
+                "event": "error",
+                "data": json.dumps({
+                    "code": "SIDECAR_STREAM_ERROR",
+                    "message": str(e)[:200],
+                }),
+            }
+
+    return EventSourceResponse(event_generator())
 
 
 # --- Startup/Shutdown ---

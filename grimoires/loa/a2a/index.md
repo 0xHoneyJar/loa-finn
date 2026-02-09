@@ -26,6 +26,14 @@
 | Sprint 5 | 68 | COMPLETED | [reviewer.md](sprint-68/reviewer.md) |
 | Sprint 6 | 69 | COMPLETED | [reviewer.md](sprint-69/reviewer.md) |
 
+## Cycle-008: Hounfour Phase 3 — Sidecar + Streaming + Redis
+
+| Sprint | Global ID | Status | Report |
+|--------|-----------|--------|--------|
+| Sprint 1 | 19 | COMPLETED | [reviewer.md](sprint-19/reviewer.md) |
+| Sprint 2 | 20 | COMPLETED | [reviewer.md](sprint-20/reviewer.md) / [engineer-feedback.md](sprint-20/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-20/auditor-sprint-feedback.md) |
+| Sprint 3 | 21 | COMPLETED | [reviewer.md](sprint-21/reviewer.md) / [engineer-feedback.md](sprint-21/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-21/auditor-sprint-feedback.md) |
+
 ## Cycle-007: Bridgebuilder Refactor — Adopt Upstream Skill
 
 | Sprint | Global ID | Status | Report |

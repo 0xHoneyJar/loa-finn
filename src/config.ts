@@ -69,6 +69,14 @@ export interface FinnConfig {
 
   /** Cheval adapter mode: subprocess (Phase 0-2 default) or sidecar (Phase 3) */
   chevalMode: "subprocess" | "sidecar"
+
+  /** Redis state backend (Phase 3 — circuit breaker, budget, rate limiter, idempotency) */
+  redis: {
+    url: string
+    enabled: boolean
+    connectTimeoutMs: number
+    commandTimeoutMs: number
+  }
 }
 
 const VALID_SANDBOX_MODES = ["worker", "child_process", "disabled"] as const
@@ -167,5 +175,12 @@ export function loadConfig(): FinnConfig {
     sandboxSyncFallback: parseSyncFallback(process.env.SANDBOX_SYNC_FALLBACK, process.env.NODE_ENV),
 
     chevalMode: (process.env.CHEVAL_MODE ?? "subprocess") as "subprocess" | "sidecar",
+
+    redis: {
+      url: process.env.REDIS_URL ?? "",
+      enabled: !!process.env.REDIS_URL,
+      connectTimeoutMs: parseIntEnv("REDIS_CONNECT_TIMEOUT_MS", "5000"),
+      commandTimeoutMs: parseIntEnv("REDIS_COMMAND_TIMEOUT_MS", "3000"),
+    },
   }
 }
