@@ -15,7 +15,7 @@ We take security seriously. If you discover a security vulnerability, please fol
 ### For Private Disclosure (Preferred)
 
 1. **Do NOT create a public GitHub issue**
-2. **Email the security team** at security@honeyjar.xyz with:
+2. **Email the security team** at jani@0xhoneyjar.xyz with:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact assessment
