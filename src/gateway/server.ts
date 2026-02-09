@@ -8,11 +8,13 @@ import type { WorkerPool } from "../agent/worker-pool.js"
 import type { SandboxExecutor } from "../agent/sandbox-executor.js"
 import { SessionRouter } from "./sessions.js"
 import { authMiddleware, corsMiddleware } from "./auth.js"
+import { jwtAuthMiddleware } from "../hounfour/jwt-auth.js"
 import { rateLimitMiddleware } from "./rate-limit.js"
 import type { HealthAggregator } from "../scheduler/health.js"
 import type { ActivityFeed } from "../dashboard/activity-feed.js"
 import { createActivityHandler } from "../dashboard/activity-handler.js"
 import type { HounfourRouter } from "../hounfour/router.js"
+import type { S2SJwtSigner } from "../hounfour/s2s-jwt.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
@@ -20,6 +22,8 @@ export interface AppOptions {
   executor?: SandboxExecutor
   pool?: WorkerPool
   hounfour?: HounfourRouter
+  /** S2S JWT signer for JWKS endpoint (Phase 5 T-A.6) */
+  s2sSigner?: S2SJwtSigner
 }
 
 export function createApp(config: FinnConfig, options: AppOptions) {
@@ -64,9 +68,28 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     }
   })
 
-  // Auth + rate limit for API routes
-  app.use("/api/*", rateLimitMiddleware(config))
-  app.use("/api/*", authMiddleware(config))
+  // JWKS endpoint for loa-finn's S2S public key (T-A.6)
+  app.get("/.well-known/jwks.json", (c) => {
+    if (!options.s2sSigner?.isReady) {
+      return c.json({ keys: [] })
+    }
+    return c.json(options.s2sSigner.getJWKS())
+  })
+
+  // JWT auth for arrakis-originated requests (T-A.2)
+  app.use("/api/v1/*", rateLimitMiddleware(config))
+  app.use("/api/v1/*", jwtAuthMiddleware(config))
+
+  // Bearer token auth for direct API access (existing behavior)
+  // Skip /api/v1/* paths — already handled by JWT middleware above
+  app.use("/api/*", async (c, next) => {
+    if (c.req.path.startsWith("/api/v1/")) return next()
+    return rateLimitMiddleware(config)(c, next)
+  })
+  app.use("/api/*", async (c, next) => {
+    if (c.req.path.startsWith("/api/v1/")) return next()
+    return authMiddleware(config)(c, next)
+  })
 
   // POST /api/sessions — create session
   app.post("/api/sessions", async (c) => {

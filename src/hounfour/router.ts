@@ -10,6 +10,9 @@ import type { ChevalInvoker, HealthProber } from "./cheval-invoker.js"
 import { createModelAdapter } from "./cheval-invoker.js"
 import { loadPersona } from "./persona-loader.js"
 import { validateExecutionContext } from "./types.js"
+import type { PoolRegistry, Tier } from "./pool-registry.js"
+import type { TenantContext } from "./jwt-auth.js"
+import type { BYOKProxyClient } from "./byok-proxy-client.js"
 import type {
   AgentBinding,
   AgentRequirements,
@@ -20,6 +23,7 @@ import type {
   ToolCall,
   ToolDefinition,
   ModelCapabilities,
+  ModelPortBase,
   ProviderEntry,
   PricingEntry,
   ResolvedModel,
@@ -38,6 +42,8 @@ export interface HounfourRouterOptions {
   cheval: ChevalInvoker
   scopeMeta: ScopeMeta
   rateLimiter?: ProviderRateLimiter     // Optional: per-provider RPM/TPM enforcement (T-16.3)
+  poolRegistry?: PoolRegistry           // Optional: pool-based routing (T-C.1)
+  byokProxy?: BYOKProxyClient           // Optional: BYOK proxy adapter (T-C.2)
   projectRoot?: string                  // For persona path resolution
   routingConfig?: Partial<RoutingConfig>
   toolCallConfig?: Partial<ToolCallLoopConfig>
@@ -104,6 +110,8 @@ export class HounfourRouter {
   private cheval: ChevalInvoker
   private scopeMeta: ScopeMeta
   private rateLimiter?: ProviderRateLimiter
+  private poolRegistry?: PoolRegistry
+  private byokProxy?: BYOKProxyClient
   private projectRoot: string
   private routingConfig: RoutingConfig
   private toolCallConfig: ToolCallLoopConfig
@@ -115,6 +123,8 @@ export class HounfourRouter {
     this.cheval = options.cheval
     this.scopeMeta = options.scopeMeta
     this.rateLimiter = options.rateLimiter
+    this.poolRegistry = options.poolRegistry
+    this.byokProxy = options.byokProxy
     this.projectRoot = options.projectRoot ?? process.cwd()
     this.routingConfig = {
       default_model: options.routingConfig?.default_model ?? "",
@@ -224,6 +234,164 @@ export class HounfourRouter {
     })
 
     return result
+  }
+
+  /**
+   * Tenant-aware dispatch — resolves model via NFT preferences and pool registry.
+   * Uses TenantContext from JWT claims to route per-NFT model preferences.
+   * If BYOK flag is set, delegates to BYOKProxyClient instead of direct provider.
+   *
+   * Resolution order: (1) NFT preferences per task type → (2) tier default → (3) global fallback
+   */
+  async invokeForTenant(
+    agent: string,
+    prompt: string,
+    tenantContext: TenantContext,
+    taskType: string,
+    options?: InvokeOptions,
+  ): Promise<CompletionResult> {
+    if (!this.poolRegistry) {
+      throw new HounfourError("CONFIG_INVALID", "PoolRegistry required for tenant-aware routing", { agent })
+    }
+
+    const binding = this.registry.getAgentBinding(agent)
+    if (!binding) {
+      throw new HounfourError("BINDING_INVALID", `Agent "${agent}" not found in registry`, { agent })
+    }
+
+    // Resolve pool via NFT preferences → tier default → global fallback
+    const poolId = this.resolvePoolForTenant(tenantContext, taskType)
+
+    // Validate tier authorization for the resolved pool
+    if (!this.poolRegistry.authorize(poolId, tenantContext.claims.tier as Tier)) {
+      throw new HounfourError("TIER_UNAUTHORIZED",
+        `Tier "${tenantContext.claims.tier}" cannot access pool "${poolId}"`, {
+          agent,
+          tier: tenantContext.claims.tier,
+          pool: poolId,
+          nft_id: tenantContext.claims.nft_id,
+        })
+    }
+
+    // Resolve pool with health-aware fallback
+    const pool = this.poolRegistry.resolveWithFallback(
+      poolId,
+      (provider, model) => this.health.isHealthy({ provider, modelId: model }),
+    )
+    if (!pool) {
+      throw new HounfourError("PROVIDER_UNAVAILABLE",
+        `No healthy provider for pool "${poolId}" (fallback chain exhausted)`, {
+          agent, pool: poolId,
+        })
+    }
+
+    // Build tenant-aware metadata
+    const traceId = randomUUID()
+    const tenantId = tenantContext.claims.tenant_id
+    const nftId = tenantContext.claims.nft_id ?? ""
+
+    // Budget enforcement
+    if (this.budget.isExceeded(this.scopeMeta)) {
+      throw new HounfourError("BUDGET_EXCEEDED", `Budget exceeded for tenant "${tenantId}"`, {
+        agent, tenant_id: tenantId,
+      })
+    }
+
+    // Load persona and build messages
+    const persona = await loadPersona(binding, this.projectRoot)
+    const effectiveOptions = persona && !options?.systemPrompt
+      ? { ...options, systemPrompt: persona }
+      : options
+    const messages = this.buildMessages(prompt, effectiveOptions)
+
+    const request: CompletionRequest = {
+      messages,
+      options: {
+        temperature: options?.temperature ?? binding.temperature,
+        max_tokens: options?.max_tokens,
+      },
+      metadata: {
+        agent,
+        tenant_id: tenantId,
+        nft_id: nftId,
+        trace_id: traceId,
+      },
+    }
+
+    // Choose execution path: BYOK proxy vs direct provider
+    let adapter: ModelPortBase
+    if (tenantContext.isBYOK) {
+      if (!this.byokProxy) {
+        throw new HounfourError("BYOK_PROXY_UNAVAILABLE", "BYOK proxy is not configured", {
+          agent,
+          tenant_id: tenantId,
+          nft_id: nftId,
+        })
+      }
+      adapter = this.byokProxy
+    } else {
+      const resolved: ResolvedModel = { provider: pool.provider, modelId: pool.model }
+      const providerEntry = this.registry.getProvider(pool.provider)
+      if (!providerEntry) {
+        throw new HounfourError("PROVIDER_UNAVAILABLE", `Provider "${pool.provider}" not found`, {
+          agent, provider: pool.provider,
+        })
+      }
+      adapter = createModelAdapter(resolved, providerEntry, this.cheval, this.health)
+    }
+
+    // Rate limit enforcement
+    if (this.rateLimiter) {
+      const estimatedTokens = options?.max_tokens ?? 4096
+      const acquired = await this.rateLimiter.acquire(pool.provider, estimatedTokens)
+      if (!acquired) {
+        throw new HounfourError("RATE_LIMITED", `Rate limit timeout for provider "${pool.provider}"`, {
+          agent, provider: pool.provider,
+        })
+      }
+    }
+
+    const result = await adapter.complete(request)
+
+    // Record cost with pool and tenant attribution
+    const pricing = this.registry.getPricing(pool.provider, pool.model)
+    if (pricing) {
+      await this.budget.recordCost(this.scopeMeta, result.usage, pricing, {
+        trace_id: traceId,
+        agent,
+        provider: pool.provider,
+        model: pool.model,
+        tenant_id: tenantId,
+        nft_id: nftId || undefined,
+        pool_id: pool.id,
+        latency_ms: result.metadata.latency_ms,
+      })
+    }
+
+    return result
+  }
+
+  /**
+   * Resolve pool ID for a tenant request.
+   * Resolution order: (1) NFT preferences per task type → (2) tier default → (3) global fallback
+   */
+  private resolvePoolForTenant(tenantContext: TenantContext, taskType: string): string {
+    // 1. NFT-specific preferences
+    if (tenantContext.isNFTRouted && tenantContext.claims.model_preferences) {
+      const prefs = tenantContext.claims.model_preferences
+      if (prefs[taskType] && this.poolRegistry!.resolve(prefs[taskType])) {
+        return prefs[taskType]
+      }
+    }
+
+    // 2. Tier default — first pool accessible to this tier
+    const tierPools = this.poolRegistry!.resolveForTier(tenantContext.claims.tier as Tier)
+    if (tierPools.length > 0) {
+      return tierPools[0].id
+    }
+
+    // 3. Global fallback — "cheap" pool
+    return "cheap"
   }
 
   /**

@@ -21,6 +21,7 @@ import type {
   ModelPortBase,
 } from "./types.js"
 import { DEFAULT_RETRY_POLICY } from "./types.js"
+import { AnthropicAdapter } from "./native-adapter.js"
 
 // --- Canonical JSON (matches Python json.dumps(sort_keys=True, separators=(",",":"))) ---
 
@@ -333,10 +334,7 @@ export function createModelAdapter(
   health: HealthProber,
 ): ModelPortBase {
   if (providerConfig.type === "claude-code") {
-    throw new HounfourError("NATIVE_RUNTIME_REQUIRED", "NativeRuntimeAdapter not implemented in Phase 0-2", {
-      provider: resolved.provider,
-      model: resolved.modelId,
-    })
+    return new AnthropicAdapter(resolved, providerConfig)
   }
   return new ChevalModelAdapter(cheval, resolved, providerConfig, health)
 }

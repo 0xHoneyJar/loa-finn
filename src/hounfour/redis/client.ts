@@ -29,6 +29,7 @@ export interface RedisCommandClient {
   get(key: string): Promise<string | null>
   set(key: string, value: string, ...args: (string | number)[]): Promise<string | null>
   del(...keys: string[]): Promise<number>
+  incrby(key: string, increment: number): Promise<number>
   incrbyfloat(key: string, increment: number): Promise<string>
   expire(key: string, seconds: number): Promise<number>
   exists(...keys: string[]): Promise<number>
@@ -37,6 +38,7 @@ export interface RedisCommandClient {
   hgetall(key: string): Promise<Record<string, string>>
   hincrby(key: string, field: string, increment: number): Promise<number>
   zadd(key: string, score: number, member: string): Promise<number>
+  zpopmin(key: string, count?: number): Promise<string[]>
   zremrangebyscore(key: string, min: string | number, max: string | number): Promise<number>
   zcard(key: string): Promise<number>
   publish(channel: string, message: string): Promise<number>

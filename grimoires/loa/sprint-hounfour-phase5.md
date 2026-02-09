@@ -239,13 +239,13 @@ Sprint D (Scaffolding + Polish) is deferred to a separate cycle. Its tasks (loa 
 **Description**: Prove Anthropic Messages API is accessible from loa-finn process and meets adapter requirements. This is a spike — output is a written report + proof-of-concept, not production code.
 
 **Acceptance Criteria**:
-- [ ] API key available and authenticated from loa-finn process
-- [ ] Streaming works (SSE from Anthropic → parseable events)
-- [ ] Tool use roundtrip: `tool_use` → `tool_result` → continuation message
-- [ ] Token usage available in response `usage` field for ledger
-- [ ] Abort via stream close terminates the request
-- [ ] Written spike report documenting findings, latency characteristics, edge cases
-- [ ] Decision: proceed with Messages API adapter (expected) or fall back
+- [x] API key available and authenticated from loa-finn process
+- [x] Streaming works (SSE from Anthropic → parseable events)
+- [x] Tool use roundtrip: `tool_use` → `tool_result` → continuation message
+- [x] Token usage available in response `usage` field for ledger
+- [x] Abort via stream close terminates the request
+- [x] Written spike report documenting findings, latency characteristics, edge cases
+- [x] Decision: proceed with Messages API adapter (expected) or fall back
 
 **Files**: `docs/spikes/anthropic-adapter-spike.md` (new), throwaway script
 **Effort**: Medium (2-3h)
@@ -255,15 +255,15 @@ Sprint D (Scaffolding + Polish) is deferred to a separate cycle. Its tasks (loa 
 **Description**: Create `src/hounfour/native-adapter.ts` — wraps Anthropic Messages API as `ModelPort` with `complete()` and `stream()`. Registered as provider `anthropic-direct`.
 
 **Acceptance Criteria**:
-- [ ] `AnthropicAdapter` implements `ModelPortBase` and `ModelPortStreaming`
-- [ ] `complete()`: sends Messages API request, returns `CompletionResult` with usage
-- [ ] `stream()`: returns `AsyncGenerator<StreamChunk>` from SSE events
-- [ ] Mapping: `CompletionRequest` ↔ Anthropic Messages format (role, tools, thinking)
-- [ ] Token usage extracted from `usage` field in response for ledger entry
-- [ ] `healthCheck()`: lightweight API call to verify key validity
-- [ ] Abort: `AbortSignal` passed to fetch, closes stream on abort
-- [ ] Registered in `ProviderRegistry` as `anthropic-direct`
-- [ ] Pools `reviewer` and `architect` can route here as alternative to cheval sidecar
+- [x] `AnthropicAdapter` implements `ModelPortBase` and `ModelPortStreaming`
+- [x] `complete()`: sends Messages API request, returns `CompletionResult` with usage
+- [x] `stream()`: returns `AsyncGenerator<StreamChunk>` from SSE events
+- [x] Mapping: `CompletionRequest` ↔ Anthropic Messages format (role, tools, thinking)
+- [x] Token usage extracted from `usage` field in response for ledger entry
+- [x] `healthCheck()`: lightweight API call to verify key validity
+- [x] Abort: `AbortSignal` passed to fetch, closes stream on abort
+- [x] Registered in `ProviderRegistry` as `anthropic-direct`
+- [x] Pools `reviewer` and `architect` can route here as alternative to cheval sidecar
 
 **Files**: `src/hounfour/native-adapter.ts` (new), `src/hounfour/registry.ts` (modify), `tests/finn/native-adapter.test.ts` (new)
 **Effort**: Large (4-6h)
@@ -273,16 +273,16 @@ Sprint D (Scaffolding + Polish) is deferred to a separate cycle. Its tasks (loa 
 **Description**: Create `src/hounfour/ensemble.ts` — runs same prompt against N models in parallel with configurable merge strategies. Two-level budget enforcement with parent/child AbortController hierarchy.
 
 **Acceptance Criteria**:
-- [ ] `EnsembleOrchestrator` class with `run(request, config, context)` method
-- [ ] `first_complete` strategy: race N models, return first non-error, cancel others
-- [ ] `best_of_n` strategy: run all in parallel, score results, return highest
-- [ ] `consensus` strategy: structured JSON output, majority vote per field
-- [ ] Per-model cap: each model has independent `max_tokens` from `budget_per_model_micro / price_per_token_micro`; hitting cap aborts only that model
-- [ ] Total ensemble cap: sum of costs checked after each completion; exceeding aborts parent AbortController (cascades to all children)
-- [ ] Streaming token accounting for providers supporting usage deltas (Anthropic)
-- [ ] Conservative `max_tokens` pre-calculation for providers without streaming usage
-- [ ] Abort hierarchy: parent AbortController → child AbortControllers per model
-- [ ] `EnsembleResult` with `ensemble_id`, `selected`, `all_results`, `total_cost_micro`
+- [x] `EnsembleOrchestrator` class with `run(request, config, context)` method
+- [x] `first_complete` strategy: race N models, return first non-error, cancel others
+- [x] `best_of_n` strategy: run all in parallel, score results, return highest
+- [x] `consensus` strategy: structured JSON output, majority vote per field
+- [x] Per-model cap: each model has independent `max_tokens` from `budget_per_model_micro / price_per_token_micro`; hitting cap aborts only that model
+- [x] Total ensemble cap: sum of costs checked after each completion; exceeding aborts parent AbortController (cascades to all children)
+- [x] Streaming token accounting for providers supporting usage deltas (Anthropic)
+- [x] Conservative `max_tokens` pre-calculation for providers without streaming usage
+- [x] Abort hierarchy: parent AbortController → child AbortControllers per model
+- [x] `EnsembleResult` with `ensemble_id`, `selected`, `all_results`, `total_cost_micro`
 
 **Files**: `src/hounfour/ensemble.ts` (new), `tests/finn/ensemble.test.ts` (new)
 **Effort**: Large (5-7h)
@@ -292,12 +292,12 @@ Sprint D (Scaffolding + Polish) is deferred to a separate cycle. Its tasks (loa 
 **Description**: Each model invocation in an ensemble gets its own ledger entry with shared `trace_id` and `ensemble_id`. Aggregate cost per ensemble run.
 
 **Acceptance Criteria**:
-- [ ] Each model in ensemble creates separate JSONL ledger entry
-- [ ] All entries share `trace_id` and `ensemble_id` (ULID)
-- [ ] Each entry has individual `cost_micro`, `input_tokens`, `output_tokens`, `latency_ms`
-- [ ] Usage reports sent per-model (not aggregated) to arrakis
-- [ ] `ensemble_id` field in `UsageReport` links related entries
-- [ ] Cost aggregation query: sum `cost_micro` where `ensemble_id = X`
+- [x] Each model in ensemble creates separate JSONL ledger entry
+- [x] All entries share `trace_id` and `ensemble_id` (ULID)
+- [x] Each entry has individual `cost_micro`, `input_tokens`, `output_tokens`, `latency_ms`
+- [x] Usage reports sent per-model (not aggregated) to arrakis
+- [x] `ensemble_id` field in `UsageReport` links related entries
+- [x] Cost aggregation query: sum `cost_micro` where `ensemble_id = X`
 
 **Files**: `src/hounfour/ensemble.ts` (extend), `src/hounfour/usage-reporter.ts` (extend)
 **Effort**: Small (1-2h)
@@ -307,12 +307,12 @@ Sprint D (Scaffolding + Polish) is deferred to a separate cycle. Its tasks (loa 
 **Description**: Validate tool-call loop with Qwen3-Coder-Next via cheval sidecar orchestrator. Document capability gaps vs Claude. Establish which agents can run on it.
 
 **Acceptance Criteria**:
-- [ ] Multi-step tool-calling task completes (read file → edit → verify)
-- [ ] Tool call format compatibility verified (function_call vs tool_use differences)
-- [ ] Streaming tool call assembly works with Qwen3 output format
-- [ ] Capability gaps documented: context window, reasoning quality, tool format quirks
-- [ ] Agent compatibility matrix: which of the 8 Loa agents can run on Qwen3 vs require Claude
-- [ ] Written validation report
+- [x] Multi-step tool-calling task completes (read file → edit → verify)
+- [x] Tool call format compatibility verified (function_call vs tool_use differences)
+- [x] Streaming tool call assembly works with Qwen3 output format
+- [x] Capability gaps documented: context window, reasoning quality, tool format quirks
+- [x] Agent compatibility matrix: which of the 8 Loa agents can run on Qwen3 vs require Claude
+- [x] Written validation report
 
 **Files**: `docs/spikes/qwen3-coder-validation.md` (new)
 **Effort**: Medium (2-3h)
@@ -322,12 +322,12 @@ Sprint D (Scaffolding + Polish) is deferred to a separate cycle. Its tasks (loa 
 **Description**: E2E tests for AnthropicAdapter and ensemble orchestrator.
 
 **Acceptance Criteria**:
-- [ ] AnthropicAdapter: streaming completion with tool use roundtrip (mock API)
-- [ ] Ensemble `first_complete`: 2 models race, first response returned, other cancelled
-- [ ] Ensemble `best_of_n`: 2 models complete, higher-scored selected
-- [ ] Ensemble budget: per-model cap aborts single model, total cap aborts all
-- [ ] Ensemble cost attribution: separate ledger entries with shared ensemble_id
-- [ ] Abort propagation: parent abort cascades to all child models
+- [x] AnthropicAdapter: streaming completion with tool use roundtrip (mock API)
+- [x] Ensemble `first_complete`: 2 models race, first response returned, other cancelled
+- [x] Ensemble `best_of_n`: 2 models complete, higher-scored selected
+- [x] Ensemble budget: per-model cap aborts single model, total cap aborts all
+- [x] Ensemble cost attribution: separate ledger entries with shared ensemble_id
+- [x] Abort propagation: parent abort cascades to all child models
 
 **Files**: `tests/finn/ensemble.test.ts` (extend), `tests/finn/native-adapter.test.ts` (extend)
 **Effort**: Medium (2-3h)

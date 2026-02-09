@@ -9,16 +9,24 @@ import type { RedisStateBackend } from "./client.js"
 
 export interface BudgetSnapshot {
   scopeKey: string
-  spentUsd: number
-  limitUsd: number
-  remainingUsd: number
+  spentMicro: number
+  limitMicro: number
+  remainingMicro: number
   exceeded: boolean
   warning: boolean
+  /** @deprecated Use spentMicro. Kept for 1 rotation cycle compat. */
+  spentUsd: number
+  /** @deprecated Use limitMicro. Kept for 1 rotation cycle compat. */
+  limitUsd: number
+  /** @deprecated Use remainingMicro. Kept for 1 rotation cycle compat. */
+  remainingUsd: number
 }
 
 export interface BudgetConfig {
-  limitUsd: number                // Budget limit per scope
+  limitMicro: number              // Budget limit per scope in micro-USD
   warningThresholdPercent: number // Warning at this % of limit (default: 80)
+  /** @deprecated Use limitMicro. */
+  limitUsd?: number
 }
 
 export interface ReconciliationResult {
@@ -34,7 +42,7 @@ export interface ReconciliationResult {
 
 /** Port interface for budget enforcement */
 export interface BudgetEnforcerPort {
-  recordCost(scopeKey: string, costUsd: number): Promise<void>
+  recordCost(scopeKey: string, costMicro: number): Promise<void>
   isExceeded(scopeKey: string): Promise<boolean>
   isWarning(scopeKey: string): boolean
   getBudgetSnapshot(scopeKey: string): BudgetSnapshot
@@ -44,9 +52,10 @@ export interface BudgetEnforcerPort {
 
 /**
  * Redis-backed budget enforcement with fail-closed semantics.
+ * Phase 5: integer micro-USD via INCRBY (replacing INCRBYFLOAT).
  *
  * Dual-write pattern:
- *   1. INCRBYFLOAT on Redis (atomic, online gate)
+ *   1. INCRBY on Redis (atomic, online gate) — integer micro-USD
  *   2. Update in-memory mirror
  *
  * Fail-closed behavior:
@@ -55,7 +64,7 @@ export interface BudgetEnforcerPort {
  *   - isWarning()/getBudgetSnapshot(): read in-memory mirror (advisory)
  */
 export class RedisBudgetEnforcer implements BudgetEnforcerPort {
-  private mirror = new Map<string, number>()
+  private mirror = new Map<string, number>() // micro-USD values
 
   constructor(
     private redis: RedisStateBackend | null,
@@ -63,20 +72,25 @@ export class RedisBudgetEnforcer implements BudgetEnforcerPort {
   ) {}
 
   /**
-   * Record cost — dual-write to Redis + in-memory mirror.
+   * Record cost in micro-USD — dual-write to Redis + in-memory mirror.
+   * Uses INCRBY (integer) instead of INCRBYFLOAT (float).
    * Throws if Redis is unavailable (fail-closed).
    */
-  async recordCost(scopeKey: string, costUsd: number): Promise<void> {
+  async recordCost(scopeKey: string, costMicro: number): Promise<void> {
     if (!this.redis?.isConnected()) {
       throw new Error("BUDGET_UNAVAILABLE: Redis not connected, cannot record cost (fail-closed)")
     }
 
-    const redisKey = this.redis.key("budget", scopeKey)
+    if (!Number.isInteger(costMicro) || costMicro < 0) {
+      throw new Error(`BUDGET_INVALID: costMicro must be a non-negative integer (got ${costMicro})`)
+    }
+
+    const redisKey = this.redisSpentKey(scopeKey)
     try {
-      const newTotal = await this.redis.getClient().incrbyfloat(redisKey, costUsd)
-      this.mirror.set(scopeKey, parseFloat(newTotal))
+      const newTotal = await this.redis.getClient().incrby(redisKey, costMicro)
+      this.mirror.set(scopeKey, newTotal)
     } catch (err) {
-      throw new Error(`BUDGET_UNAVAILABLE: Redis INCRBYFLOAT failed: ${err}`)
+      throw new Error(`BUDGET_UNAVAILABLE: Redis INCRBY failed: ${err}`)
     }
   }
 
@@ -90,11 +104,12 @@ export class RedisBudgetEnforcer implements BudgetEnforcerPort {
     }
 
     try {
-      const redisKey = this.redis.key("budget", scopeKey)
+      const redisKey = this.redisSpentKey(scopeKey)
       const value = await this.redis.getClient().get(redisKey)
-      const spent = value ? parseFloat(value) : 0
-      this.mirror.set(scopeKey, spent) // Sync mirror
-      return spent >= this.config.limitUsd
+      const parsed = value ? parseInt(value, 10) : 0
+      if (Number.isNaN(parsed)) return true // Fail-closed: corrupted data → treat as exceeded
+      this.mirror.set(scopeKey, parsed) // Sync mirror
+      return parsed >= this.config.limitMicro
     } catch {
       return true // Fail-closed
     }
@@ -104,24 +119,29 @@ export class RedisBudgetEnforcer implements BudgetEnforcerPort {
    * Warning check — sync, reads in-memory mirror (advisory only).
    */
   isWarning(scopeKey: string): boolean {
-    const spent = this.mirror.get(scopeKey) ?? 0
-    const threshold = this.config.limitUsd * (this.config.warningThresholdPercent / 100)
-    return spent >= threshold
+    const spentMicro = this.mirror.get(scopeKey) ?? 0
+    const threshold = Math.floor(this.config.limitMicro * (this.config.warningThresholdPercent / 100))
+    return spentMicro >= threshold
   }
 
   /**
    * Budget snapshot — sync, reads in-memory mirror (advisory only).
    */
   getBudgetSnapshot(scopeKey: string): BudgetSnapshot {
-    const spent = this.mirror.get(scopeKey) ?? 0
-    const remaining = Math.max(0, this.config.limitUsd - spent)
+    const spentMicro = this.mirror.get(scopeKey) ?? 0
+    const limitMicro = this.config.limitMicro
+    const remainingMicro = Math.max(0, limitMicro - spentMicro)
     return {
       scopeKey,
-      spentUsd: spent,
-      limitUsd: this.config.limitUsd,
-      remainingUsd: remaining,
-      exceeded: spent >= this.config.limitUsd,
+      spentMicro,
+      limitMicro,
+      remainingMicro,
+      exceeded: spentMicro >= limitMicro,
       warning: this.isWarning(scopeKey),
+      // Deprecated compat fields (1 rotation cycle)
+      spentUsd: spentMicro / 1_000_000,
+      limitUsd: limitMicro / 1_000_000,
+      remainingUsd: remainingMicro / 1_000_000,
     }
   }
 
@@ -133,10 +153,14 @@ export class RedisBudgetEnforcer implements BudgetEnforcerPort {
 
     for (const scopeKey of scopeKeys) {
       try {
-        const redisKey = this.redis.key("budget", scopeKey)
+        const redisKey = this.redisSpentKey(scopeKey)
         const value = await this.redis.getClient().get(redisKey)
         if (value !== null) {
-          this.mirror.set(scopeKey, parseFloat(value))
+          const parsed = parseInt(value, 10)
+          if (!Number.isNaN(parsed)) {
+            this.mirror.set(scopeKey, parsed)
+          }
+          // NaN → skip (mirror stays at 0, non-fatal for sync)
         }
       } catch {
         // Non-fatal — mirror stays at 0
@@ -150,32 +174,38 @@ export class RedisBudgetEnforcer implements BudgetEnforcerPort {
   async reconcile(): Promise<ReconciliationResult> {
     const scopes: ReconciliationResult["scopes"] = []
 
-    for (const [scopeKey, mirrorUsd] of this.mirror) {
-      let redisUsd = mirrorUsd // Default to mirror if Redis unavailable
+    for (const [scopeKey, mirrorMicro] of this.mirror) {
+      let redisMicro = mirrorMicro // Default to mirror if Redis unavailable
 
       if (this.redis?.isConnected()) {
         try {
-          const redisKey = this.redis.key("budget", scopeKey)
+          const redisKey = this.redisSpentKey(scopeKey)
           const value = await this.redis.getClient().get(redisKey)
-          redisUsd = value ? parseFloat(value) : 0
+          const parsed = value ? parseInt(value, 10) : 0
+          redisMicro = Number.isNaN(parsed) ? mirrorMicro : parsed
         } catch {
           // Use mirror value
         }
       }
 
-      const driftPercent = mirrorUsd > 0
-        ? Math.abs((redisUsd - mirrorUsd) / mirrorUsd) * 100
+      const driftPercent = mirrorMicro > 0
+        ? Math.abs((redisMicro - mirrorMicro) / mirrorMicro) * 100
         : 0
 
       scopes.push({
         key: scopeKey,
-        redisUsd,
-        mirrorUsd,
+        redisUsd: redisMicro / 1_000_000,
+        mirrorUsd: mirrorMicro / 1_000_000,
         driftPercent,
         alert: driftPercent > 1,
       })
     }
 
     return { timestamp: new Date().toISOString(), scopes }
+  }
+
+  /** Redis key for spent_micro counter */
+  private redisSpentKey(scopeKey: string): string {
+    return this.redis!.key("budget", `${scopeKey}:spent_micro`)
   }
 }

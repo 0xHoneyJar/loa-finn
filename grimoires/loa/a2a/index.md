@@ -1,5 +1,13 @@
 # A2A Sprint Index
 
+## Cycle-009: Hounfour Phase 5 — Integration Hardening & Multi-Model Orchestration
+
+| Sprint | Global ID | Status | Report |
+|--------|-----------|--------|--------|
+| Sprint A | 22 | COMPLETED | [reviewer.md](sprint-22/reviewer.md) / [engineer-feedback.md](sprint-22/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-22/auditor-sprint-feedback.md) |
+| Sprint B | 23 | COMPLETED | [reviewer.md](sprint-23/reviewer.md) / [engineer-feedback.md](sprint-23/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-23/auditor-sprint-feedback.md) |
+| Sprint C | 24 | COMPLETED | [reviewer.md](sprint-24/reviewer.md) / [engineer-feedback.md](sprint-24/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-24/auditor-sprint-feedback.md) |
+
 ## Issue #222: Cross-Repo Pattern Extraction
 
 | Sprint | Global ID | Status | Report |
