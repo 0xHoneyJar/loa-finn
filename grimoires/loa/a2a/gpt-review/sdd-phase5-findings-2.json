@@ -1,0 +1,40 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "Most of the previously-blocking items were addressed (route-based dual-auth, streaming-compatible request binding, integer-only micro-USD math, durable/idempotent signed usage reports, and ensemble abort semantics), but the revised SDD reintroduces a truly blocking contradiction in the budget test contract that would cause cross-language drift and undermine reconciliation.",
+  "previous_issues_status": [
+    {
+      "original_issue": "req_hash feasibility with streaming + WS path unbound to JWT",
+      "status": "fixed",
+      "notes": "REST req_hash is now explicitly scope-limited to JSON requests with a 1MB cap and implemented via ReadableStream.tee() hashing while parsing (no double-consume). WS is no longer unbound: it uses JWT in query param plus a server-issued nonce challenge echoed back signed within 5s. This resolves the original feasibility/security gap."
+    },
+    {
+      "original_issue": "Micro-USD arithmetic used floats and remainder carry was inconsistent",
+      "status": "fixed",
+      "notes": "The cost path is now specified as integer arithmetic using price_micro_per_million and BigInt/int with div/mod; Redis uses INCRBY; pricing table is integer-only. Remainder is tracked in the same integer base (mod 1,000,000) which is coherent."
+    },
+    {
+      "original_issue": "Usage report pipeline lacked idempotency, authenticity/binding, and durable delivery",
+      "status": "fixed",
+      "notes": "Arrakis idempotency on report_id with 90-day retention is explicitly required, duplicates return 200, delivery is durable via R2/S3 dead-letter + replay job, and payload integrity is provided via JWS over canonical JSON plus S2S JWT auth. This addresses double-charge and drift risks."
+    },
+    {
+      "original_issue": "Dual-auth ambiguity between JWT bearer and opaque bearer",
+      "status": "fixed",
+      "notes": "Auth is now route-separated (/api/v1/* JWT-only, /api/* opaque bearer), removing ambiguity. The additional structural pre-check rules are fine as defense-in-depth, but route separation is the real fix."
+    },
+    {
+      "original_issue": "Ensemble orchestrator budget/abort interaction (aborting all models when one hits cap; inability to detect overspend)",
+      "status": "fixed",
+      "notes": "Per-model cap aborts only that child; total ensemble cap aborts parent; best_of_n runs all; and for providers without streaming usage it enforces via conservative max_tokens. This matches the requested semantics and avoids systematic under-delivery."
+    }
+  ],
+  "new_blocking_concerns": [
+    {
+      "location": "§8 Testing Strategy → “Cross-Language Budget Vectors” (last sentence)",
+      "description": "The SDD’s test requirement still states that both JS `Math.floor(x * 1_000_000)` and Python `int(x * 1_000_000)` must match, which contradicts the new integer-only micro-USD design and reintroduces float-based drift into the acceptance criteria.",
+      "why_blocking": "This is not just a documentation nit: it creates an impossible/incorrect contract for CI. Either (a) engineers implement float conversions to satisfy the test (reintroducing the original billing drift bug), or (b) the correct integer implementation fails the stated test. In a split-authority reconciliation system, this kind of mismatch will cause enforcement divergence or failed releases.",
+      "fix": "Update the test contract to use integer/rational inputs only and remove all float conversion language. Concretely: (1) budget-test-vectors.json should contain tokens and integer price_micro_per_million_{input,output} (or numerator/denominator) and expected {cost_micro, remainder_micro}; (2) JS must use BigInt div/mod; Python must use int div/mod; (3) delete the `Math.floor(x * 1_000_000)` / `int(x * 1_000_000)` requirement and replace with “both implementations must produce identical div/mod results for all vectors.”"
+    }
+  ],
+  "iteration": 2
+}

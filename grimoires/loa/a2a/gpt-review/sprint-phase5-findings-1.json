@@ -1,0 +1,38 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "The plan is close, but a few missing/incorrectly-specified integration tasks (WS nonce/JWT binding, usage report durability, and req_hash implementation feasibility) are likely to block completion or cause security/behavior mismatches in implementation.",
+  "blocking_issues": [
+    {
+      "location": "Sprint A / T-A.2 (Route-Based Dual Auth) + T-A.1/T-A.3 (JWT/req_hash)",
+      "issue": "WebSocket auth design is underspecified/incorrect: “JWT from query param” plus a “nonce challenge” is described, but there is no defined mechanism for how the client proves possession of the JWT signing key (it can’t), nor how the nonce is bound to the JWT/connection in a verifiable way.",
+      "why_blocking": "Implementation will stall or ship insecure/unenforceable behavior. A client cannot “echo signed” unless you define a client-held key and signature scheme; JWT ES256 is signed by arrakis, not the client. Without a concrete, testable protocol, WS auth will either be bypassable or impossible to implement consistently across arrakis/loa-finn clients.",
+      "fix": "Pick one concrete WS auth scheme and add acceptance criteria + tests: (A) simplest: validate JWT on upgrade and skip nonce entirely; rely on short exp + jti replay protection (store jti in Redis with TTL) and/or origin checks. (B) If you need nonce: define it as a server challenge that must be answered by a second request that is req_hash-bound (HTTP) or by a JWS signed with a client key (requires client key distribution—new scope). Update T-A.2 and T-A.10 to include explicit verification steps and replay protection criteria."
+    },
+    {
+      "location": "Sprint A / T-A.7 (Usage Report Pipeline)",
+      "issue": "Dead-letter storage is specified as “R2/S3” but there are no tasks/constraints for credentials, bucket provisioning, SDK usage, or the “only 1 new npm dependency” rule impact; also no fallback if object storage isn’t available in dev/test.",
+      "why_blocking": "This is a hard external dependency that can prevent completion of T-A.7 and all tests that require durable delivery. With a single developer and no explicit infra task, you risk being unable to implement or validate durability/replay within the sprint.",
+      "fix": "Add an explicit subtask or acceptance criteria that defines the storage backend and how it’s accessed without new deps (e.g., use existing in-repo S3/R2 client if present; otherwise switch to Redis-based durable queue using Lua/ZSET as the dead-letter store for this sprint). Update T-A.7/T-A.10 to test durability against the chosen backend in CI (mocked) and document required env vars."
+    },
+    {
+      "location": "Sprint A / T-A.3 (req_hash Verification)",
+      "issue": "The proposed implementation approach (“ReadableStream.tee() … one fork feeds SHA-256 hasher, other feeds JSON parser”) may not be feasible in the current Hono/Node request body handling without buffering, and it conflicts with the “hash raw bytes as received” requirement when typical frameworks transparently decode/decompress or consume the body once.",
+      "why_blocking": "This can become an implementation dead-end: you may not be able to both (1) hash exact raw bytes and (2) still parse JSON through the normal middleware chain without re-plumbing body handling. If you can’t access raw bytes reliably, req_hash validation will fail intermittently or require a larger refactor than planned, jeopardizing Sprint A exit criteria and tests.",
+      "fix": "Add a concrete, testable plan for raw-body capture in Hono/Node: e.g., implement a single “rawBody” reader that buffers up to 1MB into a Uint8Array, computes SHA-256 over that buffer, and then parses JSON from the same buffer (no tee). Update acceptance criteria to specify exact hashing input (raw request bytes pre-JSON parse) and add tests for gzip behavior (either explicitly reject Content-Encoding != identity with 415, or explicitly state you hash compressed bytes and ensure the server does not auto-decompress)."
+    },
+    {
+      "location": "Sprint A / T-A.5 (Integer Micro-USD Budget Migration) + T-A.10 (Budget drift test)",
+      "issue": "The in-memory mirror type uses `number` for `spent_micro`/`remainder_micro` while cost computation uses BigInt; plus the drift criterion in Sprint A exit (“< max(1 micro-USD, 0.1% of spend) after 10k requests”) conflicts with T-A.10 (“drift < 1 micro”).",
+      "why_blocking": "You can end up with inconsistent arithmetic and tests that can’t simultaneously pass. If you downcast BigInt to number in hot paths, you risk precision loss over time; if you keep BigInt, you must adjust Redis/JSON serialization and types. The conflicting drift thresholds will cause ambiguity in “done” and failing CI depending on which criterion is enforced.",
+      "fix": "Unify: decide whether internal state is BigInt end-to-end or bounded Number with explicit max-spend guardrails, and make tests match. Update Sprint A exit criteria or T-A.10 so drift threshold is identical and justified (recommend: drift <= 1 micro for deterministic vectors; for 10k randomized requests allow <= max(1 micro, 0.1%) if remainder carry is per-(tenant,model) and deterministic)."
+    },
+    {
+      "location": "Sprint A / Cross-repo coordination section + T-A.4 description",
+      "issue": "Cross-repo table references “T-A.4 (arrakis budget endpoint)” but T-A.4 is Pool Registry in loa-finn; the actual arrakis integration points for Phase 5 (JWKS endpoint, usage-reports endpoint, BYOK proxy endpoint) are not enumerated with concrete contract tests or mocked server behaviors.",
+      "why_blocking": "This mismatch will cause missed work: you may finish loa-finn code but be unable to validate integration contracts, or you’ll discover late that mocks don’t match arrakis expectations (headers, auth, idempotency, JWS verification). That can break Sprint A/C exit criteria and delay merging.",
+      "fix": "Correct the coordination map and add explicit mock-contract tasks/criteria: define mock arrakis endpoints for (1) JWKS fetch, (2) /internal/usage-reports (verifies S2S JWT + JWS payload + idempotency), (3) /internal/byok-proxy (SSE + error modes). Ensure tests assert exact request/response shapes per PRD §6.1–6.4."
+    }
+  ],
+  "question": "",
+  "iteration": 1
+}

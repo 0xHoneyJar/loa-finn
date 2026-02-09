@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-008",
-  "next_global_sprint_id": 22,
+  "current_cycle": "cycle-009",
+  "next_global_sprint_id": 25,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -126,7 +126,6 @@
       "status": "archived",
       "started": "2026-02-08T00:00:00Z",
       "archived": "2026-02-08T12:00:00Z",
-      "archive_path": "grimoires/loa/archive/2026-02-08-worker-thread-sandbox/",
       "prd": "grimoires/loa/prd-worker-thread-sandbox.md",
       "sdd": "grimoires/loa/sdd-worker-thread-sandbox.md",
       "sprints": [
@@ -147,89 +146,112 @@
       ]
     },
     "cycle-006": {
-      "label": "The Hounfour: Multi-Model Provider Abstraction",
+      "label": "Hounfour Phases 0-2: Multi-Model Provider Abstraction",
       "status": "archived",
       "started": "2026-02-08T12:00:00Z",
-      "archived": "2026-02-08T22:00:00Z",
+      "archived": "2026-02-09T00:00:00Z",
       "prd": "grimoires/loa/prd-hounfour.md",
       "sdd": "grimoires/loa/sdd-hounfour.md",
-      "note": "Implemented on feature/hounfour branch (PR #36)",
       "sprints": [
         {
           "local_id": "sprint-1",
           "global_id": 14,
-          "label": "Foundation & Adapter Core",
+          "label": "Phase 0: Foundation (cheval.py, config, ledger)",
           "status": "completed",
-          "tasks": 11
+          "tasks": 10
         },
         {
           "local_id": "sprint-2",
           "global_id": 15,
-          "label": "Flatline Integration & Budget",
+          "label": "Phase 1: Flatline Integration + Budget",
           "status": "completed",
           "tasks": 10
         },
         {
           "local_id": "sprint-3",
           "global_id": 16,
-          "label": "Agent Portability & Health",
+          "label": "Phase 2: Agent Portability + Health Checks",
           "status": "completed",
-          "tasks": 8
+          "tasks": 9
         }
       ]
     },
     "cycle-007": {
-      "label": "Bridgebuilder Refactor: Adopt Upstream Skill",
+      "label": "Hounfour Phase 3: Server Integration & Self-Hosted Inference",
       "status": "archived",
-      "started": "2026-02-08T23:00:00Z",
-      "archived": "2026-02-09T12:00:00Z",
-      "prd": "grimoires/loa/prd-bridgebuilder-refactor.md",
-      "sdd": "grimoires/loa/sdd-bridgebuilder-refactor.md",
-      "note": "Implemented on chore/bridgebuilder-refactor branch (PR #38)",
+      "started": "2026-02-09T00:00:00Z",
+      "archived": "2026-02-09T02:00:00Z",
+      "prd": "grimoires/loa/prd-hounfour-phase3.md",
+      "sdd": "grimoires/loa/sdd-hounfour-phase3.md",
       "sprints": [
         {
           "local_id": "sprint-1",
           "global_id": 17,
-          "label": "Foundation — Upstream Integration + Finn Adapters",
+          "label": "Sidecar + Tool-Call Orchestrator",
           "status": "completed",
-          "tasks": 7
+          "tasks": 10
         },
         {
           "local_id": "sprint-2",
           "global_id": 18,
-          "label": "Wiring + Cleanup + Deployment",
+          "label": "Streaming + Redis State",
+          "status": "completed",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 19,
+          "label": "GPU Deployment + Ledger Export",
           "status": "completed",
           "tasks": 8
         }
       ]
     },
     "cycle-008": {
-      "label": "Hounfour Phase 3: Server Integration & Self-Hosted Inference",
-      "status": "active",
-      "started": "2026-02-09T12:00:00Z",
-      "prd": "grimoires/loa/prd-hounfour-phase3.md",
-      "sdd": "grimoires/loa/sdd-hounfour-phase3.md",
+      "label": "Hounfour Phase 4: Arrakis Distribution (Spice Gate)",
+      "status": "archived",
+      "started": "2026-02-09T02:00:00Z",
+      "archived": "2026-02-09T12:00:00Z",
+      "prd": "arrakis:grimoires/loa/prd-spice-gate.md",
+      "sdd": "arrakis:grimoires/loa/sdd-spice-gate.md",
       "sprints": [
         {
-          "local_id": "sprint-1",
-          "global_id": 19,
-          "label": "Sidecar + Orchestrator",
-          "status": "completed",
-          "tasks": 7
-        },
-        {
-          "local_id": "sprint-2",
+          "local_id": "sprint-1-9",
           "global_id": 20,
-          "label": "Streaming + Redis State",
+          "label": "Arrakis Agent Gateway (9 sprints, 44 tasks)",
           "status": "completed",
-          "tasks": 12
+          "tasks": 44
+        }
+      ],
+      "notes": "Executed in arrakis repo (PR #40). Consolidated as single ledger entry."
+    },
+    "cycle-009": {
+      "label": "Hounfour Phase 5: Integration & Multi-Model Orchestration",
+      "status": "active",
+      "started": "2026-02-09T18:00:00Z",
+      "prd": "grimoires/loa/prd-hounfour-phase5.md",
+      "sdd": "grimoires/loa/sdd-hounfour-phase5.md",
+      "sprints": [
+        {
+          "local_id": "sprint-A",
+          "global_id": 22,
+          "label": "Integration Debt (JWT, Pools, Budget, Abort, LRU)",
+          "status": "pending",
+          "tasks": 10
         },
         {
-          "local_id": "sprint-3",
-          "global_id": 21,
-          "label": "GPU Deployment + Export",
-          "status": "completed",
-          "tasks": 9
+          "local_id": "sprint-B",
+          "global_id": 23,
+          "label": "NativeRuntimeAdapter + Ensemble Orchestrator",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-C",
+          "global_id": 24,
+          "label": "finnNFT Routing + BYOK Proxy",
+          "status": "pending",
+          "tasks": 5
         }
       ]
     }

@@ -1,0 +1,50 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "As written, Phase 5 will likely ship an integration that either can’t validate requests reliably (JWT/req_hash), can’t safely do BYOK (key handling contract is wrong), or can’t achieve the stated budget integrity target (reconciliation is advisory + mismatched sources of truth).",
+  "blocking_issues": [
+    {
+      "location": "Sprint A (A.1 JWT validation middleware) + Contract Interfaces: JWT Claims",
+      "issue": "JWT contract is incomplete for reliable verification: missing issuer/audience constraints, key id expectations, and canonicalization rules for `req_hash` binding.",
+      "why_blocking": "Without `iss`/`aud` (and an explicit verification policy), loa-finn can accept tokens minted for other services/environments or reject valid ones depending on defaults. Separately, `req_hash` is specified as “SHA-256 of request body” but not how the body is canonicalized (JSON whitespace/order, streaming bodies, multipart, gzip). That makes e2e verification flaky or forces disabling `req_hash`, undermining the security model Phase 4 implies.",
+      "fix": "Define a strict JWT verification profile in the PRD: required claims (`iss`, `aud`, `sub`, `iat`, `exp`, `jti` optional), accepted clock skew, required header fields (`kid`, `alg=ES256`), and JWKS selection rules. For `req_hash`, specify canonicalization: e.g., hash the exact raw bytes as received by arrakis before any parsing, include `content-type` and `content-encoding` rules, and define behavior for non-JSON requests. Add an integration test that proves identical hashing across arrakis→loa-finn for at least JSON + gzip/no-gzip cases (or explicitly forbid gzip at this boundary)."
+    },
+    {
+      "location": "Goals & Success Metrics (Budget integrity) vs Risks & Mitigations (reconciliation is advisory) vs Sprint A (A.4/A.5)",
+      "issue": "Contradiction: PRD claims “Single source of truth for cost accounting across the two systems” but later states loa-finn enforces independently and reconciliation is advisory; also drift target (< $0.01 after 10k) is incompatible with “advisory polling” plus two independent meters.",
+      "why_blocking": "If both systems meter independently and reconciliation is advisory, you do not have a single source of truth—at best you have two ledgers that may diverge due to timing, retries, partial failures, ensemble fan-out, and different token accounting. The success metric will fail intermittently or drive the team to hack around it (e.g., loosening thresholds), resulting in a system that can overspend or incorrectly deny service.",
+      "fix": "Pick and specify one authoritative accounting model for enforcement: (a) arrakis-authoritative (pre-authorize/reserve in arrakis, finalize with usage report from loa-finn), or (b) loa-finn-authoritative (arrakis only gates requests, loa-finn reports spend back). If you keep polling, change the goal from “single source of truth” to “bounded drift with defined reconciliation semantics,” and redefine the metric to something achievable (e.g., drift <= max(1 cent, 0.1% of spend) with deterministic reconciliation windows). Add an explicit event/record contract: `usage_report` payload from loa-finn to arrakis with `trace_id`, `request_id`, `model`, `input_tokens`, `output_tokens`, `cost_cents`, and idempotency key."
+    },
+    {
+      "location": "Sprint A (A.3 Integer-cent budget migration)",
+      "issue": "Migration spec is unsafe: `Math.round(usd * 100)` is not a correct or stable conversion for metered costs and will introduce systematic bias; also it doesn’t define rounding mode, currency precision, or how to handle per-token fractional cents.",
+      "why_blocking": "Budget integrity depends on deterministic arithmetic. Rounding each request independently can accumulate drift beyond the 1-cent target, especially with small per-token costs and ensembles. Different runtimes (JS vs Python) can round differently at .5 boundaries. This will break reconciliation and can cause either overspend or false budget exhaustion.",
+      "fix": "Define cost accounting in integer micro-units (e.g., `cost_microusd` or `cost_nanos`) or “cents with remainder carry”: keep `cost_cents` plus `remainder_micros` per tenant/model and carry remainder forward deterministically. Specify rounding mode (bankers vs floor) and apply it only at settlement boundaries (e.g., monthly invoice), not per request. Update success metric accordingly and add a deterministic cross-language test vector suite."
+    },
+    {
+      "location": "Sprint A (A.4 Budget reconciliation endpoint) + Technical Constraints (Auth boundary) + Contract Interfaces",
+      "issue": "Service-to-service auth is underspecified and conflicts with existing ES256/JWKS approach; “mTLS or shared secret” is a fork that will stall implementation and testing.",
+      "why_blocking": "This endpoint is required for Sprint A exit criteria. If auth isn’t concretely specified, teams will implement incompatible mechanisms (or ship it unauthenticated in dev and forget to harden). It also complicates integration tests (which are a success metric).",
+      "fix": "Choose one S2S auth mechanism and specify it: recommended is JWT-based S2S using ES256 with a dedicated `iss`/`aud` and separate JWKS (or same JWKS with distinct `kid` namespace), plus request signing if needed. If you truly want mTLS, specify certificate issuance, rotation, and how tests will run (self-signed CA in CI). Remove “or shared secret” unless you define exact header, rotation, and storage."
+    },
+    {
+      "location": "Sprint C (C.3 BYOK credential storage) + Contract Interfaces: BYOK Credential Fetch + Sprint C (C.4 BYOK routing)",
+      "issue": "BYOK fetch contract is fundamentally wrong for the stated goal: it returns `api_key_encrypted` to loa-finn but does not define how loa-finn decrypts it without effectively reintroducing server-side plaintext key handling; also “per-user derived keys” is incompatible with a service needing to decrypt unless the derivation secret is available server-side.",
+      "why_blocking": "If loa-finn cannot decrypt, BYOK cannot work. If loa-finn can decrypt, then either (a) the decryption key is shared/derivable by the server (not truly per-user secret), or (b) you end up transmitting plaintext keys anyway. The current contract will lead to an implementation that either doesn’t function or violates the security promise (“without server-side storage of the key in plaintext”).",
+      "fix": "Redesign BYOK as one of these explicit models: (1) Arrakis decrypts and returns plaintext `api_key` to loa-finn over mTLS, with strict no-logging and short-lived response + audit (simplest, but acknowledge plaintext in transit). (2) Envelope encryption with KMS: arrakis stores ciphertext; loa-finn calls a KMS to decrypt (loa-finn never stores plaintext at rest, but does hold it in memory). (3) Tokenized proxy: loa-finn never sees the key; arrakis (or a dedicated egress proxy) performs provider calls on behalf of the user using stored BYOK. Update the contract accordingly (do not return `api_key_encrypted` unless you also specify the decrypt capability and key management)."
+    },
+    {
+      "location": "Sprint B (B.1 NativeRuntimeAdapter) + Phase 3 constraints (cheval sidecar, streaming) + Success metrics",
+      "issue": "NativeRuntimeAdapter requirement assumes access to a “Claude Code session API” with token usage extraction, but the PRD doesn’t define the actual interface, lifecycle, or how it coexists with the existing cheval sidecar + SSE/WS streaming pipeline.",
+      "why_blocking": "If the native runtime is not actually accessible programmatically in the deployment environment (headless, containerized, multi-tenant), Sprint B can’t complete. Even if accessible, without a defined streaming/abort contract it will break the abort completeness metric and/or ledger attribution.",
+      "fix": "Specify the concrete native session integration surface: process model (spawn per request vs pooled), how to stream tokens/events into the existing SSE→WS bridge, how abort maps to native cancellation, and how usage is measured (exact fields). If this is speculative, downgrade Sprint B to a spike with explicit acceptance criteria (prove API exists + minimal PoC) before committing to full adapter."
+    },
+    {
+      "location": "Sprint A (A.2 Tier→model bridge) + Sprint C (C.2 Per-NFT model routing) + Contract Interfaces (model_preferences)",
+      "issue": "Routing identifiers are ambiguous and likely inconsistent across repos: tiers map to pools like `cheap`, `fast-code`, `reviewer`, `reasoning`, while NFT preferences use `qwen-coder` etc. No canonical registry or validation rules are defined.",
+      "why_blocking": "This will cause production misrouting (preference points to a non-existent pool/model) and failing E2E tests. It also risks security/cost issues if users can request premium models by naming them unless allowlists are enforced.",
+      "fix": "Define a canonical “model pool id” registry and validation: JWT may only reference pool IDs, not raw provider model names; loa-finn enforces an allowlist per tenant/tier. Add a contract version field (e.g., `routing_schema_version`) and a test that rejects unknown pool IDs with a clear error and safe fallback."
+    }
+  ],
+  "question": "",
+  "iteration": 1
+}

@@ -1,0 +1,43 @@
+{
+  "verdict": "APPROVED",
+  "summary": "All previously blocking integration-contract gaps (JWT/req_hash profile, accounting authority + usage report contract, integer micro-unit arithmetic, concrete S2S auth, BYOK model, native runtime uncertainty, and routing registry) are addressed with implementable specs and testable success metrics, with no new truly blocking issues introduced.",
+  "previous_issues_status": [
+    {
+      "original_issue": "JWT contract incomplete (iss/aud/kid/alg policy) and req_hash canonicalization undefined causing flaky or insecure verification",
+      "status": "fixed",
+      "notes": "§6.1 now defines a strict verification profile (alg=ES256, kid required, typ=JWT, iss/aud required, skew/lifetime bounds) plus explicit JWKS caching/dual-key window and req_hash canonicalization on raw bytes including gzip/empty-body, with an integration test requirement."
+    },
+    {
+      "original_issue": "Budget integrity contradiction (\"single source of truth\" vs advisory reconciliation) and missing deterministic usage report contract",
+      "status": "fixed",
+      "notes": "Goals now explicitly state split-authority with bounded drift; §6.2 defines usage_reports loa-finn→arrakis with idempotent report_id, required fields, retry/DLQ semantics, and arrakis budget query contract. Reconciliation is no longer framed as advisory polling."
+    },
+    {
+      "original_issue": "Unsafe float→cent migration (Math.round) and lack of deterministic rounding/precision strategy",
+      "status": "fixed",
+      "notes": "A.3 moves to integer micro-USD, specifies floor per-request + remainder carry per tenant, and restricts banker’s rounding to settlement. Also calls for a cross-language test vector suite and ledger migration script."
+    },
+    {
+      "original_issue": "S2S auth underspecified (mTLS or shared secret fork) risking incompatible implementations",
+      "status": "fixed",
+      "notes": "A.4/A.5 specify S2S JWT ES256 with dedicated iss/aud and kid namespace on the same JWKS, removing the ambiguous auth fork and making integration testing straightforward."
+    },
+    {
+      "original_issue": "BYOK fetch contract wrong (api_key_encrypted returned without decrypt capability), leading to non-functional or insecure BYOK",
+      "status": "fixed",
+      "notes": "§6.4 and C.3 switch to a proxy model: arrakis decrypts in-memory and performs provider calls; loa-finn never receives plaintext keys. This resolves the earlier contract impossibility."
+    },
+    {
+      "original_issue": "NativeRuntimeAdapter assumed an undefined Claude Code session API and streaming/abort/usage lifecycle",
+      "status": "fixed",
+      "notes": "B.1 is now explicitly a spike with acceptance criteria (headless/container viability, spawn model, streaming integration, abort mapping, usage fields) and a defined fallback plan (Anthropic HTTP adapter) if the native API is inaccessible."
+    },
+    {
+      "original_issue": "Routing identifiers ambiguous (tiers/pools vs raw model names) with no canonical registry/validation",
+      "status": "fixed",
+      "notes": "§6.3 introduces a canonical Model Pool Registry with tier access rules and enforces pool IDs in JWT preferences; unknown pool IDs are rejected with 400 and safe fallback. Adds routing_schema_version guidance."
+    }
+  ],
+  "new_blocking_concerns": [],
+  "iteration": 2
+}
