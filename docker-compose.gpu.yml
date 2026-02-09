@@ -1,0 +1,90 @@
+# docker-compose.gpu.yml — Full stack: loa-finn + vLLM + Redis (SDD §4.11, T-3.1)
+# NOTE: No separate cheval service — sidecar runs as a child process
+# inside loa-finn, managed by SidecarManager (see SDD §4.2).
+version: "3.8"
+services:
+  vllm-7b:
+    build:
+      context: deploy/vllm
+      args:
+        MODEL_ID: Qwen/Qwen2.5-Coder-7B-Instruct
+        QUANTIZATION: awq
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "8000:8000"
+    volumes:
+      - vllm-models:/models
+    environment:
+      - GPU_MEMORY_UTILIZATION=0.90
+      - MAX_MODEL_LEN=32768
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  vllm-1.5b:
+    build:
+      context: deploy/vllm
+      args:
+        MODEL_ID: Qwen/Qwen2.5-Coder-1.5B-Instruct
+        QUANTIZATION: ""
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "8001:8000"
+    volumes:
+      - vllm-models:/models
+    environment:
+      - GPU_MEMORY_UTILIZATION=0.90
+      - MAX_MODEL_LEN=32768
+      - QUANTIZATION=
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+
+  loa-finn:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CHEVAL_HMAC_SECRET=${CHEVAL_HMAC_SECRET}
+      - CHEVAL_MODE=sidecar
+      - VLLM_PRIMARY_ENDPOINT=http://vllm-7b:8000/v1
+      - VLLM_FALLBACK_ENDPOINT=http://vllm-1.5b:8000/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      vllm-7b:
+        condition: service_healthy
+
+volumes:
+  vllm-models:
+    driver: local

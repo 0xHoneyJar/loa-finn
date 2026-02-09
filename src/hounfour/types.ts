@@ -341,3 +341,53 @@ export const DEFAULT_TOOL_CALL_CONFIG: ToolCallConfig = {
   maxWallTimeMs: 120_000,
   maxTotalToolCalls: 50,
 }
+
+// --- Streaming (Phase 3 Sprint 2, SDD §4.4) ---
+
+export interface ModelPortStreaming extends ModelPortBase {
+  stream(request: CompletionRequest, options?: { signal?: AbortSignal }): AsyncGenerator<StreamChunk>
+}
+
+export type ModelPort = ModelPortBase | ModelPortStreaming
+
+export function isStreamingPort(port: ModelPort): port is ModelPortStreaming {
+  return "stream" in port && typeof (port as ModelPortStreaming).stream === "function"
+}
+
+export type StreamEventType = "chunk" | "tool_call" | "usage" | "done" | "error"
+
+export type StreamChunk =
+  | { event: "chunk"; data: StreamChunkData }
+  | { event: "tool_call"; data: StreamToolCallData }
+  | { event: "usage"; data: StreamUsageData }
+  | { event: "done"; data: StreamDoneData }
+  | { event: "error"; data: StreamErrorData }
+
+export interface StreamChunkData {
+  delta: string
+  tool_calls: null
+}
+
+export interface StreamToolCallData {
+  index: number
+  id?: string
+  function: {
+    name?: string
+    arguments: string
+  }
+}
+
+export interface StreamUsageData {
+  prompt_tokens: number
+  completion_tokens: number
+  reasoning_tokens: number
+}
+
+export interface StreamDoneData {
+  finish_reason: "stop" | "tool_calls" | "length"
+}
+
+export interface StreamErrorData {
+  code: string
+  message: string
+}

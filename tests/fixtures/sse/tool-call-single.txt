@@ -1,0 +1,21 @@
+event: tool_call
+data: {"index":0,"id":"call_abc123","function":{"name":"get_weather","arguments":""}}
+
+event: tool_call
+data: {"index":0,"function":{"arguments":"{\"lo"}}
+
+event: tool_call
+data: {"index":0,"function":{"arguments":"cation"}}
+
+event: tool_call
+data: {"index":0,"function":{"arguments":"\": \"San"}}
+
+event: tool_call
+data: {"index":0,"function":{"arguments":" Francisco\"}"}}
+
+event: usage
+data: {"prompt_tokens":25,"completion_tokens":18,"reasoning_tokens":0}
+
+event: done
+data: {"finish_reason":"tool_calls"}
+

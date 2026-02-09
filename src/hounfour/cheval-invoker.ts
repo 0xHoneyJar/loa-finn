@@ -3,7 +3,9 @@
 import { execFile } from "node:child_process"
 import { writeFile, mkdir, unlink, rmdir } from "node:fs/promises"
 import { existsSync } from "node:fs"
-import { createHash, createHmac, randomBytes } from "node:crypto"
+import { createHash } from "node:crypto"
+import { signRequestLegacy, generateNonce } from "./hmac.js"
+import type { HmacConfig } from "./hmac.js"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { ChevalError, chevalExitCodeToError, HounfourError } from "./errors.js"
@@ -36,38 +38,9 @@ export function canonicalJsonStringify(obj: unknown): string {
   return JSON.stringify(sortDeep(obj))
 }
 
-// --- HMAC Signing ---
-
-export interface HmacConfig {
-  secret: string
-  secretPrev?: string
-}
-
-/**
- * Sign a ChevalRequest body with HMAC-SHA256.
- * Canonical JSON: sorted keys, compact separators, UTF-8.
- */
-export function signRequest(
-  body: string,
-  secret: string,
-  nonce: string,
-  traceId: string,
-  issuedAt: string,
-): string {
-  const bodyHash = createHash("sha256").update(body, "utf8").digest("hex")
-  const canonical = JSON.stringify({
-    body_hash: bodyHash,
-    issued_at: issuedAt,
-    nonce: nonce,
-    trace_id: traceId,
-  }) // Keys already sorted alphabetically
-  return createHmac("sha256", secret).update(canonical, "utf8").digest("hex")
-}
-
-/** Generate a random 32-character hex nonce */
-export function generateNonce(): string {
-  return randomBytes(16).toString("hex")
-}
+// Re-export HMAC types and functions from shared module for backward compatibility
+export { signRequestLegacy as signRequest, generateNonce } from "./hmac.js"
+export type { HmacConfig } from "./hmac.js"
 
 // --- ChevalInvoker ---
 
@@ -116,7 +89,7 @@ export class ChevalInvoker {
       const issuedAt = new Date().toISOString()
       const traceId = request.metadata.trace_id
 
-      const signature = signRequest(canonicalBody, this.config.hmac.secret, nonce, traceId, issuedAt)
+      const signature = signRequestLegacy(canonicalBody, this.config.hmac.secret, nonce, traceId, issuedAt)
 
       // Add HMAC to request
       const signedRequest: ChevalRequest = {

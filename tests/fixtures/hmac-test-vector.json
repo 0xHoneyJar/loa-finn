@@ -1,0 +1,45 @@
+{
+  "description": "HMAC interop test vector — validates TypeScript and Python produce identical signatures",
+  "format": "phase3_newline_canonical",
+  "vectors": [
+    {
+      "id": "basic",
+      "method": "POST",
+      "path": "/invoke",
+      "body": "{\"model\":\"gpt-4o\",\"messages\":[{\"content\":\"hello\",\"role\":\"user\"}]}",
+      "secret": "test-hmac-secret-32-bytes-long!!",
+      "nonce": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+      "trace_id": "550e8400-e29b-41d4-a716-446655440000",
+      "issued_at": "2026-02-08T12:00:00.000Z",
+      "expected_body_hash": "2d08a94f8fd246b82a61e0f90495bdf34949ea579072c6921a2a4938aea5c9f2",
+      "expected_canonical": "POST\n/invoke\n2d08a94f8fd246b82a61e0f90495bdf34949ea579072c6921a2a4938aea5c9f2\n2026-02-08T12:00:00.000Z\na1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4\n550e8400-e29b-41d4-a716-446655440000",
+      "expected_signature": "0bc281c73fc2f3827957d28e2548502bbe4371f0d67ba28345c2f1a6d36e7aa7"
+    },
+    {
+      "id": "stream_endpoint",
+      "method": "POST",
+      "path": "/invoke/stream",
+      "body": "{\"model\":\"gpt-4o\",\"messages\":[{\"content\":\"hello\",\"role\":\"user\"}]}",
+      "secret": "test-hmac-secret-32-bytes-long!!",
+      "nonce": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+      "trace_id": "550e8400-e29b-41d4-a716-446655440000",
+      "issued_at": "2026-02-08T12:00:00.000Z",
+      "expected_signature": "4467e2c0efc2d4bdffea85555f89814cfa6dc200b37216cab02de750a1677094",
+      "note": "Same body but different path — MUST produce different signature (endpoint binding)"
+    },
+    {
+      "id": "dual_secret_rotation",
+      "method": "POST",
+      "path": "/invoke",
+      "body": "{\"test\":true}",
+      "secret_current": "new-secret-for-rotation-testing!",
+      "secret_previous": "old-secret-for-rotation-testing!",
+      "nonce": "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0",
+      "trace_id": "660e8400-e29b-41d4-a716-446655440000",
+      "issued_at": "2026-02-08T12:00:00.000Z",
+      "expected_signature_old": "678f7a85da7b52c3c8d2809f18f6a6d14b90cf2ec7eefb6cbe242a50a8aa4da8",
+      "expected_signature_new": "ea4f5bab7235da8171b82a5152b9bf079258c5ff3b4c7847cab3a533bf14b8a4",
+      "note": "Signed with old secret — verification with dual-secret config should succeed"
+    }
+  ]
+}

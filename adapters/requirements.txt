@@ -1,0 +1,7 @@
+# adapters/requirements.txt — Cheval sidecar dependencies (T-1.2)
+# Install: pip install -r adapters/requirements.txt
+
+fastapi>=0.100.0,<1.0.0
+uvicorn[standard]>=0.23.0,<1.0.0
+sse-starlette>=1.6.0,<3.0.0
+httpx>=0.24.0,<1.0.0
