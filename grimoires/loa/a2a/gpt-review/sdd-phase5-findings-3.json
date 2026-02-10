@@ -1,0 +1,38 @@
+{
+  "verdict": "APPROVED",
+  "summary": "All previously raised blocking issues—including the cross-language budget test contract contradiction—are now fixed in a way that is consistent with the PRD contracts and does not introduce new truly blocking problems.",
+  "previous_issues_status": [
+    {
+      "original_issue": "req_hash feasibility with streaming + WS path unbound to JWT",
+      "status": "fixed",
+      "notes": "REST req_hash is now explicitly limited to JSON REST requests with a 1MB cap and implemented via ReadableStream.tee() hashing while parsing (avoids double-consume). WS is bound via JWT in query param plus a server-issued nonce challenge echoed back signed within 5s. This resolves the original feasibility/security gap without breaking streaming."
+    },
+    {
+      "original_issue": "Micro-USD arithmetic used floats and remainder carry was inconsistent",
+      "status": "fixed",
+      "notes": "The SDD specifies integer-only pricing (price_micro_per_million_{input,output}) and integer div/mod cost computation with remainder tracking in the same 1,000,000 base; Redis uses INCRBY. This is portable across JS (BigInt) and Python (int) and matches the intended reconciliation model."
+    },
+    {
+      "original_issue": "Usage report pipeline lacked idempotency, authenticity/binding, and durable delivery",
+      "status": "fixed",
+      "notes": "Usage reports now have report_id idempotency with 90-day retention and duplicate-200 semantics, durable dead-letter storage in R2/S3 with replay, and payload integrity via JWS over canonical JSON plus S2S JWT auth. This closes the double-charge/forgery/delivery-loss risks."
+    },
+    {
+      "original_issue": "Dual-auth ambiguity between JWT bearer and opaque bearer",
+      "status": "fixed",
+      "notes": "Auth is route-separated (/api/v1/* JWT-only, /api/* opaque bearer), which removes ambiguity. The structural pre-check behavior is consistent with that separation and does not reintroduce fallback-on-invalid-JWT."
+    },
+    {
+      "original_issue": "Ensemble orchestrator budget/abort interaction (aborting all models when one hits cap; inability to detect overspend)",
+      "status": "fixed",
+      "notes": "Per-model cap aborts only that child; total ensemble cap aborts parent; best_of_n runs all; and providers without streaming usage enforce via conservative max_tokens. Abort hierarchy is explicitly defined and consistent with the desired semantics."
+    },
+    {
+      "original_issue": "Budget test contract contradiction reintroduced float-based drift (Math.floor/int(x*1e6) requirement)",
+      "status": "fixed",
+      "notes": "§8 now clearly specifies integer-only vectors and explicitly forbids floating-point conversions in both harness and implementation, aligning CI acceptance criteria with the integer micro-USD design."
+    }
+  ],
+  "new_blocking_concerns": [],
+  "iteration": 3
+}

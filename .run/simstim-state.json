@@ -1,89 +1,72 @@
 {
-  "simstim_id": "simstim-20260208-hounfour01",
+  "simstim_id": "simstim-20260209-hounfour-phase5",
   "schema_version": 1,
   "state": "RUNNING",
   "phase": "implementation",
   "timestamps": {
-    "started": "2026-02-08T04:52:00Z",
-    "last_activity": "2026-02-08T07:15:00Z"
+    "started": "2026-02-09T18:15:00Z",
+    "last_activity": "2026-02-09T20:30:00Z"
   },
   "phases": {
     "preflight": "completed",
-    "discovery": "skipped",
+    "discovery": "completed",
     "flatline_prd": "completed",
     "architecture": "completed",
     "flatline_sdd": "completed",
     "planning": "completed",
     "flatline_sprint": "completed",
-    "flatline_beads": "skipped",
+    "flatline_beads": "completed",
     "implementation": "pending",
     "complete": "pending"
   },
   "artifacts": {
     "prd": {
-      "path": "grimoires/loa/prd-hounfour.md",
-      "checksum": "sha256:6650193f6bec0e823a27fe83320360a002c6627920bb1231305fb91050d9d317"
+      "path": "grimoires/loa/prd-hounfour-phase5.md",
+      "checksum": "sha256:5d01fdd9af64f52b92346859df98cac32fd9a82842c52b56b7ee965378d3e72e"
     },
     "sdd": {
-      "path": "grimoires/loa/sdd-hounfour.md",
-      "gpt_review": {
-        "iterations": 3,
-        "verdict": "APPROVED",
-        "findings_fixed": 8
-      },
-      "flatline_review": {
-        "high_consensus": 6,
-        "disputed": 0,
-        "blockers": 5,
-        "blockers_accepted": 5,
-        "blockers_rejected": 0
-      }
+      "path": "grimoires/loa/sdd-hounfour-phase5.md",
+      "checksum": "sha256:39135c70cc77e0ab9f4afc9b36e5bc045f11481ca57e35e3fc00c1a69716d2da"
     },
     "sprint": {
-      "path": "grimoires/loa/sprint-hounfour.md",
-      "gpt_review": {
-        "iterations": 3,
-        "verdict": "APPROVED",
-        "findings_fixed": 5
-      },
-      "flatline_review": {
-        "high_consensus": 5,
-        "disputed": 0,
-        "blockers": 6,
-        "blockers_accepted": 6,
-        "blockers_rejected": 0
-      }
+      "path": "grimoires/loa/sprint-hounfour-phase5.md",
+      "checksum": "sha256:71f3ce1e443135dec775e9e1c85428631f213106ab83b1a5d3783cf6a4d9b2d3"
     }
   },
   "flatline_results": {
     "prd": {
-      "high_consensus": 6,
-      "disputed": 0,
-      "blockers": 4,
-      "blockers_accepted": 4,
-      "blockers_rejected": 0,
-      "latency_ms": 214000
+      "method": "gpt-review-2-iterations",
+      "verdict": "APPROVED",
+      "blocking_issues_iter1": 7,
+      "blocking_issues_iter2": 0,
+      "findings_path": "grimoires/loa/a2a/gpt-review/prd-phase5-findings-2.json"
     },
     "sdd": {
-      "high_consensus": 6,
-      "disputed": 0,
-      "blockers": 5,
-      "blockers_accepted": 5,
-      "blockers_rejected": 0,
-      "latency_ms": 214000
+      "method": "gpt-review-3-iterations",
+      "verdict": "APPROVED",
+      "blocking_issues_iter1": 5,
+      "blocking_issues_iter2": 1,
+      "blocking_issues_iter3": 0,
+      "findings_path": "grimoires/loa/a2a/gpt-review/sdd-phase5-findings-3.json"
     },
     "sprint": {
-      "high_consensus": 5,
-      "disputed": 0,
-      "blockers": 6,
-      "blockers_accepted": 6,
-      "blockers_rejected": 0,
-      "latency_ms": 209000
+      "method": "gpt-review-2-iterations",
+      "verdict": "APPROVED",
+      "blocking_issues_iter1": 5,
+      "blocking_issues_iter2": 0,
+      "findings_path": "grimoires/loa/a2a/gpt-review/sprint-phase5-findings-2.json"
     }
   },
+  "ledger": {
+    "sprints_registered": [
+      { "local_id": "sprint-A", "global_id": 22, "tasks": 10 },
+      { "local_id": "sprint-B", "global_id": 23, "tasks": 6 },
+      { "local_id": "sprint-C", "global_id": 24, "tasks": 5 }
+    ]
+  },
   "context": {
-    "cycle": "cycle-006",
-    "trigger": "Issue #31: The Hounfour — Multi-Model Provider Abstraction",
-    "strategy": "Five-layer provider abstraction: Hounfour (routing) + Cheval (adapter) + phased rollout"
+    "cycle": "cycle-009",
+    "trigger": "RFC #31 Phase 5: Integration Hardening & Multi-Model Orchestration",
+    "strategy": "Integration debt first (Sprint A), then features (Sprints B-D). Multi-repo: PRD here, implement per-repo."
   }
 }

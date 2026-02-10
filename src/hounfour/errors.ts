@@ -20,6 +20,8 @@ export type HounfourErrorCode =
   | "EXECUTION_CONTEXT_INVALID"
   | "PERSONA_INJECTION"
   | "RATE_LIMITED"
+  | "TIER_UNAUTHORIZED"
+  | "BYOK_PROXY_UNAVAILABLE"
 
 /** Typed error for all Hounfour operations */
 export class HounfourError extends Error {

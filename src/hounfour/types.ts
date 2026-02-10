@@ -242,6 +242,8 @@ export interface LedgerEntry {
   phase_id: string
   sprint_id: string
   tenant_id: string
+  nft_id?: string                       // Per-NFT cost attribution (Phase 5)
+  pool_id?: string                      // Pool used for routing (Phase 5)
   prompt_tokens: number
   completion_tokens: number
   reasoning_tokens: number
@@ -249,6 +251,7 @@ export interface LedgerEntry {
   output_cost_usd: number
   total_cost_usd: number
   latency_ms: number
+  ensemble_id?: string                  // Shared across ensemble model invocations
 }
 
 // --- Routing Config ---

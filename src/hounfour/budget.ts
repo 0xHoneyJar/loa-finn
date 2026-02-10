@@ -114,7 +114,7 @@ export class BudgetEnforcer {
     scopeMeta: ScopeMeta,
     usage: UsageInfo,
     pricing: PricingEntry,
-    extraFields: { trace_id: string; agent: string; provider: string; model: string; tenant_id: string; latency_ms: number },
+    extraFields: { trace_id: string; agent: string; provider: string; model: string; tenant_id: string; nft_id?: string; pool_id?: string; latency_ms: number },
   ): Promise<void> {
     const costUsd = calculateCost(usage, pricing)
     const keys = deriveScopeKey(scopeMeta)
@@ -132,6 +132,8 @@ export class BudgetEnforcer {
       phase_id: scopeMeta.phase_id,
       sprint_id: scopeMeta.sprint_id,
       tenant_id: extraFields.tenant_id,
+      nft_id: extraFields.nft_id,
+      pool_id: extraFields.pool_id,
       prompt_tokens: usage.prompt_tokens,
       completion_tokens: usage.completion_tokens,
       reasoning_tokens: usage.reasoning_tokens,

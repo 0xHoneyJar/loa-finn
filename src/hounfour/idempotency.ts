@@ -49,7 +49,16 @@ export function stableKey(toolName: string, args: Record<string, unknown>): stri
   return createHash("sha256").update(toolName + ":" + canonical).digest("hex").slice(0, 32)
 }
 
-// --- In-Memory Implementation ---
+// --- LRU Doubly-Linked List Node ---
+
+interface LRUNode<V> {
+  key: string
+  value: V
+  prev: LRUNode<V> | null
+  next: LRUNode<V> | null
+}
+
+// --- In-Memory Implementation with LRU Eviction (T-A.9) ---
 
 interface CacheEntry {
   result: ToolResult
@@ -57,42 +66,70 @@ interface CacheEntry {
 }
 
 /**
- * In-memory idempotency cache with TTL eviction.
+ * In-memory idempotency cache with LRU eviction and TTL expiry.
  *
  * Scoped per trace_id to isolate concurrent orchestrator invocations.
  * Entries expire after TTL (default: maxWallTimeMs = 120s).
+ * LRU eviction kicks in when maxEntries is reached (default: 10,000).
  *
- * Sprint 1: single-process only.
- * Sprint 2: Redis-backed implementation via IdempotencyPort.
+ * Implementation: doubly-linked list + Map for O(1) get/set/evict.
  */
 export class IdempotencyCache implements IdempotencyPort {
-  // Map<compositeKey, CacheEntry> where compositeKey = traceId:stableKey
-  private cache = new Map<string, CacheEntry>()
+  private map = new Map<string, LRUNode<CacheEntry>>()
+  private head: LRUNode<CacheEntry> | null = null  // most recently used
+  private tail: LRUNode<CacheEntry> | null = null   // least recently used
   private cleanupInterval: ReturnType<typeof setInterval> | null = null
 
-  constructor(private ttlMs: number = 120_000) {
-    // Periodic cleanup every 30s to prevent unbounded growth
+  constructor(
+    private ttlMs: number = 120_000,
+    private maxEntries: number = 10_000,
+  ) {
+    // Periodic cleanup every 30s to evict expired entries
     this.cleanupInterval = setInterval(() => this.evictExpired(), 30_000)
     if (this.cleanupInterval.unref) this.cleanupInterval.unref()
   }
 
   async get(traceId: string, toolName: string, args: Record<string, unknown>): Promise<ToolResult | null> {
     const key = this.compositeKey(traceId, toolName, args)
-    const entry = this.cache.get(key)
-    if (!entry) return null
-    if (Date.now() > entry.expiresAt) {
-      this.cache.delete(key)
+    const node = this.map.get(key)
+    if (!node) return null
+    if (Date.now() > node.value.expiresAt) {
+      this.removeNode(node)
+      this.map.delete(key)
       return null
     }
-    return entry.result
+    // Move to head (most recently used)
+    this.moveToHead(node)
+    return node.value.result
   }
 
   async set(traceId: string, toolName: string, args: Record<string, unknown>, result: ToolResult): Promise<void> {
     const key = this.compositeKey(traceId, toolName, args)
-    this.cache.set(key, {
-      result,
-      expiresAt: Date.now() + this.ttlMs,
-    })
+    const existing = this.map.get(key)
+
+    if (existing) {
+      // Update existing entry and move to head
+      existing.value = { result, expiresAt: Date.now() + this.ttlMs }
+      this.moveToHead(existing)
+      return
+    }
+
+    // Evict LRU entry if at capacity
+    if (this.map.size >= this.maxEntries && this.tail) {
+      const evicted = this.tail
+      this.removeNode(evicted)
+      this.map.delete(evicted.key)
+    }
+
+    // Create new node at head
+    const node: LRUNode<CacheEntry> = {
+      key,
+      value: { result, expiresAt: Date.now() + this.ttlMs },
+      prev: null,
+      next: null,
+    }
+    this.addToHead(node)
+    this.map.set(key, node)
   }
 
   async has(traceId: string, toolName: string, args: Record<string, unknown>): Promise<boolean> {
@@ -103,10 +140,15 @@ export class IdempotencyCache implements IdempotencyPort {
   /** Evict all expired entries */
   private evictExpired(): void {
     const now = Date.now()
-    for (const [key, entry] of this.cache) {
-      if (now > entry.expiresAt) {
-        this.cache.delete(key)
+    // Walk from tail (oldest) for efficient expired eviction
+    let current = this.tail
+    while (current) {
+      const prev = current.prev
+      if (now > current.value.expiresAt) {
+        this.removeNode(current)
+        this.map.delete(current.key)
       }
+      current = prev
     }
   }
 
@@ -116,15 +158,44 @@ export class IdempotencyCache implements IdempotencyPort {
       clearInterval(this.cleanupInterval)
       this.cleanupInterval = null
     }
-    this.cache.clear()
+    this.map.clear()
+    this.head = null
+    this.tail = null
   }
 
   /** For testing — current cache size */
   get size(): number {
-    return this.cache.size
+    return this.map.size
   }
 
   private compositeKey(traceId: string, toolName: string, args: Record<string, unknown>): string {
     return `${traceId}:${stableKey(toolName, args)}`
+  }
+
+  // --- Linked List Operations ---
+
+  private addToHead(node: LRUNode<CacheEntry>): void {
+    node.prev = null
+    node.next = this.head
+    if (this.head) this.head.prev = node
+    this.head = node
+    if (!this.tail) this.tail = node
+  }
+
+  private removeNode(node: LRUNode<CacheEntry>): void {
+    if (node.prev) node.prev.next = node.next
+    else this.head = node.next
+
+    if (node.next) node.next.prev = node.prev
+    else this.tail = node.prev
+
+    node.prev = null
+    node.next = null
+  }
+
+  private moveToHead(node: LRUNode<CacheEntry>): void {
+    if (node === this.head) return
+    this.removeNode(node)
+    this.addToHead(node)
   }
 }

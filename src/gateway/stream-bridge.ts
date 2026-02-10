@@ -22,10 +22,15 @@ const BACKPRESSURE_THRESHOLD = 64 * 1024 // 64KB send buffer
 export interface StreamBridgeOptions {
   /** Called when WS closes while forwarding — should cancel the orchestrator */
   onDisconnect?: () => void
+  /** External AbortController — if not provided, one is created internally (T-A.8) */
+  abortController?: AbortController
 }
 
 /**
  * Bridges Orchestrator streaming events to a WebSocket client.
+ *
+ * Phase 5 (T-A.8): AbortController propagation — WS close triggers abort
+ * signal that flows through: WS close → StreamBridge → Orchestrator → SidecarClient.
  *
  * Event mapping:
  *   token          → { type: "token", delta }
@@ -43,11 +48,26 @@ export interface StreamBridgeOptions {
 export class StreamBridge {
   private closed = false
   private backpressureWarned = false
+  private abortController: AbortController
 
   constructor(
     private ws: WsWebSocket,
     private options?: StreamBridgeOptions,
-  ) {}
+  ) {
+    this.abortController = options?.abortController ?? new AbortController()
+
+    // Wire WS close → AbortController.abort() (T-A.8)
+    this.ws.addEventListener("close", () => {
+      if (!this.abortController.signal.aborted) {
+        this.abortController.abort()
+      }
+    }, { once: true })
+  }
+
+  /** Get the abort signal to pass to the orchestrator */
+  get signal(): AbortSignal {
+    return this.abortController.signal
+  }
 
   /**
    * Forward events from Orchestrator's streaming generator.
