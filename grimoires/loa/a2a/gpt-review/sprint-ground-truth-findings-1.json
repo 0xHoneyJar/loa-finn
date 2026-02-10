@@ -1,0 +1,44 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "As written, the sprint plan is missing/underspecifying several blocking verification components and test fixtures, so Sprint 1 cannot actually produce a working “5 blocking gates” pipeline and Sprint 2 cannot reliably prove repair-loop convergence.",
+  "blocking_issues": [
+    {
+      "location": "Sprint 1 / Task 1.9 quality-gates.sh (and Sprint 1 DoD)",
+      "issue": "quality-gates.sh is required to run 5 blocking gates including freshness-check and registry-consistency, but there are no tasks to implement freshness-check or registry-consistency scripts (and no spec for them).",
+      "why_blocking": "Sprint 1 DoD explicitly requires correct pass/fail for all 5 blocking gates; without implementations, the orchestrator cannot meet acceptance criteria and the pipeline cannot be exercised deterministically.",
+      "fix": "Add Sprint 1 tasks to implement `freshness-check.sh` and `registry-consistency.sh` (or rename to match actual script names) with explicit, testable acceptance criteria (inputs, outputs, exit codes, JSON schema). Update 1.9 dependencies to include these scripts."
+    },
+    {
+      "location": "Sprint 1 / Task 1.15 SKILL.md (7-stage pipeline) vs Sprint 2 / Tasks 2.3-2.4 (end-to-end generation)",
+      "issue": "The plan does not include any task to implement the actual generation runner that invokes the LLM, writes the draft doc, calls quality-gates, performs the repair loop, and writes outputs/manifests; SKILL.md alone may not be sufficient unless Loa provides a built-in execution contract (not stated here).",
+      "why_blocking": "Sprint 2 requires running `/ground-truth --type ...` end-to-end. If the framework does not automatically execute the described stages from SKILL.md, there will be no executable entrypoint to run, making Sprint 2’s core deliverables unachievable.",
+      "fix": "Add an explicit task to confirm/implement the execution entrypoint: either (a) document the exact Loa runtime contract that turns SKILL.md into a runnable command and add an acceptance test that `/ground-truth --type capability-brief` executes locally, or (b) add a shell entrypoint (e.g., `.claude/scripts/ground-truth/run.sh`) that the skill calls, with acceptance criteria for stage sequencing, repair loop, and file outputs."
+    },
+    {
+      "location": "Sprint 1 / Task 1.6 verify-citations.sh",
+      "issue": "Acceptance criteria require NUL-delimited handling and `git ls-files -z` exact match, but the extraction step is specified as “Extracts backtick-wrapped path/file.ext:NN(-MM) citation patterns” which is incompatible with paths containing spaces unless the citation format itself defines an escaping/encoding rule.",
+      "why_blocking": "You cannot simultaneously (1) require support for spaces in paths and (2) use a human-authored inline citation syntax that has no escaping rules; extraction will be ambiguous and will fail on legitimate repo paths, causing verification to fail and blocking all document output.",
+      "fix": "Define a deterministic citation encoding for spaces/special chars (e.g., require repo-relative paths without spaces; or require URL-encoding inside backticks; or require a structured HTML comment citation block). Update 1.6 extraction rules and add fixtures covering at least one spaced path case (pass) and one ambiguous case (fail with code 1/3)."
+    },
+    {
+      "location": "Sprint 1 / Tasks 1.6, 1.7, 1.8, 1.9 (all scripts) and Sprint 2 / Task 2.1 (repair loop proof)",
+      "issue": "No task exists to create deterministic golden test fixtures and a test harness to run scripts against them; yet multiple tasks claim complex awk state machines and JSON outputs, and Sprint 2.1 requires repeatable convergence tests.",
+      "why_blocking": "Without fixtures + a harness, “correct pass/fail” and “converges within 3 iterations” are not objectively verifiable and will regress. This is especially risky for awk state edge cases and citation parsing, and will likely stall Sprint 2 when failures are non-reproducible.",
+      "fix": "Add a Sprint 1 task: `tests/ground-truth/` fixtures + `run-tests.sh` that executes each verifier on known-pass/known-fail markdown and asserts exit codes + key JSON fields via `jq`. Include fixtures for: frontmatter, fences, HTML comments, blockquotes, tables, evidence anchors, and at least one citation failure per failure mode."
+    },
+    {
+      "location": "Sprint 1 / Task 1.8 check-provenance.sh",
+      "issue": "Acceptance criteria reference provenance tags and rules (CODE-FACTUAL, HYPOTHESIS, EXTERNAL_REFERENCE) but the plan does not define the concrete tag syntax to detect (e.g., HTML comments, inline markers, frontmatter fields) nor the URL/paper citation pattern.",
+      "why_blocking": "Implementation cannot be completed deterministically without a precise grammar; different interpretations will break generator compliance and make verification unreliable, preventing Sprint 1 DoD and Sprint 2 repair-loop tests from being meaningful.",
+      "fix": "Add a small spec artifact (resource file) that defines the exact provenance tag formats and citation patterns (e.g., `<!-- provenance: CODE-FACTUAL -->` per paragraph; hypothesis prefix string; external reference regex). Update 1.8 acceptance criteria to reference that spec and add fixtures that demonstrate each rule."
+    },
+    {
+      "location": "Sprint 2 / Task 2.1 Prove verify → repair → re-verify loop",
+      "issue": "Task 2.1 assumes the LLM can deterministically “find correct line” and “add anchor” but does not specify how the repair prompt is constructed, what file(s) the LLM is allowed to edit, or how edits are applied (patching strategy).",
+      "why_blocking": "Without a defined repair interface (inputs: failure JSON + doc; outputs: patched doc; constraints: only edit target doc), the integration test can’t be implemented consistently and may fail due to the LLM editing the wrong files or making non-minimal changes that introduce new gate failures.",
+      "fix": "Add acceptance criteria (either in 1.15 or a new Sprint 2 task) that define: repair prompt template, allowed edit surface (only the generated markdown), patch application method (full rewrite vs diff), and a guard that rejects edits outside target path. Then 2.1 can be executed repeatably."
+    }
+  ],
+  "question": "",
+  "iteration": 1
+}

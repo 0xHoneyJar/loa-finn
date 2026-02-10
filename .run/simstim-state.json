@@ -1,11 +1,11 @@
 {
-  "simstim_id": "simstim-20260209-hounfour-phase5",
+  "simstim_id": "simstim-20260210-ground-truth",
   "schema_version": 1,
   "state": "RUNNING",
-  "phase": "implementation",
+  "phase": "planning",
   "timestamps": {
-    "started": "2026-02-09T18:15:00Z",
-    "last_activity": "2026-02-09T20:30:00Z"
+    "started": "2026-02-10T08:05:00Z",
+    "last_activity": "2026-02-10T11:00:00Z"
   },
   "phases": {
     "preflight": "completed",
@@ -15,58 +15,56 @@
     "flatline_sdd": "completed",
     "planning": "completed",
     "flatline_sprint": "completed",
-    "flatline_beads": "completed",
+    "flatline_beads": "pending",
     "implementation": "pending",
     "complete": "pending"
   },
   "artifacts": {
     "prd": {
-      "path": "grimoires/loa/prd-hounfour-phase5.md",
-      "checksum": "sha256:5d01fdd9af64f52b92346859df98cac32fd9a82842c52b56b7ee965378d3e72e"
+      "path": "grimoires/loa/prd-ground-truth.md",
+      "checksum": "pending_calculation"
     },
     "sdd": {
-      "path": "grimoires/loa/sdd-hounfour-phase5.md",
-      "checksum": "sha256:39135c70cc77e0ab9f4afc9b36e5bc045f11481ca57e35e3fc00c1a69716d2da"
+      "path": "grimoires/loa/sdd-ground-truth.md",
+      "checksum": "pending_calculation"
     },
     "sprint": {
-      "path": "grimoires/loa/sprint-hounfour-phase5.md",
-      "checksum": "sha256:71f3ce1e443135dec775e9e1c85428631f213106ab83b1a5d3783cf6a4d9b2d3"
+      "path": "grimoires/loa/sprint-ground-truth.md",
+      "checksum": "pending_calculation"
     }
   },
   "flatline_results": {
     "prd": {
       "method": "gpt-review-2-iterations",
       "verdict": "APPROVED",
-      "blocking_issues_iter1": 7,
+      "blocking_issues_iter1": 9,
       "blocking_issues_iter2": 0,
-      "findings_path": "grimoires/loa/a2a/gpt-review/prd-phase5-findings-2.json"
+      "findings_path": "grimoires/loa/a2a/gpt-review/prd-ground-truth-findings-2.json"
     },
     "sdd": {
       "method": "gpt-review-3-iterations",
       "verdict": "APPROVED",
-      "blocking_issues_iter1": 5,
-      "blocking_issues_iter2": 1,
+      "blocking_issues_iter1": 9,
+      "blocking_issues_iter2": 2,
       "blocking_issues_iter3": 0,
-      "findings_path": "grimoires/loa/a2a/gpt-review/sdd-phase5-findings-3.json"
+      "findings_path": "grimoires/loa/a2a/gpt-review/sdd-ground-truth-findings-3.json"
     },
     "sprint": {
       "method": "gpt-review-2-iterations",
       "verdict": "APPROVED",
-      "blocking_issues_iter1": 5,
+      "blocking_issues_iter1": 6,
       "blocking_issues_iter2": 0,
-      "findings_path": "grimoires/loa/a2a/gpt-review/sprint-phase5-findings-2.json"
+      "findings_path": "grimoires/loa/a2a/gpt-review/sprint-ground-truth-findings-2.json"
     }
   },
   "ledger": {
-    "sprints_registered": [
-      { "local_id": "sprint-A", "global_id": 22, "tasks": 10 },
-      { "local_id": "sprint-B", "global_id": 23, "tasks": 6 },
-      { "local_id": "sprint-C", "global_id": 24, "tasks": 5 }
-    ]
+    "cycle": "cycle-010",
+    "global_sprint_ids": [25, 26]
   },
   "context": {
-    "cycle": "cycle-009",
-    "trigger": "RFC #31 Phase 5: Integration Hardening & Multi-Model Orchestration",
-    "strategy": "Integration debt first (Sprint A), then features (Sprints B-D). Multi-repo: PRD here, implement per-repo."
+    "cycle": "cycle-010",
+    "trigger": "Ground Truth — Factual GTM Skill Pack",
+    "strategy": "Capability Brief + verification infrastructure first (Sprint 1-2), then remaining doc types (Phase 2-3). BridgeBuilder voice throughout.",
+    "issue": "https://github.com/0xHoneyJar/loa-finn/issues/48"
   }
 }

@@ -1,0 +1,62 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "As written, this PRD risks producing documents that are either impossible to verify automatically (and therefore untrustworthy) or that systematically fail the stated quality gates, leading to a “ground truth” system that can’t reliably stay grounded.",
+  "blocking_issues": [
+    {
+      "location": "2. Goals & Success Metrics → Code citation density (>70% of claims cite file:line) + 5.2/5.3 “Every claim about the codebase must have a file:line citation”",
+      "issue": "Conflicting requirements: success metric allows 30% uncited claims, while quality gate requires every codebase claim to be cited; plus “claim” is undefined and will be interpreted inconsistently across doc types.",
+      "why_blocking": "If the system can’t deterministically decide what counts as a claim, you can’t enforce citations or measure density; teams will ship outputs that look grounded but aren’t, undermining the core product promise.",
+      "fix": "Define a machine-checkable claim taxonomy and scope: (A) code-factual claims (MUST cite), (B) inferred/mechanistic summaries (MUST cite at least one supporting locus per paragraph/section), (C) analogies/metaphors (NO citation required), (D) external facts (MUST cite external source or be banned). Then align metric with gate (e.g., “>=95% of code-factual claims cited; 100% required to pass”)."
+    },
+    {
+      "location": "2. Success Metrics → Adjective-to-mechanism ratio (<0.1) measured by manual review; 5.3 Quality Gates → “Adjective filter” automated scan",
+      "issue": "The metric is not operationalizable: “adjective” and “mechanism description” are not defined, and manual review contradicts the desire for automated gating; the automated filter only catches a small banned-word list, not the ratio.",
+      "why_blocking": "You will not be able to consistently pass/fail generations or track improvement over time; the team will argue about whether outputs meet the bar, and the system will regress into subjective style policing (the opposite of “ground truth”).",
+      "fix": "Replace with measurable proxies: (1) banned-claim lexicon (pass/fail), (2) “mechanism anchors” count (e.g., requires patterns like ‘does X by Y’ + at least one code citation), (3) “unsupported superlatives” classifier with a fixed rubric. If you keep the ratio, define it formally and implement an automated scorer."
+    },
+    {
+      "location": "4.2.5 Comparison Matrix + Non-Goals (“does NOT make comparative claims against competitors”)",
+      "issue": "Ambiguity/contradiction: “Comparison Matrix” strongly implies comparison against alternatives, but non-goals forbid competitor comparisons; the doc type description says “self-comparison” yet the name and examples invite readers to treat it as competitive positioning.",
+      "why_blocking": "This will produce the wrong artifact for marketing/BD (they’ll expect competitive matrices) and create repeated scope fights; worse, the generator may drift into competitor claims because the format invites it, creating legal/credibility risk.",
+      "fix": "Rename and constrain: e.g., “Tradeoffs & Fit Matrix (Self)” with explicit columns limited to internal axes (scaling model, persistence guarantees, provider support, operational footprint) and a hard rule: no competitor rows, only “If you need X, Loa-finn is not a fit (today).”"
+    },
+    {
+      "location": "4.3 Generation Pipeline → VERIFY step (“Cross-check claims against code (Flatline optional)”) vs product promise of factuality",
+      "issue": "Verification is optional even though the entire value proposition is “factual, code-grounded.” If Flatline/adversarial verification is optional, the system can ship unverified hallucinated mappings from claims to citations (citation laundering).",
+      "why_blocking": "A “ground truth” doc generator that can emit plausible but incorrect citations will destroy trust quickly; this is an existential failure mode for the product because the audience is evaluating developers.",
+      "fix": "Make verification non-optional for MVP for at least P0 doc types: implement a deterministic verifier that checks (a) cited files exist at HEAD, (b) cited line ranges contain referenced identifiers/strings, (c) claims are linked to extracted symbols/AST nodes. Flatline can remain optional as an extra adversarial pass, but baseline verification must be mandatory."
+    },
+    {
+      "location": "4.2.3 Feature Inventory requirements (“Test coverage indicator”, “Dependencies”, “Known limitations”)",
+      "issue": "Several required fields are not feasibly derivable from codebase analysis alone without defining the source of truth: test coverage indicator (coverage tooling? mapping tests to features?), dependencies (static import graph vs runtime deps?), known limitations (often not encoded anywhere).",
+      "why_blocking": "The generator will either fabricate these fields or omit them, both of which break the “complete honest matrix” promise; this doc type is P0 in MVP, so infeasibility here can sink the whole delivery.",
+      "fix": "Constrain to what can be computed: (1) Tests: “presence of tests referencing entry point” + count of matching test files, not “coverage.” (2) Dependencies: static import graph + package.json deps, clearly labeled. (3) Limitations: only from explicit sources (e.g., TODO/FIXME tags, docs, issue labels, or a curated limitations registry file). Add a required `limitations.yaml` registry if you truly need this field."
+    },
+    {
+      "location": "2. Success Metrics → Coverage (>90% of src/ modules documented in capability brief) + 4.2.1 Capability Brief definition",
+      "issue": "“Module” is undefined and “capability brief” is not naturally a module-by-module document; forcing 90% module coverage will either bloat the brief or incentivize shallow, low-signal entries to hit the metric.",
+      "why_blocking": "You’ll optimize for the metric and ship an unreadable artifact, failing the evaluating developer and marketing personas; this is a classic “measure becomes target” failure that breaks adoption.",
+      "fix": "Move module coverage to Feature Inventory (where it fits) and redefine Capability Brief success as “covers 100% of top-level capabilities (persistence, orchestration, review, learning, scheduling, identity) with citations,” with an explicit, curated capability taxonomy."
+    },
+    {
+      "location": "4.4 BridgeBuilder voice requirement + 2. Success Metrics → “100% of findings include industry parallel or metaphor”",
+      "issue": "Hard requirement that every finding includes an analogy/metaphor is likely to force inaccurate or low-quality analogies, directly contradicting the risk mitigation “prefer no analogy over bad analogy.”",
+      "why_blocking": "This creates systematic credibility loss: the system will generate forced FAANG parallels even when none are warranted, which is especially damaging for a “truth” product aimed at skeptical engineers.",
+      "fix": "Change to a bounded rule: e.g., “At least one analogy per major section; analogies are optional per finding and must pass an ‘accuracy rubric’ or be omitted.” Make the metric “>=1 high-confidence parallel per document section” rather than 100%."
+    },
+    {
+      "location": "4.5 / Sections 10-11 Environment Enrichment + 5.2 Codebase grounding (“MUST use /ride output or equivalent”)",
+      "issue": "The enrichment protocol introduces large amounts of non-code context (issues, cross-domain reference sets, cultural theory) without a guardrail separating ‘external inspiration’ from ‘claims about the system.’ This increases hallucination risk and makes grounding harder, not easier.",
+      "why_blocking": "You can end up with documents that are rhetorically rich but less factual—exactly the failure mode you’re trying to avoid. This is particularly dangerous for the Research Brief and “Thinking in Loa,” where external references can overwhelm code reality.",
+      "fix": "Add a strict provenance model: every paragraph must be tagged as {CODE-GROUNDED, REPO-DOC-GROUNDED, ISSUE-GROUNDED, EXTERNAL-REFERENCE}. Enrichment sources may only influence analogies and hypothesis framing unless explicitly cited as ISSUE-GROUNDED/EXTERNAL with links. Add a rule: no external factual assertions without a citation."
+    },
+    {
+      "location": "6. MVP scope (Sprint 1-2) includes 3 doc generators + voice integration + grounding pipeline + quality gates",
+      "issue": "MVP feasibility risk: delivering three high-integrity generators plus mandatory citation/verification, inventory extraction, and voice layer in 2 sprints is likely unrealistic unless substantial infrastructure already exists; the PRD assumes it does but doesn’t specify what is already implemented vs net-new.",
+      "why_blocking": "If the team underestimates the work, they’ll ship a shallow version (template-filling with weak verification), which fails the core promise and will be hard to recover from reputationally.",
+      "fix": "Explicitly enumerate existing primitives (what /ride outputs, whether AST/index exists, whether file:line mapping is stable, whether BridgeBuilder voice is a reusable module). Then narrow Sprint 1-2 to one P0 doc type (Capability Brief) + the full grounding/verification gates, and treat the others as follow-ons once the verifier and inventory are proven."
+    }
+  ],
+  "question": "",
+  "iteration": 1
+}
