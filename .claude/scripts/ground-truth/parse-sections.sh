@@ -32,7 +32,7 @@ BEGIN {
   state = "NORMAL"
   fm_count = 0
   section_count = 0
-  printf "["
+  printf "{\"parser_version\":\"1.0\",\"sections\":["
 }
 
 # Frontmatter
@@ -96,14 +96,14 @@ END {
 
   for (i = 1; i <= section_count; i++) {
     if (i > 1) printf ","
-    # Escape heading for JSON
+    # Escape heading for JSON (backslashes first, then quotes)
     h = sections_heading[i]
-    gsub(/"/, "\\\"", h)
     gsub(/\\/, "\\\\", h)
+    gsub(/"/, "\\\"", h)
     printf "{\"heading\":\"%s\",\"start_line\":%d,\"end_line\":%d,\"depth\":%d}", \
       h, sections_start[i], sections_end[i], sections_depth[i]
   }
-  printf "]"
+  printf "]}"
 }' "$DOC_PATH"
 
 echo ""  # Trailing newline for clean output

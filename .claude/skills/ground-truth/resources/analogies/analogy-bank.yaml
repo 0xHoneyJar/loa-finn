@@ -9,12 +9,14 @@
 #   parallel: The external system being compared
 #   structural_similarity: WHY the comparison holds (mechanism, not marketing)
 #   source: Where the external system's documentation lives
+#   confidence: high|moderate — strength of structural match (v2.1)
 #   grounded_in: Repo-relative paths that make the structural similarity claim true (v2.0)
 
 analogies:
   - domain: persistence
     component: WAL Manager
     parallel: PostgreSQL Write-Ahead Log
+    confidence: high
     structural_similarity: >
       Both use append-only segment files with checkpoint-based recovery.
       Mutations are durably logged before state is updated, making crash
@@ -27,6 +29,7 @@ analogies:
   - domain: persistence
     component: Recovery Cascade
     parallel: Google Bigtable Raft Log
+    confidence: moderate
     structural_similarity: >
       Both implement ordered event replay from multiple sources (local WAL,
       remote checkpoints) with deterministic state reconstruction.
@@ -39,6 +42,7 @@ analogies:
   - domain: orchestration
     component: Pool Registry + Router
     parallel: Kubernetes Service Discovery
+    confidence: high
     structural_similarity: >
       Pool IDs function like Kubernetes service names — the router resolves
       them to concrete provider endpoints with health-aware failover, the
@@ -51,6 +55,7 @@ analogies:
   - domain: orchestration
     component: Circuit Breaker
     parallel: Netflix Hystrix
+    confidence: high
     structural_similarity: >
       Both implement a three-state machine (closed → open → half-open) with
       configurable failure thresholds and recovery probing. The fail-open
@@ -62,6 +67,7 @@ analogies:
   - domain: orchestration
     component: Ensemble Execution
     parallel: Google MapReduce
+    confidence: moderate
     structural_similarity: >
       Ensemble runs the same prompt against N models in parallel (map phase),
       then applies a merge strategy — first_complete, best_of_n, or consensus
@@ -74,6 +80,7 @@ analogies:
   - domain: review
     component: BridgeBuilder
     parallel: Stripe Documentation-First Approach
+    confidence: high
     structural_similarity: >
       Both prioritize mechanism descriptions that let developers form their own
       conclusions through evidence rather than adjectives. Stripe's API docs
@@ -85,6 +92,7 @@ analogies:
   - domain: scheduling
     component: Cron Service + Job Registry
     parallel: Apache Airflow DAG Scheduler
+    confidence: high
     structural_similarity: >
       Both use declarative job registration with dependency-aware execution,
       circuit breakers per task, and idempotency guards preventing duplicate
@@ -96,6 +104,7 @@ analogies:
   - domain: safety
     component: JWT + JWKS Authentication
     parallel: Google OAuth 2.0 with JWKS
+    confidence: high
     structural_similarity: >
       Both validate ES256 JWTs against a rotating JWKS endpoint. Tenant context
       is extracted from claims. Request body hash binding (req_hash) mirrors
@@ -107,6 +116,7 @@ analogies:
   - domain: safety
     component: BYOK Proxy
     parallel: HashiCorp Vault Transit Engine
+    confidence: high
     structural_similarity: >
       Both provide encryption-as-a-service where the consuming application never
       sees plaintext secrets. Keys are decrypted in-memory only at the proxy
@@ -118,6 +128,7 @@ analogies:
   - domain: gateway
     component: Split-Authority Budget
     parallel: Stripe Split Payments
+    confidence: moderate
     structural_similarity: >
       Two independent systems each authoritative for their domain — loa-finn
       measures inference cost from token counts, arrakis enforces gateway budget
@@ -131,6 +142,7 @@ analogies:
   - domain: persistence
     component: Idempotency Cache
     parallel: Stripe Idempotency Keys
+    confidence: high
     structural_similarity: >
       Both use a deduplication key (report_id / idempotency-key) to prevent
       duplicate operations on retry. LRU eviction with optional Redis backing
@@ -142,6 +154,7 @@ analogies:
   - domain: orchestration
     component: Orchestrator AbortSignal
     parallel: Kubernetes Graceful Termination
+    confidence: high
     structural_similarity: >
       Both propagate cancellation signals through the execution chain — client
       disconnect triggers abort, which propagates to sidecar requests, matching

@@ -90,6 +90,10 @@ Load context in priority order. **Tier A is non-negotiable.**
 
 8. **Analogy bank** (if available):
    - Read: `.claude/skills/ground-truth/resources/analogies/analogy-bank.yaml`
+   - Each analogy has a `confidence` field (high/moderate):
+     - **high**: Use directly — "X works like Y" with full structural comparison
+     - **moderate**: Use with qualifier — "in some ways similar to Y" or "loosely parallels Y"
+   - Staleness of high-confidence analogies is a more urgent signal than moderate ones
 
 ### Token budget
 

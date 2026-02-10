@@ -27,11 +27,19 @@ if [[ -z "$DOC_PATH" || ! -f "$DOC_PATH" ]]; then
 fi
 
 # ── Parse sections using section parser ──
-sections_json="[]"
+sections_raw='{"parser_version":"1.0","sections":[]}'
 if [[ -x "$SCRIPT_DIR/parse-sections.sh" ]]; then
-  sections_json=$("$SCRIPT_DIR/parse-sections.sh" "$DOC_PATH" 2>/dev/null || echo "[]")
+  sections_raw=$("$SCRIPT_DIR/parse-sections.sh" "$DOC_PATH" 2>/dev/null || echo '{"parser_version":"1.0","sections":[]}')
 fi
 
+# Check parser_version
+parser_version=$(echo "$sections_raw" | jq -r '.parser_version // "unknown"' 2>/dev/null || echo "unknown")
+if [[ "$parser_version" != "1.0" ]]; then
+  echo "WARNING: Unexpected parser_version '$parser_version' (expected 1.0)" >&2
+fi
+
+# Extract sections array for consumption
+sections_json=$(echo "$sections_raw" | jq '.sections' 2>/dev/null || echo "[]")
 num_sections=$(echo "$sections_json" | jq 'length' 2>/dev/null || echo "0")
 
 if [[ "$num_sections" -eq 0 ]]; then
@@ -51,6 +59,8 @@ for ((s=0; s<num_sections; s++)); do
   # Extract section content for hashing
   section_content=$(sed -n "${start_line},${end_line}p" "$DOC_PATH" 2>/dev/null || echo "")
   content_hash=$(echo "$section_content" | git hash-object --stdin 2>/dev/null || echo "unknown")
+  # Whitespace-normalized hash for change detection (formatting-only edits don't trigger staleness)
+  staleness_hash=$(echo "$section_content" | tr -s '[:space:]' ' ' | git hash-object --stdin 2>/dev/null || echo "unknown")
 
   # Extract citations from this section's lines
   citations_json="["
@@ -73,7 +83,9 @@ for ((s=0; s<num_sections; s++)); do
 
       if ! $first_cite; then citations_json+=","; fi
       first_cite=false
-      citations_json+="{\"path\":\"$cite_path\",\"line_start\":$line_start,\"line_end\":$line_end}"
+      cite_entry=$(jq -nc --arg path "$cite_path" --argjson ls "$line_start" --argjson le "$line_end" \
+        '{path: $path, line_start: $ls, line_end: $le}')
+      citations_json+="$cite_entry"
 
       tmpline="${tmpline#*"${BASH_REMATCH[0]}"}"
     done
@@ -85,8 +97,15 @@ for ((s=0; s<num_sections; s++)); do
   if ! $first_section; then result_json+=","; fi
   first_section=false
 
-  escaped_heading=$(echo "$heading" | sed 's/"/\\"/g')
-  result_json+="{\"heading\":\"$escaped_heading\",\"start_line\":$start_line,\"end_line\":$end_line,\"content_hash\":\"$content_hash\",\"citations\":$citations_json}"
+  section_entry=$(jq -nc \
+    --arg heading "$heading" \
+    --argjson start_line "$start_line" \
+    --argjson end_line "$end_line" \
+    --arg content_hash "$content_hash" \
+    --arg staleness_hash "$staleness_hash" \
+    --argjson citations "$citations_json" \
+    '{heading: $heading, start_line: $start_line, end_line: $end_line, content_hash: $content_hash, staleness_hash: $staleness_hash, citations: $citations}')
+  result_json+="$section_entry"
 done
 
 result_json+=']}'

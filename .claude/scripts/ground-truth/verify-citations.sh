@@ -17,11 +17,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOC_PATH="${1:-}"
 JSON_OUTPUT=false
+QUIET=false
 
 for arg in "$@"; do
-  if [[ "$arg" == "--json" ]]; then
-    JSON_OUTPUT=true
-  fi
+  case "$arg" in
+    --json) JSON_OUTPUT=true ;;
+    --quiet) QUIET=true ;;
+  esac
 done
 
 if [[ -z "$DOC_PATH" || ! -f "$DOC_PATH" ]]; then
@@ -63,12 +65,21 @@ fi
 
 # ── Step 1b: Build section-scoped citation index ──
 # Parse sections from document, then map each citation to its containing section
-sections_json=""
+sections_raw=""
 if [[ -x "$SCRIPT_DIR/parse-sections.sh" ]]; then
-  sections_json=$("$SCRIPT_DIR/parse-sections.sh" "$DOC_PATH" 2>/dev/null || echo "[]")
+  sections_raw=$("$SCRIPT_DIR/parse-sections.sh" "$DOC_PATH" 2>/dev/null || echo '{"parser_version":"1.0","sections":[]}')
 else
-  sections_json="[]"
+  sections_raw='{"parser_version":"1.0","sections":[]}'
 fi
+
+# Check parser_version
+parser_version=$(echo "$sections_raw" | jq -r '.parser_version // "unknown"' 2>/dev/null || echo "unknown")
+if [[ "$parser_version" != "1.0" ]]; then
+  echo "WARNING: Unexpected parser_version '$parser_version' (expected 1.0)" >&2
+fi
+
+# Extract sections array for consumption
+sections_json=$(echo "$sections_raw" | jq '.sections' 2>/dev/null || echo "[]")
 
 # Build associative arrays: citation → section heading, for Step 5 section-scoped lookup
 declare -A cite_section_heading  # "citation" → section heading
@@ -176,11 +187,14 @@ for citation in "${citations[@]}"; do
     fi
     first_failure=false
 
-    # Escape JSON strings
-    escaped_detail=$(echo "$fail_detail" | sed 's/"/\\"/g')
-    escaped_lines=$(echo "$actual_lines" | head -1 | sed 's/"/\\"/g')
-
-    failures_json+='{"citation":"'"$citation"'","check":"'"$check_failed"'","detail":"'"$escaped_detail"'","actual_lines":"'"$escaped_lines"'"}'
+    # Build failure entry with proper JSON escaping via jq
+    failure_entry=$(jq -nc \
+      --arg citation "$citation" \
+      --arg check "$check_failed" \
+      --arg detail "$fail_detail" \
+      --arg actual_lines "$(echo "$actual_lines" | head -1)" \
+      '{citation: $citation, check: $check, detail: $detail, actual_lines: $actual_lines}')
+    failures_json+="$failure_entry"
   else
     ((verified++)) || true
     # Store for step 5 evidence anchor verification
@@ -233,6 +247,9 @@ while IFS= read -r anchor_entry; do
 
   # Fallback: if no section match, try any citation in document (graceful degradation)
   if [[ -z "$nearest" ]]; then
+    if ! $QUIET; then
+      echo "WARNING: evidence anchor at line $anchor_line_num has no section-scoped citation, falling back to document-wide search" >&2
+    fi
     for ((i=0; i<total; i++)); do
       cite="${citations[$i]}"
       cite_doc_line="${citation_doc_lines[$i]}"
@@ -265,8 +282,11 @@ while IFS= read -r anchor_entry; do
         failures_json+=","
       fi
       first_failure=false
-      escaped_sym=$(echo "$sym" | sed 's/"/\\"/g')
-      failures_json+='{"citation":"'"$nearest"'","check":"EVIDENCE_ANCHOR","detail":"Symbol ['"$escaped_sym"'] not found in cited lines","actual_lines":""}'
+      failure_entry=$(jq -nc \
+        --arg citation "$nearest" \
+        --arg detail "Symbol [$sym] not found in cited lines" \
+        '{citation: $citation, check: "EVIDENCE_ANCHOR", detail: $detail, actual_lines: ""}')
+      failures_json+="$failure_entry"
     fi
     anchor_temp="${anchor_temp#*"${BASH_REMATCH[0]}"}"
   done
@@ -281,8 +301,11 @@ while IFS= read -r anchor_entry; do
         failures_json+=","
       fi
       first_failure=false
-      escaped_lit=$(echo "$lit" | sed 's/"/\\"/g')
-      failures_json+='{"citation":"'"$nearest"'","check":"EVIDENCE_ANCHOR","detail":"Literal ['"$escaped_lit"'] not found in cited lines","actual_lines":""}'
+      failure_entry=$(jq -nc \
+        --arg citation "$nearest" \
+        --arg detail "Literal [$lit] not found in cited lines" \
+        '{citation: $citation, check: "EVIDENCE_ANCHOR", detail: $detail, actual_lines: ""}')
+      failures_json+="$failure_entry"
     fi
     anchor_temp="${anchor_temp#*"${BASH_REMATCH[0]}"}"
   done

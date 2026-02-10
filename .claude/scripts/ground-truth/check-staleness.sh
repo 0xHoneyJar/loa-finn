@@ -61,6 +61,9 @@ for ((d=0; d<doc_count; d++)); do
   for ((s=0; s<section_count; s++)); do
     heading=$(jq -r ".documents[$d].sections[$s].heading" "$MANIFEST" 2>/dev/null)
     stored_hash=$(jq -r ".documents[$d].sections[$s].content_hash" "$MANIFEST" 2>/dev/null)
+    stored_staleness_hash=$(jq -r ".documents[$d].sections[$s].staleness_hash // \"\"" "$MANIFEST" 2>/dev/null)
+    start_line=$(jq -r ".documents[$d].sections[$s].start_line // 0" "$MANIFEST" 2>/dev/null)
+    end_line=$(jq -r ".documents[$d].sections[$s].end_line // 0" "$MANIFEST" 2>/dev/null)
     cite_count=$(jq ".documents[$d].sections[$s].citations | length" "$MANIFEST" 2>/dev/null || echo "0")
 
     ((total_sections++)) || true
@@ -106,13 +109,31 @@ for ((d=0; d<doc_count; d++)); do
 
     changed_files_json+="]"
 
+    # Section content staleness: compare staleness_hash (whitespace-normalized)
+    # so formatting-only edits (blank lines, trailing spaces) don't trigger staleness
+    if [[ -n "$stored_staleness_hash" && -f "$doc_path" && "$start_line" -gt 0 && "$end_line" -gt 0 ]]; then
+      current_section=$(sed -n "${start_line},${end_line}p" "$doc_path" 2>/dev/null || echo "")
+      current_staleness_hash=$(echo "$current_section" | tr -s '[:space:]' ' ' | git hash-object --stdin 2>/dev/null || echo "unknown")
+      if [[ "$current_staleness_hash" != "$stored_staleness_hash" ]]; then
+        section_stale=true
+        changed_files_json="${changed_files_json%]}"
+        if ! $first_changed; then changed_files_json+=","; fi
+        first_changed=false
+        changed_files_json+="{\"path\":\"$doc_path\",\"reason\":\"content_changed\"}]"
+      fi
+    fi
+
     if $section_stale; then
       ((stale_count++)) || true
       if ! $first_stale; then stale_sections_json+=","; fi
       first_stale=false
 
-      escaped_heading=$(echo "$heading" | sed 's/"/\\"/g')
-      stale_sections_json+="{\"document\":\"$doc_path\",\"heading\":\"$escaped_heading\",\"changed_files\":$changed_files_json}"
+      stale_entry=$(jq -nc \
+        --arg document "$doc_path" \
+        --arg heading "$heading" \
+        --argjson changed_files "$changed_files_json" \
+        '{document: $document, heading: $heading, changed_files: $changed_files}')
+      stale_sections_json+="$stale_entry"
     fi
   done
 done

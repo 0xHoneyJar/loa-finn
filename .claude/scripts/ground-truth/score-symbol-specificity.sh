@@ -2,6 +2,16 @@
 # score-symbol-specificity.sh — TF-IDF symbol specificity scorer for evidence anchors
 # Computes approximate TF-IDF for each evidence anchor symbol and flags low-specificity ones.
 #
+# TF calculation: word-boundary occurrences / total identifiers (C-style names) in cited file
+# IDF calculation: log2(total_src_files / files_containing_symbol), scoped to src/ paths
+# Word-boundary matching uses portable awk (no grep -P dependency) to prevent
+# substring false positives (e.g., WAL matching WALManager).
+#
+# Threshold: 0.01 (default). Calibrated against cycle-011 generated documents.
+# With identifier-count denominator (vs wc -w), TF is ~2x higher for real symbols.
+# With src-only corpus, IDF is higher for project-specific symbols. Net effect:
+# TF-IDF scores shift upward, so 0.01 remains a conservative threshold.
+#
 # Usage: score-symbol-specificity.sh <document-path> [--json] [--threshold 0.01]
 #
 # Exit codes:
@@ -89,8 +99,12 @@ if [[ $total_symbols -eq 0 ]]; then
   exit 0
 fi
 
-# ── Count total tracked files for IDF ──
-total_files=$(git ls-files '*.ts' '*.js' '*.tsx' '*.jsx' '*.py' '*.sh' 2>/dev/null | wc -l)
+# ── Count total tracked files for IDF (src/ only — exclude test files, fixtures, config) ──
+total_files=$(git ls-files 'src/**/*.ts' 'src/**/*.js' 'src/**/*.tsx' 'src/**/*.jsx' 'src/**/*.py' 'src/**/*.sh' 2>/dev/null | wc -l)
+# Fallback: if no src/ files found, use all tracked source files (non-src repos)
+if [[ "$total_files" -eq 0 ]]; then
+  total_files=$(git ls-files '*.ts' '*.js' '*.tsx' '*.jsx' '*.py' '*.sh' 2>/dev/null | wc -l)
+fi
 total_files=$((total_files > 0 ? total_files : 1))
 
 # ── Compute TF-IDF per symbol ──
@@ -110,26 +124,51 @@ for ((i=0; i<total_symbols; i++)); do
     if ! $first_warning; then warnings_json+=","; fi
     first_warning=false
     has_warnings=true
-    warnings_json+='{"symbol":"'"$sym"'","citation":"'"$citation"'","reason":"rejected_keyword","score":0,"message":"Common keyword rejected by built-in list"}'
+    warn_entry=$(jq -nc --arg symbol "$sym" --arg citation "$citation" \
+      '{symbol: $symbol, citation: $citation, reason: "rejected_keyword", score: 0, message: "Common keyword rejected by built-in list"}')
+    warnings_json+="$warn_entry"
 
     if ! $first_score; then scores_json+=","; fi
     first_score=false
-    scores_json+='{"symbol":"'"$sym"'","citation":"'"$citation"'","tf":0,"idf":0,"tfidf":0,"status":"rejected"}'
+    score_entry=$(jq -nc --arg symbol "$sym" --arg citation "$citation" \
+      '{symbol: $symbol, citation: $citation, tf: 0, idf: 0, tfidf: 0, status: "rejected"}')
+    scores_json+="$score_entry"
     continue
   fi
 
-  # TF: occurrences in cited file / total identifiers in file
+  # TF: word-boundary occurrences in cited file / total identifiers in file
+  # Uses awk for portable word-boundary matching (no grep -P dependency)
   tf=0
   if [[ -n "$cite_path" && -f "$cite_path" ]]; then
-    sym_count=$(grep -coF "$sym" "$cite_path" 2>/dev/null || echo "0")
-    total_identifiers=$(wc -w < "$cite_path" 2>/dev/null || echo "1")
+    # Count exact word-boundary matches (prevents WAL matching WALManager)
+    sym_count=$(awk -v sym="$sym" '{
+      s = $0
+      while ((i = index(s, sym)) > 0) {
+        pre = (i > 1) ? substr(s, i-1, 1) : ""
+        post_pos = i + length(sym)
+        post = (post_pos <= length(s)) ? substr(s, post_pos, 1) : ""
+        if ((pre == "" || pre !~ /[a-zA-Z0-9_]/) && (post == "" || post !~ /[a-zA-Z0-9_]/))
+          c++
+        s = substr(s, i + length(sym))
+      }
+    } END { print c+0 }' "$cite_path" 2>/dev/null || echo "0")
+    # Count identifiers (C-style names) instead of raw word count
+    total_identifiers=$(awk '{
+      while (match($0, /[a-zA-Z_][a-zA-Z0-9_]*/)) {
+        c++
+        $0 = substr($0, RSTART + RLENGTH)
+      }
+    } END { print c+0 }' "$cite_path" 2>/dev/null || echo "1")
     total_identifiers=$((total_identifiers > 0 ? total_identifiers : 1))
-    # Use awk for floating point
     tf=$(awk "BEGIN { printf \"%.6f\", $sym_count / $total_identifiers }")
   fi
 
-  # IDF: log(total_files / files_containing_symbol)
-  files_with_sym=$(git ls-files '*.ts' '*.js' '*.tsx' '*.jsx' '*.py' '*.sh' 2>/dev/null | xargs grep -lF "$sym" 2>/dev/null | wc -l || echo "0")
+  # IDF: log(total_files / files_containing_symbol) — src/ scoped, word-boundary match
+  files_with_sym=$(git ls-files 'src/**/*.ts' 'src/**/*.js' 'src/**/*.tsx' 'src/**/*.jsx' 'src/**/*.py' 'src/**/*.sh' 2>/dev/null | xargs grep -lw "$sym" 2>/dev/null | wc -l || echo "0")
+  # Fallback: if no src/ files, use all tracked files
+  if [[ "$files_with_sym" -eq 0 ]]; then
+    files_with_sym=$(git ls-files '*.ts' '*.js' '*.tsx' '*.jsx' '*.py' '*.sh' 2>/dev/null | xargs grep -lw "$sym" 2>/dev/null | wc -l || echo "0")
+  fi
   files_with_sym=$((files_with_sym > 0 ? files_with_sym : 1))
   idf=$(awk "BEGIN { printf \"%.6f\", log($total_files / $files_with_sym) / log(2) }")
 
@@ -144,12 +183,18 @@ for ((i=0; i<total_symbols; i++)); do
     has_warnings=true
     if ! $first_warning; then warnings_json+=","; fi
     first_warning=false
-    warnings_json+='{"symbol":"'"$sym"'","citation":"'"$citation"'","reason":"low_specificity","score":'"$tfidf"',"message":"TF-IDF '"$tfidf"' below threshold '"$THRESHOLD"'"}'
+    warn_entry=$(jq -nc --arg symbol "$sym" --arg citation "$citation" \
+      --argjson score "$tfidf" --arg message "TF-IDF $tfidf below threshold $THRESHOLD" \
+      '{symbol: $symbol, citation: $citation, reason: "low_specificity", score: $score, message: $message}')
+    warnings_json+="$warn_entry"
   fi
 
   if ! $first_score; then scores_json+=","; fi
   first_score=false
-  scores_json+='{"symbol":"'"$sym"'","citation":"'"$citation"'","tf":'"$tf"',"idf":'"$idf"',"tfidf":'"$tfidf"',"status":"'"$status"'"}'
+  score_entry=$(jq -nc --arg symbol "$sym" --arg citation "$citation" \
+    --argjson tf "$tf" --argjson idf "$idf" --argjson tfidf "$tfidf" --arg status "$status" \
+    '{symbol: $symbol, citation: $citation, tf: $tf, idf: $idf, tfidf: $tfidf, status: $status}')
+  scores_json+="$score_entry"
 done
 
 scores_json+="]"

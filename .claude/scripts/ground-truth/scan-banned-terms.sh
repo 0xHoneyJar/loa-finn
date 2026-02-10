@@ -145,9 +145,13 @@ while IFS= read -r line; do
         found_terms+=","
       fi
       first=false
-      escaped_content=$(echo "$line_content" | sed 's/"/\\"/g' | head -c 200)
       match_lower=$(echo "$match" | tr '[:upper:]' '[:lower:]')
-      found_terms+='{"term":"'"$match_lower"'","line":'"$line_num"',"context":"'"$escaped_content"'"}'
+      term_entry=$(jq -nc \
+        --arg term "$match_lower" \
+        --argjson line "$line_num" \
+        --arg context "$(echo "$line_content" | head -c 200)" \
+        '{term: $term, line: $line, context: $context}')
+      found_terms+="$term_entry"
     done <<< "$matches"
   fi
 done <<< "$prose_content"

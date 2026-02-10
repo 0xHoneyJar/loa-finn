@@ -44,17 +44,60 @@ mkdir -p "$OUTPUT_DIR/valid" "$OUTPUT_DIR/invalid"
 cd "$REPO_ROOT"
 
 # ── Real citations from the codebase for valid documents ──
-# These are verified to exist and contain the expected symbols
-declare -a REAL_CITATIONS=(
-  "src/persistence/index.ts:1-6|WALManager,createWALManager"
-  "src/persistence/index.ts:5|WALManager"
-  "src/persistence/index.ts:22-26|WALPruner"
-  "src/gateway/server.ts:19-30|createApp,AppOptions"
-  "src/cron/service.ts:1-8|CronService,CircuitBreaker"
-  "src/agent/worker-pool.ts:17-30|PoolErrorCode,PoolError"
-  "src/bridgebuilder/entry.ts:1-10|loadFinnConfig,createFinnAdapters"
-  "src/learning/compound.ts:1-29|TrajectoryEntry,CandidateLearning"
-)
+# Dynamic sourcing from generation manifest (v2.1), with hardcoded fallback
+MANIFEST="grimoires/loa/ground-truth/generation-manifest.json"
+declare -a REAL_CITATIONS=()
+
+if [[ -f "$MANIFEST" ]]; then
+  # Check manifest version if present
+  manifest_version=$(jq -r '.version // "unknown"' "$MANIFEST" 2>/dev/null || echo "unknown")
+  if [[ "$manifest_version" != "unknown" && "$manifest_version" != "1.0.0" ]]; then
+    echo "WARNING: Unexpected manifest version '$manifest_version' (expected 1.0.0)" >&2
+  fi
+
+  # Extract citations from manifest: documents[].sections[].citations[]
+  # Build citation strings as "path:start-end" and extract symbols from evidence anchors
+  while IFS= read -r cite_line; do
+    [[ -z "$cite_line" ]] && continue
+    cite_path=$(echo "$cite_line" | jq -r '.path' 2>/dev/null)
+    line_start=$(echo "$cite_line" | jq -r '.line_start' 2>/dev/null)
+    line_end=$(echo "$cite_line" | jq -r '.line_end' 2>/dev/null)
+
+    # Skip if path doesn't exist in repo
+    if ! git ls-files --error-unmatch "$cite_path" &>/dev/null; then
+      continue
+    fi
+
+    # Extract symbols from the cited lines
+    symbols=""
+    if [[ -f "$cite_path" && "$line_start" -gt 0 ]]; then
+      # Extract identifiers that look like exported symbols (PascalCase or camelCase)
+      symbols=$(sed -n "${line_start},${line_end}p" "$cite_path" 2>/dev/null \
+        | grep -oE '\b[A-Z][a-zA-Z0-9]+\b' 2>/dev/null \
+        | sort -u | head -3 | tr '\n' ',' | sed 's/,$//')
+    fi
+
+    if [[ -n "$symbols" ]]; then
+      REAL_CITATIONS+=("${cite_path}:${line_start}-${line_end}|${symbols}")
+    else
+      REAL_CITATIONS+=("${cite_path}:${line_start}-${line_end}|Unknown")
+    fi
+  done < <(jq -c '[.documents[].sections[]?.citations[]?] | unique_by(.path + ":" + (.line_start|tostring)) | .[:20] | .[]' "$MANIFEST" 2>/dev/null)
+fi
+
+# Fallback to hardcoded array if manifest missing or yielded no citations
+if [[ ${#REAL_CITATIONS[@]} -eq 0 ]]; then
+  REAL_CITATIONS=(
+    "src/persistence/index.ts:1-6|WALManager,createWALManager"
+    "src/persistence/index.ts:5|WALManager"
+    "src/persistence/index.ts:22-26|WALPruner"
+    "src/gateway/server.ts:19-30|createApp,AppOptions"
+    "src/cron/service.ts:1-8|CronService,CircuitBreaker"
+    "src/agent/worker-pool.ts:17-30|PoolErrorCode,PoolError"
+    "src/bridgebuilder/entry.ts:1-10|loadFinnConfig,createFinnAdapters"
+    "src/learning/compound.ts:1-29|TrajectoryEntry,CandidateLearning"
+  )
+fi
 
 # ── Provenance classes and their templates ──
 PROVENANCE_CLASSES=("CODE-FACTUAL" "REPO-DOC-GROUNDED" "ANALOGY" "HYPOTHESIS" "EXTERNAL-REFERENCE")

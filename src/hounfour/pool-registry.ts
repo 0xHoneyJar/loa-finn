@@ -2,7 +2,13 @@
 // Canonical mapping from pool IDs to provider/model configurations.
 // All routing uses pool IDs — JWT claims never contain raw model names.
 
-import type { ModelCapabilities } from "./types.js"
+import type { ModelCapabilities, ModelEntry } from "./types.js"
+
+/** Minimal interface for provider registry validation (avoids circular import) */
+export interface ProviderRegistryLike {
+  getProvider(name: string): { name: string } | undefined
+  getModel(provider: string, modelId: string): ModelEntry | undefined
+}
 
 // --- Types ---
 
@@ -87,7 +93,7 @@ export const DEFAULT_POOLS: PoolConfig[] = [
 export class PoolRegistry {
   private pools = new Map<string, PoolDefinition>()
 
-  constructor(configs: PoolConfig[]) {
+  constructor(configs: PoolConfig[], providerRegistry?: ProviderRegistryLike) {
     for (const config of configs) {
       if (this.pools.has(config.id)) {
         throw new Error(`Duplicate pool ID: ${config.id}`)
@@ -105,6 +111,24 @@ export class PoolRegistry {
     // Detect circular fallback chains
     for (const pool of this.pools.values()) {
       this.detectCycle(pool.id)
+    }
+
+    // Validate provider/model references against provider registry (fail-fast)
+    if (providerRegistry) {
+      for (const pool of this.pools.values()) {
+        const provider = providerRegistry.getProvider(pool.provider)
+        if (!provider) {
+          throw new Error(
+            `Pool "${pool.id}" references unknown provider "${pool.provider}"`,
+          )
+        }
+        const model = providerRegistry.getModel(pool.provider, pool.model)
+        if (!model) {
+          throw new Error(
+            `Pool "${pool.id}" references unknown model "${pool.model}" in provider "${pool.provider}"`,
+          )
+        }
+      }
     }
   }
 

@@ -311,6 +311,75 @@ fi
 echo ""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo "▸ Sprint 30: New metadata fields"
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# T21: Manifest entries contain staleness_hash field
+has_staleness_hash=$(jq '.documents[-1].sections[0] | has("staleness_hash")' grimoires/loa/ground-truth/generation-manifest.json 2>/dev/null || echo "false")
+if [[ "$has_staleness_hash" == "true" ]]; then
+  log_pass "T21: Manifest sections have staleness_hash field"
+else
+  # Regenerate manifest entry to get staleness_hash
+  "$SCRIPTS/write-manifest.sh" grimoires/loa/ground-truth/capability-brief.md --citations 0 --warnings 0 --gates pass &>/dev/null
+  has_staleness_hash=$(jq '.documents[-1].sections[0] | has("staleness_hash")' grimoires/loa/ground-truth/generation-manifest.json 2>/dev/null || echo "false")
+  if [[ "$has_staleness_hash" == "true" ]]; then
+    log_pass "T21: Manifest sections have staleness_hash field (after refresh)"
+  else
+    log_fail "T21: Manifest sections missing staleness_hash field"
+  fi
+fi
+
+# T22: export-gate-metrics.sh --model test-model → JSONL has generator_model + verifier
+metrics_bak2=""
+if [[ -f "$METRICS_FILE" ]]; then
+  metrics_bak2=$(mktemp)
+  cp "$METRICS_FILE" "$metrics_bak2"
+fi
+> "$METRICS_FILE"
+
+exit_code=0
+output=$("$SCRIPTS/export-gate-metrics.sh" grimoires/loa/ground-truth/capability-brief.md --model "test-model" --repairs 0 --json 2>/dev/null) || exit_code=$?
+gen_model=$(echo "$output" | jq -r '.generator_model' 2>/dev/null || echo "")
+verifier=$(echo "$output" | jq -r '.verifier' 2>/dev/null || echo "")
+if [[ "$gen_model" == "test-model" && "$verifier" == "deterministic" ]]; then
+  log_pass "T22: generator_model=test-model, verifier=deterministic"
+else
+  log_fail "T22: Expected generator_model=test-model verifier=deterministic, got gen=$gen_model ver=$verifier"
+fi
+
+# Restore metrics
+if [[ -n "$metrics_bak2" ]]; then
+  cp "$metrics_bak2" "$METRICS_FILE"
+  rm -f "$metrics_bak2"
+else
+  rm -f "$METRICS_FILE"
+fi
+
+# T23: check-analogy-staleness.sh output includes confidence per analogy
+exit_code=0
+analogy_output=$("$SCRIPTS/check-analogy-staleness.sh" --json 2>/dev/null) || exit_code=$?
+has_analogies=$(echo "$analogy_output" | jq 'has("analogies")' 2>/dev/null || echo "false")
+first_confidence=$(echo "$analogy_output" | jq -r '.analogies[0].confidence // "missing"' 2>/dev/null || echo "missing")
+if [[ "$has_analogies" == "true" && ("$first_confidence" == "high" || "$first_confidence" == "moderate") ]]; then
+  log_pass "T23: Analogy output includes confidence per analogy (first=$first_confidence)"
+else
+  log_fail "T23: Expected analogies with confidence, got has_analogies=$has_analogies confidence=$first_confidence"
+fi
+
+# T24: check-provenance.sh --json output includes untagged_paragraphs array
+exit_code=0
+prov_output=$("$SCRIPTS/check-provenance.sh" grimoires/loa/ground-truth/capability-brief.md --json 2>/dev/null) || exit_code=$?
+has_untagged=$(echo "$prov_output" | jq 'has("untagged_paragraphs")' 2>/dev/null || echo "false")
+has_count=$(echo "$prov_output" | jq 'has("untagged_count")' 2>/dev/null || echo "false")
+if [[ "$has_untagged" == "true" && "$has_count" == "true" ]]; then
+  log_pass "T24: Provenance output includes untagged_paragraphs array and untagged_count"
+else
+  log_fail "T24: Expected untagged_paragraphs and untagged_count, got array=$has_untagged count=$has_count"
+fi
+
+echo ""
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo "▸ Regression: existing tests still pass"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

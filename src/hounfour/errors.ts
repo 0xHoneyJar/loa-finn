@@ -22,6 +22,8 @@ export type HounfourErrorCode =
   | "RATE_LIMITED"
   | "TIER_UNAUTHORIZED"
   | "BYOK_PROXY_UNAVAILABLE"
+  | "BUDGET_CIRCUIT_OPEN"
+  | "JTI_REPLAY_DETECTED"
 
 /** Typed error for all Hounfour operations */
 export class HounfourError extends Error {

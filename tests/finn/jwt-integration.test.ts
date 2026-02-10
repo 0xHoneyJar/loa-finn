@@ -371,7 +371,7 @@ describe("Sprint A Integration (T-A.10)", () => {
       const guard = new InMemoryJtiReplayGuard()
       expect(await guard.checkAndStore("jti-integration-1", 60)).toBe(false)
       expect(await guard.checkAndStore("jti-integration-1", 60)).toBe(true)
-      guard.destroy()
+      guard.dispose()
     })
   })
 

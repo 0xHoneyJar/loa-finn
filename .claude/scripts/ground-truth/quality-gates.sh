@@ -118,8 +118,12 @@ if $blocking_failed && [[ $total_blocking -eq 2 ]]; then
 fi
 
 # ── BLOCKING GATE 3: check-provenance ──
+untagged_count=0
 if ! $blocking_failed; then
   run_gate "check-provenance" "true" "$SCRIPT_DIR/check-provenance.sh" "$DOC_PATH" --json || true
+  # Extract untagged_count from provenance output (informational, not blocking)
+  prov_output=$("$SCRIPT_DIR/check-provenance.sh" "$DOC_PATH" --json 2>/dev/null || echo '{}')
+  untagged_count=$(echo "$prov_output" | jq -r '.untagged_count // 0' 2>/dev/null || echo "0")
 fi
 
 # ── BLOCKING GATE 4: freshness-check (inline) ──
@@ -257,8 +261,8 @@ if [[ -x "$SCRIPT_DIR/check-analogy-staleness.sh" ]]; then
   analogy_stale_count=$(echo "$analogy_stale_output" | jq -r '.stale_count' 2>/dev/null | head -1 || echo "0")
   analogy_stale_count="${analogy_stale_count:-0}"
   if [[ "$analogy_stale_count" -gt 0 ]]; then
-    stale_components=$(echo "$analogy_stale_output" | jq -r '[.stale_analogies[].component] | join(", ")' 2>/dev/null || echo "unknown")
-    analogy_warning="$analogy_stale_count analogy(ies) may be stale — grounding code changed: $stale_components"
+    stale_details=$(echo "$analogy_stale_output" | jq -r '[.stale_analogies[] | "\(.component) (\(.confidence))"] | join(", ")' 2>/dev/null || echo "unknown")
+    analogy_warning="$analogy_stale_count analogy(ies) may be stale — grounding code changed: $stale_details"
   fi
 fi
 
@@ -275,7 +279,7 @@ if $blocking_failed; then
 fi
 
 if $JSON_OUTPUT; then
-  echo '{"file":"'"$DOC_PATH"'","overall":"'"$overall"'","blocking_gates":'"$gates_json"',"total_blocking":'"$total_blocking"',"passed_blocking":'"$passed_blocking"',"warnings":'"$warnings_json"'}'
+  echo '{"file":"'"$DOC_PATH"'","overall":"'"$overall"'","blocking_gates":'"$gates_json"',"total_blocking":'"$total_blocking"',"passed_blocking":'"$passed_blocking"',"warnings":'"$warnings_json"',"untagged_count":'"$untagged_count"'}'
 else
   echo "Quality Gates: $overall ($passed_blocking/$total_blocking blocking gates passed)"
   if $blocking_failed; then

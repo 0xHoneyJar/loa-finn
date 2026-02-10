@@ -32,7 +32,7 @@ if [[ -d "$SRC_DIR" ]]; then
     rest="${match#*:}"
     line_num="${rest%%:*}"
     content="${rest#*:}"
-    content=$(echo "$content" | sed 's/^[[:space:]]*//' | sed 's/"/\\"/g' | head -c 200)
+    content=$(echo "$content" | sed 's/^[[:space:]]*//' | head -c 200)
 
     # Determine tag type
     tag_type="TODO"
@@ -42,7 +42,13 @@ if [[ -d "$SRC_DIR" ]]; then
 
     if ! $first; then code_tags+=","; fi
     first=false
-    code_tags+='{"source":"code-tag","tag":"'"$tag_type"'","file":"'"$file"'","line":'"$line_num"',"content":"'"$content"'"}'
+    tag_entry=$(jq -nc \
+      --arg tag "$tag_type" \
+      --arg file "$file" \
+      --argjson line "$line_num" \
+      --arg content "$content" \
+      '{source: "code-tag", tag: $tag, file: $file, line: $line, content: $content}')
+    code_tags+="$tag_entry"
   done < <(grep -rnE '(TODO|FIXME|HACK|XXX):?' "$SRC_DIR" 2>/dev/null || true)
 fi
 
@@ -57,12 +63,17 @@ if [[ -f "$REGISTRY" ]]; then
   count=$(yq '.limitations | length' "$REGISTRY" 2>/dev/null || echo "0")
   for ((i=0; i<count; i++)); do
     feature_id=$(yq ".limitations[$i].feature_id" "$REGISTRY" 2>/dev/null || echo "unknown")
-    description=$(yq ".limitations[$i].description" "$REGISTRY" 2>/dev/null | sed 's/"/\\"/g')
-    reason=$(yq ".limitations[$i].reason" "$REGISTRY" 2>/dev/null | sed 's/"/\\"/g')
+    description=$(yq ".limitations[$i].description" "$REGISTRY" 2>/dev/null || echo "")
+    reason=$(yq ".limitations[$i].reason" "$REGISTRY" 2>/dev/null || echo "")
 
     if ! $first; then registry_entries+=","; fi
     first=false
-    registry_entries+='{"source":"registry","feature_id":"'"$feature_id"'","description":"'"$description"'","reason":"'"$reason"'"}'
+    reg_entry=$(jq -nc \
+      --arg feature_id "$feature_id" \
+      --arg description "$description" \
+      --arg reason "$reason" \
+      '{source: "registry", feature_id: $feature_id, description: $description, reason: $reason}')
+    registry_entries+="$reg_entry"
   done
 fi
 

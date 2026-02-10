@@ -15,6 +15,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOC_PATH="${1:-}"
 MODEL="unknown"
+GENERATOR_MODEL=""
 REPAIRS=0
 JSON_OUTPUT=false
 
@@ -33,6 +34,9 @@ for arg in "$@"; do
   esac
   prev_arg="$arg"
 done
+
+# generator_model tracks which model generated the document (from --model flag)
+GENERATOR_MODEL="${MODEL}"
 
 if [[ -z "$DOC_PATH" || ! -f "$DOC_PATH" ]]; then
   echo '{"error":"Document path required and must exist"}' >&2
@@ -53,6 +57,7 @@ overall=$(echo "$gate_output" | jq -r '.overall // "unknown"' 2>/dev/null || ech
 total_blocking=$(echo "$gate_output" | jq -r '.total_blocking // 0' 2>/dev/null || echo "0")
 passed_blocking=$(echo "$gate_output" | jq -r '.passed_blocking // 0' 2>/dev/null || echo "0")
 warnings=$(echo "$gate_output" | jq -r '.warnings | length // 0' 2>/dev/null || echo "0")
+untagged_count=$(echo "$gate_output" | jq -r '.untagged_count // 0' 2>/dev/null || echo "0")
 
 # Extract per-gate pass/fail
 gate_results=$(echo "$gate_output" | jq '[.blocking_gates[] | {gate: .gate, status: .status}]' 2>/dev/null || echo "[]")
@@ -89,11 +94,16 @@ metrics_entry=$(jq -n \
   --argjson citations_verified "$citations_verified" \
   --argjson gate_results "$gate_results" \
   --arg head_sha "$head_sha" \
+  --argjson untagged_count "$untagged_count" \
+  --arg generator_model "$GENERATOR_MODEL" \
+  --arg verifier "deterministic" \
   '{
     timestamp: $timestamp,
     doc_type: $doc_type,
     doc_path: $doc_path,
     model: $model,
+    generator_model: $generator_model,
+    verifier: $verifier,
     overall: $overall,
     total_blocking: $total_blocking,
     passed_blocking: $passed_blocking,
@@ -101,7 +111,8 @@ metrics_entry=$(jq -n \
     repair_iterations: $repairs,
     citations_verified: $citations_verified,
     gate_results: $gate_results,
-    head_sha: $head_sha
+    head_sha: $head_sha,
+    untagged_count: $untagged_count
   }')
 
 # Append to JSONL (one JSON object per line)

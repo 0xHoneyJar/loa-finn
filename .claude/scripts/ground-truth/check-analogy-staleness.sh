@@ -62,10 +62,13 @@ total_analogies=$(yq '.analogies | length' "$BANK_PATH" 2>/dev/null || echo "0")
 stale_count=0
 stale_json="["
 first_stale=true
+all_analogies_json="["
+first_all=true
 
 for ((i=0; i<total_analogies; i++)); do
   component=$(yq ".analogies[$i].component" "$BANK_PATH" 2>/dev/null)
   domain=$(yq ".analogies[$i].domain" "$BANK_PATH" 2>/dev/null)
+  confidence=$(yq ".analogies[$i].confidence // \"unknown\"" "$BANK_PATH" 2>/dev/null)
   path_count=$(yq ".analogies[$i].grounded_in | length" "$BANK_PATH" 2>/dev/null || echo "0")
 
   if [[ "$path_count" -eq 0 ]]; then
@@ -102,21 +105,37 @@ for ((i=0; i<total_analogies; i++)); do
 
   changed_paths+="]"
 
+  # Record per-analogy summary with confidence
+  if ! $first_all; then all_analogies_json+=","; fi
+  first_all=false
+  analogy_summary=$(jq -nc \
+    --arg domain "$domain" \
+    --arg component "$component" \
+    --arg confidence "$confidence" \
+    --argjson stale "$( $analogy_stale && echo true || echo false )" \
+    '{domain: $domain, component: $component, confidence: $confidence, stale: $stale}')
+  all_analogies_json+="$analogy_summary"
+
   if $analogy_stale; then
     ((stale_count++)) || true
     if ! $first_stale; then stale_json+=","; fi
     first_stale=false
 
-    escaped_component=$(echo "$component" | sed 's/"/\\"/g')
-    escaped_domain=$(echo "$domain" | sed 's/"/\\"/g')
-    stale_json+="{\"domain\":\"$escaped_domain\",\"component\":\"$escaped_component\",\"changed_files\":$changed_paths}"
+    stale_entry=$(jq -nc \
+      --arg domain "$domain" \
+      --arg component "$component" \
+      --arg confidence "$confidence" \
+      --argjson changed_files "$changed_paths" \
+      '{domain: $domain, component: $component, confidence: $confidence, changed_files: $changed_files}')
+    stale_json+="$stale_entry"
   fi
 done
 
 stale_json+="]"
+all_analogies_json+="]"
 
 if $JSON_OUTPUT; then
-  echo "{\"total_analogies\":$total_analogies,\"stale_count\":$stale_count,\"baseline_sha\":\"$BASELINE_SHA\",\"stale_analogies\":$stale_json}" | jq '.' 2>/dev/null || echo "{\"total_analogies\":$total_analogies,\"stale_count\":$stale_count,\"stale_analogies\":$stale_json}"
+  echo "{\"total_analogies\":$total_analogies,\"stale_count\":$stale_count,\"baseline_sha\":\"$BASELINE_SHA\",\"stale_analogies\":$stale_json,\"analogies\":$all_analogies_json}" | jq '.' 2>/dev/null || echo "{\"total_analogies\":$total_analogies,\"stale_count\":$stale_count,\"stale_analogies\":$stale_json,\"analogies\":$all_analogies_json}"
 else
   if [[ $stale_count -eq 0 ]]; then
     echo "No stale analogies found ($total_analogies checked, baseline=$BASELINE_SHA)"

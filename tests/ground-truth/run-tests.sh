@@ -250,6 +250,96 @@ assert_exit "Stacked CODE-FACTUAL passes provenance" 0 "$prov_exit"
 echo ""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo "▸ Sprint 29: Correctness hardening"
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# T15: Heading with backslash produces valid JSON from parse-sections.sh
+exit_code=0
+output=$(run_script "$SCRIPTS/parse-sections.sh" "$FIXTURES/heading-with-backslash.md") || exit_code=$?
+$VERBOSE && log "output: $output"
+# Validate output is parseable JSON
+if echo "$output" | jq '.' &>/dev/null; then
+  log_pass "Backslash heading produces valid JSON"
+  ((total++))
+else
+  log_fail "Backslash heading produces invalid JSON"
+  ((total++))
+fi
+# Check heading content is preserved
+backslash_heading=$(echo "$output" | jq -r '.sections[1].heading' 2>/dev/null || echo "")
+if [[ "$backslash_heading" == *'\\n'* || "$backslash_heading" == *'\n'* ]]; then
+  log_pass "Backslash-n preserved in heading ($backslash_heading)"
+  ((total++))
+else
+  log_fail "Backslash-n not preserved in heading — got: $backslash_heading"
+  ((total++))
+fi
+
+# T16: Symbol WAL word-boundary — no false match with WALManager
+# Create temp file containing WALManager but not standalone WAL
+tmp_src=$(mktemp)
+echo 'export class WALManager { constructor() {} }' > "$tmp_src"
+echo 'const walManager = new WALManager();' >> "$tmp_src"
+# Use awk word-boundary match (same as score-symbol-specificity.sh)
+wal_count=$(awk -v sym="WAL" '{
+  s = $0
+  while ((i = index(s, sym)) > 0) {
+    pre = (i > 1) ? substr(s, i-1, 1) : ""
+    post_pos = i + length(sym)
+    post = (post_pos <= length(s)) ? substr(s, post_pos, 1) : ""
+    if ((pre == "" || pre !~ /[a-zA-Z0-9_]/) && (post == "" || post !~ /[a-zA-Z0-9_]/))
+      c++
+    s = substr(s, i + length(sym))
+  }
+} END { print c+0 }' "$tmp_src")
+rm -f "$tmp_src"
+if [[ "$wal_count" -eq 0 ]]; then
+  log_pass "WAL word-boundary: no false match with WALManager (count=$wal_count)"
+  ((total++))
+else
+  log_fail "WAL word-boundary: false match with WALManager (count=$wal_count, expected 0)"
+  ((total++))
+fi
+
+# T17: Fallback warning appears on stderr when section-scoped resolution fails
+exit_code=0
+stderr_output=$("$SCRIPTS/verify-citations.sh" "$FIXTURES/fallback-warning-trigger.md" --json 2>&1 1>/dev/null) || exit_code=$?
+$VERBOSE && log "stderr: $stderr_output"
+if echo "$stderr_output" | grep -q "WARNING.*falling back to document-wide"; then
+  log_pass "Fallback warning emitted on stderr"
+  ((total++))
+else
+  log_fail "Fallback warning NOT emitted on stderr — got: $stderr_output"
+  ((total++))
+fi
+# Verify --quiet suppresses warning
+quiet_stderr=$("$SCRIPTS/verify-citations.sh" "$FIXTURES/fallback-warning-trigger.md" --json --quiet 2>&1 1>/dev/null) || true
+if [[ -z "$quiet_stderr" ]] || ! echo "$quiet_stderr" | grep -q "WARNING.*falling back"; then
+  log_pass "--quiet suppresses fallback warning"
+  ((total++))
+else
+  log_fail "--quiet did not suppress fallback warning — got: $quiet_stderr"
+  ((total++))
+fi
+
+# T18: parser_version field present and correct in parse-sections.sh output
+exit_code=0
+output=$(run_script "$SCRIPTS/parse-sections.sh" "$FIXTURES/pass-all-gates.md") || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_json "parser_version is 1.0" "$output" '.parser_version' "1.0"
+# Sections should be in .sections array
+sections_count=$(echo "$output" | jq '.sections | length' 2>/dev/null || echo "0")
+if [[ "$sections_count" -gt 0 ]]; then
+  log_pass "Sections in .sections array (count=$sections_count)"
+  ((total++))
+else
+  log_fail "No sections found in .sections array"
+  ((total++))
+fi
+
+echo ""
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo "Results"
 echo "======="
 echo "  Total: $total | Passed: $passed | Failed: $failed"

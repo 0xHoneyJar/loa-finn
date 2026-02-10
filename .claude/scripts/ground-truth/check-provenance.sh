@@ -39,17 +39,24 @@ BEGIN {
   para_start = 0
   pending_tag = ""
   pending_tag_class = ""
+  para_first_line = ""
+  current_section = ""
   total_paragraphs = 0
   tagged_paragraphs = 0
 }
 
-function emit_paragraph(start, tag_class) {
+function emit_paragraph(start, tag_class,    preview) {
   total_paragraphs++
   if (tag_class != "") {
     tagged_paragraphs++
     print "TAGGED " start " " tag_class
   } else {
-    print "UNTAGGED " start " NONE"
+    preview = para_first_line
+    gsub(/"/, "\\\"", preview)
+    if (length(preview) > 80) preview = substr(preview, 1, 80)
+    sec = current_section
+    gsub(/"/, "\\\"", sec)
+    print "UNTAGGED " start " NONE " sec "\t" preview
   }
 }
 
@@ -98,6 +105,8 @@ function emit_paragraph(start, tag_class) {
     # Headings
     if (/^#+[[:space:]]/) {
       if (in_paragraph) { emit_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
+      current_section = $0
+      sub(/^#+[[:space:]]+/, "", current_section)
       next
     }
     # Table rows
@@ -119,6 +128,7 @@ function emit_paragraph(start, tag_class) {
     if (!in_paragraph) {
       in_paragraph = 1
       para_start = NR
+      para_first_line = $0
     }
   }
 }
@@ -134,6 +144,8 @@ tagged_paragraphs=0
 failures_json="["
 first_failure=true
 fail_count=0
+untagged_json="["
+first_untagged=true
 
 while IFS= read -r line; do
   type="${line%% *}"
@@ -154,6 +166,25 @@ while IFS= read -r line; do
     if ! $first_failure; then failures_json+=","; fi
     first_failure=false
     failures_json+='{"check":"TAG_COVERAGE","line":'"$line_num"',"detail":"Paragraph missing provenance tag"}'
+
+    # Build untagged_paragraphs entry with section and preview
+    # Format from awk: UNTAGGED <line> NONE <section>\t<preview>
+    untagged_detail="${rest#* }"       # strip line_num
+    untagged_detail="${untagged_detail#* }"  # strip "NONE"
+    untagged_section="${untagged_detail%%	*}"
+    untagged_preview="${untagged_detail#*	}"
+    if [[ "$untagged_section" == "$untagged_preview" ]]; then
+      # No tab separator — no section context
+      untagged_section=""
+    fi
+    if ! $first_untagged; then untagged_json+=","; fi
+    first_untagged=false
+    untagged_entry=$(jq -nc \
+      --argjson line "$line_num" \
+      --arg preview "$untagged_preview" \
+      --arg section "$untagged_section" \
+      '{line: $line, preview: $preview, section: $section}')
+    untagged_json+="$untagged_entry"
   fi
 
   if [[ "$type" == "TAGGED" ]]; then
@@ -195,6 +226,8 @@ while IFS= read -r line; do
 done <<< "$analysis"
 
 failures_json+="]"
+untagged_json+="]"
+untagged_count=$(echo "$untagged_json" | jq 'length' 2>/dev/null || echo "0")
 
 # ── Calculate coverage ──
 if [[ $total_paragraphs -gt 0 ]]; then
@@ -215,7 +248,7 @@ if [[ "$coverage_pass" == "false" || $fail_count -gt 0 ]]; then
 fi
 
 if $JSON_OUTPUT; then
-  echo '{"file":"'"$DOC_PATH"'","total_paragraphs":'"$total_paragraphs"',"tagged_paragraphs":'"$tagged_paragraphs"',"coverage_pct":'"$coverage_pct"',"coverage_pass":'"$coverage_pass"',"failures":'"$failures_json"',"fail_count":'"$fail_count"'}'
+  echo '{"file":"'"$DOC_PATH"'","total_paragraphs":'"$total_paragraphs"',"tagged_paragraphs":'"$tagged_paragraphs"',"coverage_pct":'"$coverage_pct"',"coverage_pass":'"$coverage_pass"',"failures":'"$failures_json"',"fail_count":'"$fail_count"',"untagged_count":'"$untagged_count"',"untagged_paragraphs":'"$untagged_json"'}'
 else
   echo "Provenance: $tagged_paragraphs/$total_paragraphs paragraphs tagged ($coverage_pct%)"
   if [[ "$overall_pass" == "true" ]]; then
