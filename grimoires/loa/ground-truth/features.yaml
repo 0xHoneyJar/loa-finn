@@ -1,0 +1,137 @@
+# Ground Truth Feature Registry — TEAM-CURATED
+# Maps modules to named features with status and category.
+# Required fields: id (kebab-case, unique), name, status, category, modules[]
+
+features:
+  - id: wal-persistence
+    name: Write-Ahead Log Persistence
+    status: stable
+    category: persistence
+    modules:
+      - src/persistence/index.ts
+
+  - id: r2-sync
+    name: R2 Object Storage Sync
+    status: stable
+    category: persistence
+    modules:
+      - src/persistence/index.ts
+
+  - id: git-sync
+    name: Git Repository Sync
+    status: stable
+    category: persistence
+    modules:
+      - src/persistence/index.ts
+
+  - id: hounfour-routing
+    name: Multi-Model Provider Routing
+    status: stable
+    category: orchestration
+    modules:
+      - src/hounfour/router.ts
+
+  - id: hounfour-budget
+    name: Token Budget Enforcement
+    status: stable
+    category: orchestration
+    modules:
+      - src/hounfour/router.ts
+
+  - id: hounfour-ensemble
+    name: IDX Ensemble Orchestrator
+    status: experimental
+    category: orchestration
+    modules:
+      - src/hounfour/router.ts
+
+  - id: tool-call-orchestrator
+    name: Tool-Call Execution Loop
+    status: stable
+    category: orchestration
+    modules:
+      - src/hounfour/router.ts
+
+  - id: bridgebuilder-review
+    name: BridgeBuilder PR Review Pipeline
+    status: stable
+    category: review
+    modules:
+      - src/bridgebuilder/entry.ts
+
+  - id: compound-learning
+    name: Compound Learning Cycle
+    status: stable
+    category: learning
+    modules:
+      - src/learning/compound.ts
+
+  - id: cron-service
+    name: Cron Job Orchestration
+    status: stable
+    category: scheduling
+    modules:
+      - src/cron/service.ts
+
+  - id: task-scheduler
+    name: Task Scheduling & Health
+    status: stable
+    category: scheduling
+    modules:
+      - src/scheduler/index.ts
+
+  - id: audit-trail
+    name: Comprehensive Audit Trail
+    status: stable
+    category: safety
+    modules:
+      - src/safety/audit-trail.ts
+
+  - id: github-firewall
+    name: GitHub Repository Firewall
+    status: stable
+    category: safety
+    modules:
+      - src/safety/audit-trail.ts
+
+  - id: tool-sandbox
+    name: Tool Execution Sandbox
+    status: stable
+    category: safety
+    modules:
+      - src/agent/sandbox.ts
+
+  - id: worker-pool
+    name: Priority-Lane Worker Pool
+    status: stable
+    category: safety
+    modules:
+      - src/agent/sandbox.ts
+
+  - id: http-gateway
+    name: HTTP API Gateway
+    status: stable
+    category: gateway
+    modules:
+      - src/gateway/server.ts
+
+  - id: activity-dashboard
+    name: Activity Feed Dashboard
+    status: stable
+    category: gateway
+    modules:
+      - src/dashboard/activity-feed.ts
+
+  - id: beads-bridge
+    name: Beads Task Tracking Bridge
+    status: stable
+    category: safety
+    modules:
+      - src/beads/bridge.ts
+
+  - id: boot-orchestrator
+    name: Agent-Jobs Boot Sequence
+    status: stable
+    category: safety
+    modules:
+      - src/boot/agent-jobs-boot.ts

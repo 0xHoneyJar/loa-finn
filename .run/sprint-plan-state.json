@@ -1,30 +1,34 @@
 {
-  "plan_id": "plan-20260208-hounfour01",
-  "branch": "feature/hounfour",
+  "plan_id": "plan-20260210-ground-truth",
+  "branch": "feature/ground-truth-gtm",
   "state": "RUNNING",
   "timestamps": {
-    "started": "2026-02-08T07:00:00Z",
-    "last_activity": "2026-02-08T21:00:00Z"
+    "started": "2026-02-10T11:00:00Z",
+    "last_activity": "2026-02-10T11:00:00Z"
   },
   "sprints": {
-    "total": 3,
-    "completed": 2,
-    "current": "sprint-3",
+    "total": 2,
+    "completed": 0,
+    "current": "sprint-1",
     "list": [
-      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Foundation & Adapter Core", "global_id": 14},
-      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Flatline Integration & Budget", "global_id": 15},
-      {"id": "sprint-3", "status": "in_progress", "cycles": 0, "label": "Agent Portability & Health", "global_id": 16}
+      {"id": "sprint-1", "status": "in_progress", "cycles": 0, "label": "Verification Infrastructure + Capability Brief Draft"},
+      {"id": "sprint-2", "status": "pending", "cycles": 0, "label": "Repair Loop Proof + Architecture Overview"}
     ]
   },
   "options": {
     "from": 1,
-    "to": 3,
+    "to": 2,
     "max_cycles": 20,
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 2,
-    "total_files_changed": 19,
+    "total_cycles": 0,
+    "total_files_changed": 0,
     "total_findings_fixed": 0
+  },
+  "context": {
+    "sprint_plan_file": "grimoires/loa/sprint-ground-truth.md",
+    "cycle": "cycle-010",
+    "global_sprint_ids": [25, 26]
   }
 }

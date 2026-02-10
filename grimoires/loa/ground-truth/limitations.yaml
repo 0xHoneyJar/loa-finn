@@ -1,0 +1,44 @@
+# Ground Truth Limitations Registry — TEAM-CURATED
+# Known limitations not captured by TODO/FIXME tags in source code.
+# feature_id must match an `id` in features.yaml.
+
+limitations:
+  - feature_id: wal-persistence
+    description: Single-writer only; no concurrent sessions per WAL file
+    reason: Design choice — compound learning requires consistent state
+    decision_ref: null
+
+  - feature_id: r2-sync
+    description: S3 compatibility untested with non-Cloudflare providers
+    reason: Only Cloudflare R2 used in production
+    issue_ref: null
+
+  - feature_id: hounfour-ensemble
+    description: IDX Ensemble strategy is experimental; no Gemini adapter yet
+    reason: Phase 5 — adapter pattern supports future providers
+    issue_ref: null
+
+  - feature_id: bridgebuilder-review
+    description: Review bot can only COMMENT on PRs, cannot APPROVE or REQUEST_CHANGES
+    reason: Safety constraint — human approval required for merge gates
+    decision_ref: null
+
+  - feature_id: compound-learning
+    description: Learning extraction requires LLM call; adds latency to session close
+    reason: Quality gates for learning candidates require reasoning
+    issue_ref: null
+
+  - feature_id: tool-sandbox
+    description: Worker thread sandbox has 30s default timeout; long-running tools may be killed
+    reason: Safety — prevents resource exhaustion from runaway tools
+    decision_ref: null
+
+  - feature_id: http-gateway
+    description: No horizontal scaling — single Hono instance per deployment
+    reason: Design choice — single-instance simplifies state management
+    decision_ref: null
+
+  - feature_id: activity-dashboard
+    description: Activity feed relies on GitHub API rate limits (5000 req/hr authenticated)
+    reason: No local caching of historical data beyond in-memory TTL
+    issue_ref: null
