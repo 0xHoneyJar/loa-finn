@@ -1,0 +1,38 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "This plan is close, but a few dependency/order and acceptance-criteria gaps (especially around parse-sections schema change, JTI TTL semantics, and ensemble scorer integration) could realistically cause the sprint to fail or ship incomplete security behavior.",
+  "blocking_issues": [
+    {
+      "location": "Sprint 1 — Task 1.4 (parser_version schema change) + Task 1.1 (jq migration) + Sprint 1 test tasks",
+      "issue": "Task 1.4 changes parse-sections.sh output from a bare array to an object, but Task 1.1 also touches parse-sections.sh JSON construction and Task 1.5/1.6 assume “159 existing tests pass unchanged”; the plan doesn’t specify the required sequencing/atomic PR boundary to avoid breaking all downstream consumers/tests mid-sprint.",
+      "why_blocking": "parse-sections.sh is effectively the AST for the pipeline; changing its top-level shape will break verify-citations/extract-section-deps/check-staleness and any tests/fixtures that assert the old JSON. If 1.1 lands before 1.4 (or vice versa) without an explicit compatibility window, the suite will fail and work will stall in CI.",
+      "fix": "Make the dependency explicit: implement 1.4 (producer + all consumers) as a single atomic change set, and run 1.1 changes to parse-sections.sh either (a) inside that same atomic PR or (b) after 1.4 is merged. Update acceptance criteria to remove “tests pass unchanged” where fixtures must change, and add a compatibility plan if you want staged rollout (e.g., support both shapes for one cycle)."
+    },
+    {
+      "location": "Sprint 3 — Task 3.2 (JTI replay protection)",
+      "issue": "TTL requirements are underspecified/contradictory: it says ttlMs “default: match JWT max age, 3600s” and also “window must match or exceed JWT exp claim,” but the plan doesn’t define how ttl is derived from per-token exp/iat/nbf, clock skew, or what happens when exp is shorter/longer than the configured ttl.",
+      "why_blocking": "Replay protection for JWTs in a real-money gateway is security-critical; if TTL is wrong you either (a) allow replay within a valid token window (security failure) or (b) reject legitimate requests (availability failure). Ambiguity here commonly leads to an implementation that passes unit tests but fails in production semantics.",
+      "fix": "Add explicit acceptance criteria and algorithm: e.g., `ttlSec = clamp(exp - now + skewSec, minTtlSec, maxTtlSec)` with defined skew (e.g., 60s) and max (e.g., 2h). Specify ordering: validate signature + standard claims first (including exp/nbf) then apply replay guard using derived TTL, or justify doing replay check earlier. Add tests for: short-lived token (exp in 30s), long-lived token (exp in 3h), expired token (should fail regardless of JTI), and clock-skew boundary."
+    },
+    {
+      "location": "Sprint 3 — Task 3.3 (Ensemble best_of_n with quality gate scorer) + overall sprint goal",
+      "issue": "The task only adds a scorer hook and documents a pseudo-integration, but the sprint goal/summary claims “best_of_n with quality gate pass rate as the scoring function” without an actual task to wire Hounfour to run Ground Truth quality gates (shell) from TypeScript, handle sandboxing, timeouts, and deterministic verification constraints.",
+      "why_blocking": "Without an explicit integration task, you can finish 3.3 and still not deliver the stated behavior (best-of-n chosen by gate pass rate). The missing glue work (process execution, passing artifacts, parsing JSON, failure modes) is non-trivial and is a common source of late-sprint surprises.",
+      "fix": "Add an explicit task (or expand 3.3) to implement a production-ready scorer adapter: spawn the deterministic gate scripts in the tool sandbox, enforce timeouts/budgets, parse gate JSON, and define behavior when gates fail to run (score=0 vs error). Add an integration test that runs best_of_n with two candidates where only one passes gates and asserts selection."
+    },
+    {
+      "location": "Sprint 2 — Task 2.1 (Dynamic REAL_CITATIONS from manifest)",
+      "issue": "Task depends on the exact schema and availability of `generation-manifest.json`, but the plan doesn’t pin the manifest schema version or add acceptance criteria ensuring the manifest contains the fields you intend to read (`documents[].sections[].citations[]` with line ranges).",
+      "why_blocking": "If the manifest schema differs (or is produced later in the pipeline than the test generator expects), property tests will become flaky or will silently fall back to hardcoded citations, failing the purpose of the task and potentially breaking CI.",
+      "fix": "Add explicit schema expectations and a contract test: generate a manifest in CI and assert required paths exist and are non-empty. If schema is versioned, include `manifest_version` and validate it (similar to parser_version). Clarify whether citations are sourced from manifest only or derived from documents; pick one and test it deterministically."
+    },
+    {
+      "location": "Sprint 1 — Task 1.2 (TF-IDF precision changes)",
+      "issue": "Uses `grep -oP` / `grep -coP` (PCRE) which is not portable across environments (notably macOS/BSD grep and some minimal CI images). The plan doesn’t mention ensuring GNU grep availability or providing a portable alternative.",
+      "why_blocking": "If your CI or contributors run on environments without `grep -P`, tests will fail and the sprint will stall on tooling issues rather than logic changes.",
+      "fix": "Either (a) enforce GNU grep in the toolchain (document + CI install) and add a preflight check in test harness, or (b) implement portable regex matching using `perl`, `python`, or `awk` with explicit word-boundary logic. Update acceptance criteria to include “works in CI environment X” or “preflight fails with actionable message when grep -P unavailable.”"
+    }
+  ],
+  "question": "",
+  "iteration": 1
+}
