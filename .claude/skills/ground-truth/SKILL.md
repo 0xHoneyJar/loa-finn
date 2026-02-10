@@ -228,13 +228,38 @@ Report to the user:
 
 ## Stage 7: MANIFEST — Update generation manifest
 
-Create or update `grimoires/loa/ground-truth/generation-manifest.json` with:
-- Document path
-- Generation timestamp
-- HEAD SHA
-- Citation count
-- Quality gate result
-- Warning count
+```bash
+.claude/scripts/ground-truth/write-manifest.sh "grimoires/loa/ground-truth/${DOC_TYPE}.md" \
+  --citations ${CITATION_COUNT} \
+  --warnings ${WARNING_COUNT} \
+  --gates pass
+```
+
+This creates/updates `grimoires/loa/ground-truth/generation-manifest.json` with:
+- Document path, generation timestamp, HEAD SHA
+- Citation count, quality gate result, warning count
+- Registry SHAs (features, limitations, ride)
+
+---
+
+## Beads Integration (Optional)
+
+If `br` (beads_rust) is available, track generation as a beads task:
+
+```bash
+if command -v br &>/dev/null; then
+  # Create task before generation
+  br create --label "ground-truth:${DOC_TYPE}" --status in_progress
+
+  # On success
+  br close <task-id> --reason "Generated ${DOC_TYPE} with ${CITATION_COUNT} verified citations"
+
+  # On repair loop exhaustion
+  br update <task-id> --status blocked --comment "Repair loop exhausted after 3 iterations"
+fi
+```
+
+If `br` is not available, skip silently — beads integration is optional.
 
 ---
 

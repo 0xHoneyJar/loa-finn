@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "documents": [
+    {
+      "path": "grimoires/loa/ground-truth/capability-brief.md",
+      "generated": "2026-02-10T09:41:20Z",
+      "checksum": "c39ca8b605da33e6f659cc1cc2ab7a137a3b6d02",
+      "citations_verified": 8,
+      "quality_gates": "pass",
+      "warnings": 1,
+      "head_sha": "c38e15dccc03def2570c48fb1215dea3bdb866c7",
+      "features_sha": "9cf7d7638dc91671ccb4b2c72bd1bcd2aa0d2dfb",
+      "limitations_sha": "e5c7ffff6e5bdbff142b490a20f612f9165aeec8",
+      "ride_sha": "none"
+    },
+    {
+      "path": "grimoires/loa/ground-truth/architecture-overview.md",
+      "generated": "2026-02-10T09:51:43Z",
+      "checksum": "3b12beb1112186b78b8c6743ce5c65db01e54878",
+      "citations_verified": 6,
+      "quality_gates": "pass",
+      "warnings": 1,
+      "head_sha": "c38e15dccc03def2570c48fb1215dea3bdb866c7",
+      "features_sha": "9cf7d7638dc91671ccb4b2c72bd1bcd2aa0d2dfb",
+      "limitations_sha": "e5c7ffff6e5bdbff142b490a20f612f9165aeec8",
+      "ride_sha": "none"
+    }
+  ],
+  "last_updated": "2026-02-10T09:51:43Z"
+}

@@ -1,0 +1,120 @@
+# Ground Truth Analogy Bank — TEAM-CURATED
+# Validated FAANG/bluechip parallels for BridgeBuilder voice.
+# Each analogy maps a loa-finn component to a well-known external system.
+# The generator selects from this bank — it does not invent analogies.
+#
+# Fields:
+#   domain: Which loa-finn capability area
+#   component: Specific loa-finn component
+#   parallel: The external system being compared
+#   structural_similarity: WHY the comparison holds (mechanism, not marketing)
+#   source: Where the external system's documentation lives
+
+analogies:
+  - domain: persistence
+    component: WAL Manager
+    parallel: PostgreSQL Write-Ahead Log
+    structural_similarity: >
+      Both use append-only segment files with checkpoint-based recovery.
+      Mutations are durably logged before state is updated, making crash
+      recovery deterministic rather than hopeful.
+    source: https://www.postgresql.org/docs/current/wal-intro.html
+
+  - domain: persistence
+    component: Recovery Cascade
+    parallel: Google Bigtable Raft Log
+    structural_similarity: >
+      Both implement ordered event replay from multiple sources (local WAL,
+      remote checkpoints) with deterministic state reconstruction.
+    source: https://research.google/pubs/bigtable-a-distributed-storage-system-for-structured-data/
+
+  - domain: orchestration
+    component: Pool Registry + Router
+    parallel: Kubernetes Service Discovery
+    structural_similarity: >
+      Pool IDs function like Kubernetes service names — the router resolves
+      them to concrete provider endpoints with health-aware failover, the
+      same way kube-proxy resolves Service to Pod endpoints.
+    source: https://kubernetes.io/docs/concepts/services-networking/service/
+
+  - domain: orchestration
+    component: Circuit Breaker
+    parallel: Netflix Hystrix
+    structural_similarity: >
+      Both implement a three-state machine (closed → open → half-open) with
+      configurable failure thresholds and recovery probing. The fail-open
+      semantics match Hystrix bulkhead isolation.
+    source: https://github.com/Netflix/Hystrix/wiki
+
+  - domain: orchestration
+    component: Ensemble Execution
+    parallel: Google MapReduce
+    structural_similarity: >
+      Ensemble runs the same prompt against N models in parallel (map phase),
+      then applies a merge strategy — first_complete, best_of_n, or consensus
+      (reduce phase). Budget caps per model mirror MapReduce task resource limits.
+    source: https://research.google/pubs/mapreduce-simplified-data-processing-on-large-clusters/
+
+  - domain: review
+    component: BridgeBuilder
+    parallel: Stripe Documentation-First Approach
+    structural_similarity: >
+      Both prioritize mechanism descriptions that let developers form their own
+      conclusions through evidence rather than adjectives. Stripe's API docs
+      explain what happens, not how great it is.
+    source: https://stripe.com/docs
+
+  - domain: scheduling
+    component: Cron Service + Job Registry
+    parallel: Apache Airflow DAG Scheduler
+    structural_similarity: >
+      Both use declarative job registration with dependency-aware execution,
+      circuit breakers per task, and idempotency guards preventing duplicate
+      runs on retry.
+    source: https://airflow.apache.org/docs/
+
+  - domain: safety
+    component: JWT + JWKS Authentication
+    parallel: Google OAuth 2.0 with JWKS
+    structural_similarity: >
+      Both validate ES256 JWTs against a rotating JWKS endpoint. Tenant context
+      is extracted from claims. Request body hash binding (req_hash) mirrors
+      AWS SigV4 payload verification.
+    source: https://developers.google.com/identity/protocols/oauth2
+
+  - domain: safety
+    component: BYOK Proxy
+    parallel: HashiCorp Vault Transit Engine
+    structural_similarity: >
+      Both provide encryption-as-a-service where the consuming application never
+      sees plaintext secrets. Keys are decrypted in-memory only at the proxy
+      boundary, matching Vault's transit encrypt/decrypt model.
+    source: https://developer.hashicorp.com/vault/docs/secrets/transit
+
+  - domain: gateway
+    component: Split-Authority Budget
+    parallel: Stripe Split Payments
+    structural_similarity: >
+      Two independent systems each authoritative for their domain — loa-finn
+      measures inference cost from token counts, arrakis enforces gateway budget
+      limits. Reconciliation via idempotent usage reports mirrors Stripe's
+      split payment settlement flow.
+    source: https://stripe.com/docs/connect/separate-charges-and-transfers
+
+  - domain: persistence
+    component: Idempotency Cache
+    parallel: Stripe Idempotency Keys
+    structural_similarity: >
+      Both use a deduplication key (report_id / idempotency-key) to prevent
+      duplicate operations on retry. LRU eviction with optional Redis backing
+      matches Stripe's TTL-based cache.
+    source: https://stripe.com/docs/api/idempotent_requests
+
+  - domain: orchestration
+    component: Orchestrator AbortSignal
+    parallel: Kubernetes Graceful Termination
+    structural_similarity: >
+      Both propagate cancellation signals through the execution chain — client
+      disconnect triggers abort, which propagates to sidecar requests, matching
+      Kubernetes SIGTERM → graceful shutdown → SIGKILL escalation.
+    source: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/
