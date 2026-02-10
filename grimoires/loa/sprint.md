@@ -1,168 +1,103 @@
-# Sprint Plan: Skill Benchmark Audit — Anthropic Best Practices
+# Sprint Plan: /ride Persistent Artifacts — Bridgebuilder Review Remediation
 
-**Version**: 1.1.0 (Flatline-hardened)
-**Date**: 2026-02-09
-**PRD**: grimoires/loa/prd.md (v1.1.0)
+**Version**: 2.0.0
+**Date**: 2026-02-10
+**PRD**: grimoires/loa/prd.md (v1.0.0)
 **SDD**: grimoires/loa/sdd.md (v1.0.0)
-**Issue**: #261
+**Issue**: #270
+**Source**: [PR #272 Bridgebuilder Review](https://github.com/0xHoneyJar/loa/pull/272)
 
 ---
 
-## Flatline Sprint Review Summary
+## Review Findings Summary
 
-| Metric | Value |
-|--------|-------|
-| Models | Claude Opus 4.6 + GPT-5.2 |
-| Agreement | 90% |
-| HIGH_CONSENSUS integrated | 4 (IMP-001, IMP-002, IMP-003, IMP-006) |
-| BLOCKERS accepted | 3 (SKP-003, SKP-006, SKP-007) |
-| DISPUTED logged | 1 (IMP-010 — deferred, observation monitoring is over-scoped) |
-| SKP-001 (CI integration) | Addressed via IMP-003 (same recommendation) |
+Sprint 1 (v1.0.0) implemented FR-1, FR-3, FR-4, FR-5 — the tool access fix, write checkpoints, verification gate, architecture grounding, and staleness detection. The Bridgebuilder review identified 5 actionable findings (1 High, 2 Medium, 2 Low):
 
----
+| # | Severity | Finding | FR |
+|---|----------|---------|----|
+| 1 | **High** | FR-2 "Context-Aware Invocation Mode" (MUST) not implemented — priority inversion | FR-2 |
+| 2 | Medium | Section numbering skip in output-formats.md (6.5.8 missing) + stale budget echo | — |
+| 3 | Medium | Checkpoint coverage gap — Phases 3 and 8 have no write checkpoints | FR-1 |
+| 4 | Low | Trajectory table ordering — Phase 0.6 listed before Phase 0.5 | — |
+| 5 | Low | Checkpoint boilerplate DRY opportunity | — |
 
-## Sprint 1: Validation Foundation + Size Compliance (P0)
+### Requirements Traceability
 
-**Goal**: Create the structural validation test suite, test it with fixtures, fix the only hard-limit violation, and add CI integration.
-
-### Task 1: Create benchmark configuration
-- **File**: `.claude/schemas/skill-benchmark.json`
-- **Description**: Create JSON config with thresholds (max_words: 5000, max_description_chars: 1024, min_error_references: 5, trigger patterns, forbidden frontmatter patterns)
-- **Acceptance Criteria**:
-  - [ ] File exists and is valid JSON
-  - [ ] All threshold values match PRD requirements
-  - [ ] jq can parse it without errors
-  - [ ] Script handles missing/malformed config gracefully with clear error message (IMP-002)
-
-### Task 2: Create structural validation script
-- **File**: `.claude/scripts/validate-skill-benchmarks.sh`
-- **Description**: Bash script implementing 10 checks from SDD Section 3.1.1. Must follow existing `validate-skills.sh` output format. Reads thresholds from `skill-benchmark.json`. Uses POSIX-compatible tools only (no GNU-specific flags).
-- **Acceptance Criteria**:
-  - [ ] All 10 checks implemented (SKILL.md exists, word count, no README, kebab-case, name match, no XML frontmatter, description length, WHEN pattern, error refs, frontmatter valid)
-  - [ ] Checks 1-7 and 10 are blocking (FAIL); checks 8-9 are warnings
-  - [ ] Output matches format: `PASS/FAIL/WARN: skill-name (details)`
-  - [ ] Summary shows total/passed/failed/warnings
-  - [ ] Exit code 0 if no FAILs, exit code 1 if any FAILs
-  - [ ] Script is executable (`chmod +x`)
-  - [ ] Graceful error on missing/invalid benchmark config JSON (IMP-002)
-
-### Task 3: Create test fixtures for validation script (SKP-007)
-- **Dir**: `.claude/skills/__test-compliant__/` and `.claude/skills/__test-noncompliant__/`
-- **Description**: Create deliberately compliant and non-compliant skill directories as test fixtures. Run validator against both to prove all 10 checks work. Clean up fixture dirs after test.
-- **Acceptance Criteria**:
-  - [ ] Compliant fixture: passes all 10 checks
-  - [ ] Non-compliant fixture: triggers FAIL on word count, missing SKILL.md, README.md present, bad folder name, XML in frontmatter
-  - [ ] Test script verifies validator catches all failure modes
-  - [ ] Fixture dirs prefixed with `__` to avoid confusion with real skills
-  - [ ] Cleanup step removes fixture dirs after test run (IMP-006)
-
-### Task 4: Update skill-index schema
-- **File**: `.claude/schemas/skill-index.schema.json`
-- **Description**: Raise description maxLength from 500 to 1024. Add optional `negative_triggers` array field.
-- **Acceptance Criteria**:
-  - [ ] `description.maxLength` is 1024
-  - [ ] `negative_triggers` field added with type array of strings
-  - [ ] Existing `validate-skills.sh` still passes
-
-### Task 5: Refactor riding-codebase SKILL.md
-- **File**: `.claude/skills/riding-codebase/SKILL.md` + 3 new reference files
-- **Description**: Extract ~2,400 words of reference material to `resources/references/`. Create backup (`SKILL.md.bak`). Target ≤4,500 words in SKILL.md.
-- **Acceptance Criteria**:
-  - [ ] SKILL.md is ≤ 4,500 words (`wc -w`)
-  - [ ] 3 reference files created: `output-formats.md`, `analysis-checklists.md`, `deep-analysis-guide.md`
-  - [ ] SKILL.md links to reference files with `See: resources/references/...`
-  - [ ] Core instructions (phases 0-1, edge cases) remain inline
-  - [ ] `SKILL.md.bak` backup exists
-  - [ ] `validate-skill-benchmarks.sh` passes for riding-codebase
-  - [ ] Behavioral smoke test: invoke `/ride` on a small test repo before and after refactoring, verify output is functionally equivalent (SKP-003)
-
-### Task 6: Rollback playbook (IMP-001)
-- **Description**: Document explicit rollback steps for Sprint 1 changes.
-- **Acceptance Criteria**:
-  - [ ] Rollback steps documented in sprint report: restore SKILL.md.bak, revert schema, remove validation script
-  - [ ] Decision criteria: who decides to rollback, what signals trigger it
-  - [ ] Re-validation steps after rollback
-
-### Task 7: Run full validation + CI integration (IMP-003)
-- **Description**: Execute both validation scripts, verify all checks pass, and document CI integration point.
-- **Acceptance Criteria**:
-  - [ ] `validate-skills.sh` exits 0
-  - [ ] `validate-skill-benchmarks.sh` exits 0 (riding-codebase under limit)
-  - [ ] Only expected warnings remain (5 skills with low error refs — addressed in Sprint 2)
-  - [ ] CI integration documented: which GitHub Actions workflow to add the validator to, with the exact step definition
+| Requirement | PRD Priority | Sprint 1 | Sprint 2 |
+|-------------|-------------|----------|----------|
+| FR-1: Artifact Persistence | MUST | Implemented | Extended (Phase 3 checkpoint) |
+| FR-2: Context-Aware Mode | MUST | **Missing** | **Resolved** (PRD update + decision doc) |
+| FR-3: Architecture Grounding | SHOULD | Implemented | — |
+| FR-4: Translate-Ride Compat | MUST | Implemented | — |
+| FR-5: Staleness Detection | SHOULD | Implemented | — |
 
 ---
 
-## Sprint 2: Description Standardization + Error Handling (P1-P2)
+## Sprint 2: Bridgebuilder Review Remediation
 
-**Goal**: Bring all 19 skill descriptions into compliance (batched) and add error handling to underserved skills.
+**Goal**: Address all findings from the Bridgebuilder review on PR #272. Resolve the FR-2 priority inversion, fix correctness issues in output-formats.md, close checkpoint coverage gaps, and fix trajectory table ordering.
 
-### Task 1a: Standardize descriptions — Batch 1 (skills 1-5)
-- **Files**: `auditing-security`, `autonomous-agent`, `bridgebuilder-review`, `browsing-constructs`, `continuous-learning` index.yaml
-- **Description**: Update 5 descriptions to follow `[What] + [When] + [Capabilities]` formula. Run validation after batch.
+### Task 1: Resolve FR-2 priority inversion — update PRD and document deferral rationale
+
+- **Files**: `grimoires/loa/prd.md`
+- **Description**: The PRD marks FR-2 (Context-Aware Invocation Mode) as MUST, but the SDD §4.3.2 recommends deferring it: "/ride always runs FULL mode when invoked. The lightweight behavior is achieved by /plan-and-analyze not invoking /ride at all when artifacts are fresh." This is a sound architectural decision — the lightweight mode is already handled by the calling skill, not by /ride itself. The PRD should be updated to reflect this: downgrade FR-2 to SHOULD and document the architectural rationale.
+- **Covers**: Bridgebuilder Finding #1 (High)
 - **Acceptance Criteria**:
-  - [ ] 5 descriptions follow the 3-line template, ≤ 1,024 chars
-  - [ ] Contain "Use when" or equivalent trigger context
-  - [ ] No trigger file paths dropped
-  - [ ] `validate-skill-benchmarks.sh` passes for these 5 (SKP-006)
+  - [ ] FR-2 priority changed from MUST to SHOULD in PRD
+  - [ ] Rationale section added to FR-2 explaining why mode detection is deferred
+  - [ ] SDD §4.3.2 "Practical Mode Detection" recommendation cited as justification
+  - [ ] Note that `/plan-and-analyze` already provides lightweight behavior via staleness check
+  - [ ] Future path documented: marker file or `--phase` argument if lightweight needed later
 
-### Task 1b: Standardize descriptions — Batch 2 (skills 6-10)
-- **Files**: `deploying-infrastructure`, `designing-architecture`, `discovering-requirements`, `enhancing-prompts`, `flatline-knowledge` index.yaml
-- **Acceptance Criteria**: Same as Task 1a for these 5 skills
+### Task 2: Fix section numbering and stale budget echo in output-formats.md
 
-### Task 1c: Standardize descriptions — Batch 3 (skills 11-15)
-- **Files**: `implementing-tasks`, `mounting-framework`, `planning-sprints`, `reviewing-code`, `riding-codebase` index.yaml
-- **Acceptance Criteria**: Same as Task 1a for these 5 skills
-
-### Task 1d: Standardize descriptions — Batch 4 (skills 16-19)
-- **Files**: `rtfm-testing`, `run-mode`, `simstim-workflow`, `translating-for-executives` index.yaml
-- **Acceptance Criteria**: Same as Task 1a for these 4 skills
-
-### Task 2: Add error handling to bridgebuilder-review
-- **File**: `.claude/skills/bridgebuilder-review/SKILL.md`
-- **Description**: Add `## Error Handling` section with error table and troubleshooting. Cover: API failures, auth errors, rate limits, dry-run edge cases, large PR handling.
+- **File**: `.claude/skills/riding-codebase/resources/references/output-formats.md`
+- **Description**: Fix three issues: (a) renumber §6.5.9 → §6.5.8, §6.5.10 → §6.5.9, §6.5.11 → §6.5.10 to eliminate the gap after the new §6.5.7 insertion, (b) fix the stale echo string from `budget: 7000` to `budget: 8500` in the Token Budget Verification section, (c) update trajectory log entry `"files": 6` to `"files": 7` to reflect architecture-overview.md.
+- **Covers**: Bridgebuilder Finding #2 (Medium)
 - **Acceptance Criteria**:
-  - [ ] Error handling section added with ≥ 5 error references
-  - [ ] Error table with cause and resolution columns
-  - [ ] Word count still under 5,000
-  - [ ] `validate-skill-benchmarks.sh` passes
+  - [ ] Section numbers are sequential: 6.5.7, 6.5.8, 6.5.9, 6.5.10
+  - [ ] Echo string reads `budget: 8500` (matches the `if` check above it)
+  - [ ] Trajectory log entry shows `"files": 7` (not 6)
+  - [ ] No other content modified
 
-### Task 3: Add error handling to designing-architecture
-- **File**: `.claude/skills/designing-architecture/SKILL.md`
-- **Description**: Add error handling for: PRD not found, clarification loop timeout, SDD generation failure.
-- **Acceptance Criteria**:
-  - [ ] Error handling section added with ≥ 5 error references
-  - [ ] Word count still under 5,000
+### Task 3: Add Phase 3 write checkpoint (CP-3) and document coverage gaps
 
-### Task 4: Add error handling to flatline-knowledge
-- **File**: `.claude/skills/flatline-knowledge/SKILL.md`
-- **Description**: Add error handling for: NotebookLM auth, API timeout, cache miss, model unavailable.
+- **File**: `.claude/skills/riding-codebase/SKILL.md`
+- **Description**: Add CP-3 checkpoint after Phase 3.3 for `grimoires/loa/legacy/INVENTORY.md` — this file is critical-path for Phase 4 (drift analysis). Also add a coverage gap note after Phase 8 acknowledging that Phase 2 extractions and Phase 8 modifications are intentionally uncovered, with rationale.
+- **Covers**: Bridgebuilder Finding #3 (Medium)
 - **Acceptance Criteria**:
-  - [ ] Error handling section added with ≥ 5 error references
-  - [ ] Word count still under 5,000
+  - [ ] CP-3 checkpoint added after Phase 3.3 for `grimoires/loa/legacy/INVENTORY.md`
+  - [ ] Checkpoint follows the standard template (Write → Glob verify → trajectory log)
+  - [ ] Coverage gap note added after Phase 8 explaining:
+    - Phase 2 extractions are intermediate working data consumed immediately
+    - Phase 8 modifies existing files (not creation), so existence checks don't apply
+  - [ ] Phase 10.0 Verification Gate checklist updated to include INVENTORY.md (item #11)
+  - [ ] Trajectory table updated with Phase 3 checkpoint entry
 
-### Task 5: Add error handling to mounting-framework
-- **File**: `.claude/skills/mounting-framework/SKILL.md`
-- **Description**: Add error handling for: Permission denied, existing mount, partial install, version mismatch.
-- **Acceptance Criteria**:
-  - [ ] Error handling section added with ≥ 5 error references
-  - [ ] Word count still under 5,000
+### Task 4: Fix trajectory table ordering — Phase 0.5 before Phase 0.6
 
-### Task 6: Add error handling to planning-sprints
-- **File**: `.claude/skills/planning-sprints/SKILL.md`
-- **Description**: Add error handling for: PRD/SDD missing, capacity estimation, dependency cycles, empty sprint.
+- **File**: `.claude/skills/riding-codebase/SKILL.md`
+- **Description**: Swap the Phase 0.6 and Phase 0.5 rows in the "Phase-Specific Details" trajectory logging table so they appear in chronological execution order: 0 → 0.5 → 0.6 → 1 → ...
+- **Covers**: Bridgebuilder Finding #4 (Low)
 - **Acceptance Criteria**:
-  - [ ] Error handling section added with ≥ 5 error references
-  - [ ] Word count still under 5,000
+  - [ ] Phase 0.5 (`codebase_probe`) row appears before Phase 0.6 (`staleness_check`)
+  - [ ] All other rows in correct chronological order
 
-### Task 7: Final validation pass
-- **Description**: Run both validation scripts. All 19 skills must pass with zero failures and zero warnings.
+### Task 5: Validation — word count, numbering, and traceability audit
+
+- **Description**: Verify all changes are internally consistent. Cross-check section numbering, verify word count remains under 5,000, confirm all MUST requirements are either implemented or explicitly deferred with rationale.
 - **Acceptance Criteria**:
-  - [ ] `validate-skills.sh` exits 0
-  - [ ] `validate-skill-benchmarks.sh` exits 0 with 0 warnings
-  - [ ] All 19 SKILL.md files ≤ 5,000 words
-  - [ ] All 19 descriptions ≤ 1,024 chars with trigger context
-  - [ ] All 19 skills have ≥ 5 error references
+  - [ ] SKILL.md word count < 5,000 (currently 2,696 — expect ~2,750 after CP-3 + gap note)
+  - [ ] output-formats.md sections sequential (no gaps)
+  - [ ] PRD FR-2 has SHOULD priority and deferral rationale
+  - [ ] Phase 10.0 checklist has 11 items (added INVENTORY.md)
+  - [ ] All Bridgebuilder findings addressed: 1 resolved, 2 fixed, 2 fixed, Finding #5 (DRY) noted for v3
+
+---
+
+## Bridgebuilder Finding #5 (DRY — Deferred)
+
+The checkpoint boilerplate concern (8 near-identical blocks) is acknowledged but intentionally deferred. The Bridgebuilder review itself notes: "The current approach optimizes for *reliability over elegance*, which is the right call for a skill that's been failing to write files." At 2,696 words, SKILL.md has substantial headroom before hitting the 5,000-word limit. If a future iteration pushes the word count above 4,000, the checkpoints are the first extraction candidate for `resources/references/checkpoint-protocol.md`.
 
 ---
 
@@ -170,19 +105,21 @@
 
 | NFR | Verification |
 |-----|-------------|
-| NFR-1: Zero behavioral regressions | SKILL.md.bak backups + validation before/after + behavioral smoke test for riding-codebase (SKP-003) |
-| NFR-2: No new dependencies | Script uses bash, wc, grep, jq (all existing, POSIX-compatible) |
-| NFR-3: Backward compatible | Trigger arrays unchanged; descriptions batched to isolate regressions (SKP-006) |
-| NFR-4: Documentation-only | No application code changes |
+| NFR-1: Performance | CP-3 adds <3s (single Glob check) |
+| NFR-2: Token budget | No new reality files; SKILL.md stays under 5,000 words |
+| NFR-3: Backward compatibility | PRD priority change is documentation-only, no behavior change |
+| NFR-4: No breaking changes | All changes additive or correctness fixes |
 
 ---
 
 ## Risk Mitigations
 
-| Risk | Mitigation | Owner |
-|------|-----------|-------|
-| R-1: Triggering breaks | Run validation before/after every skill change | Sprint 1 T2 |
-| R-5: Post-merge regression | SKILL.md.bak copies, 7-day observation, documented rollback playbook (IMP-001) | Sprint 1 T6 |
-| R-6: Validator false positives | Test fixtures prove all 10 checks against known inputs (SKP-007) | Sprint 1 T3 |
-| R-7: Description batch regression | 4 batches of 5 skills with validation between each (SKP-006) | Sprint 2 T1a-d |
-| R-8: CI drift | Document exact CI integration step (IMP-003) | Sprint 1 T7 |
+| Risk | Mitigation |
+|------|-----------|
+| PRD downgrade contested | SDD §4.3.2 provides technical justification; `/plan-and-analyze` staleness already covers the use case |
+| INVENTORY.md checkpoint fails | Phase 10.0 verification gate catches it; drift analysis proceeds with degraded baseline |
+| Word count creep | Currently at 2,696 / 5,000 — 46% headroom |
+
+---
+
+*Generated from PR #272 Bridgebuilder review feedback via /sprint-plan.*
