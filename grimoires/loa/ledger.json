@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-012",
-  "next_global_sprint_id": 32,
+  "current_cycle": "cycle-013",
+  "next_global_sprint_id": 35,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -299,6 +299,36 @@
           "label": "Incremental Pipeline + Ecosystem Integration",
           "status": "completed",
           "tasks": 7
+        }
+      ]
+    },
+    "cycle-013": {
+      "label": "Documentation Rewrite: Complete loa-finn Docs",
+      "status": "active",
+      "started": "2026-02-10T22:48:00Z",
+      "prd": "grimoires/loa/prd-docs-rewrite.md",
+      "sdd": "grimoires/loa/sdd-docs-rewrite.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 32,
+          "label": "Tooling & Templates",
+          "status": "pending",
+          "tasks": 0
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 33,
+          "label": "Phase 0-2: Reality Extraction & Document Generation",
+          "status": "pending",
+          "tasks": 0
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 34,
+          "label": "Phase 3-5: Governance, Verification & Review",
+          "status": "pending",
+          "tasks": 0
         }
       ]
     },
