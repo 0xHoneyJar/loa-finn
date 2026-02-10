@@ -4,14 +4,14 @@
   "state": "RUNNING",
   "timestamps": {
     "started": "2026-02-10T11:00:00Z",
-    "last_activity": "2026-02-10T11:00:00Z"
+    "last_activity": "2026-02-10T14:00:00Z"
   },
   "sprints": {
     "total": 2,
-    "completed": 0,
-    "current": "sprint-1",
+    "completed": 1,
+    "current": "sprint-2",
     "list": [
-      {"id": "sprint-1", "status": "in_progress", "cycles": 0, "label": "Verification Infrastructure + Capability Brief Draft"},
+      {"id": "sprint-1", "status": "completed", "cycles": 2, "label": "Verification Infrastructure + Capability Brief Draft"},
       {"id": "sprint-2", "status": "pending", "cycles": 0, "label": "Repair Loop Proof + Architecture Overview"}
     ]
   },
@@ -22,9 +22,9 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 0,
-    "total_files_changed": 0,
-    "total_findings_fixed": 0
+    "total_cycles": 2,
+    "total_files_changed": 26,
+    "total_findings_fixed": 5
   },
   "context": {
     "sprint_plan_file": "grimoires/loa/sprint-ground-truth.md",
