@@ -21,7 +21,7 @@ Implemented the complete Ground Truth verification infrastructure: 7 shell scrip
 
 ### Task 1.2 — features.yaml
 - **File**: `grimoires/loa/ground-truth/features.yaml`
-- **What**: 20 features across 7 categories, derived from codebase analysis of 13 src/ modules
+- **What**: 19 features across 7 categories, derived from codebase analysis of 13 src/ modules
 - **Schema**: id (kebab-case), name, status, category, modules[], description
 
 ### Task 1.3 — limitations.yaml
@@ -42,6 +42,7 @@ Implemented the complete Ground Truth verification infrastructure: 7 shell scrip
 - **What**: 5-step citation verification: EXTRACT → PATH_SAFETY → FILE_EXISTS → LINE_RANGE → EVIDENCE_ANCHOR
 - **Exit codes**: 0=pass, 1=fail, 2=unreadable, 3=path-safety-violation
 - **Key decisions**: PATH_SAFETY runs BEFORE any file read; git ls-files exact match required
+- **Feedback fix (B1)**: Implemented Step 5 EVIDENCE_ANCHOR verification — second-pass architecture with `declare -A cite_actual_lines` associative array caching verified citation content, parses `symbol=X` and `literal="Y"` tokens from `<!-- evidence: ... -->` tags
 
 ### Task 1.7 — scan-banned-terms.sh
 - **File**: `.claude/scripts/ground-truth/scan-banned-terms.sh`
@@ -58,6 +59,7 @@ Implemented the complete Ground Truth verification infrastructure: 7 shell scrip
 ### Task 1.9 — quality-gates.sh
 - **File**: `.claude/scripts/ground-truth/quality-gates.sh`
 - **What**: Orchestrator running 5 blocking gates + 2 warning gates. Fail-fast on blocking failures. Registry existence pre-flight.
+- **Feedback fix (NB1)**: Replaced `grep -oP 'head_sha=\K[^ ]+'` with POSIX-portable `sed` extraction
 
 ### Task 1.10 — inventory-modules.sh
 - **File**: `.claude/scripts/ground-truth/inventory-modules.sh`
@@ -89,9 +91,10 @@ Implemented the complete Ground Truth verification infrastructure: 7 shell scrip
 - **What**: Shared contract defining exact tag syntax, evidence anchors, citation rules per class, epistemic markers
 
 ### Task 1.17 — Test fixtures + harness
-- **Files**: `tests/ground-truth/fixtures/` (6 fixtures) + `tests/ground-truth/run-tests.sh`
-- **Fixtures**: pass-all-gates, fail-banned-term, fail-missing-provenance, fail-bad-citation-path, fail-missing-file, fail-hypothesis-no-marker
-- **Result**: 19/19 tests passing
+- **Files**: `tests/ground-truth/fixtures/` (8 fixtures) + `tests/ground-truth/run-tests.sh`
+- **Fixtures**: pass-all-gates, fail-banned-term, fail-missing-provenance, fail-bad-citation-path, fail-missing-file, fail-hypothesis-no-marker, fail-wrong-line-range, fail-missing-anchor
+- **Feedback fix (B2)**: Added `fail-wrong-line-range.md` (LINE_RANGE failure) and `fail-missing-anchor.md` (EVIDENCE_ANCHOR failure) fixtures with test assertions
+- **Result**: 23/23 tests passing
 
 ## Bugs Found & Fixed During Implementation
 
@@ -111,11 +114,11 @@ Implemented the complete Ground Truth verification infrastructure: 7 shell scrip
 ```
 Ground Truth Verification Test Harness
 =======================================
-▸ verify-citations.sh ............. 5/5 pass
+▸ verify-citations.sh ............. 9/9 pass
 ▸ scan-banned-terms.sh ............ 5/5 pass
 ▸ check-provenance.sh ............. 5/5 pass
 ▸ Cross-script consistency ........ 2/2 pass
-Total: 19 passed, 0 failed
+Total: 23 passed, 0 failed
 ```
 
 ## Files Changed
@@ -126,9 +129,9 @@ Total: 19 passed, 0 failed
 | Registry files | 4 | `grimoires/loa/ground-truth/*.yaml`, `banned-terms.txt` |
 | Skill definition | 1 | `.claude/skills/ground-truth/SKILL.md` |
 | Resources | 4 | Templates, voice guide, provenance spec |
-| Test fixtures | 6 | `tests/ground-truth/fixtures/*.md` |
+| Test fixtures | 8 | `tests/ground-truth/fixtures/*.md` |
 | Test harness | 1 | `tests/ground-truth/run-tests.sh` |
-| **Total** | **24** | |
+| **Total** | **26** | |
 
 ## Definition of Done
 
@@ -137,6 +140,8 @@ Total: 19 passed, 0 failed
 - [x] SKILL.md defines complete 7-stage pipeline
 - [x] Provenance spec defines shared contract
 - [x] BridgeBuilder voice template created
-- [x] Test harness passes all 19 assertions
+- [x] Test harness passes all 23 assertions
 - [x] No gawk dependencies (mawk-compatible)
 - [x] PATH_SAFETY runs before any file read
+- [x] EVIDENCE_ANCHOR verification implemented (Step 5)
+- [x] All review feedback addressed (B1, B2, NB1)

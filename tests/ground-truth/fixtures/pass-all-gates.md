@@ -14,7 +14,7 @@ This project provides durable state management via write-ahead logging. See `gri
 
 <!-- provenance: CODE-FACTUAL -->
 <!-- evidence: symbol=WALManager, symbol=createWALManager -->
-The persistence layer uses a write-ahead log pattern via `src/persistence/index.ts:1-5`. The `WALManager` handles append-only writes with crash recovery semantics.
+The persistence layer uses a write-ahead log pattern via `src/persistence/index.ts:1-6`. The `WALManager` handles append-only writes with crash recovery semantics.
 
 <!-- provenance: ANALOGY -->
 This is the same pattern PostgreSQL uses for its write-ahead log — append-only writes ensure no partial pages reach disk, making crash recovery deterministic rather than hopeful.
@@ -28,7 +28,7 @@ The architecture follows a three-zone model as described in `grimoires/loa/sdd-g
 
 <!-- provenance: CODE-FACTUAL -->
 <!-- evidence: symbol=WALManager -->
-The WAL persistence layer at `src/persistence/index.ts:1` currently supports single-writer access only.
+The WAL persistence layer at `src/persistence/index.ts:5` currently supports single-writer access only.
 
 ## What This Means
 

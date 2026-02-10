@@ -133,7 +133,7 @@ if ! $blocking_failed; then
 
   if grep -q '<!-- ground-truth-meta:' "$DOC_PATH" 2>/dev/null; then
     meta_line=$(grep '<!-- ground-truth-meta:' "$DOC_PATH")
-    meta_sha=$(echo "$meta_line" | grep -oP 'head_sha=\K[^ ]+' || echo "")
+    meta_sha=$(echo "$meta_line" | sed 's/.*head_sha=\([^ ]*\).*/\1/' || echo "")
     current_sha=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 
     if [[ -n "$meta_sha" && "$meta_sha" != "$current_sha" ]]; then

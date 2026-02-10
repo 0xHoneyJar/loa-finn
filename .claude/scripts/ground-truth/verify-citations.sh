@@ -61,6 +61,7 @@ failed=0
 failures_json="["
 first_failure=true
 path_safety_violation=false
+declare -A cite_actual_lines  # citation → actual lines content for step 5
 
 for citation in "${citations[@]}"; do
   # Parse path and line range
@@ -143,8 +144,72 @@ for citation in "${citations[@]}"; do
     failures_json+='{"citation":"'"$citation"'","check":"'"$check_failed"'","detail":"'"$escaped_detail"'","actual_lines":"'"$escaped_lines"'"}'
   else
     ((verified++)) || true
+    # Store for step 5 evidence anchor verification
+    cite_actual_lines["$citation"]="$actual_lines"
   fi
 done
+
+# ── Step 5: EVIDENCE_ANCHOR — verify tokens against cited lines ──
+# Scan document for <!-- evidence: symbol=X, literal="Y" --> tags.
+# For each anchor, find the nearest citation, parse tokens, check against cited lines.
+while IFS= read -r anchor_entry; do
+  [[ -z "$anchor_entry" ]] && continue
+  anchor_line_num="${anchor_entry%%:*}"
+  anchor_content="${anchor_entry#*:}"
+
+  # Find nearest citation: search lines around anchor for a backtick citation
+  search_start=$((anchor_line_num > 10 ? anchor_line_num - 10 : 1))
+  search_end=$((anchor_line_num + 10))
+  context=$(sed -n "${search_start},${search_end}p" "$DOC_PATH")
+
+  nearest=""
+  while [[ "$context" =~ \`([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+:[0-9]+(-[0-9]+)?)\` ]]; do
+    nearest="${BASH_REMATCH[1]}"
+    context="${context#*"${BASH_REMATCH[0]}"}"
+  done
+
+  if [[ -z "$nearest" ]]; then
+    continue  # No citation near anchor — check-provenance handles missing citation requirement
+  fi
+
+  # Look up the cited lines from our verified cache
+  cited_content="${cite_actual_lines[$nearest]:-}"
+  if [[ -z "$cited_content" ]]; then
+    continue  # Citation wasn't verified (already failed steps 2-4) — skip anchor check
+  fi
+
+  # Parse and check symbol= tokens
+  anchor_temp="$anchor_content"
+  while [[ "$anchor_temp" =~ symbol=([a-zA-Z0-9_]+) ]]; do
+    sym="${BASH_REMATCH[1]}"
+    if ! echo "$cited_content" | grep -qF "$sym"; then
+      ((failed++)) || true
+      if ! $first_failure; then
+        failures_json+=","
+      fi
+      first_failure=false
+      escaped_sym=$(echo "$sym" | sed 's/"/\\"/g')
+      failures_json+='{"citation":"'"$nearest"'","check":"EVIDENCE_ANCHOR","detail":"Symbol ['"$escaped_sym"'] not found in cited lines","actual_lines":""}'
+    fi
+    anchor_temp="${anchor_temp#*"${BASH_REMATCH[0]}"}"
+  done
+
+  # Parse and check literal= tokens
+  anchor_temp="$anchor_content"
+  while [[ "$anchor_temp" =~ literal=\"([^\"]+)\" ]]; do
+    lit="${BASH_REMATCH[1]}"
+    if ! echo "$cited_content" | grep -qF "$lit"; then
+      ((failed++)) || true
+      if ! $first_failure; then
+        failures_json+=","
+      fi
+      first_failure=false
+      escaped_lit=$(echo "$lit" | sed 's/"/\\"/g')
+      failures_json+='{"citation":"'"$nearest"'","check":"EVIDENCE_ANCHOR","detail":"Literal ['"$escaped_lit"'] not found in cited lines","actual_lines":""}'
+    fi
+    anchor_temp="${anchor_temp#*"${BASH_REMATCH[0]}"}"
+  done
+done < <(grep -n '<!-- evidence:' "$DOC_PATH" 2>/dev/null || true)
 
 failures_json+="]"
 

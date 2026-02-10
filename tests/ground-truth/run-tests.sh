@@ -137,6 +137,20 @@ exit_code=0
 output=$(run_script "$SCRIPTS/verify-citations.sh" "/nonexistent/file.md" --json) || exit_code=$?
 assert_exit "Nonexistent input file" 2 "$exit_code"
 
+# T4b: fail-wrong-line-range.md — cites valid file but out-of-range lines (exit=1)
+exit_code=0
+output=$(run_script "$SCRIPTS/verify-citations.sh" "$FIXTURES/fail-wrong-line-range.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "Wrong line range rejected" 1 "$exit_code"
+assert_json "LINE_RANGE check field" "$output" '.failures[0].check' "LINE_RANGE"
+
+# T4c: fail-missing-anchor.md — valid citation but evidence anchor token not in cited lines (exit=1)
+exit_code=0
+output=$(run_script "$SCRIPTS/verify-citations.sh" "$FIXTURES/fail-missing-anchor.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "Missing anchor token rejected" 1 "$exit_code"
+assert_json "EVIDENCE_ANCHOR check field" "$output" '.failures[0].check' "EVIDENCE_ANCHOR"
+
 echo ""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
