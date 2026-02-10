@@ -1,5 +1,12 @@
 # A2A Sprint Index
 
+## Cycle-011: Ground Truth v2 — Verification Hardening & Incremental Pipeline
+
+| Sprint | Global ID | Status | Report |
+|--------|-----------|--------|--------|
+| Sprint 1 | 27 | COMPLETED | [reviewer.md](sprint-27/reviewer.md) / [engineer-feedback.md](sprint-27/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-27/auditor-sprint-feedback.md) |
+| Sprint 2 | 28 | COMPLETED | [reviewer.md](sprint-28/reviewer.md) / [engineer-feedback.md](sprint-28/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-28/auditor-sprint-feedback.md) |
+
 ## Cycle-009: Hounfour Phase 5 — Integration Hardening & Multi-Model Orchestration
 
 | Sprint | Global ID | Status | Report |

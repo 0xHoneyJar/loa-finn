@@ -38,10 +38,13 @@ echo "Registries OK"
 Supported flags:
 - `--type capability-brief` (default)
 - `--type architecture-overview`
+- `--incremental` — Only regenerate stale sections (v2.0)
 
 ```
 DOC_TYPE="${1:-capability-brief}"
 OUTPUT_DIR="grimoires/loa/ground-truth"
+INCREMENTAL=false
+# Parse --incremental flag from arguments
 ```
 
 ---
@@ -118,6 +121,32 @@ Do NOT use arbitrary Bash to read files — use the Read tool.
 ---
 
 ## Stage 3: GENERATE — Produce the document
+
+### Incremental mode (v2.0)
+
+When `--incremental` is set, only regenerate sections that are stale:
+
+```bash
+# Check which sections need regeneration
+staleness=$(.claude/scripts/ground-truth/check-staleness.sh "${OUTPUT_DIR}/${DOC_TYPE}.md" --json)
+stale_count=$(echo "$staleness" | jq -r '.stale_count')
+
+if [[ "$stale_count" -eq 0 ]]; then
+  echo "No stale sections — document is current"
+  # Skip to Stage 6 (OUTPUT)
+fi
+
+# Get list of stale section headings
+stale_headings=$(echo "$staleness" | jq -r '.stale_sections[].heading')
+```
+
+When regenerating incrementally:
+1. Read the existing document
+2. Only rewrite sections whose headings appear in `stale_headings`
+3. Preserve all non-stale sections byte-for-byte
+4. Run VERIFY on the **full document** after partial regeneration (not just stale sections)
+
+If `--incremental` is NOT set, generate the full document as before:
 
 Generate the document following the template structure exactly.
 

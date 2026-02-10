@@ -3,28 +3,277 @@
   "documents": [
     {
       "path": "grimoires/loa/ground-truth/capability-brief.md",
-      "generated": "2026-02-10T09:41:20Z",
+      "generated": "2026-02-10T11:27:15Z",
       "checksum": "c39ca8b605da33e6f659cc1cc2ab7a137a3b6d02",
       "citations_verified": 8,
       "quality_gates": "pass",
       "warnings": 1,
-      "head_sha": "c38e15dccc03def2570c48fb1215dea3bdb866c7",
+      "head_sha": "6d3d0b202200ec493641d2c8c5f3b74a20de00b1",
       "features_sha": "9cf7d7638dc91671ccb4b2c72bd1bcd2aa0d2dfb",
       "limitations_sha": "e5c7ffff6e5bdbff142b490a20f612f9165aeec8",
-      "ride_sha": "none"
+      "ride_sha": "none",
+      "sections": [
+        {
+          "heading": "loa-finn — Capability Brief",
+          "start_line": 6,
+          "end_line": 11,
+          "content_hash": "3a517104ee43140362c053f177782b0d52b15578",
+          "citations": []
+        },
+        {
+          "heading": "Overview",
+          "start_line": 12,
+          "end_line": 20,
+          "content_hash": "9d9a6a0ad61a6a1914520072048d6d5d5973e9f4",
+          "citations": []
+        },
+        {
+          "heading": "Durable State Management",
+          "start_line": 21,
+          "end_line": 34,
+          "content_hash": "1759e957d4e066aad7953a9daf82461e6aef3a1f",
+          "citations": [
+            {
+              "path": "src/persistence/index.ts",
+              "line_start": 1,
+              "line_end": 30
+            }
+          ]
+        },
+        {
+          "heading": "Multi-Model Orchestration",
+          "start_line": 35,
+          "end_line": 46,
+          "content_hash": "e79be9dd9df15591c0633bb1a66e06ca7910069f",
+          "citations": [
+            {
+              "path": "src/hounfour/router.ts",
+              "line_start": 38,
+              "line_end": 50
+            }
+          ]
+        },
+        {
+          "heading": "Autonomous Code Review",
+          "start_line": 47,
+          "end_line": 58,
+          "content_hash": "dcf86ba5a79102c74a99e66d9bd287ee68f928c5",
+          "citations": [
+            {
+              "path": "src/bridgebuilder/entry.ts",
+              "line_start": 1,
+              "line_end": 10
+            }
+          ]
+        },
+        {
+          "heading": "Compound Learning",
+          "start_line": 59,
+          "end_line": 70,
+          "content_hash": "e07b1294d29b6e0d13eb00628d48778df26da07d",
+          "citations": [
+            {
+              "path": "src/learning/compound.ts",
+              "line_start": 1,
+              "line_end": 29
+            }
+          ]
+        },
+        {
+          "heading": "Job Scheduling & Lifecycle",
+          "start_line": 71,
+          "end_line": 80,
+          "content_hash": "dcd675e738b6c6d0b4c29f3c6da9678eba1c26fa",
+          "citations": [
+            {
+              "path": "src/cron/service.ts",
+              "line_start": 1,
+              "line_end": 8
+            }
+          ]
+        },
+        {
+          "heading": "Safety & Audit Infrastructure",
+          "start_line": 81,
+          "end_line": 92,
+          "content_hash": "e8bc314447c287171c4f2a1de792a2e71d1e9fd4",
+          "citations": [
+            {
+              "path": "src/agent/worker-pool.ts",
+              "line_start": 17,
+              "line_end": 30
+            }
+          ]
+        },
+        {
+          "heading": "HTTP Gateway & Dashboard",
+          "start_line": 93,
+          "end_line": 106,
+          "content_hash": "07d0edd82b1e4352f808e4da945b05e641fbe5e7",
+          "citations": [
+            {
+              "path": "src/gateway/server.ts",
+              "line_start": 19,
+              "line_end": 30
+            }
+          ]
+        },
+        {
+          "heading": "Design Principles",
+          "start_line": 107,
+          "end_line": 115,
+          "content_hash": "3f8fd2bdc7012a0b37422738ed4cdc2dadd27862",
+          "citations": []
+        },
+        {
+          "heading": "Limitations & Honest Assessment",
+          "start_line": 116,
+          "end_line": 125,
+          "content_hash": "77384bfbf850f79aab8117cba29555ee90c28b79",
+          "citations": [
+            {
+              "path": "src/persistence/index.ts",
+              "line_start": 5,
+              "line_end": 5
+            }
+          ]
+        },
+        {
+          "heading": "What This Means",
+          "start_line": 126,
+          "end_line": 131,
+          "content_hash": "b9e8124a0e85457d8a7d4f69407a7a7f132a8b6f",
+          "citations": []
+        }
+      ]
     },
     {
       "path": "grimoires/loa/ground-truth/architecture-overview.md",
-      "generated": "2026-02-10T09:51:43Z",
+      "generated": "2026-02-10T11:27:39Z",
       "checksum": "3b12beb1112186b78b8c6743ce5c65db01e54878",
       "citations_verified": 6,
       "quality_gates": "pass",
       "warnings": 1,
-      "head_sha": "c38e15dccc03def2570c48fb1215dea3bdb866c7",
+      "head_sha": "6d3d0b202200ec493641d2c8c5f3b74a20de00b1",
       "features_sha": "9cf7d7638dc91671ccb4b2c72bd1bcd2aa0d2dfb",
       "limitations_sha": "e5c7ffff6e5bdbff142b490a20f612f9165aeec8",
-      "ride_sha": "none"
+      "ride_sha": "none",
+      "sections": [
+        {
+          "heading": "loa-finn — Architecture Overview",
+          "start_line": 6,
+          "end_line": 11,
+          "content_hash": "95118937e6e9a754780d357b4e62da2417ab0527",
+          "citations": []
+        },
+        {
+          "heading": "System Overview",
+          "start_line": 12,
+          "end_line": 20,
+          "content_hash": "65f76dffc5d65b0fc722975b0dbb67da52d53148",
+          "citations": []
+        },
+        {
+          "heading": "Architecture Layers",
+          "start_line": 21,
+          "end_line": 22,
+          "content_hash": "bb58c0d134608047a148c1491d8bdb559b2fea46",
+          "citations": []
+        },
+        {
+          "heading": "Layer 1: Persistence",
+          "start_line": 23,
+          "end_line": 32,
+          "content_hash": "23326c766d33ede56be2163feff9133d088e2d38",
+          "citations": [
+            {
+              "path": "src/persistence/index.ts",
+              "line_start": 1,
+              "line_end": 30
+            }
+          ]
+        },
+        {
+          "heading": "Layer 2: Orchestration",
+          "start_line": 33,
+          "end_line": 42,
+          "content_hash": "355a4088f133d2f25be0dfb89d8513effbcc89d4",
+          "citations": [
+            {
+              "path": "src/hounfour/router.ts",
+              "line_start": 38,
+              "line_end": 50
+            }
+          ]
+        },
+        {
+          "heading": "Layer 3: Agent & Safety",
+          "start_line": 43,
+          "end_line": 52,
+          "content_hash": "ab0d0c0d8ab1f49a2a8df0f1ad13a5e1886681ae",
+          "citations": [
+            {
+              "path": "src/agent/worker-pool.ts",
+              "line_start": 17,
+              "line_end": 32
+            }
+          ]
+        },
+        {
+          "heading": "Layer 4: Application Services",
+          "start_line": 53,
+          "end_line": 65,
+          "content_hash": "6dc9a64abf8b46b64706e4050afad97c88e31299",
+          "citations": [
+            {
+              "path": "src/cron/service.ts",
+              "line_start": 1,
+              "line_end": 8
+            }
+          ]
+        },
+        {
+          "heading": "Layer 5: Gateway",
+          "start_line": 66,
+          "end_line": 75,
+          "content_hash": "11a1b418c776288c07becb103761b91a5fef281c",
+          "citations": [
+            {
+              "path": "src/gateway/server.ts",
+              "line_start": 19,
+              "line_end": 30
+            }
+          ]
+        },
+        {
+          "heading": "Component Interactions",
+          "start_line": 76,
+          "end_line": 97,
+          "content_hash": "1c5624c1ecda73c5c9cfeb651a0e132556af8c60",
+          "citations": [
+            {
+              "path": "src/gateway/server.ts",
+              "line_start": 19,
+              "line_end": 27
+            }
+          ]
+        },
+        {
+          "heading": "Design Principles",
+          "start_line": 98,
+          "end_line": 106,
+          "content_hash": "3f8fd2bdc7012a0b37422738ed4cdc2dadd27862",
+          "citations": []
+        },
+        {
+          "heading": "What This Architecture Enables",
+          "start_line": 107,
+          "end_line": 112,
+          "content_hash": "feaea2938df1032c8f47a37b8419cbbbf3d7afdd",
+          "citations": []
+        }
+      ]
     }
   ],
-  "last_updated": "2026-02-10T09:51:43Z"
+  "last_updated": "2026-02-10T11:27:39Z"
 }

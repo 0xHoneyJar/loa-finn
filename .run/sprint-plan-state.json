@@ -1,19 +1,19 @@
 {
-  "plan_id": "plan-20260210-ground-truth",
-  "branch": "feature/ground-truth-gtm",
+  "plan_id": "plan-20260210-ground-truth-v2",
+  "branch": "feature/ground-truth-v2",
   "state": "JACKED_OUT",
   "timestamps": {
-    "started": "2026-02-10T11:00:00Z",
-    "last_activity": "2026-02-10T15:00:00Z",
-    "completed": "2026-02-10T15:00:00Z"
+    "started": "2026-02-10T16:00:00Z",
+    "last_activity": "2026-02-10T20:00:00Z",
+    "completed": "2026-02-10T20:00:00Z"
   },
   "sprints": {
     "total": 2,
     "completed": 2,
-    "current": null,
+    "current": "sprint-2",
     "list": [
-      {"id": "sprint-1", "status": "completed", "cycles": 2, "label": "Verification Infrastructure + Capability Brief Draft"},
-      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Repair Loop Proof + Architecture Overview"}
+      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Structural Verification + Property Testing"},
+      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Incremental Pipeline + Ecosystem Integration"}
     ]
   },
   "options": {
@@ -23,13 +23,13 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 3,
-    "total_files_changed": 35,
-    "total_findings_fixed": 5
+    "total_cycles": 2,
+    "total_files_changed": 18,
+    "total_findings_fixed": 0
   },
   "context": {
-    "sprint_plan_file": "grimoires/loa/sprint-ground-truth.md",
-    "cycle": "cycle-010",
-    "global_sprint_ids": [25, 26]
+    "sprint_plan_file": "grimoires/loa/sprint-ground-truth-v2.md",
+    "cycle": "cycle-011",
+    "global_sprint_ids": [27, 28]
   }
 }

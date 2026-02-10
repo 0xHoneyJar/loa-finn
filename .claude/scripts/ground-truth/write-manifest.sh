@@ -10,6 +10,7 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOC_PATH="${1:-}"
 CITATIONS=0
 WARNINGS=0
@@ -56,6 +57,13 @@ if [[ -f "grimoires/loa/reality/index.md" ]]; then
   ride_sha=$(git hash-object "grimoires/loa/reality/index.md" 2>/dev/null || echo "untracked")
 fi
 
+# Extract per-section dependencies (v2.0)
+sections_json="[]"
+if [[ -x "$SCRIPT_DIR/extract-section-deps.sh" ]]; then
+  section_output=$("$SCRIPT_DIR/extract-section-deps.sh" "$DOC_PATH" --json 2>/dev/null || echo '{"sections":[]}')
+  sections_json=$(echo "$section_output" | jq '.sections' 2>/dev/null || echo "[]")
+fi
+
 # Build new entry
 new_entry=$(jq -n \
   --arg path "$DOC_PATH" \
@@ -68,6 +76,7 @@ new_entry=$(jq -n \
   --arg features_sha "$features_sha" \
   --arg limitations_sha "$limitations_sha" \
   --arg ride_sha "$ride_sha" \
+  --argjson sections "$sections_json" \
   '{
     path: $path,
     generated: $generated,
@@ -78,7 +87,8 @@ new_entry=$(jq -n \
     head_sha: $head_sha,
     features_sha: $features_sha,
     limitations_sha: $limitations_sha,
-    ride_sha: $ride_sha
+    ride_sha: $ride_sha,
+    sections: $sections
   }')
 
 # Update or create manifest

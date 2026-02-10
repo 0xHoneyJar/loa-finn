@@ -231,6 +231,25 @@ fi
 echo ""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo "▸ Regression: stacked CODE-FACTUAL (cycle-010)"
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# T13: Stacked CODE-FACTUAL paragraphs — AST resolver associates each anchor with its own citation
+exit_code=0
+output=$(run_script "$SCRIPTS/verify-citations.sh" "$FIXTURES/regression-stacked-code-factual.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "Stacked CODE-FACTUAL passes with AST resolver" 0 "$exit_code"
+assert_json "All 4 citations verified" "$output" '.verified' "4"
+assert_json "Zero failures" "$output" '.failed' "0"
+
+# T14: Also passes provenance and banned-term checks
+prov_exit=0
+"$SCRIPTS/check-provenance.sh" "$FIXTURES/regression-stacked-code-factual.md" --json &>/dev/null || prov_exit=$?
+assert_exit "Stacked CODE-FACTUAL passes provenance" 0 "$prov_exit"
+
+echo ""
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo "Results"
 echo "======="
 echo "  Total: $total | Passed: $passed | Failed: $failed"

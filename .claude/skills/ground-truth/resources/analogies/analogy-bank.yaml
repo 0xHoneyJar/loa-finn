@@ -9,6 +9,7 @@
 #   parallel: The external system being compared
 #   structural_similarity: WHY the comparison holds (mechanism, not marketing)
 #   source: Where the external system's documentation lives
+#   grounded_in: Repo-relative paths that make the structural similarity claim true (v2.0)
 
 analogies:
   - domain: persistence
@@ -19,6 +20,9 @@ analogies:
       Mutations are durably logged before state is updated, making crash
       recovery deterministic rather than hopeful.
     source: https://www.postgresql.org/docs/current/wal-intro.html
+    grounded_in:
+      - src/persistence/wal.ts
+      - src/persistence/index.ts
 
   - domain: persistence
     component: Recovery Cascade
@@ -27,6 +31,10 @@ analogies:
       Both implement ordered event replay from multiple sources (local WAL,
       remote checkpoints) with deterministic state reconstruction.
     source: https://research.google/pubs/bigtable-a-distributed-storage-system-for-structured-data/
+    grounded_in:
+      - src/persistence/recovery.ts
+      - src/persistence/git-sync.ts
+      - src/persistence/r2-sync.ts
 
   - domain: orchestration
     component: Pool Registry + Router
@@ -36,6 +44,9 @@ analogies:
       them to concrete provider endpoints with health-aware failover, the
       same way kube-proxy resolves Service to Pod endpoints.
     source: https://kubernetes.io/docs/concepts/services-networking/service/
+    grounded_in:
+      - src/hounfour/pool-registry.ts
+      - src/hounfour/router.ts
 
   - domain: orchestration
     component: Circuit Breaker
@@ -45,6 +56,8 @@ analogies:
       configurable failure thresholds and recovery probing. The fail-open
       semantics match Hystrix bulkhead isolation.
     source: https://github.com/Netflix/Hystrix/wiki
+    grounded_in:
+      - src/cron/service.ts
 
   - domain: orchestration
     component: Ensemble Execution
@@ -54,6 +67,9 @@ analogies:
       then applies a merge strategy — first_complete, best_of_n, or consensus
       (reduce phase). Budget caps per model mirror MapReduce task resource limits.
     source: https://research.google/pubs/mapreduce-simplified-data-processing-on-large-clusters/
+    grounded_in:
+      - src/hounfour/ensemble.ts
+      - src/hounfour/budget.ts
 
   - domain: review
     component: BridgeBuilder
@@ -63,6 +79,8 @@ analogies:
       conclusions through evidence rather than adjectives. Stripe's API docs
       explain what happens, not how great it is.
     source: https://stripe.com/docs
+    grounded_in:
+      - src/bridgebuilder/entry.ts
 
   - domain: scheduling
     component: Cron Service + Job Registry
@@ -72,6 +90,8 @@ analogies:
       circuit breakers per task, and idempotency guards preventing duplicate
       runs on retry.
     source: https://airflow.apache.org/docs/
+    grounded_in:
+      - src/cron/service.ts
 
   - domain: safety
     component: JWT + JWKS Authentication
@@ -81,6 +101,8 @@ analogies:
       is extracted from claims. Request body hash binding (req_hash) mirrors
       AWS SigV4 payload verification.
     source: https://developers.google.com/identity/protocols/oauth2
+    grounded_in:
+      - src/gateway/auth.ts
 
   - domain: safety
     component: BYOK Proxy
@@ -90,6 +112,8 @@ analogies:
       sees plaintext secrets. Keys are decrypted in-memory only at the proxy
       boundary, matching Vault's transit encrypt/decrypt model.
     source: https://developer.hashicorp.com/vault/docs/secrets/transit
+    grounded_in:
+      - src/hounfour/byok-proxy-client.ts
 
   - domain: gateway
     component: Split-Authority Budget
@@ -100,6 +124,9 @@ analogies:
       limits. Reconciliation via idempotent usage reports mirrors Stripe's
       split payment settlement flow.
     source: https://stripe.com/docs/connect/separate-charges-and-transfers
+    grounded_in:
+      - src/hounfour/budget.ts
+      - src/gateway/server.ts
 
   - domain: persistence
     component: Idempotency Cache
@@ -109,6 +136,8 @@ analogies:
       duplicate operations on retry. LRU eviction with optional Redis backing
       matches Stripe's TTL-based cache.
     source: https://stripe.com/docs/api/idempotent_requests
+    grounded_in:
+      - src/persistence/index.ts
 
   - domain: orchestration
     component: Orchestrator AbortSignal
@@ -118,3 +147,5 @@ analogies:
       disconnect triggers abort, which propagates to sidecar requests, matching
       Kubernetes SIGTERM → graceful shutdown → SIGKILL escalation.
     source: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/
+    grounded_in:
+      - src/hounfour/router.ts

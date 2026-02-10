@@ -221,6 +221,18 @@ if [[ $mechanism_count -lt 3 ]]; then
   mechanism_warning="Low mechanism density: only $mechanism_count mechanism indicators found (target: ≥3)"
 fi
 
+# Gate W3: symbol-specificity — TF-IDF scoring for evidence anchor symbols
+specificity_warning=""
+if [[ -x "$SCRIPT_DIR/score-symbol-specificity.sh" ]]; then
+  spec_output=$("$SCRIPT_DIR/score-symbol-specificity.sh" "$DOC_PATH" --json 2>/dev/null || echo '{"warnings":[]}')
+  spec_warning_count=$(echo "$spec_output" | jq -r '.warnings | length' 2>/dev/null | head -1 || echo "0")
+  spec_warning_count="${spec_warning_count:-0}"
+  if [[ "$spec_warning_count" -gt 0 ]]; then
+    spec_symbols=$(echo "$spec_output" | jq -r '[.warnings[].symbol] | join(", ")' 2>/dev/null || echo "unknown")
+    specificity_warning="$spec_warning_count evidence anchor symbol(s) below specificity threshold: $spec_symbols"
+  fi
+fi
+
 warnings_json='['
 wfirst=true
 if [[ -n "$analogy_warning" ]]; then
@@ -230,6 +242,29 @@ fi
 if [[ -n "$mechanism_warning" ]]; then
   if ! $wfirst; then warnings_json+=","; fi
   warnings_json+='"'"$mechanism_warning"'"'
+  wfirst=false
+fi
+if [[ -n "$specificity_warning" ]]; then
+  if ! $wfirst; then warnings_json+=","; fi
+  warnings_json+='"'"$specificity_warning"'"'
+  wfirst=false
+fi
+
+# Gate W4: analogy-staleness — check if grounded_in code paths have changed
+analogy_warning=""
+if [[ -x "$SCRIPT_DIR/check-analogy-staleness.sh" ]]; then
+  analogy_stale_output=$("$SCRIPT_DIR/check-analogy-staleness.sh" --json 2>/dev/null || echo '{"stale_count":0}')
+  analogy_stale_count=$(echo "$analogy_stale_output" | jq -r '.stale_count' 2>/dev/null | head -1 || echo "0")
+  analogy_stale_count="${analogy_stale_count:-0}"
+  if [[ "$analogy_stale_count" -gt 0 ]]; then
+    stale_components=$(echo "$analogy_stale_output" | jq -r '[.stale_analogies[].component] | join(", ")' 2>/dev/null || echo "unknown")
+    analogy_warning="$analogy_stale_count analogy(ies) may be stale — grounding code changed: $stale_components"
+  fi
+fi
+
+if [[ -n "$analogy_warning" ]]; then
+  if ! $wfirst; then warnings_json+=","; fi
+  warnings_json+='"'"$analogy_warning"'"'
 fi
 warnings_json+=']'
 
