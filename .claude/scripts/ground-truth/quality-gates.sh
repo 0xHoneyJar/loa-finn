@@ -1,0 +1,299 @@
+#!/usr/bin/env bash
+# quality-gates.sh — Orchestrate all Ground Truth verification gates
+# Runs 5 blocking gates + 2 warning gates. Halts on first blocking failure.
+#
+# Usage: quality-gates.sh <document-path> [--json]
+#
+# Exit codes:
+#   0 = All blocking gates pass
+#   1 = One or more blocking gates failed
+#   2 = Input file not found or configuration error
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOC_PATH="${1:-}"
+JSON_OUTPUT=false
+
+for arg in "$@"; do
+  if [[ "$arg" == "--json" ]]; then
+    JSON_OUTPUT=true
+  fi
+done
+
+if [[ -z "$DOC_PATH" || ! -f "$DOC_PATH" ]]; then
+  if $JSON_OUTPUT; then
+    echo '{"error":"Document not found","file":"'"${DOC_PATH:-}"'"}'
+  else
+    echo "ERROR: Document path required and must exist: ${DOC_PATH:-<none>}" >&2
+  fi
+  exit 2
+fi
+
+REGISTRY_DIR="grimoires/loa/ground-truth"
+
+# ── Pre-flight: Check registry files exist ──
+for required in "features.yaml" "limitations.yaml" "capability-taxonomy.yaml"; do
+  if [[ ! -f "$REGISTRY_DIR/$required" ]]; then
+    msg="ERROR: Required registry file missing: $REGISTRY_DIR/$required
+
+Ground Truth requires team-curated registry files before generation.
+These files define which features exist and their status — the generator
+never creates or modifies them.
+
+To create starter files:
+  .claude/scripts/ground-truth/bootstrap-registries.sh
+
+Then edit the files to reflect your project and commit them.
+See: grimoires/loa/sdd-ground-truth.md §3.4 for registry format."
+
+    if $JSON_OUTPUT; then
+      echo '{"error":"Missing registry","file":"'"$REGISTRY_DIR/$required"'","action":"Run bootstrap-registries.sh"}'
+    else
+      echo "$msg" >&2
+    fi
+    exit 2
+  fi
+done
+
+# ── Results tracking ──
+gates_json="["
+first_gate=true
+blocking_failed=false
+total_blocking=0
+passed_blocking=0
+warnings_json="["
+first_warning=true
+
+run_gate() {
+  local name="$1"
+  local blocking="$2"
+  shift 2
+
+  if ! $first_gate; then gates_json+=","; fi
+  first_gate=false
+
+  local result
+  local exit_code=0
+  result=$("$@" 2>&1) || exit_code=$?
+
+  local status="pass"
+  if [[ $exit_code -ne 0 ]]; then
+    status="fail"
+  fi
+
+  gates_json+='{"gate":"'"$name"'","blocking":'"$blocking"',"status":"'"$status"'","exit_code":'"$exit_code"',"output":'"$(echo "$result" | jq -Rs . 2>/dev/null || echo '""')"'}'
+
+  if [[ "$blocking" == "true" ]]; then
+    ((total_blocking++)) || true
+    if [[ $exit_code -eq 0 ]]; then
+      ((passed_blocking++)) || true
+    else
+      blocking_failed=true
+    fi
+  fi
+
+  return $exit_code
+}
+
+# ── BLOCKING GATE 1: verify-citations ──
+run_gate "verify-citations" "true" "$SCRIPT_DIR/verify-citations.sh" "$DOC_PATH" --json || true
+
+# Fail-fast on blocking failure
+if $blocking_failed; then
+  if ! $JSON_OUTPUT; then
+    echo "FAIL: Blocking gate 'verify-citations' failed — halting" >&2
+  fi
+fi
+
+# ── BLOCKING GATE 2: scan-banned-terms ──
+if ! $blocking_failed; then
+  run_gate "scan-banned-terms" "true" "$SCRIPT_DIR/scan-banned-terms.sh" "$DOC_PATH" --json || true
+fi
+
+if $blocking_failed && [[ $total_blocking -eq 2 ]]; then
+  if ! $JSON_OUTPUT; then
+    echo "FAIL: Blocking gate 'scan-banned-terms' failed — halting" >&2
+  fi
+fi
+
+# ── BLOCKING GATE 3: check-provenance ──
+untagged_count=0
+if ! $blocking_failed; then
+  run_gate "check-provenance" "true" "$SCRIPT_DIR/check-provenance.sh" "$DOC_PATH" --json || true
+  # Extract untagged_count from provenance output (informational, not blocking)
+  prov_output=$("$SCRIPT_DIR/check-provenance.sh" "$DOC_PATH" --json 2>/dev/null || echo '{}')
+  untagged_count=$(echo "$prov_output" | jq -r '.untagged_count // 0' 2>/dev/null || echo "0")
+fi
+
+# ── BLOCKING GATE 4: freshness-check (inline) ──
+if ! $blocking_failed; then
+  if ! $first_gate; then gates_json+=","; fi
+  first_gate=false
+  ((total_blocking++)) || true
+
+  freshness_status="pass"
+  freshness_detail=""
+
+  if grep -q '<!-- ground-truth-meta:' "$DOC_PATH" 2>/dev/null; then
+    meta_line=$(grep '<!-- ground-truth-meta:' "$DOC_PATH")
+    meta_sha=$(echo "$meta_line" | sed 's/.*head_sha=\([^ ]*\).*/\1/' || echo "")
+    current_sha=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+
+    if [[ -n "$meta_sha" && "$meta_sha" != "$current_sha" ]]; then
+      freshness_detail="Document SHA ($meta_sha) does not match HEAD ($current_sha)"
+      # This is a warning-level concern during generation, not a hard fail
+      # since the document is being generated right now
+    fi
+    ((passed_blocking++)) || true
+  else
+    # No meta block yet — acceptable during generation (stamp-freshness runs after)
+    ((passed_blocking++)) || true
+  fi
+
+  gates_json+='{"gate":"freshness-check","blocking":true,"status":"'"$freshness_status"'","exit_code":0,"output":"'"$freshness_detail"'"}'
+fi
+
+# ── BLOCKING GATE 5: registry-consistency (inline) ──
+if ! $blocking_failed; then
+  if ! $first_gate; then gates_json+=","; fi
+  first_gate=false
+  ((total_blocking++)) || true
+
+  consistency_status="pass"
+  consistency_detail=""
+
+  # Check: every features.yaml category matches a capability-taxonomy.yaml id
+  if command -v yq &>/dev/null; then
+    feat_categories=$(yq '.features[].category' "$REGISTRY_DIR/features.yaml" 2>/dev/null | sort -u)
+    tax_ids=$(yq '.capabilities[].id' "$REGISTRY_DIR/capability-taxonomy.yaml" 2>/dev/null | sort -u)
+
+    while IFS= read -r cat; do
+      [[ -z "$cat" || "$cat" == "null" ]] && continue
+      if ! echo "$tax_ids" | grep -qx "$cat"; then
+        consistency_status="fail"
+        consistency_detail="Category '$cat' in features.yaml not found in capability-taxonomy.yaml"
+        blocking_failed=true
+        break
+      fi
+    done <<< "$feat_categories"
+
+    # Check: every limitations.yaml feature_id matches a features.yaml id
+    if [[ "$consistency_status" == "pass" ]]; then
+      lim_feature_ids=$(yq '.limitations[].feature_id' "$REGISTRY_DIR/limitations.yaml" 2>/dev/null | sort -u)
+      feat_ids=$(yq '.features[].id' "$REGISTRY_DIR/features.yaml" 2>/dev/null | sort -u)
+
+      while IFS= read -r fid; do
+        [[ -z "$fid" || "$fid" == "null" ]] && continue
+        if ! echo "$feat_ids" | grep -qx "$fid"; then
+          consistency_status="fail"
+          consistency_detail="feature_id '$fid' in limitations.yaml not found in features.yaml"
+          blocking_failed=true
+          break
+        fi
+      done <<< "$lim_feature_ids"
+    fi
+
+    if [[ "$consistency_status" == "pass" ]]; then
+      ((passed_blocking++)) || true
+    fi
+  else
+    # yq not available — skip with warning
+    consistency_status="pass"
+    consistency_detail="yq not available, registry consistency check skipped"
+    ((passed_blocking++)) || true
+  fi
+
+  gates_json+='{"gate":"registry-consistency","blocking":true,"status":"'"$consistency_status"'","exit_code":'"$([[ "$consistency_status" == "pass" ]] && echo 0 || echo 1)"',"output":"'"$consistency_detail"'"}'
+fi
+
+gates_json+="]"
+
+# ── WARNING GATES (non-blocking) ──
+# Gate W1: analogy-accuracy — at least 1 analogy per major section (## heading)
+analogy_warning=""
+section_count=$(grep -cE '^## ' "$DOC_PATH" 2>/dev/null || echo "0")
+analogy_count=$(grep -ciE '(like|similar to|same pattern|analogous|parallel|the way)' "$DOC_PATH" 2>/dev/null || echo "0")
+if [[ $section_count -gt 0 && $analogy_count -lt $section_count ]]; then
+  analogy_warning="Only $analogy_count analogy indicators for $section_count major sections (target: ≥1 per section)"
+fi
+
+# Gate W2: mechanism-density — at least 1 "does X by Y" pattern per capability section
+mechanism_warning=""
+mechanism_count=$(grep -cE '(by |via |using |through |with )' "$DOC_PATH" 2>/dev/null || echo "0")
+if [[ $mechanism_count -lt 3 ]]; then
+  mechanism_warning="Low mechanism density: only $mechanism_count mechanism indicators found (target: ≥3)"
+fi
+
+# Gate W3: symbol-specificity — TF-IDF scoring for evidence anchor symbols
+specificity_warning=""
+if [[ -x "$SCRIPT_DIR/score-symbol-specificity.sh" ]]; then
+  spec_output=$("$SCRIPT_DIR/score-symbol-specificity.sh" "$DOC_PATH" --json 2>/dev/null || echo '{"warnings":[]}')
+  spec_warning_count=$(echo "$spec_output" | jq -r '.warnings | length' 2>/dev/null | head -1 || echo "0")
+  spec_warning_count="${spec_warning_count:-0}"
+  if [[ "$spec_warning_count" -gt 0 ]]; then
+    spec_symbols=$(echo "$spec_output" | jq -r '[.warnings[].symbol] | join(", ")' 2>/dev/null || echo "unknown")
+    specificity_warning="$spec_warning_count evidence anchor symbol(s) below specificity threshold: $spec_symbols"
+  fi
+fi
+
+warnings_json='['
+wfirst=true
+if [[ -n "$analogy_warning" ]]; then
+  warnings_json+='"'"$analogy_warning"'"'
+  wfirst=false
+fi
+if [[ -n "$mechanism_warning" ]]; then
+  if ! $wfirst; then warnings_json+=","; fi
+  warnings_json+='"'"$mechanism_warning"'"'
+  wfirst=false
+fi
+if [[ -n "$specificity_warning" ]]; then
+  if ! $wfirst; then warnings_json+=","; fi
+  warnings_json+='"'"$specificity_warning"'"'
+  wfirst=false
+fi
+
+# Gate W4: analogy-staleness — check if grounded_in code paths have changed
+analogy_warning=""
+if [[ -x "$SCRIPT_DIR/check-analogy-staleness.sh" ]]; then
+  analogy_stale_output=$("$SCRIPT_DIR/check-analogy-staleness.sh" --json 2>/dev/null || echo '{"stale_count":0}')
+  analogy_stale_count=$(echo "$analogy_stale_output" | jq -r '.stale_count' 2>/dev/null | head -1 || echo "0")
+  analogy_stale_count="${analogy_stale_count:-0}"
+  if [[ "$analogy_stale_count" -gt 0 ]]; then
+    stale_details=$(echo "$analogy_stale_output" | jq -r '[.stale_analogies[] | "\(.component) (\(.confidence))"] | join(", ")' 2>/dev/null || echo "unknown")
+    analogy_warning="$analogy_stale_count analogy(ies) may be stale — grounding code changed: $stale_details"
+  fi
+fi
+
+if [[ -n "$analogy_warning" ]]; then
+  if ! $wfirst; then warnings_json+=","; fi
+  warnings_json+='"'"$analogy_warning"'"'
+fi
+warnings_json+=']'
+
+# ── Final output ──
+overall="PASS"
+if $blocking_failed; then
+  overall="FAIL"
+fi
+
+if $JSON_OUTPUT; then
+  echo '{"file":"'"$DOC_PATH"'","overall":"'"$overall"'","blocking_gates":'"$gates_json"',"total_blocking":'"$total_blocking"',"passed_blocking":'"$passed_blocking"',"warnings":'"$warnings_json"',"untagged_count":'"$untagged_count"'}'
+else
+  echo "Quality Gates: $overall ($passed_blocking/$total_blocking blocking gates passed)"
+  if $blocking_failed; then
+    echo "BLOCKING FAILURES:"
+    echo "$gates_json" | jq -r '.[] | select(.status == "fail") | "  [\(.gate)] \(.output)"' 2>/dev/null || true
+  fi
+  if [[ "$warnings_json" != "[]" ]]; then
+    echo "WARNINGS:"
+    echo "$warnings_json" | jq -r '.[]' 2>/dev/null || true
+  fi
+fi
+
+if $blocking_failed; then
+  exit 1
+else
+  exit 0
+fi

@@ -169,7 +169,7 @@ describe("JTI Replay Protection (T-A.2)", () => {
     const guard = new InMemoryJtiReplayGuard()
     const isReplay = await guard.checkAndStore("jti-1", 60)
     expect(isReplay).toBe(false)
-    guard.destroy()
+    guard.dispose()
   })
 
   it("rejects duplicate jti", async () => {
@@ -177,7 +177,7 @@ describe("JTI Replay Protection (T-A.2)", () => {
     await guard.checkAndStore("jti-1", 60)
     const isReplay = await guard.checkAndStore("jti-1", 60)
     expect(isReplay).toBe(true)
-    guard.destroy()
+    guard.dispose()
   })
 
   it("allows different jtis", async () => {
@@ -185,7 +185,7 @@ describe("JTI Replay Protection (T-A.2)", () => {
     expect(await guard.checkAndStore("jti-1", 60)).toBe(false)
     expect(await guard.checkAndStore("jti-2", 60)).toBe(false)
     expect(guard.size).toBe(2)
-    guard.destroy()
+    guard.dispose()
   })
 
   it("expires jti after TTL", async () => {
@@ -195,7 +195,7 @@ describe("JTI Replay Protection (T-A.2)", () => {
 
     await new Promise(r => setTimeout(r, 80))
     expect(await guard.checkAndStore("jti-1", 60)).toBe(false) // expired, allowed again
-    guard.destroy()
+    guard.dispose()
   })
 
   it("destroy clears all entries", async () => {
@@ -203,7 +203,7 @@ describe("JTI Replay Protection (T-A.2)", () => {
     await guard.checkAndStore("jti-1", 60)
     await guard.checkAndStore("jti-2", 60)
     expect(guard.size).toBe(2)
-    guard.destroy()
+    guard.dispose()
     expect(guard.size).toBe(0)
   })
 })

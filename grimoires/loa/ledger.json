@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-009",
-  "next_global_sprint_id": 25,
+  "current_cycle": "cycle-012",
+  "next_global_sprint_id": 32,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -250,6 +250,84 @@
           "local_id": "sprint-C",
           "global_id": 24,
           "label": "finnNFT Routing + BYOK Proxy",
+          "status": "pending",
+          "tasks": 5
+        }
+      ]
+    },
+    "cycle-010": {
+      "label": "Ground Truth: Factual GTM Skill Pack",
+      "status": "completed",
+      "started": "2026-02-10T10:30:00Z",
+      "prd": "grimoires/loa/prd-ground-truth.md",
+      "sdd": "grimoires/loa/sdd-ground-truth.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 25,
+          "label": "Verification Infrastructure + Capability Brief Draft",
+          "status": "completed",
+          "tasks": 17
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 26,
+          "label": "Repair Loop Proof + Architecture Overview",
+          "status": "completed",
+          "tasks": 9
+        }
+      ]
+    },
+    "cycle-011": {
+      "label": "Ground Truth v2: Verification Hardening & Incremental Pipeline",
+      "status": "active",
+      "started": "2026-02-10T10:45:00Z",
+      "prd": "grimoires/loa/prd-ground-truth.md",
+      "sdd": "grimoires/loa/sdd-ground-truth.md",
+      "notes": "Improvements from PR #51 BridgeBuilder review. Extends cycle-010 infrastructure.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 27,
+          "label": "Structural Verification + Property Testing",
+          "status": "completed",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 28,
+          "label": "Incremental Pipeline + Ecosystem Integration",
+          "status": "completed",
+          "tasks": 7
+        }
+      ]
+    },
+    "cycle-012": {
+      "label": "Bridgebuilder Review Hardening: PR #52 Findings",
+      "status": "active",
+      "started": "2026-02-10T22:00:00Z",
+      "prd": "grimoires/loa/prd-ground-truth.md",
+      "sdd": "grimoires/loa/sdd-ground-truth.md",
+      "notes": "Implements all actionable findings from PR #52 Bridgebuilder review. Cross-domain: Ground Truth shell pipeline + Hounfour TypeScript security/ensemble.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 29,
+          "label": "Shell Pipeline Correctness Hardening",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 30,
+          "label": "Test Infrastructure & Data Quality",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 31,
+          "label": "Hounfour Security & Ensemble Hardening",
           "status": "pending",
           "tasks": 5
         }

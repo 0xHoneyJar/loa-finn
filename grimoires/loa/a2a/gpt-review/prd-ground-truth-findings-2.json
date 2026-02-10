@@ -1,0 +1,53 @@
+{
+  "verdict": "APPROVED",
+  "summary": "All nine previously blocking issues were addressed in a way that makes the grounding/verification system enforceable and the MVP plan materially more realistic, with no new truly blocking problems introduced.",
+  "previous_issues_status": [
+    {
+      "original_issue": "Conflicting citation requirements (70% density vs “every claim must be cited”) and undefined “claim”",
+      "status": "fixed",
+      "notes": "You introduced a concrete Claim Taxonomy with explicit citation rules (CODE-FACTUAL = 100% file:line) and aligned the success metric + quality gate to 100% for CODE-FACTUAL. This resolves the contradiction and makes enforcement tractable."
+    },
+    {
+      "original_issue": "Adjective-to-mechanism ratio was not operationalizable; automated filter didn’t measure the ratio",
+      "status": "fixed",
+      "notes": "You replaced the ratio with measurable proxies: banned-claim lexicon (hard gate) and mechanism anchors (automated pattern + citation). This is now objectively scorable and consistent with automated gating."
+    },
+    {
+      "original_issue": "“Comparison Matrix” contradicted non-goal of competitor comparisons and invited competitive positioning",
+      "status": "fixed",
+      "notes": "Renamed to “Tradeoffs & Fit Assessment” and added a hard rule: no competitor rows/names/claims. The axes are internal-only and the example output follows the constraint."
+    },
+    {
+      "original_issue": "Verification step was optional, enabling citation laundering and undermining the product promise",
+      "status": "fixed",
+      "notes": "Baseline verification is now mandatory for P0 doc types and generation halts on failure. Flatline is correctly positioned as optional additional scrutiny that produces warnings rather than blocking."
+    },
+    {
+      "original_issue": "Feature Inventory required infeasible fields (coverage, dependencies, limitations) without a defined source of truth",
+      "status": "fixed",
+      "notes": "You constrained fields to computable signals (test presence, static deps) and required curated registries (`features.yaml`, `limitations.yaml`) for status/limitations. You also explicitly forbid inference/fabrication."
+    },
+    {
+      "original_issue": "Misfit metric: >90% module coverage in Capability Brief would bloat/warp the doc type",
+      "status": "fixed",
+      "notes": "Module coverage moved to Feature Inventory; Capability Brief now targets 100% of a curated top-level capability taxonomy. This aligns the metric with the artifact’s purpose."
+    },
+    {
+      "original_issue": "Forced analogy requirement (100% of findings) would create low-quality/inaccurate analogies",
+      "status": "fixed",
+      "notes": "You changed to a bounded rule (≥1 per major section, optional per sub-section) and added an explicit ‘prefer no analogy over bad analogy’ rubric. Metric and voice requirement now match."
+    },
+    {
+      "original_issue": "Environment enrichment increased hallucination risk without guardrails separating external inspiration from code claims",
+      "status": "fixed",
+      "notes": "You added a paragraph-level provenance model tied to the taxonomy, plus rules limiting enrichment influence to ANALOGY/ISSUE-GROUNDED/HYPOTHESIS and banning external factual assertions without citations. You also made provenance tagging a blocking quality gate."
+    },
+    {
+      "original_issue": "MVP scope unrealistic (3 generators + voice + grounding + gates in 2 sprints) and unclear what primitives already exist",
+      "status": "fixed",
+      "notes": "You enumerated existing primitives vs net-new work and narrowed Sprint 1-2 to proving infrastructure + Capability Brief first, then Architecture Overview. This is a credible sequencing for a high-integrity doc system."
+    }
+  ],
+  "new_blocking_concerns": [],
+  "iteration": 2
+}

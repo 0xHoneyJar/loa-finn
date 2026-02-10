@@ -1,0 +1,66 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "Most iteration-1 blockers are addressed with deterministic, implementable contracts, but there are still a couple of internal inconsistencies that would break the repair loop and/or allow unsafe file reads in practice.",
+  "previous_issues_status": [
+    {
+      "original_issue": "CONTENT_MATCH heuristic was non-deterministic and noisy; needed an author-controlled claim→evidence contract",
+      "status": "fixed",
+      "notes": "Replaced with explicit `<!-- evidence: ... -->` anchors and a deterministic verifier check. This resolves the non-determinism and makes the gate satisfiable by construction."
+    },
+    {
+      "original_issue": "Citation path traversal / unsafe file reads; git ls-files alone not sufficient; needed strict path allowlist + -z handling",
+      "status": "not_fixed",
+      "notes": "The spec adds PATH_SAFETY (reject `..`, leading `/`, control chars; require `git ls-files -z` exact match), which is directionally correct. However, the check ordering is internally inconsistent: the script spec says PATH_SAFETY is 'Before any file read' but the listed check order reads files in LINE_RANGE before PATH_SAFETY. As written, an implementation following the stated order could still read an unsafe path before rejecting it."
+    },
+    {
+      "original_issue": "Banned-term scanning needed deterministic markdown skipping; grep-per-term was brittle",
+      "status": "fixed",
+      "notes": "Now specifies an awk state machine preprocessor (frontmatter, fences, HTML comments, blockquotes) then a single combined regex scan. This is implementable and should avoid the earlier false-positive churn."
+    },
+    {
+      "original_issue": "Provenance paragraph detection underspecified; needed formal taggable surface + state machine + fixtures",
+      "status": "fixed",
+      "notes": "Now defines explicit states and a narrowed taggable surface with exemptions plus golden fixtures. This should be stable enough for the generator to target reliably."
+    },
+    {
+      "original_issue": "Tool permissions mismatch: allowed-tools too restrictive for required commands",
+      "status": "fixed",
+      "notes": "Updated to wrapper-script-only Bash invocation and explicitly uses Read tool during repair. This aligns with Loa permission models and keeps the agent from needing arbitrary shell."
+    },
+    {
+      "original_issue": "Templates were treated as low-priority context, causing systematic gate failures",
+      "status": "fixed",
+      "notes": "Templates are now Tier A hard constraints loaded first; this resolves the structural non-convergence risk."
+    },
+    {
+      "original_issue": "Registry join keys/semantics underspecified; inventory cross-ref unstable",
+      "status": "fixed",
+      "notes": "Canonical keys are now defined (`features[].id`, `modules[]`, `limitations[].feature_id`), with deterministic behavior for missing/multiple matches."
+    },
+    {
+      "original_issue": "Flatline orchestrator referenced but missing; needed stub or out-of-scope",
+      "status": "fixed",
+      "notes": "Flatline is explicitly Phase 2 and a stub script interface is provided returning SKIPPED. This removes the missing-component execution risk for v1."
+    },
+    {
+      "original_issue": "Contradiction: missing registries recovery vs 'generator never writes registries'",
+      "status": "fixed",
+      "notes": "Now fail-fast with a bootstrap-registries.sh command that creates starter files for humans to curate/commit. This resolves the policy contradiction."
+    }
+  ],
+  "new_blocking_concerns": [
+    {
+      "location": "§3.3.1 verify-citations.sh (check ordering) and PATH_SAFETY description",
+      "description": "PATH_SAFETY is specified as 'Before any file read' but the enumerated check order performs LINE_RANGE (sed reads) before PATH_SAFETY.",
+      "why_blocking": "If implemented as written, the verifier can read from an unsafe/unintended path before rejecting it, which defeats the security boundary and can leak local file contents into reports/logs. This is a fundamental safety issue for a tool intended to run in developer environments.",
+      "fix": "Make PATH_SAFETY the first gate after extraction and before FILE_EXISTS/LINE_RANGE. Concretely: EXTRACT → PATH_SAFETY (normalize + `git ls-files -z` exact match) → FILE_EXISTS (optional redundancy) → LINE_RANGE → EVIDENCE_ANCHOR. Also state that all downstream steps operate only on the normalized, repo-relative path returned by PATH_SAFETY."
+    },
+    {
+      "location": "§5.3 Repair Loop example JSON + §8.2 Circuit Breaker example",
+      "description": "Repair-loop failure payload and circuit-breaker note still reference CONTENT_MATCH and expected_identifier, even though the system replaced CONTENT_MATCH with EVIDENCE_ANCHOR anchors.",
+      "why_blocking": "The repair loop is the convergence mechanism. If the failure schema references a non-existent check, the LLM will be instructed to fix the wrong thing (or will not know which anchor/token failed), causing non-convergence within the 3-iteration limit and repeated hard halts.",
+      "fix": "Update the failure schema and examples to match the new contract: include `check: \"EVIDENCE_ANCHOR\"`, the specific missing `anchor` token/literal, and the cited range. Similarly update the circuit-breaker example to reference EVIDENCE_ANCHOR (or generic 'citations gate') rather than CONTENT_MATCH."
+    }
+  ],
+  "iteration": 2
+}

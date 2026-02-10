@@ -248,6 +248,16 @@ export class BudgetEnforcer {
   }
 
   /**
+   * Active circuit breaker: returns true when ledger writes have been failing
+   * for longer than maxUnknownMs. In fail-open mode, this prevents indefinite
+   * unmetered usage by force-closing the circuit after a configurable window.
+   */
+  isBudgetCircuitOpen(maxUnknownMs: number): boolean {
+    if (!this.budgetStateUnknown || this.ledgerFailureStart === null) return false
+    return (Date.now() - this.ledgerFailureStart) >= maxUnknownMs
+  }
+
+  /**
    * Rotate ledger if size or age thresholds exceeded (T-16.5).
    * Called automatically during appendLedgerLine, or manually.
    * Returns the archive path if rotated, undefined otherwise.

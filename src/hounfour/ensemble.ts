@@ -20,6 +20,9 @@ import { calculateCost } from "./budget.js"
 
 export type MergeStrategy = "first_complete" | "best_of_n" | "consensus"
 
+/** Async scorer function: receives a CompletionResult, returns 0.0-1.0 score */
+export type ScorerFunction = (result: CompletionResult) => Promise<number>
+
 export interface EnsembleConfig {
   /** Pool IDs for models to race */
   models: string[]
@@ -31,8 +34,8 @@ export interface EnsembleConfig {
   budget_total_micro: number
   /** Timeout per ensemble run (ms) */
   timeout_ms: number
-  /** Scoring function for best_of_n (default: token efficiency) */
-  scorer?: (result: CompletionResult) => number
+  /** Scoring function for best_of_n — sync or async (default: token efficiency) */
+  scorer?: ((result: CompletionResult) => number) | ScorerFunction
   /** Field extractor for consensus strategy (returns JSON object from content) */
   fieldExtractor?: (result: CompletionResult) => Record<string, unknown> | null
 }
@@ -61,11 +64,21 @@ export interface ModelResolver {
 // --- Default Scorer ---
 
 /** Default scorer: prefer shorter, cheaper completions (token efficiency) */
-function defaultScorer(result: CompletionResult): number {
+function defaultSyncScorer(result: CompletionResult): number {
   const tokens = result.usage.completion_tokens || 1
   const contentLength = result.content.length || 1
   // Higher score = more content per token (efficient)
   return contentLength / tokens
+}
+
+/** Resolve scorer from config, wrapping sync scorers to async */
+function resolveScorer(config: EnsembleConfig): ScorerFunction {
+  if (!config.scorer) {
+    return async (result: CompletionResult) => defaultSyncScorer(result)
+  }
+  // Wrap to always return Promise (handles both sync and async scorers)
+  const fn = config.scorer
+  return async (result: CompletionResult) => fn(result)
 }
 
 // --- EnsembleOrchestrator ---
@@ -183,7 +196,7 @@ export class EnsembleOrchestrator {
     ensembleId: string,
     parentAbort: AbortController,
   ): Promise<EnsembleResult> {
-    const scorer = config.scorer ?? defaultScorer
+    const scorer = resolveScorer(config)
     const childAborts: AbortController[] = []
 
     const promises = config.models.map((pool) => {
@@ -211,17 +224,17 @@ export class EnsembleOrchestrator {
       throw new Error(`Ensemble budget exceeded: ${totalCost} > ${config.budget_total_micro} micro-USD`)
     }
 
-    // Score successful results
+    // Score successful results (async scorer)
     const successfulResults = modelResults.filter(r => r.result !== null)
     if (successfulResults.length === 0) {
       throw new Error(`Ensemble best_of_n: all ${config.models.length} models failed`)
     }
 
     let bestResult = successfulResults[0]
-    let bestScore = scorer(bestResult.result!)
+    let bestScore = await scorer(bestResult.result!)
 
     for (let i = 1; i < successfulResults.length; i++) {
-      const score = scorer(successfulResults[i].result!)
+      const score = await scorer(successfulResults[i].result!)
       if (score > bestScore) {
         bestScore = score
         bestResult = successfulResults[i]

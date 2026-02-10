@@ -65,6 +65,9 @@ const DEFAULT_TOOL_CALL_CONFIG: ToolCallLoopConfig = {
   budgetCheckPerIteration: true,
 }
 
+/** Maximum time (ms) budget state can be unknown before circuit opens (5 minutes) */
+const MAX_UNKNOWN_BUDGET_WINDOW = 300_000
+
 export interface InvokeOptions {
   temperature?: number
   max_tokens?: number
@@ -168,6 +171,15 @@ export class HounfourRouter {
       pricing,
     }
     validateExecutionContext(ctx)
+
+    // Budget circuit breaker: reject if ledger writes have been failing too long
+    if (this.budget.isBudgetCircuitOpen(MAX_UNKNOWN_BUDGET_WINDOW)) {
+      throw new HounfourError("BUDGET_CIRCUIT_OPEN",
+        `Budget ledger writes failing for >${MAX_UNKNOWN_BUDGET_WINDOW / 1000}s — circuit open`, {
+          agent,
+          maxUnknownMs: MAX_UNKNOWN_BUDGET_WINDOW,
+        })
+    }
 
     // Budget warning check
     if (this.budget.isWarning(this.scopeMeta)) {
@@ -289,6 +301,15 @@ export class HounfourRouter {
     const traceId = randomUUID()
     const tenantId = tenantContext.claims.tenant_id
     const nftId = tenantContext.claims.nft_id ?? ""
+
+    // Budget circuit breaker
+    if (this.budget.isBudgetCircuitOpen(MAX_UNKNOWN_BUDGET_WINDOW)) {
+      throw new HounfourError("BUDGET_CIRCUIT_OPEN",
+        `Budget ledger writes failing for >${MAX_UNKNOWN_BUDGET_WINDOW / 1000}s — circuit open`, {
+          agent, tenant_id: tenantId,
+          maxUnknownMs: MAX_UNKNOWN_BUDGET_WINDOW,
+        })
+    }
 
     // Budget enforcement
     if (this.budget.isExceeded(this.scopeMeta)) {
@@ -431,6 +452,15 @@ export class HounfourRouter {
     const model = this.registry.getModel(resolved.model.provider, resolved.model.modelId)
     const contextLimit = model?.limit.context ?? 128_000
 
+    // Budget circuit breaker (pre-loop)
+    if (this.budget.isBudgetCircuitOpen(MAX_UNKNOWN_BUDGET_WINDOW)) {
+      throw new HounfourError("BUDGET_CIRCUIT_OPEN",
+        `Budget ledger writes failing for >${MAX_UNKNOWN_BUDGET_WINDOW / 1000}s — circuit open`, {
+          agent,
+          maxUnknownMs: MAX_UNKNOWN_BUDGET_WINDOW,
+        })
+    }
+
     // Load persona (if configured) and build messages
     const persona = await loadPersona(binding, this.projectRoot)
     const effectiveOptions = persona && !options?.systemPrompt
@@ -448,7 +478,14 @@ export class HounfourRouter {
     const startTime = Date.now()
 
     for (let iteration = 0; iteration < this.toolCallConfig.maxIterations; iteration++) {
-      // Budget check per iteration
+      // Budget check per iteration (includes circuit breaker re-check)
+      if (this.budget.isBudgetCircuitOpen(MAX_UNKNOWN_BUDGET_WINDOW)) {
+        throw new HounfourError("BUDGET_CIRCUIT_OPEN",
+          `Budget circuit opened mid-loop at iteration ${iteration + 1}`, {
+            agent, iteration: iteration + 1,
+            maxUnknownMs: MAX_UNKNOWN_BUDGET_WINDOW,
+          })
+      }
       if (this.toolCallConfig.budgetCheckPerIteration && this.budget.isExceeded(this.scopeMeta)) {
         throw new HounfourError("BUDGET_EXCEEDED", `Budget exceeded mid-loop at iteration ${iteration + 1}`, {
           agent,

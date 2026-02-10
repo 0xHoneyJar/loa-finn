@@ -1,19 +1,20 @@
 {
-  "plan_id": "plan-20260208-hounfour01",
-  "branch": "feature/hounfour",
-  "state": "RUNNING",
+  "plan_id": "plan-20260210-bridgebuilder-review",
+  "branch": "feature/bridgebuilder-review-hardening",
+  "state": "JACKED_OUT",
   "timestamps": {
-    "started": "2026-02-08T07:00:00Z",
-    "last_activity": "2026-02-08T21:00:00Z"
+    "started": "2026-02-10T22:00:00Z",
+    "last_activity": "2026-02-11T08:48:00Z",
+    "completed": "2026-02-11T08:48:00Z"
   },
   "sprints": {
     "total": 3,
-    "completed": 2,
-    "current": "sprint-3",
+    "completed": 3,
+    "current": null,
     "list": [
-      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Foundation & Adapter Core", "global_id": 14},
-      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Flatline Integration & Budget", "global_id": 15},
-      {"id": "sprint-3", "status": "in_progress", "cycles": 0, "label": "Agent Portability & Health", "global_id": 16}
+      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Shell Pipeline Correctness Hardening"},
+      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Test Infrastructure & Data Quality"},
+      {"id": "sprint-3", "status": "completed", "cycles": 1, "label": "Hounfour Security & Ensemble Hardening"}
     ]
   },
   "options": {
@@ -23,8 +24,13 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 2,
-    "total_files_changed": 19,
-    "total_findings_fixed": 0
+    "total_cycles": 3,
+    "total_files_changed": 35,
+    "total_findings_fixed": 7
+  },
+  "context": {
+    "sprint_plan_file": "grimoires/loa/sprint-bridgebuilder-review.md",
+    "cycle": "cycle-012",
+    "global_sprint_ids": [29, 30, 31]
   }
 }

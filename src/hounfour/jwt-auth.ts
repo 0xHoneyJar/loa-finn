@@ -5,6 +5,8 @@ import { createHash, timingSafeEqual } from "node:crypto"
 import { createRemoteJWKSet, jwtVerify, decodeProtectedHeader } from "jose"
 import type { Context, Next } from "hono"
 import type { FinnConfig } from "../config.js"
+import type { JtiReplayGuard } from "./jti-replay.js"
+import { deriveJtiTtl } from "./jti-replay.js"
 
 // --- Interfaces ---
 
@@ -139,10 +141,19 @@ export type JWTValidationResult =
 /**
  * Validate an ES256 JWT against the configured JWKS endpoint.
  * Returns validated claims on success, error details on failure.
+ *
+ * Validation order (security-critical):
+ *   1. Structural pre-check (3 segments, ES256 header)
+ *   2. Signature + standard claims (exp, nbf, iss, aud) via jose
+ *   3. Custom claims validation (tenant_id, tier, req_hash)
+ *   4. JTI replay check (if guard provided and jti present)
+ *
+ * Expired tokens are rejected at step 2 before reaching the JTI check.
  */
 export async function validateJWT(
   token: string,
   config: JWTConfig,
+  replayGuard?: JtiReplayGuard,
 ): Promise<JWTValidationResult> {
   if (!isStructurallyJWT(token)) {
     return { ok: false, error: "Not a valid JWT structure", code: "JWT_STRUCTURAL_INVALID" }
@@ -151,6 +162,7 @@ export async function validateJWT(
   // First attempt with cached JWKS
   let jwks = getJWKS(config.jwksUrl)
 
+  let claims: JWTClaims
   try {
     const { payload } = await jwtVerify(token, jwks, {
       issuer: config.issuer,
@@ -160,8 +172,7 @@ export async function validateJWT(
       algorithms: ["ES256"],
     })
 
-    const claims = validateClaims(payload as Record<string, unknown>)
-    return { ok: true, claims }
+    claims = validateClaims(payload as Record<string, unknown>)
   } catch (firstErr) {
     // On kid miss, refetch JWKS once and retry (dual-key rotation window)
     const errMsg = firstErr instanceof Error ? firstErr.message : String(firstErr)
@@ -178,16 +189,27 @@ export async function validateJWT(
           algorithms: ["ES256"],
         })
 
-        const claims = validateClaims(payload as Record<string, unknown>)
-        return { ok: true, claims }
+        claims = validateClaims(payload as Record<string, unknown>)
       } catch (retryErr) {
         const msg = retryErr instanceof Error ? retryErr.message : String(retryErr)
         return { ok: false, error: `JWT validation failed after JWKS refetch: ${msg}`, code: "JWT_INVALID" }
       }
+    } else {
+      return { ok: false, error: `JWT validation failed: ${errMsg}`, code: "JWT_INVALID" }
     }
-
-    return { ok: false, error: `JWT validation failed: ${errMsg}`, code: "JWT_INVALID" }
   }
+
+  // JTI replay check — runs AFTER signature + claims validation
+  // Expired tokens are already rejected above (jose checks exp claim)
+  if (replayGuard && claims!.jti) {
+    const ttlSec = deriveJtiTtl(claims!.exp)
+    const isReplay = await replayGuard.checkAndStore(claims!.jti, ttlSec)
+    if (isReplay) {
+      return { ok: false, error: "JTI replay detected", code: "JTI_REPLAY_DETECTED" }
+    }
+  }
+
+  return { ok: true, claims: claims! }
 }
 
 // --- Hono Middleware ---
@@ -199,7 +221,7 @@ export async function validateJWT(
  * Structural pre-check: if the Authorization token doesn't look like a JWT
  * (3 segments, ES256 header), returns 401 immediately — no fallback to bearer.
  */
-export function jwtAuthMiddleware(config: FinnConfig) {
+export function jwtAuthMiddleware(config: FinnConfig, replayGuard?: JtiReplayGuard) {
   return async (c: Context, next: Next) => {
     if (!config.jwt.enabled) {
       return next()
@@ -217,7 +239,7 @@ export function jwtAuthMiddleware(config: FinnConfig) {
       return c.json({ error: "Unauthorized", code: "JWT_STRUCTURAL_INVALID" }, 401)
     }
 
-    const result = await validateJWT(token, config.jwt)
+    const result = await validateJWT(token, config.jwt, replayGuard)
     if (!result.ok) {
       return c.json({ error: "Unauthorized", code: result.code }, 401)
     }
@@ -243,10 +265,11 @@ export function jwtAuthMiddleware(config: FinnConfig) {
 export async function validateWsJWT(
   token: string | undefined,
   config: JWTConfig,
+  replayGuard?: JtiReplayGuard,
 ): Promise<TenantContext | null> {
   if (!config.enabled || !token) return null
 
-  const result = await validateJWT(token, config)
+  const result = await validateJWT(token, config, replayGuard)
   if (!result.ok) return null
 
   return {

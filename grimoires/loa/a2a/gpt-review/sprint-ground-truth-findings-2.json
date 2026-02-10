@@ -1,0 +1,38 @@
+{
+  "verdict": "APPROVED",
+  "summary": "All six previously-blocking gaps are addressed with concrete, testable acceptance criteria, and the revised plan is internally consistent enough for Sprint 1 to produce a runnable 5-blocking-gates pipeline and Sprint 2 to validate repair-loop convergence.",
+  "previous_issues_status": [
+    {
+      "original_issue": "Missing freshness-check and registry-consistency implementations required by quality-gates.sh / Sprint 1 DoD",
+      "status": "fixed",
+      "notes": "Both checks are now explicitly specified as inline blocking gates inside quality-gates.sh with clear rules (HEAD SHA + generated_at window; yq joins across taxonomy/features/limitations). This satisfies the Sprint 1 DoD requirement without needing separate scripts."
+    },
+    {
+      "original_issue": "No executable entrypoint to run the 7-stage pipeline end-to-end (SKILL.md might not be sufficient)",
+      "status": "fixed",
+      "notes": "The plan now asserts (and tests) the Loa runtime contract: SKILL.md is the execution entrypoint. The added acceptance test that `/ground-truth --type capability-brief` invokes the skill and reaches GENERATE is a sufficient proof-of-executability for Sprint 1."
+    },
+    {
+      "original_issue": "Citation extraction vs NUL-delimited/path-with-spaces ambiguity (no deterministic encoding rule)",
+      "status": "fixed",
+      "notes": "A deterministic rule is defined: citation paths are repo-relative and must match `^[a-zA-Z0-9_./-]+$` (no spaces). This makes extraction unambiguous and aligns with PATH_SAFETY + git-index matching."
+    },
+    {
+      "original_issue": "No deterministic golden fixtures + harness to objectively verify scripts and support convergence tests",
+      "status": "fixed",
+      "notes": "Task 1.17 adds fixtures + run-tests.sh with jq assertions, including at least one fixture that exercises all 5 blocking gates and one per failure mode. This is sufficient to make Sprint 1 verifiers testable and Sprint 2 convergence tests repeatable."
+    },
+    {
+      "original_issue": "Provenance tag syntax and external reference patterns were underspecified, making check-provenance.sh non-deterministic",
+      "status": "fixed",
+      "notes": "Task 1.16 introduces provenance-spec.md defining the exact tag syntax, class set, citation patterns, epistemic markers, and evidence anchor syntax, and it is explicitly referenced by both SKILL.md and check-provenance.sh."
+    },
+    {
+      "original_issue": "Repair interface undefined (prompt template, allowed edit surface, patching strategy, guardrails)",
+      "status": "fixed",
+      "notes": "Sprint 2 task 2.1 and Sprint 1 task 1.15 now define: repair prompt inputs (failure JSON + draft), edit surface constraint (only generated markdown), full-rewrite patch method, and an explicit edit guard rejecting writes outside `grimoires/loa/ground-truth/`."
+    }
+  ],
+  "new_blocking_concerns": [],
+  "iteration": 2
+}
