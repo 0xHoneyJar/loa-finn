@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-013",
-  "next_global_sprint_id": 35,
+  "current_cycle": "cycle-014",
+  "next_global_sprint_id": 37,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -329,6 +329,30 @@
           "label": "Phase 3-5: Governance, Verification & Review",
           "status": "pending",
           "tasks": 0
+        }
+      ]
+    },
+    "cycle-014": {
+      "label": "BridgeBuilder PR #55 Feedback: Schema Evolution & Content Quality",
+      "status": "active",
+      "started": "2026-02-11T16:00:00Z",
+      "prd": "BridgeBuilder review PR #55 (10 findings + 3 coda threads)",
+      "sdd": "grimoires/loa/sdd-docs-rewrite.md",
+      "notes": "Implements all actionable findings from BridgeBuilder review of PR #55. Extends cycle-013 ground-truth infrastructure.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 35,
+          "label": "Schema Evolution & Tooling",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 36,
+          "label": "Content Quality & Archive Enrichment",
+          "status": "pending",
+          "tasks": 7
         }
       ]
     },

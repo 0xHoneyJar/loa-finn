@@ -24,18 +24,113 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOC_PATH="${1:-}"
 JSON_OUTPUT=false
 STRICT=false
+BATCH_DIR=""
 GATE_START_TIME=$(date +%s)
 
 shift || true
-for arg in "$@"; do
-  case "$arg" in
-    --json) JSON_OUTPUT=true ;;
-    --strict) STRICT=true ;;
-    --file) : ;; # handled by positional
-    *) [[ "${prev_arg:-}" == "--file" ]] && DOC_PATH="$arg" ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --json) JSON_OUTPUT=true; shift ;;
+    --strict) STRICT=true; shift ;;
+    --batch) BATCH_DIR="${2:-}"; shift 2 ;;
+    --file) DOC_PATH="${2:-}"; shift 2 ;;
+    *) shift ;;
   esac
-  prev_arg="$arg"
 done
+
+# ── Batch mode: orchestrate across all manifest documents ──
+if [[ -n "$BATCH_DIR" ]]; then
+  MANIFEST="grimoires/loa/ground-truth/generation-manifest.json"
+  if [[ ! -f "$MANIFEST" ]]; then
+    echo '{"error":"generation-manifest.json not found"}' >&2
+    exit 2
+  fi
+
+  head_sha=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+  batch_total=0
+  batch_passed=0
+  batch_failed=0
+  at_head=0
+  diverged_json="["
+  diverged_first=true
+  docs_json="["
+  docs_first=true
+
+  while IFS= read -r doc_path; do
+    [[ -z "$doc_path" || ! -f "$doc_path" ]] && continue
+    ((batch_total++)) || true
+
+    # Run the full pipeline on this document
+    doc_result=$("$SCRIPT_DIR/quality-gates.sh" "$doc_path" --json 2>/dev/null) || true
+    doc_overall=$(echo "$doc_result" | jq -r '.overall // "FAIL"' 2>/dev/null || echo "FAIL")
+
+    if [[ "$doc_overall" == "PASS" ]]; then
+      ((batch_passed++)) || true
+    else
+      ((batch_failed++)) || true
+    fi
+
+    # Check version freshness (AGENT-CONTEXT version vs HEAD)
+    doc_version=$(grep -oP 'version=[0-9a-f]{40}' "$doc_path" 2>/dev/null | head -1 | sed 's/version=//' || echo "")
+    if [[ "$doc_version" == "$head_sha" ]]; then
+      ((at_head++)) || true
+    else
+      if ! $diverged_first; then diverged_json+=","; fi
+      diverged_first=false
+      diverged_json+=$(jq -nc --arg p "$doc_path" '$p')
+    fi
+
+    if ! $docs_first; then docs_json+=","; fi
+    docs_first=false
+    docs_json+="$doc_result"
+  done < <(jq -r '.documents[].path' "$MANIFEST" 2>/dev/null)
+
+  diverged_json+="]"
+  docs_json+="]"
+
+  diverged_count=$(echo "$diverged_json" | jq 'length' 2>/dev/null || echo "0")
+
+  if $JSON_OUTPUT; then
+    jq -nc \
+      --argjson total "$batch_total" \
+      --argjson passed "$batch_passed" \
+      --argjson failed "$batch_failed" \
+      --arg head_sha "$head_sha" \
+      --argjson at_head "$at_head" \
+      --argjson diverged "$diverged_json" \
+      --argjson documents "$docs_json" \
+      '{
+        batch: {
+          total: $total,
+          passed: $passed,
+          failed: $failed,
+          freshness: {
+            head_sha: $head_sha,
+            at_head: $at_head,
+            diverged: $diverged
+          }
+        },
+        documents: $documents
+      }'
+  else
+    echo "Batch Quality Gates: $batch_passed/$batch_total passed"
+    if [[ $batch_failed -gt 0 ]]; then
+      echo "FAILED DOCUMENTS:"
+      echo "$docs_json" | jq -r '.[] | select(.overall == "FAIL") | "  \(.file)"' 2>/dev/null || true
+    fi
+    echo "Freshness: $at_head/$batch_total at HEAD ($head_sha)"
+    if [[ "$diverged_count" -gt 0 ]]; then
+      echo "DIVERGED:"
+      echo "$diverged_json" | jq -r '.[]' 2>/dev/null || true
+    fi
+  fi
+
+  if [[ $batch_failed -gt 0 ]]; then
+    exit 1
+  else
+    exit 0
+  fi
+fi
 
 if [[ -z "$DOC_PATH" || ! -f "$DOC_PATH" ]]; then
   if $JSON_OUTPUT; then

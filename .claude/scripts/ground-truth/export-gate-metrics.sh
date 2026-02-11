@@ -81,6 +81,46 @@ if [[ -n "$cite_output" ]]; then
   citations_verified=$(echo "$cite_output" | jq -r '.verified // 0' 2>/dev/null || echo "0")
 fi
 
+# ── Mean citation age (commits since each cited line was last modified) ──
+mean_citation_age=-1  # -1 = not computed
+if [[ -f "$DOC_PATH" ]] && git rev-parse --git-dir &>/dev/null; then
+  declare -A blame_cache  # (file,line) → commit_sha
+  total_age=0
+  cite_count=0
+
+  while IFS= read -r line; do
+    tmpline="$line"
+    while [[ "$tmpline" =~ \`([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+):([0-9]+)(-[0-9]+)?\` ]]; do
+      cf="${BASH_REMATCH[1]}"
+      cl="${BASH_REMATCH[2]}"
+      tmpline="${tmpline#*"${BASH_REMATCH[0]}"}"
+
+      [[ ! -f "$cf" ]] && continue
+
+      cache_key="${cf}:${cl}"
+      if [[ -n "${blame_cache[$cache_key]:-}" ]]; then
+        blame_sha="${blame_cache[$cache_key]}"
+      else
+        # Get the commit that last modified this specific line
+        blame_sha=$(git blame -L "${cl},${cl}" --porcelain "$cf" 2>/dev/null | head -1 | awk '{print $1}' || echo "")
+        blame_cache["$cache_key"]="$blame_sha"
+      fi
+
+      if [[ -n "$blame_sha" && "$blame_sha" != "0000000000000000000000000000000000000000" ]]; then
+        age=$(git rev-list --count "${blame_sha}..HEAD" 2>/dev/null || echo "0")
+        total_age=$((total_age + age))
+        ((cite_count++)) || true
+      fi
+    done
+  done < "$DOC_PATH"
+
+  if [[ $cite_count -gt 0 ]]; then
+    mean_citation_age=$((total_age / cite_count))
+  else
+    mean_citation_age=0
+  fi
+fi
+
 # Duration calculation
 duration_ms=0
 if [[ -n "$START_TIME" ]]; then
@@ -129,6 +169,7 @@ metrics_entry=$(jq -nc \
   --argjson citations_verified "$citations_verified" \
   --arg head_sha "$head_sha" \
   --argjson untagged_count "$untagged_count" \
+  --argjson mean_citation_age "$mean_citation_age" \
   '{
     document: $document,
     timestamp: $timestamp,
@@ -145,7 +186,8 @@ metrics_entry=$(jq -nc \
     repair_iterations: $repairs,
     citations_verified: $citations_verified,
     head_sha: $head_sha,
-    untagged_count: $untagged_count
+    untagged_count: $untagged_count,
+    mean_citation_age_commits: $mean_citation_age
   }')
 
 echo "$metrics_entry" >> "$METRICS_FILE"

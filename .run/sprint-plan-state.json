@@ -1,36 +1,34 @@
 {
-  "plan_id": "plan-20260211-docs-rewrite",
-  "branch": "feature/docs-rewrite",
-  "state": "JACKED_OUT",
+  "plan_id": "plan-20260211-bridgebuilder-pr55",
+  "branch": "feature/bridgebuilder-pr55-hardening",
+  "state": "RUNNING",
   "timestamps": {
-    "started": "2026-02-11T00:00:00Z",
-    "last_activity": "2026-02-11T06:00:00Z",
-    "completed": "2026-02-11T06:00:00Z"
+    "started": "2026-02-11T16:00:00Z",
+    "last_activity": "2026-02-11T17:30:00Z"
   },
   "sprints": {
-    "total": 3,
-    "completed": 3,
-    "current": null,
+    "total": 2,
+    "completed": 1,
+    "current": "sprint-2",
     "list": [
-      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Tooling & Templates"},
-      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Reality Extraction & Document Generation"},
-      {"id": "sprint-3", "status": "completed", "cycles": 1, "label": "Governance, Verification & Review"}
+      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Schema Evolution & Tooling", "files_changed": 6},
+      {"id": "sprint-2", "status": "in_progress", "cycles": 0, "label": "Content Quality & Archive Enrichment"}
     ]
   },
   "options": {
     "from": 1,
-    "to": 3,
+    "to": 2,
     "max_cycles": 20,
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 3,
-    "total_files_changed": 25,
-    "total_findings_fixed": 19
+    "total_cycles": 1,
+    "total_files_changed": 6,
+    "total_findings_fixed": 0
   },
   "context": {
-    "sprint_plan_file": "grimoires/loa/sprint-docs-rewrite.md",
-    "cycle": "cycle-013",
-    "global_sprint_ids": [32, 33, 34]
+    "sprint_plan_file": "grimoires/loa/sprint-bridgebuilder-pr55.md",
+    "cycle": "cycle-014",
+    "global_sprint_ids": [35, 36]
   }
 }

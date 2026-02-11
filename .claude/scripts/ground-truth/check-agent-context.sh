@@ -48,8 +48,8 @@ if [[ -z "$context_block" ]]; then
 fi
 
 # ── Parse fields ──
-# Known field names for boundary detection
-KNOWN_FIELDS="name|type|purpose|key_files|interfaces|dependencies|version"
+# Known field names for boundary detection (v1 + v2 optional fields)
+KNOWN_FIELDS="name|type|purpose|key_files|interfaces|dependencies|version|priority_files|trust_level|model_hints"
 
 extract_field() {
   local field="$1"
@@ -72,6 +72,11 @@ key_files=$(extract_list_field "key_files")
 interfaces=$(extract_list_field "interfaces")
 dependencies=$(extract_list_field "dependencies")
 version=$(extract_field "version")
+
+# v2 optional fields
+priority_files=$(extract_list_field "priority_files")
+trust_level=$(extract_field "trust_level")
+model_hints=$(extract_list_field "model_hints")
 
 # ── Validate fields ──
 violations="["
@@ -149,6 +154,53 @@ if [[ -z "$version" ]]; then
   add_violation "version" "Required field 'version' is missing or empty"
 elif ! echo "$version" | grep -qE '^[0-9a-f]{40}$'; then
   add_violation "version" "Version '$version' is not a valid 40-char git commit hash"
+fi
+
+# ── v2 Optional fields (non-breaking: missing fields produce no error) ──
+
+# Optional v2: priority_files (must be subset of key_files)
+if [[ -n "$priority_files" && -n "$key_files" ]]; then
+  IFS=',' read -ra pf_arr <<< "$priority_files"
+  for pf in "${pf_arr[@]}"; do
+    pf=$(echo "$pf" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [[ -z "$pf" ]] && continue
+    if ! echo ",$key_files," | grep -qF ",$pf,"; then
+      # Try with spaces trimmed
+      found_in_kf=false
+      IFS=',' read -ra kf_check <<< "$key_files"
+      for kfc in "${kf_check[@]}"; do
+        kfc=$(echo "$kfc" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [[ "$kfc" == "$pf" ]]; then
+          found_in_kf=true
+          break
+        fi
+      done
+      if ! $found_in_kf; then
+        add_violation "priority_files" "priority_files entry '$pf' not found in key_files" "warning"
+      fi
+    fi
+  done
+fi
+
+# Optional v2: trust_level (must be high, medium, or low)
+if [[ -n "$trust_level" ]]; then
+  valid_levels="high medium low"
+  if ! echo "$valid_levels" | grep -qw "$trust_level"; then
+    add_violation "trust_level" "Invalid trust_level '$trust_level' — must be one of: $valid_levels" "warning"
+  fi
+fi
+
+# Optional v2: model_hints (entries from known set)
+if [[ -n "$model_hints" ]]; then
+  valid_hints="reasoning code review fast summary"
+  IFS=',' read -ra hint_arr <<< "$model_hints"
+  for hint in "${hint_arr[@]}"; do
+    hint=$(echo "$hint" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [[ -z "$hint" ]] && continue
+    if ! echo "$valid_hints" | grep -qw "$hint"; then
+      add_violation "model_hints" "Unknown model_hint '$hint' — known values: $valid_hints" "warning"
+    fi
+  done
 fi
 
 violations+="]"
