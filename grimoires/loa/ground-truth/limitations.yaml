@@ -1,44 +1,65 @@
 # Ground Truth Limitations Registry — TEAM-CURATED
 # Known limitations not captured by TODO/FIXME tags in source code.
 # feature_id must match an `id` in features.yaml.
+# Phase 0 update (cycle-013): evidence citations added, missing limitations added
 
 limitations:
   - feature_id: wal-persistence
     description: Single-writer only; no concurrent sessions per WAL file
     reason: Design choice — compound learning requires consistent state
-    decision_ref: null
+    evidence: WAL uses mutex for serialized appends (src/persistence/wal.ts)
 
   - feature_id: r2-sync
     description: S3 compatibility untested with non-Cloudflare providers
     reason: Only Cloudflare R2 used in production
-    issue_ref: null
+    evidence: R2CheckpointStorage uses @aws-sdk/client-s3 with R2-specific endpoint (src/persistence/r2-storage.ts)
 
   - feature_id: hounfour-ensemble
     description: IDX Ensemble strategy is experimental; no Gemini adapter yet
     reason: Phase 5 — adapter pattern supports future providers
-    issue_ref: null
+    evidence: ensemble.ts exists but no Gemini-specific adapter in src/hounfour/ (src/hounfour/ensemble.ts)
 
   - feature_id: bridgebuilder-review
     description: Review bot can only COMMENT on PRs, cannot APPROVE or REQUEST_CHANGES
     reason: Safety constraint — human approval required for merge gates
-    decision_ref: null
+    evidence: Pipeline outputs comment-only results (src/bridgebuilder/entry.ts)
 
   - feature_id: compound-learning
     description: Learning extraction requires LLM call; adds latency to session close
     reason: Quality gates for learning candidates require reasoning
-    issue_ref: null
+    evidence: CompoundLearning initialized with LLM dependency (src/index.ts)
 
   - feature_id: tool-sandbox
     description: Worker thread sandbox has 30s default timeout; long-running tools may be killed
     reason: Safety — prevents resource exhaustion from runaway tools
-    decision_ref: null
+    evidence: FINN_SANDBOX_TIMEOUT default 30000ms (src/config.ts)
 
   - feature_id: http-gateway
     description: No horizontal scaling — single Hono instance per deployment
     reason: Design choice — single-instance simplifies state management
-    decision_ref: null
+    evidence: Single Hono app created in createApp() (src/gateway/server.ts)
 
   - feature_id: activity-dashboard
     description: Activity feed relies on GitHub API rate limits (5000 req/hr authenticated)
     reason: No local caching of historical data beyond in-memory TTL
-    issue_ref: null
+    evidence: GitHub fetch via GITHUB_TOKEN with ResilientHttpClient (src/shared/http-client.ts)
+
+  - feature_id: websocket-gateway
+    description: Max 5 concurrent WebSocket connections per source IP
+    reason: Per-IP limit prevents connection exhaustion
+    evidence: Per-IP connection tracking in WebSocket handler (src/gateway/ws.ts)
+
+  - feature_id: tool-call-orchestrator
+    description: Hard limits on tool-call loop — max 20 iterations, 120s wall time, 50 total tool calls
+    reason: Safety — prevents infinite loops and resource exhaustion
+    evidence: ToolCallOrchestrator invoke() limits (src/hounfour/orchestrator.ts)
+
+  - feature_id: jwt-auth
+    description: JWKS cache has 5-minute TTL; stale keys during key rotation window
+    reason: Trade-off between validation latency and key freshness
+    evidence: JWKS caching with automatic refetch on kid miss (src/hounfour/jwt-auth.ts)
+
+  - feature_id: cron-service
+    description: Stuck job detection defaults to 2h timeout — long-running jobs auto-disabled
+    reason: Prevents indefinite resource consumption from hung jobs
+    evidence: CronService detectStuckJobs() with 2h default (src/cron/service.ts)

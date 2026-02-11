@@ -1,6 +1,7 @@
 # Ground Truth Feature Registry — TEAM-CURATED
 # Maps modules to named features with status and category.
 # Required fields: id (kebab-case, unique), name, status, category, modules[]
+# Phase 0 update (cycle-013): evidence citations added, module paths corrected, missing features added
 
 features:
   - id: wal-persistence
@@ -8,21 +9,33 @@ features:
     status: stable
     category: persistence
     modules:
-      - src/persistence/index.ts
+      - src/persistence/wal.ts
+    evidence: WAL class with initialize/append/truncateAfter/snapshot (src/persistence/wal.ts)
 
   - id: r2-sync
     name: R2 Object Storage Sync
     status: stable
     category: persistence
     modules:
-      - src/persistence/index.ts
+      - src/persistence/r2-storage.ts
+      - src/persistence/r2-sync.ts
+    evidence: R2CheckpointStorage implements ICheckpointStorage via @aws-sdk/client-s3 (src/persistence/r2-storage.ts)
 
   - id: git-sync
     name: Git Repository Sync
     status: stable
     category: persistence
     modules:
-      - src/persistence/index.ts
+      - src/persistence/git-sync.ts
+    evidence: GitSync.snapshot() archives to GIT_ARCHIVE_BRANCH (src/persistence/git-sync.ts)
+
+  - id: wal-recovery
+    name: Persistence Recovery Cascade
+    status: stable
+    category: persistence
+    modules:
+      - src/persistence/recovery.ts
+    evidence: runRecovery() cascade R2 → Git → WAL with strict/degraded/clean modes (src/persistence/recovery.ts)
 
   - id: hounfour-routing
     name: Multi-Model Provider Routing
@@ -30,27 +43,67 @@ features:
     category: orchestration
     modules:
       - src/hounfour/router.ts
+      - src/hounfour/registry.ts
+    evidence: HounfourRouter.invoke() with alias → capability → budget → fallback resolution (src/hounfour/router.ts)
 
   - id: hounfour-budget
     name: Token Budget Enforcement
     status: stable
     category: orchestration
     modules:
-      - src/hounfour/router.ts
+      - src/hounfour/budget.ts
+    evidence: BudgetEnforcer with scope key derivation and circuit breaker (src/hounfour/budget.ts)
 
   - id: hounfour-ensemble
     name: IDX Ensemble Orchestrator
     status: experimental
     category: orchestration
     modules:
-      - src/hounfour/router.ts
+      - src/hounfour/ensemble.ts
+    evidence: ensemble.ts present in src/hounfour/ (src/hounfour/ensemble.ts)
 
   - id: tool-call-orchestrator
     name: Tool-Call Execution Loop
     status: stable
     category: orchestration
     modules:
-      - src/hounfour/router.ts
+      - src/hounfour/orchestrator.ts
+    evidence: ToolCallOrchestrator.invoke() with 20-iteration/120s/50-call limits (src/hounfour/orchestrator.ts)
+
+  - id: sidecar-management
+    name: Cheval Sidecar Model Transport
+    status: stable
+    category: orchestration
+    modules:
+      - src/hounfour/sidecar-manager.ts
+      - src/hounfour/sidecar-client.ts
+      - src/hounfour/cheval-invoker.ts
+    evidence: SidecarManager for subprocess/sidecar mode (CHEVAL_MODE env) (src/hounfour/sidecar-manager.ts)
+
+  - id: jwt-auth
+    name: JWT Authentication (Arrakis)
+    status: stable
+    category: safety
+    modules:
+      - src/hounfour/jwt-auth.ts
+      - src/hounfour/jti-replay.ts
+    evidence: jwtAuthMiddleware with ES256, JWKS cache, tenant context extraction (src/hounfour/jwt-auth.ts)
+
+  - id: s2s-jwt
+    name: Service-to-Service JWT Signing
+    status: stable
+    category: safety
+    modules:
+      - src/hounfour/s2s-jwt.ts
+    evidence: S2SJwtSigner with ES256 + JWKS endpoint at /.well-known/jwks.json (src/hounfour/s2s-jwt.ts)
+
+  - id: pool-registry
+    name: Model Pool Registry
+    status: stable
+    category: orchestration
+    modules:
+      - src/hounfour/pool-registry.ts
+    evidence: Pool configuration for tenant-aware model routing (src/hounfour/pool-registry.ts)
 
   - id: bridgebuilder-review
     name: BridgeBuilder PR Review Pipeline
@@ -58,6 +111,7 @@ features:
     category: review
     modules:
       - src/bridgebuilder/entry.ts
+    evidence: Standalone entry with R2-backed run lease, persona pipeline (src/bridgebuilder/entry.ts)
 
   - id: compound-learning
     name: Compound Learning Cycle
@@ -65,6 +119,7 @@ features:
     category: learning
     modules:
       - src/learning/compound.ts
+    evidence: CompoundLearning initialized in boot sequence (src/index.ts)
 
   - id: cron-service
     name: Cron Job Orchestration
@@ -72,13 +127,17 @@ features:
     category: scheduling
     modules:
       - src/cron/service.ts
+      - src/cron/job-registry.ts
+    evidence: CronService extends EventEmitter with circuit breakers, stuck detection (src/cron/service.ts)
 
   - id: task-scheduler
     name: Task Scheduling & Health
     status: stable
     category: scheduling
     modules:
-      - src/scheduler/index.ts
+      - src/scheduler/scheduler.ts
+      - src/scheduler/health.ts
+    evidence: Scheduler.register() for r2_sync/git_sync/health/wal_prune tasks (src/scheduler/scheduler.ts)
 
   - id: audit-trail
     name: Comprehensive Audit Trail
@@ -86,13 +145,15 @@ features:
     category: safety
     modules:
       - src/safety/audit-trail.ts
+    evidence: SHA-256 hash chain with optional HMAC, 4 phases, 10MB rotation (src/safety/audit-trail.ts)
 
   - id: github-firewall
     name: GitHub Repository Firewall
     status: stable
     category: safety
     modules:
-      - src/safety/audit-trail.ts
+      - src/safety/github-firewall.ts
+    evidence: Intent/dry-run/result phase validation (src/safety/github-firewall.ts)
 
   - id: tool-sandbox
     name: Tool Execution Sandbox
@@ -100,13 +161,32 @@ features:
     category: safety
     modules:
       - src/agent/sandbox.ts
+    evidence: ToolSandbox.execute() with CommandPolicy and FilesystemJail (src/agent/sandbox.ts)
 
   - id: worker-pool
     name: Priority-Lane Worker Pool
     status: stable
     category: safety
     modules:
-      - src/agent/sandbox.ts
+      - src/agent/worker-pool.ts
+    evidence: WorkerPool with interactive/system lanes, queue depth limit (src/agent/worker-pool.ts)
+
+  - id: secret-redaction
+    name: Secret Pattern Redaction
+    status: stable
+    category: safety
+    modules:
+      - src/safety/secret-redactor.ts
+      - src/gateway/redaction-middleware.ts
+    evidence: SecretRedactor + ResponseRedactor for API response field/pattern redaction (src/safety/secret-redactor.ts)
+
+  - id: csrf-protection
+    name: CSRF Double-Submit Cookie
+    status: stable
+    category: safety
+    modules:
+      - src/gateway/csrf.ts
+    evidence: Double-submit cookie with timing-safe validation, 32-byte tokens (src/gateway/csrf.ts)
 
   - id: http-gateway
     name: HTTP API Gateway
@@ -114,6 +194,19 @@ features:
     category: gateway
     modules:
       - src/gateway/server.ts
+      - src/gateway/auth.ts
+      - src/gateway/rate-limit.ts
+    evidence: Hono v4 with Bearer/JWT auth, CORS, rate limiting (src/gateway/server.ts)
+
+  - id: websocket-gateway
+    name: WebSocket Streaming Gateway
+    status: stable
+    category: gateway
+    modules:
+      - src/gateway/ws.ts
+      - src/gateway/ws-broadcast.ts
+      - src/gateway/stream-bridge.ts
+    evidence: ws package, /ws/:sessionId, 8 event types, per-IP limits (src/gateway/ws.ts)
 
   - id: activity-dashboard
     name: Activity Feed Dashboard
@@ -121,6 +214,10 @@ features:
     category: gateway
     modules:
       - src/dashboard/activity-feed.ts
+      - src/gateway/dashboard-routes.ts
+      - src/gateway/dashboard-audit-api.ts
+      - src/gateway/dashboard-activity-api.ts
+    evidence: ActivityFeed.refresh()/getActivity() + audit/activity APIs (src/dashboard/activity-feed.ts)
 
   - id: beads-bridge
     name: Beads Task Tracking Bridge
@@ -128,6 +225,7 @@ features:
     category: safety
     modules:
       - src/beads/bridge.ts
+    evidence: BeadsBridge initialized in boot sequence (src/index.ts)
 
   - id: boot-orchestrator
     name: Agent-Jobs Boot Sequence
@@ -135,3 +233,4 @@ features:
     category: safety
     modules:
       - src/boot/agent-jobs-boot.ts
+    evidence: Boot validation with structured exit codes (src/safety/boot-validation.ts)
