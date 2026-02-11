@@ -42,22 +42,22 @@ Severities: `critical`, `error`, `warning`, `info` (`src/safety/alert-service.ts
 
 ### GithubFirewall (`src/safety/github-firewall.ts`)
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (upgradeable) -->
 Validates GitHub operations through a 3-phase protocol: intent → dry_run → result. Prevents unintended repository mutations.
 
 ### SecretRedactor (`src/safety/secret-redactor.ts`)
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (upgradeable) -->
 Pattern-based secret detection and replacement. Identifies API keys, tokens, passwords, PEM blocks, and other credential patterns.
 
 ### ToolRegistry (`src/safety/tool-registry.ts`)
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (upgradeable) -->
 Tool allowlist with policy enforcement. Controls which tools the agent can invoke and with what constraints.
 
 ### BootValidation (`src/safety/boot-validation.ts`)
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (upgradeable) -->
 Structured exit code system for boot failures. Returns specific codes to indicate missing config, unavailable services, or incompatible versions.
 
 ## Architecture
@@ -95,7 +95,7 @@ Agent Action → AuditTrail (intent phase)
 
 ## Known Limitations
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (pending-evidence) -->
 - Audit trail is append-only with no deletion — rotation creates new segments but old segments remain
 - Secret redaction is pattern-based — novel credential formats may not be detected
 

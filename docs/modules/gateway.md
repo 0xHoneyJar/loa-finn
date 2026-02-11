@@ -39,7 +39,7 @@ Handles `/ws/:sessionId` connections with streaming events. 8 server-to-client m
 
 ## Architecture
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (architectural) -->
 ```
 Client → Hono App
           ├─→ CORS Middleware

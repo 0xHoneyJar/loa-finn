@@ -14,7 +14,7 @@ The system has 15 source modules organized into 5 architectural layers, with str
 
 ### Layer 1: Gateway (Entry Points)
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (architectural) -->
 The gateway layer handles all external communication — HTTP, WebSocket, and dashboard APIs.
 
 | Component | Source | Responsibility |
@@ -27,12 +27,12 @@ The gateway layer handles all external communication — HTTP, WebSocket, and da
 | Rate Limiting | `src/gateway/rate-limit.ts` | Per-IP sliding window |
 | Redaction | `src/gateway/redaction-middleware.ts` | Secret field redaction in responses |
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (architectural) -->
 The gateway layer depends on the orchestration layer for request handling and the safety layer for auth validation. It never accesses persistence directly.
 
 ### Layer 2: Orchestration (Model Routing)
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (architectural) -->
 The orchestration layer manages LLM provider routing, tool execution, and budget enforcement. This layer is analogous to an API gateway's routing mesh — it resolves model aliases, checks budgets, and falls back through provider chains.
 
 | Component | Source | Responsibility |
@@ -54,7 +54,7 @@ The orchestration layer manages LLM provider routing, tool execution, and budget
 
 ### Layer 3: Scheduling (Job Management)
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (architectural) -->
 The scheduling layer handles periodic tasks and user-defined cron jobs with enterprise reliability patterns.
 
 | Component | Source | Responsibility |
@@ -90,7 +90,7 @@ The persistence layer implements a 3-tier durability strategy: local WAL (`src/p
 
 ### Layer 5: Safety (Security & Compliance)
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (architectural) -->
 The safety layer provides security enforcement, audit logging, and execution isolation.
 
 | Component | Source | Responsibility |
@@ -151,7 +151,7 @@ Client → Gateway (HTTP/WS)
 <!-- provenance: CODE-FACTUAL -->
 The layered architecture with typed interfaces allows independent evolution of each subsystem. Adding a new LLM provider requires only implementing the `ModelPortBase` interface (`src/hounfour/types.ts:1`) — no changes to gateway, persistence, or scheduling layers. Similarly, swapping R2 for a different S3-compatible store requires only a new `ICheckpointStorage` implementation (`src/persistence/r2-storage.ts:1`).
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (upgradeable) -->
 The 3-tier persistence strategy (WAL → R2 → Git) means the system can recover from any single failure — local disk loss, R2 outage, or Git corruption — as long as at least one tier has recent data.
 
 <!-- ground-truth-meta: head_sha=689a777 generated_at=2026-02-11T01:06:00Z features_sha=689a777 limitations_sha=689a777 ride_sha=689a777 -->

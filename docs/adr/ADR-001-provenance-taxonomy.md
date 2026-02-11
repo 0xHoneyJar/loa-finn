@@ -56,7 +56,7 @@ Thresholds are living parameters, not fixed constants. As the corpus grows and p
 
 ### Step 1: Observation
 
-Run `provenance-stats.sh --json` across the full corpus (via `provenance-history.sh`) and examine the trust_level distribution. Note any documents that cluster near threshold boundaries — these are the most sensitive to threshold changes.
+Run `provenance-stats.sh --json` across the full corpus (via `provenance-history.sh`) and examine the trust_level distribution. Note any documents that cluster near threshold boundaries — these are the most sensitive to threshold changes. Record the commit hash of the snapshot that triggered this review in the Trigger Snapshot column of the Recalibration History table.
 
 ### Step 2: Distribution Analysis
 
@@ -82,9 +82,9 @@ If thresholds need adjustment:
 
 ### Recalibration History
 
-| Date | Reviewer | Thresholds Changed | Rationale |
-|------|----------|--------------------|-----------|
-| 2026-02-11 | cycle-015 | Initial calibration (high=0.90, medium=0.60) | Observed distribution across 16 documents in cycles 010-014 |
+| Date | Reviewer | Thresholds Changed | Trigger Snapshot | Rationale |
+|------|----------|--------------------|------------------|-----------|
+| 2026-02-11 | cycle-015 | Initial calibration (high=0.90, medium=0.60) | cycle-016 baseline | Observed distribution across 16 documents in cycles 010-014 |
 
 ## Alternatives Considered
 

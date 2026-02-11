@@ -44,7 +44,7 @@ class JobRegistry {
 
 ## Architecture
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (architectural) -->
 ```
 CronService
   ├─→ Tick Loop (15s interval)

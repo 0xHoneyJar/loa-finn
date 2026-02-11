@@ -23,7 +23,7 @@ interface LoaSession {
 }
 ```
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (upgradeable) -->
 Sessions are created via `POST /api/sessions` and streamed via WebSocket at `/ws/:sessionId`.
 
 ### ToolSandbox (`src/agent/sandbox.ts`)

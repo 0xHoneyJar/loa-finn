@@ -186,7 +186,7 @@ Each scheduled task and cron job maintains independent circuit breaker state (`s
 | OPEN | Requests blocked, waiting for recovery interval |
 | HALF_OPEN | Single test request allowed |
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (upgradeable) -->
 Transition: failure threshold exceeded → OPEN → recovery interval → HALF_OPEN → success → CLOSED (or failure → OPEN).
 
 ### Audit Trail

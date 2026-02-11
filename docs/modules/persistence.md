@@ -53,7 +53,7 @@ async function runRecovery(config, wal, r2Sync, gitSync): Promise<RecoveryResult
 
 ## Architecture
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (architectural) -->
 ```
 Application → WAL (local, append-only)
                 │

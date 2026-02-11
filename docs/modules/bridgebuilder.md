@@ -34,7 +34,7 @@ class R2Client implements IR2Client {
 }
 ```
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (upgradeable) -->
 Provides conditional operations (`putIfAbsent`, `putIfMatch`) for lease management.
 
 ### RunLease (`src/bridgebuilder/lease.ts`)
@@ -46,7 +46,7 @@ class RunLease {
 }
 ```
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (upgradeable) -->
 R2-backed distributed lease. Uses `putIfAbsent` to claim, `putIfMatch` (with ETag) to release. Prevents concurrent BridgeBuilder executions.
 
 ## Architecture

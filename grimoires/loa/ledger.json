@@ -454,7 +454,7 @@
           "local_id": "sprint-2",
           "global_id": 42,
           "label": "Provenance Intelligence & Routing Preparation",
-          "status": "pending",
+          "status": "in_progress",
           "tasks": 6
         }
       ]

@@ -1694,8 +1694,18 @@ ground_truth:
     thresholds:
       high: 0.90     # Documents with >=90% verifiable claims
       medium: 0.60   # Documents with >=60% verifiable claims
+    # Maximum unqualified INFERRED blocks before --strict mode fails
+    max_unqualified_inferred: 10
     # Path to the DERIVED script allowlist file
     derived_script_allowlist_path: .claude/scripts/ground-truth/shared/derived-script-allowlist.txt
+  # Provenance-based model routing hints (Hounfour Phase 5+ integration)
+  # Declares which model profile to prefer/avoid based on document trust level
+  provenance_routing:
+    high_trust:       { prefer: "fast-code", avoid: "reasoning" }
+    medium_trust:     { prefer: "reviewer", fallback: "reasoning" }
+    low_trust:        { prefer: "reasoning", require_review: true }
+    high_pending:     { prefer: "fast-code", tool_calling: required }
+    high_unqualified: { prefer: "reasoning", auto_commit: false }
 
 # =============================================================================
 # Bridgebuilder Configuration

@@ -3,13 +3,19 @@
 # Reads corpus from generation-manifest.json, runs provenance-stats.sh on each document,
 # and appends a timestamped snapshot to provenance-history.jsonl.
 #
-# Usage: provenance-history.sh [--cycle CYCLE_ID] [--json]
+# Usage: provenance-history.sh [--cycle CYCLE_ID] [--json] [--strict] [--manifest PATH]
 #
 # Output: Appends one JSONL record to grimoires/loa/ground-truth/provenance-history.jsonl
+#
+# Flags:
+#   --strict   Exit non-zero if missing_docs is non-empty or unqualified_inferred_count
+#              exceeds the configured threshold (for CI use). BridgeBuilder F10.
+#   --manifest Override the manifest file path (for testing)
 #
 # Exit codes:
 #   0 = Success
 #   1 = Error (missing manifest, etc.)
+#   3 = Strict mode violation (missing docs or threshold exceeded)
 
 set -euo pipefail
 
@@ -21,11 +27,14 @@ STATS_SCRIPT="$SCRIPT_DIR/provenance-stats.sh"
 
 CYCLE_ID=""
 JSON_ONLY=false
+STRICT_MODE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --json) JSON_ONLY=true; shift ;;
     --cycle) CYCLE_ID="${2:-}"; shift 2 ;;
+    --strict) STRICT_MODE=true; shift ;;
+    --manifest) MANIFEST="${2:-}"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -135,6 +144,11 @@ if [[ ${#missing_docs[@]} -gt 0 ]]; then
   missing_json=$(printf '%s\n' "${missing_docs[@]}" | jq -R . | jq -s .)
 fi
 
+# ── Read configurable threshold for unqualified INFERRED (Task 2.2) ──
+# shellcheck source=shared/read-config.sh
+source "$SCRIPT_DIR/shared/read-config.sh"
+MAX_UNQUALIFIED=$(read_config "ground_truth.thresholds.max_unqualified_inferred" "10")
+
 # ── Build snapshot record ──
 snapshot=$(jq -nc \
   --arg timestamp "$timestamp" \
@@ -154,6 +168,7 @@ snapshot=$(jq -nc \
   --argjson trust_medium "$trust_medium" \
   --argjson trust_low "$trust_low" \
   --argjson missing_docs "$missing_json" \
+  --argjson per_document "$per_doc_json" \
   '{
     timestamp: $timestamp,
     cycle: $cycle,
@@ -177,7 +192,12 @@ snapshot=$(jq -nc \
         low: $trust_low
       }
     },
-    missing_docs: $missing_docs
+    metrics: {
+      unqualified_inferred_count: $total_inf_unqualified
+    },
+    missing_docs: $missing_docs,
+    per_document: $per_document,
+    model_attribution: {}
   }')
 
 # ── Output ──
@@ -194,7 +214,25 @@ else
   echo "  Blocks:     $total_blocks total, $total_tagged tagged"
   echo "  Trust:      high=$trust_high, medium=$trust_medium, low=$trust_low"
   echo "  INFERRED:   $total_inferred (arch=$total_inf_architectural, upg=$total_inf_upgradeable, pend=$total_inf_pending_evidence, unq=$total_inf_unqualified)"
+  echo "  Metrics:    unqualified_inferred_count=$total_inf_unqualified (threshold=$MAX_UNQUALIFIED)"
+  # model_attribution: reserved for Hounfour Phase 5+ — will track which model processed each document
   echo "  History:    $HISTORY_FILE"
+fi
+
+# ── Strict mode enforcement (BridgeBuilder F10) ──
+if $STRICT_MODE; then
+  strict_fail=false
+  if [[ ${#missing_docs[@]} -gt 0 ]]; then
+    echo "STRICT: ${#missing_docs[@]} missing document(s): ${missing_docs[*]}" >&2
+    strict_fail=true
+  fi
+  if [[ $total_inf_unqualified -gt $MAX_UNQUALIFIED ]]; then
+    echo "STRICT: unqualified_inferred_count ($total_inf_unqualified) exceeds threshold ($MAX_UNQUALIFIED)" >&2
+    strict_fail=true
+  fi
+  if $strict_fail; then
+    exit 3
+  fi
 fi
 
 exit 0

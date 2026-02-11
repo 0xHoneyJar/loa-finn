@@ -49,7 +49,7 @@ class ToolCallOrchestrator {
 <!-- provenance: CODE-FACTUAL -->
 Tracks token costs per scope (project, phase, sprint) with circuit breaker protection (`src/hounfour/budget.ts:1`).
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (upgradeable) -->
 - **Warning**: Emitted when scope reaches configurable threshold
 - **Exceeded**: Blocks requests or triggers model downgrade
 - **Storage**: Redis (if available) or in-memory
@@ -68,12 +68,12 @@ interface ModelPortBase {
 }
 ```
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (upgradeable) -->
 Extend with `ModelPortStreaming` to add `stream()` async generator support.
 
 ## Architecture
 
-<!-- provenance: INFERRED -->
+<!-- provenance: INFERRED (architectural) -->
 ```
 Request → HounfourRouter
             ├─→ Alias Resolution (registry.ts)
