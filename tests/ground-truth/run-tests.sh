@@ -212,6 +212,94 @@ assert_exit "Nonexistent input file" 2 "$exit_code"
 echo ""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo "▸ DERIVED provenance class"
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# T-D1: pass-derived-multi-citation.md — DERIVED with 3 unique citations (exit=0)
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/pass-derived-multi-citation.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "DERIVED multi-citation passes" 0 "$exit_code"
+assert_json "Coverage passes" "$output" '.coverage_pass' "true"
+
+# T-D2: fail-derived-duplicate-citation.md — DERIVED with same citation twice (exit=1)
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/fail-derived-duplicate-citation.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "DERIVED duplicate citation rejected" 1 "$exit_code"
+assert_json_gt "Has DERIVED failure" "$output" '.fail_count' 0
+
+# T-D3: pass-derived-script-ref.md — DERIVED with script reference (exit=0)
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/pass-derived-script-ref.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "DERIVED script-ref passes" 0 "$exit_code"
+assert_json "Coverage passes" "$output" '.coverage_pass' "true"
+
+# T-D4: fail-derived-single-citation.md — DERIVED with only 1 citation (exit=1)
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/fail-derived-single-citation.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "DERIVED single citation rejected" 1 "$exit_code"
+assert_json_gt "Has DERIVED failure" "$output" '.fail_count' 0
+
+echo ""
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo "▸ INFERRED subqualifiers"
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# T-I1: pass-inferred-pending-evidence.md — all three INFERRED qualifiers accepted (exit=0)
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/pass-inferred-pending-evidence.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "INFERRED (pending-evidence) accepted" 0 "$exit_code"
+assert_json "100% coverage" "$output" '.coverage_pct' "100"
+
+# T-I2: provenance-stats.sh counts INFERRED subqualifiers correctly
+exit_code=0
+output=$(run_script "$SCRIPTS/provenance-stats.sh" "$FIXTURES/pass-inferred-pending-evidence.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "provenance-stats runs on qualified INFERRED" 0 "$exit_code"
+assert_json "INFERRED total is 3" "$output" '.counts.INFERRED' "3"
+assert_json "architectural count" "$output" '.INFERRED_BREAKDOWN.architectural' "1"
+assert_json "upgradeable count" "$output" '.INFERRED_BREAKDOWN.upgradeable' "1"
+assert_json "pending-evidence count" "$output" '.INFERRED_BREAKDOWN["pending-evidence"]' "1"
+assert_json "unqualified count" "$output" '.INFERRED_BREAKDOWN.unqualified' "0"
+
+# T-I3: pass-inferred-unknown-qualifier.md — unknown qualifier accepted, counted as unqualified
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/pass-inferred-unknown-qualifier.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "INFERRED (banana) unknown qualifier accepted" 0 "$exit_code"
+assert_json "100% coverage with unknown qualifier" "$output" '.coverage_pct' "100"
+
+# T-I3b: provenance-stats counts unknown qualifier as unqualified
+exit_code=0
+output=$(run_script "$SCRIPTS/provenance-stats.sh" "$FIXTURES/pass-inferred-unknown-qualifier.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "provenance-stats runs on unknown qualifier" 0 "$exit_code"
+assert_json "INFERRED total is 1" "$output" '.counts.INFERRED' "1"
+assert_json "unqualified count is 1" "$output" '.INFERRED_BREAKDOWN.unqualified' "1"
+assert_json "architectural count is 0" "$output" '.INFERRED_BREAKDOWN.architectural' "0"
+
+echo ""
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo "▸ DERIVED paragraph boundary (cycle-017)"
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# T-D5: pass-derived-long-paragraph.md — citation on line 7+ passes with paragraph boundary extraction
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/pass-derived-long-paragraph.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "DERIVED long paragraph (citation line 7+) passes" 0 "$exit_code"
+assert_json "No failures" "$output" '.fail_count' "0"
+assert_json "100% coverage" "$output" '.coverage_pct' "100"
+
+echo ""
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo "▸ Cross-script consistency"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

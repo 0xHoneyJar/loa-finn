@@ -172,11 +172,46 @@ for citation in "${citations[@]}"; do
 
   # ── Step 4: LINE_RANGE ──
   actual_lines=""
+  hint=""
   if [[ -z "$check_failed" ]]; then
     actual_lines=$(sed -n "${line_start},${line_end}p" "$cite_path" 2>/dev/null || echo "")
     if [[ -z "$actual_lines" ]]; then
       check_failed="LINE_RANGE"
       fail_detail="Lines ${line_start}-${line_end} empty or out of range in $cite_path"
+
+      # ── Auto-repair hint: check ±HINT_SCAN_RADIUS lines for non-empty content ──
+      # Code rarely shifts more than a few lines between commits; 5 covers most
+      # single-function edits. Override via ground_truth.provenance.hint_scan_radius
+      # in .loa.config.yaml. See provenance-spec.md §Citation Hint Configuration.
+      if [[ -z "${HINT_SCAN_RADIUS:-}" ]]; then
+        # shellcheck source=shared/read-config.sh
+        source "$SCRIPT_DIR/shared/read-config.sh" 2>/dev/null || true
+        if type read_config &>/dev/null; then
+          HINT_SCAN_RADIUS=$(read_config "ground_truth.provenance.hint_scan_radius" "5")
+        else
+          HINT_SCAN_RADIUS=5
+        fi
+      fi
+      file_total_lines=$(wc -l < "$cite_path" 2>/dev/null || echo "0")
+      hint_start=$((line_start - HINT_SCAN_RADIUS))
+      hint_end=$((line_start + HINT_SCAN_RADIUS))
+      [[ $hint_start -lt 1 ]] && hint_start=1
+      [[ $hint_end -gt $file_total_lines ]] && hint_end=$file_total_lines
+      nearby_found=false
+      for ((hl=hint_start; hl<=hint_end; hl++)); do
+        [[ $hl -eq $line_start ]] && continue
+        nearby_line=$(sed -n "${hl}p" "$cite_path" 2>/dev/null || echo "")
+        if [[ -n "$nearby_line" && ! "$nearby_line" =~ ^[[:space:]]*$ ]]; then
+          hint="HINT: ${cite_path}:${line_start} is blank, but content found at :${hl}"
+          nearby_found=true
+          break
+        fi
+      done
+      if ! $nearby_found; then
+        if [[ -f "$cite_path" ]]; then
+          hint="HINT: file exists but cited content not found at any nearby line — may need full re-verification"
+        fi
+      fi
     fi
   fi
 
@@ -193,8 +228,13 @@ for citation in "${citations[@]}"; do
       --arg check "$check_failed" \
       --arg detail "$fail_detail" \
       --arg actual_lines "$(echo "$actual_lines" | head -1)" \
-      '{citation: $citation, check: $check, detail: $detail, actual_lines: $actual_lines}')
+      --arg hint "${hint:-}" \
+      '{citation: $citation, check: $check, detail: $detail, actual_lines: $actual_lines} + (if $hint != "" then {hint: $hint} else {} end)')
     failures_json+="$failure_entry"
+    # Print hint to stderr for human-readable output
+    if [[ -n "${hint:-}" ]] && ! $QUIET; then
+      echo "  $hint" >&2
+    fi
   else
     ((verified++)) || true
     # Store for step 5 evidence anchor verification

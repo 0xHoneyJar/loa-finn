@@ -1,5 +1,7 @@
 # Installation Guide
 
+> **This document describes Loa framework setup, not Finn deployment.** For Finn deployment instructions, see [docs/operations.md](docs/operations.md).
+
 Loa can be installed in two ways: **mounting onto an existing repository** (recommended) or **cloning the template**.
 
 **Time to first command**: ~2 minutes (one-liner install) | ~5 minutes (manual install with optional tools)

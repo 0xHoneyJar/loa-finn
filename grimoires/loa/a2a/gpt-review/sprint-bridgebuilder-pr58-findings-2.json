@@ -1,0 +1,28 @@
+{
+  "verdict": "APPROVED",
+  "summary": "All four iteration-1 blocking issues are addressed with concrete scope normalization, a non-breaking parser change plus verified consumer inventory, explicit metric tracking, and deterministic --strict tests; no new truly blocking problems introduced.",
+  "previous_issues_status": [
+    {
+      "original_issue": "Scope accounting inconsistent (claimed 14+8 but acceptance said 14+4; index only listed 4 second-round items)",
+      "status": "fixed",
+      "notes": "Overview now consistently states 14 + 4 = 18, explicitly notes the other 4 PR#57 second-round findings were handled in cycle-016, and the Findings Index enumerates the 4 in-scope PR#57 second-round items (F9s/F10s/F15s/F16s). This makes acceptance deterministically checkable."
+    },
+    {
+      "original_issue": "Breaking interface change risk: TAGGED output format change not fully accounting for all consumers/tests",
+      "status": "fixed",
+      "notes": "Task 1.2 keeps the callback signature unchanged and moves end-line via shared variable `para_end`, avoiding a shared-component interface break. It also adds an explicit grep-based consumer inventory showing TAGGED is internal to check-provenance.sh, with provenance-stats.sh and run-tests.sh not parsing TAGGED. That is a sufficient dependency accounting for this change."
+    },
+    {
+      "original_issue": "F7 not actually implemented (triage ≠ tracked metric); missing explicit task to record/report unqualified INFERRED metric",
+      "status": "fixed",
+      "notes": "Task 2.2 explicitly adds `metrics.unqualified_inferred_count` to JSONL snapshots, includes per-document counts, adds a configurable threshold via read-config.sh, and integrates with --strict. Triage is correctly separated into Task 2.3."
+    },
+    {
+      "original_issue": "--strict mode acceptance criteria underspecified (missing_docs definition/source-of-truth and deterministic tests)",
+      "status": "fixed",
+      "notes": "Task 2.1 now defines the source of truth (generation-manifest.json .documents[].path), defines `missing_docs`, and includes 4 deterministic acceptance tests covering strict/non-strict exit codes and JSON field presence."
+    }
+  ],
+  "new_blocking_concerns": [],
+  "iteration": 2
+}
