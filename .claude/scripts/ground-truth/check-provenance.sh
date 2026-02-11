@@ -80,9 +80,11 @@ function emit_paragraph(start, tag_class,    preview) {
   # Multi-line HTML comments
   if (state == "NORMAL" && /<!--/ && !/-->/) {
     # Check for provenance tag (mawk-compatible: no 3-arg match)
+    # Accepts optional subclassification: <!-- provenance: INFERRED (architectural) -->
     if (match($0, /<!-- provenance: [A-Z_-]+/)) {
       tmp = substr($0, RSTART, RLENGTH)
       sub(/<!-- provenance: /, "", tmp)
+      sub(/ .*/, "", tmp)  # Strip any qualifier after class name
       pending_tag_class = tmp
     }
     state = "IN_HTML_COMMENT"; next
@@ -90,11 +92,12 @@ function emit_paragraph(start, tag_class,    preview) {
   if (state == "IN_HTML_COMMENT") { if (/-->/) state = "NORMAL"; next }
 
   # Single-line HTML comments (provenance tags or evidence anchors)
+  # Accepts optional subclassification: <!-- provenance: INFERRED (architectural) -->
   if (state == "NORMAL" && /<!--.*-->/) {
-    if (match($0, /<!-- provenance: [A-Z_-]+ -->/)) {
+    if (match($0, /<!-- provenance: [A-Z_-]+/)) {
       tmp = substr($0, RSTART, RLENGTH)
       sub(/<!-- provenance: /, "", tmp)
-      sub(/ -->/, "", tmp)
+      sub(/ .*/, "", tmp)  # Strip any qualifier after class name
       pending_tag_class = tmp
     }
     next
@@ -219,6 +222,17 @@ while IFS= read -r line; do
           if ! $first_failure; then failures_json+=","; fi
           first_failure=false
           failures_json+='{"check":"EXTERNAL_REFERENCE_CITATION","line":'"$line_num"',"class":"EXTERNAL-REFERENCE","detail":"EXTERNAL-REFERENCE paragraph missing URL or paper reference"}'
+        fi
+        ;;
+      DERIVED)
+        # Must contain ≥2 backtick file:line citations OR a script reference
+        citation_count=$(echo "$para_content" | grep -oE '`[a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+:[0-9]+' | wc -l)
+        has_script_ref=$(echo "$para_content" | grep -qE '`(provenance-stats\.sh|extract-doc-deps\.sh|quality-gates\.sh|generation-manifest\.json|verify-citations\.sh|check-provenance\.sh)`' && echo "yes" || echo "no")
+        if [[ $citation_count -lt 2 && "$has_script_ref" != "yes" ]]; then
+          ((fail_count++)) || true
+          if ! $first_failure; then failures_json+=","; fi
+          first_failure=false
+          failures_json+='{"check":"DERIVED_MULTI_CITATION","line":'"$line_num"',"class":"DERIVED","detail":"DERIVED paragraph requires ≥2 file:line citations or a computation script reference"}'
         fi
         ;;
     esac

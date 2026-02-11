@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-014",
-  "next_global_sprint_id": 37,
+  "current_cycle": "cycle-015",
+  "next_global_sprint_id": 39,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -353,6 +353,30 @@
           "label": "Content Quality & Archive Enrichment",
           "status": "completed",
           "tasks": 7
+        }
+      ]
+    },
+    "cycle-015": {
+      "label": "BridgeBuilder PR #56 Findings: Aim for the Stars",
+      "status": "active",
+      "started": "2026-02-11T07:00:00Z",
+      "prd": "grimoires/loa/prd-docs-rewrite.md",
+      "sdd": "grimoires/loa/sdd-docs-rewrite.md",
+      "notes": "Addresses all 5 formal findings + 3 broader suggestions from BridgeBuilder review of PR #56. Adds DERIVED provenance class, citation auto-repair, INFERRED subclassification.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 37,
+          "label": "Tooling Hardening & ADR Refinement",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 38,
+          "label": "Content Evolution & Pipeline Intelligence",
+          "status": "completed",
+          "tasks": 4
         }
       ]
     },

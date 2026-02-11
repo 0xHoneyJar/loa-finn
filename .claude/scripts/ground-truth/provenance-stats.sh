@@ -51,6 +51,7 @@ BEGIN {
   operational = 0
   external_ref = 0
   hypothesis = 0
+  derived = 0
   untagged = 0
 }
 
@@ -61,6 +62,7 @@ function count_paragraph(tag_class) {
   else if (tag_class == "OPERATIONAL") operational++
   else if (tag_class == "EXTERNAL-REFERENCE") external_ref++
   else if (tag_class == "HYPOTHESIS") hypothesis++
+  else if (tag_class == "DERIVED") derived++
   else untagged++
 }
 
@@ -80,10 +82,12 @@ function count_paragraph(tag_class) {
   if (state == "IN_FENCE") { if (/^```/) state = "NORMAL"; next }
 
   # Multi-line HTML comments
+  # Accepts optional subclassification: <!-- provenance: INFERRED (architectural) -->
   if (state == "NORMAL" && /<!--/ && !/-->/) {
     if (match($0, /<!-- provenance: [A-Z_-]+/)) {
       tmp = substr($0, RSTART, RLENGTH)
       sub(/<!-- provenance: /, "", tmp)
+      sub(/ .*/, "", tmp)  # Strip any qualifier after class name
       pending_tag_class = tmp
     }
     state = "IN_HTML_COMMENT"; next
@@ -91,11 +95,12 @@ function count_paragraph(tag_class) {
   if (state == "IN_HTML_COMMENT") { if (/-->/) state = "NORMAL"; next }
 
   # Single-line HTML comments (provenance tags)
+  # Accepts optional subclassification: <!-- provenance: INFERRED (architectural) -->
   if (state == "NORMAL" && /<!--.*-->/) {
-    if (match($0, /<!-- provenance: [A-Z_-]+ -->/)) {
+    if (match($0, /<!-- provenance: [A-Z_-]+/)) {
       tmp = substr($0, RSTART, RLENGTH)
       sub(/<!-- provenance: /, "", tmp)
-      sub(/ -->/, "", tmp)
+      sub(/ .*/, "", tmp)  # Strip any qualifier after class name
       pending_tag_class = tmp
     }
     next
@@ -133,16 +138,17 @@ function count_paragraph(tag_class) {
 END {
   if (in_paragraph) count_paragraph(pending_tag_class)
   tagged = total - untagged
-  print total " " code_factual " " inferred " " operational " " external_ref " " hypothesis " " untagged " " tagged
+  print total " " code_factual " " inferred " " operational " " external_ref " " hypothesis " " derived " " untagged " " tagged
 }' "$DOC_PATH")
 
 # Parse awk output
-read -r total cf inf op er hy ut tagged <<< "$stats"
+read -r total cf inf op er hy dv ut tagged <<< "$stats"
 
 # Compute ratio and trust_level
+# DERIVED counts equivalent to CODE-FACTUAL per ADR-002
 if [[ $tagged -gt 0 ]]; then
   # Use bc for floating point, fallback to awk
-  ratio=$(awk "BEGIN { printf \"%.4f\", $cf / $tagged }" 2>/dev/null || echo "0.0000")
+  ratio=$(awk "BEGIN { printf \"%.4f\", ($cf + $dv) / $tagged }" 2>/dev/null || echo "0.0000")
 else
   ratio="0.0000"
 fi
@@ -166,6 +172,7 @@ if $JSON_OUTPUT; then
     --argjson operational "$op" \
     --argjson external_reference "$er" \
     --argjson hypothesis "$hy" \
+    --argjson derived "$dv" \
     --argjson untagged "$ut" \
     --arg ratio "$ratio" \
     --arg trust_level "$trust_level" \
@@ -176,7 +183,8 @@ if $JSON_OUTPUT; then
         "INFERRED": $inferred,
         "OPERATIONAL": $operational,
         "EXTERNAL-REFERENCE": $external_reference,
-        "HYPOTHESIS": $hypothesis
+        "HYPOTHESIS": $hypothesis,
+        "DERIVED": $derived
       },
       total_blocks: $total,
       tagged_blocks: $tagged,
@@ -192,7 +200,8 @@ else
   echo "  OPERATIONAL:       $op"
   echo "  EXTERNAL-REFERENCE: $er"
   echo "  HYPOTHESIS:        $hy"
-  echo "  Ratio:             $ratio"
+  echo "  DERIVED:           $dv"
+  echo "  Ratio:             $ratio (CODE-FACTUAL + DERIVED / tagged)"
   echo "  Trust Level:       $trust_level"
 fi
 

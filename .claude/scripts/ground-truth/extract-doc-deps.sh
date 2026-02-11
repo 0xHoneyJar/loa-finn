@@ -183,20 +183,6 @@ done <<< "$manifest_docs"
 graph+="]"
 
 # Build rebuild_index JSON
-ri_json="{"
-ri_first=true
-for key in "${!rebuild_idx[@]}"; do
-  if ! $ri_first; then ri_json+=","; fi
-  ri_first=false
-  vals="${rebuild_idx[$key]}"
-  vals_json=$(echo "$vals" | tr ',' '\n' | jq -R . | jq -s . 2>/dev/null || echo "[]")
-  ri_json+=$(jq -nc --arg k "$key" --argjson v "$vals_json" '{($k): $v}')
-  # jq -nc outputs {"key":[...]} — we need to merge, so strip outer braces
-  ri_json="${ri_json%\}}"
-  ri_json="${ri_json#\{}"
-  # Re-wrap after collecting all
-done
-# Fix: rebuild properly with jq
 ri_entries=""
 ri_first=true
 for key in "${!rebuild_idx[@]}"; do

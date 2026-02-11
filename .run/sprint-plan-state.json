@@ -1,18 +1,18 @@
 {
-  "plan_id": "plan-20260211-bridgebuilder-pr55",
-  "branch": "feature/bridgebuilder-pr55-hardening",
-  "state": "RUNNING",
+  "plan_id": "plan-20260211-bridgebuilder-pr56",
+  "branch": "feature/bridgebuilder-pr56-stars",
+  "state": "JACKED_OUT",
   "timestamps": {
-    "started": "2026-02-11T16:00:00Z",
-    "last_activity": "2026-02-11T17:30:00Z"
+    "started": "2026-02-11T07:00:00Z",
+    "last_activity": "2026-02-11T11:26:00Z"
   },
   "sprints": {
     "total": 2,
-    "completed": 1,
-    "current": "sprint-2",
+    "completed": 2,
+    "current": null,
     "list": [
-      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Schema Evolution & Tooling", "files_changed": 6},
-      {"id": "sprint-2", "status": "in_progress", "cycles": 0, "label": "Content Quality & Archive Enrichment"}
+      {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Tooling Hardening & ADR Refinement", "files_changed": 8},
+      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Content Evolution & Pipeline Intelligence", "files_changed": 10}
     ]
   },
   "options": {
@@ -22,13 +22,13 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 1,
-    "total_files_changed": 6,
-    "total_findings_fixed": 0
+    "total_cycles": 2,
+    "total_files_changed": 18,
+    "total_findings_fixed": 8
   },
   "context": {
-    "sprint_plan_file": "grimoires/loa/sprint-bridgebuilder-pr55.md",
-    "cycle": "cycle-014",
-    "global_sprint_ids": [35, 36]
+    "sprint_plan_file": "grimoires/loa/sprint-bridgebuilder-pr56.md",
+    "cycle": "cycle-015",
+    "global_sprint_ids": [37, 38]
   }
 }

@@ -81,8 +81,8 @@ WebSocket/HTTP → LoaSession
 
 ## Dependencies
 
-<!-- provenance: INFERRED -->
-- **Internal**: `src/hounfour/` (model routing for agent), `src/safety/` (audit trail, tool registry)
+<!-- provenance: DERIVED -->
+- **Internal**: `src/hounfour/` (model routing — `src/index.ts:22`), `src/safety/` (audit trail, tool registry — `src/index.ts:5`)
 - **External**: `@mariozechner/pi-coding-agent`, `@mariozechner/pi-agent-core` (Pi SDK)
 
 ## Known Limitations

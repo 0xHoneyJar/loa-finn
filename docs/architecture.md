@@ -70,8 +70,8 @@ The scheduler registers 4 built-in tasks (`src/index.ts:1`): `r2_sync` (30s), `g
 
 ### Layer 4: Persistence (Data Durability)
 
-<!-- provenance: INFERRED -->
-The persistence layer implements a 3-tier durability strategy: local WAL → R2 cloud storage → Git archive. This follows the same pattern as PostgreSQL's WAL + checkpoint architecture but with cloud object storage as the checkpoint target.
+<!-- provenance: DERIVED -->
+The persistence layer implements a 3-tier durability strategy: local WAL (`src/persistence/wal.ts:1`) → R2 cloud storage (`src/persistence/r2-sync.ts:1`) → Git archive (`src/persistence/git-sync.ts:1`). This follows the same pattern as PostgreSQL's WAL + checkpoint architecture but with cloud object storage as the checkpoint target.
 
 | Component | Source | Responsibility |
 |-----------|--------|---------------|

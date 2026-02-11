@@ -2,11 +2,11 @@
 
 <!-- AGENT-CONTEXT: name=loa-finn, type=overview, purpose=AI agent runtime with multi-model orchestration and persistence, key_files=[src/index.ts, src/gateway/server.ts, src/hounfour/router.ts, src/persistence/wal.ts], interfaces=[HounfourRouter, WAL, CronService, AuditTrail], dependencies=[hono, @mariozechner/pi-ai, @aws-sdk/client-s3, jose, ws], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/index.ts, src/hounfour/router.ts, src/gateway/server.ts], trust_level=low, model_hints=[fast,summary] -->
 
-<!-- provenance: INFERRED -->
-loa-finn is an AI agent runtime that provides multi-model orchestration, tool execution sandboxing, and durable persistence for Claude-powered applications. It exposes an HTTP and WebSocket API for session management, routes LLM requests across providers with budget enforcement, and maintains a write-ahead log with R2 cloud storage backup (`src/index.ts`).
+<!-- provenance: DERIVED -->
+loa-finn is an AI agent runtime that provides multi-model orchestration (`src/hounfour/router.ts:29`), tool execution sandboxing (`src/agent/sandbox.ts:1`), and durable persistence (`src/persistence/wal.ts:1`) for Claude-powered applications. It exposes an HTTP and WebSocket API for session management (`src/gateway/server.ts:1`), routes LLM requests across providers with budget enforcement, and maintains a write-ahead log with R2 cloud storage backup (`src/index.ts:51`).
 
-<!-- provenance: INFERRED -->
-The architecture follows a layered runtime pattern: a central orchestrator (`src/index.ts`) coordinates specialized subsystems (model routing, job scheduling, persistence) that communicate through well-defined interfaces rather than direct coupling.
+<!-- provenance: DERIVED -->
+The architecture follows a layered runtime pattern: a central orchestrator (`src/index.ts:2`) coordinates specialized subsystems — model routing (`src/hounfour/router.ts:29`), job scheduling (`src/scheduler/scheduler.ts:1`), persistence (`src/persistence/wal.ts:1`) — that communicate through well-defined interfaces rather than direct coupling.
 
 ## Key Capabilities
 

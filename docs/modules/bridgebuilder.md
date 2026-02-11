@@ -84,8 +84,8 @@ npm run bridgebuilder
 
 ## Dependencies
 
-<!-- provenance: INFERRED -->
-- **Internal**: `src/config.ts` (configuration), `src/hounfour/` (LLM for reviews)
+<!-- provenance: DERIVED -->
+- **Internal**: `src/bridgebuilder/config.ts` (configuration — `src/bridgebuilder/entry.ts:5`), `src/hounfour/` (LLM for reviews — `src/bridgebuilder/upstream.ts:77`)
 - **External**: `@aws-sdk/client-s3` (R2 lease storage), GitHub API (PR operations)
 
 ## Known Limitations

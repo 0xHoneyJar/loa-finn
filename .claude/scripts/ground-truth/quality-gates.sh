@@ -11,7 +11,7 @@
 # Plus inline gates: freshness-check, registry-consistency
 # Plus warning gates: analogy-accuracy, mechanism-density, symbol-specificity, analogy-staleness
 #
-# Usage: quality-gates.sh <document-path> [--json] [--strict] [--file <path>]
+# Usage: quality-gates.sh <document-path> [--json] [--strict] [--batch] [--file <path>]
 #
 # Exit codes:
 #   0 = All blocking gates pass
@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOC_PATH="${1:-}"
 JSON_OUTPUT=false
 STRICT=false
-BATCH_DIR=""
+BATCH_MODE=false
 GATE_START_TIME=$(date +%s)
 
 shift || true
@@ -32,14 +32,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --json) JSON_OUTPUT=true; shift ;;
     --strict) STRICT=true; shift ;;
-    --batch) BATCH_DIR="${2:-}"; shift 2 ;;
+    --batch) BATCH_MODE=true; shift ;;
     --file) DOC_PATH="${2:-}"; shift 2 ;;
     *) shift ;;
   esac
 done
 
 # ── Batch mode: orchestrate across all manifest documents ──
-if [[ -n "$BATCH_DIR" ]]; then
+if $BATCH_MODE; then
   MANIFEST="grimoires/loa/ground-truth/generation-manifest.json"
   if [[ ! -f "$MANIFEST" ]]; then
     echo '{"error":"generation-manifest.json not found"}' >&2

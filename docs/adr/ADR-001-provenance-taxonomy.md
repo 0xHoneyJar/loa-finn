@@ -38,6 +38,18 @@ The `check-provenance` quality gate requires ≥95% of content paragraphs to car
 - **EXTERNAL-REFERENCE**: Must contain a URL (`https://`) or academic citation (`(Author, Year)`)
 - **INFERRED** and **OPERATIONAL**: No additional structural requirements
 
+### Threshold Calibration
+
+The `trust_level` field in AGENT-CONTEXT v2 is computed from the ratio of CODE-FACTUAL blocks to total tagged blocks. Three thresholds partition documents into trust tiers:
+
+**High (≥0.90)**: Module docs with >90% CODE-FACTUAL (gateway, persistence, cron) have zero INFERRED-only behavioral claims — all quantitative statements are citation-grounded to specific `file:line` references. This threshold captures the natural cluster of documents where nearly every paragraph has a direct code citation, making them suitable for code-focused model routing.
+
+**Medium (≥0.60)**: The 0.60 boundary is where documents begin containing substantial architectural inference — INFERRED claims about system behavior, design rationale, and cross-module interactions that aren't reducible to single code citations. Documents like SECURITY.md, architecture.md, operations.md, and hounfour.md fall here. They mix code-grounded facts with reasoned architectural claims that require different verification strategies.
+
+**Low (<0.60)**: Documents dominated by operational guidance or inference where CODE-FACTUAL is structurally impossible — README, CHANGELOG, index docs. Deployment instructions, version history, and navigation content don't reference specific code lines because they describe workflow and process, not code behavior. These documents are low-CODE-FACTUAL by design, not by deficiency.
+
+**Calibration note**: These thresholds are initial values derived from observing the natural distribution across 16 documents in the first corpus generation (cycle-010 through cycle-014). They are subject to recalibration as the corpus grows and provenance patterns stabilize. The approach parallels Netflix's content quality scoring, where initial thresholds are set from observed distributions and refined through operational experience rather than theoretical modeling.
+
 ## Alternatives Considered
 
 ### Alternative A: 3-Class Taxonomy (True / Uncertain / Opinion)

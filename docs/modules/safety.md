@@ -89,8 +89,8 @@ Agent Action → AuditTrail (intent phase)
 
 ## Dependencies
 
-<!-- provenance: INFERRED -->
-- **Internal**: `src/gateway/` (dashboard audit API), `src/agent/` (sandbox policy)
+<!-- provenance: DERIVED -->
+- **Internal**: `src/gateway/` (redaction middleware — `src/gateway/redaction-middleware.ts:7`), `src/agent/` (sandbox policy — `src/agent/sandbox.ts:35`)
 - **External**: Node.js `crypto` (SHA-256, HMAC, timingSafeEqual)
 
 ## Known Limitations

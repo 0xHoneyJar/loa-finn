@@ -91,8 +91,8 @@ Boot (src/index.ts)
 
 ## Dependencies
 
-<!-- provenance: INFERRED -->
-- **Internal**: `src/persistence/` (WAL metrics), `src/cron/` (job states), `src/hounfour/` (provider health)
+<!-- provenance: DERIVED -->
+- **Internal**: `src/persistence/` (WAL metrics — `src/scheduler/health.ts:5`), `src/cron/` (job states), `src/hounfour/` (provider health — `src/scheduler/health.ts:7`)
 - **External**: None (pure Node.js timers)
 
 ## Known Limitations

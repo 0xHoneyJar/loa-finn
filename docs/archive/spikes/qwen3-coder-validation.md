@@ -1,3 +1,4 @@
+<!-- NOT ARCHIVED: Actively referenced by Hounfour model catalog (#31 §3.2). Review before archiving. -->
 # Qwen3-Coder-Next Tool-Calling Validation
 
 **Task**: T-B.5 (Sprint B, Global ID: 23)
