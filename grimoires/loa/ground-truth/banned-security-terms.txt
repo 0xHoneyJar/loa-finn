@@ -1,0 +1,31 @@
+# banned-security-terms.txt — Security patterns for scan-banned-terms.sh
+# Applied to ALL documents regardless of AGENT-CONTEXT type (SDD §6.3)
+# Uses regex patterns. Lines starting with # are comments.
+
+# API keys and tokens (provider-specific patterns)
+sk-[a-zA-Z0-9]{20,}
+ghp_[a-zA-Z0-9]{36}
+xoxb-[a-zA-Z0-9-]+
+AKIA[A-Z0-9]{16}
+Bearer eyJ[a-zA-Z0-9._-]{100,}
+
+# Internal/local hostnames (NOT example/test domains)
+\.internal\.
+\.local\.
+\.corp\.
+
+# Passwords and credentials in config
+password\s*[:=]\s*["'][^"']+["']
+client_secret\s*[:=]\s*["'][^"']+["']
+api_key\s*[:=]\s*["'][^"']+["']
+token\s*[:=]\s*["'][^"']+["']
+
+# Private keys and certificates
+-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----
+-----BEGIN\s+CERTIFICATE-----
+
+# Database connection strings with credentials
+(postgres|mysql|mongodb)://[^:]+:[^@]+@
+
+# Generic secret patterns
+SECRET_KEY\s*[:=]\s*["'][^"']+["']

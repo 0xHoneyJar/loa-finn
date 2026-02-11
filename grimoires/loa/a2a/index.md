@@ -1,5 +1,13 @@
 # A2A Sprint Index
 
+## Cycle-013: Documentation Rewrite
+
+| Sprint | Global ID | Status | Report |
+|--------|-----------|--------|--------|
+| Sprint 1 | 32 | IN_REVIEW | [reviewer.md](sprint-32/reviewer.md) |
+| Sprint 2 | 33 | PENDING | — |
+| Sprint 3 | 34 | PENDING | — |
+
 ## Cycle-011: Ground Truth v2 — Verification Hardening & Incremental Pipeline
 
 | Sprint | Global ID | Status | Report |

@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # quality-gates.sh — Orchestrate all Ground Truth verification gates
-# Runs 5 blocking gates + 2 warning gates. Halts on first blocking failure.
+# Gate order per SDD §5.3:
+#   1. check-agent-context    (schema validation — MUST run first)
+#   2. verify-citations       (citation resolution)
+#   3. check-provenance       (paragraph provenance ≥80%)
+#   4. check-claim-grounding  (CODE-FACTUAL section claim coverage)
+#   5. scan-banned-terms      (marketing + security patterns)
+#   6. check-links            (relative link validation)
+#   7. export-gate-metrics    (append to gate-metrics.jsonl)
+# Plus inline gates: freshness-check, registry-consistency
+# Plus warning gates: analogy-accuracy, mechanism-density, symbol-specificity, analogy-staleness
 #
-# Usage: quality-gates.sh <document-path> [--json]
+# Usage: quality-gates.sh <document-path> [--json] [--strict] [--file <path>]
 #
 # Exit codes:
 #   0 = All blocking gates pass
@@ -14,11 +23,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOC_PATH="${1:-}"
 JSON_OUTPUT=false
+STRICT=false
+GATE_START_TIME=$(date +%s)
 
+shift || true
 for arg in "$@"; do
-  if [[ "$arg" == "--json" ]]; then
-    JSON_OUTPUT=true
-  fi
+  case "$arg" in
+    --json) JSON_OUTPUT=true ;;
+    --strict) STRICT=true ;;
+    --file) : ;; # handled by positional
+    *) [[ "${prev_arg:-}" == "--file" ]] && DOC_PATH="$arg" ;;
+  esac
+  prev_arg="$arg"
 done
 
 if [[ -z "$DOC_PATH" || ! -f "$DOC_PATH" ]]; then
@@ -82,7 +98,9 @@ run_gate() {
     status="fail"
   fi
 
-  gates_json+='{"gate":"'"$name"'","blocking":'"$blocking"',"status":"'"$status"'","exit_code":'"$exit_code"',"output":'"$(echo "$result" | jq -Rs . 2>/dev/null || echo '""')"'}'
+  local escaped_output
+  escaped_output=$(printf '%s' "$result" | jq -Rs . 2>/dev/null || echo '""')
+  gates_json+='{"gate":"'"$name"'","blocking":'"$blocking"',"status":"'"$status"'","exit_code":'"$exit_code"',"output":'"$escaped_output"'}'
 
   if [[ "$blocking" == "true" ]]; then
     ((total_blocking++)) || true
@@ -96,34 +114,49 @@ run_gate() {
   return $exit_code
 }
 
-# ── BLOCKING GATE 1: verify-citations ──
-run_gate "verify-citations" "true" "$SCRIPT_DIR/verify-citations.sh" "$DOC_PATH" --json || true
-
-# Fail-fast on blocking failure
-if $blocking_failed; then
-  if ! $JSON_OUTPUT; then
-    echo "FAIL: Blocking gate 'verify-citations' failed — halting" >&2
-  fi
+# ── BLOCKING GATE 1: check-agent-context (MUST run first per §5.3) ──
+if [[ -x "$SCRIPT_DIR/check-agent-context.sh" ]]; then
+  run_gate "check-agent-context" "true" "$SCRIPT_DIR/check-agent-context.sh" "$DOC_PATH" --json || true
 fi
 
-# ── BLOCKING GATE 2: scan-banned-terms ──
+# ── BLOCKING GATE 2: verify-citations ──
 if ! $blocking_failed; then
-  run_gate "scan-banned-terms" "true" "$SCRIPT_DIR/scan-banned-terms.sh" "$DOC_PATH" --json || true
-fi
-
-if $blocking_failed && [[ $total_blocking -eq 2 ]]; then
-  if ! $JSON_OUTPUT; then
-    echo "FAIL: Blocking gate 'scan-banned-terms' failed — halting" >&2
-  fi
+  run_gate "verify-citations" "true" "$SCRIPT_DIR/verify-citations.sh" "$DOC_PATH" --json || true
 fi
 
 # ── BLOCKING GATE 3: check-provenance ──
 untagged_count=0
 if ! $blocking_failed; then
   run_gate "check-provenance" "true" "$SCRIPT_DIR/check-provenance.sh" "$DOC_PATH" --json || true
-  # Extract untagged_count from provenance output (informational, not blocking)
   prov_output=$("$SCRIPT_DIR/check-provenance.sh" "$DOC_PATH" --json 2>/dev/null || echo '{}')
-  untagged_count=$(echo "$prov_output" | jq -r '.untagged_count // 0' 2>/dev/null || echo "0")
+  untagged_count=$(printf '%s' "$prov_output" | jq -r '.untagged_count // 0' 2>/dev/null | tr -d '[:space:]' || echo "0")
+  untagged_count="${untagged_count:-0}"
+  # Ensure numeric
+  [[ "$untagged_count" =~ ^[0-9]+$ ]] || untagged_count=0
+fi
+
+# ── BLOCKING GATE 4: check-claim-grounding ──
+if ! $blocking_failed; then
+  if [[ -x "$SCRIPT_DIR/check-claim-grounding.sh" ]]; then
+    run_gate "check-claim-grounding" "true" "$SCRIPT_DIR/check-claim-grounding.sh" "$DOC_PATH" --json || true
+  fi
+fi
+
+# ── BLOCKING GATE 5: scan-banned-terms (marketing + security patterns) ──
+if ! $blocking_failed; then
+  run_gate "scan-banned-terms" "true" "$SCRIPT_DIR/scan-banned-terms.sh" "$DOC_PATH" --json || true
+  # Also scan security terms if file exists
+  SECURITY_TERMS="grimoires/loa/ground-truth/banned-security-terms.txt"
+  if [[ -f "$SECURITY_TERMS" ]]; then
+    run_gate "scan-banned-security-terms" "true" "$SCRIPT_DIR/scan-banned-terms.sh" "$DOC_PATH" --terms "$SECURITY_TERMS" --json || true
+  fi
+fi
+
+# ── BLOCKING GATE 6: check-links ──
+if ! $blocking_failed; then
+  if [[ -x "$SCRIPT_DIR/check-links.sh" ]]; then
+    run_gate "check-links" "true" "$SCRIPT_DIR/check-links.sh" "$DOC_PATH" --json || true
+  fi
 fi
 
 # ── BLOCKING GATE 4: freshness-check (inline) ──
@@ -209,6 +242,13 @@ fi
 
 gates_json+="]"
 
+# ── GATE 7: export-gate-metrics (always runs, non-blocking) ──
+# Build the full JSON output first so we can pass it to export-gate-metrics
+_full_json='{"file":"'"$DOC_PATH"'","overall":"'"$([[ $blocking_failed == true ]] && echo "FAIL" || echo "PASS")"'","blocking_gates":'"$gates_json"',"total_blocking":'"$total_blocking"',"passed_blocking":'"$passed_blocking"'}'
+if [[ -x "$SCRIPT_DIR/export-gate-metrics.sh" ]]; then
+  "$SCRIPT_DIR/export-gate-metrics.sh" "$DOC_PATH" --gates-json "$_full_json" --start-time "$GATE_START_TIME" --json >/dev/null 2>&1 || true
+fi
+
 # ── WARNING GATES (non-blocking) ──
 # Gate W1: analogy-accuracy — at least 1 analogy per major section (## heading)
 analogy_warning=""
@@ -237,40 +277,27 @@ if [[ -x "$SCRIPT_DIR/score-symbol-specificity.sh" ]]; then
   fi
 fi
 
-warnings_json='['
-wfirst=true
-if [[ -n "$analogy_warning" ]]; then
-  warnings_json+='"'"$analogy_warning"'"'
-  wfirst=false
-fi
-if [[ -n "$mechanism_warning" ]]; then
-  if ! $wfirst; then warnings_json+=","; fi
-  warnings_json+='"'"$mechanism_warning"'"'
-  wfirst=false
-fi
-if [[ -n "$specificity_warning" ]]; then
-  if ! $wfirst; then warnings_json+=","; fi
-  warnings_json+='"'"$specificity_warning"'"'
-  wfirst=false
-fi
-
 # Gate W4: analogy-staleness — check if grounded_in code paths have changed
-analogy_warning=""
+staleness_warning=""
 if [[ -x "$SCRIPT_DIR/check-analogy-staleness.sh" ]]; then
   analogy_stale_output=$("$SCRIPT_DIR/check-analogy-staleness.sh" --json 2>/dev/null || echo '{"stale_count":0}')
-  analogy_stale_count=$(echo "$analogy_stale_output" | jq -r '.stale_count' 2>/dev/null | head -1 || echo "0")
+  analogy_stale_count=$(printf '%s' "$analogy_stale_output" | jq -r '.stale_count' 2>/dev/null | tr -d '[:space:]' || echo "0")
   analogy_stale_count="${analogy_stale_count:-0}"
+  [[ "$analogy_stale_count" =~ ^[0-9]+$ ]] || analogy_stale_count=0
   if [[ "$analogy_stale_count" -gt 0 ]]; then
-    stale_details=$(echo "$analogy_stale_output" | jq -r '[.stale_analogies[] | "\(.component) (\(.confidence))"] | join(", ")' 2>/dev/null || echo "unknown")
-    analogy_warning="$analogy_stale_count analogy(ies) may be stale — grounding code changed: $stale_details"
+    stale_details=$(printf '%s' "$analogy_stale_output" | jq -r '[.stale_analogies[] | "\(.component) (\(.confidence))"] | join(", ")' 2>/dev/null || echo "unknown")
+    staleness_warning="$analogy_stale_count analogy(ies) may be stale - grounding code changed: $stale_details"
   fi
 fi
 
-if [[ -n "$analogy_warning" ]]; then
-  if ! $wfirst; then warnings_json+=","; fi
-  warnings_json+='"'"$analogy_warning"'"'
-fi
-warnings_json+=']'
+# Build warnings_json using jq for proper escaping of special characters
+warnings_json=$(jq -nc \
+  --arg w1 "$analogy_warning" \
+  --arg w2 "$mechanism_warning" \
+  --arg w3 "$specificity_warning" \
+  --arg w4 "$staleness_warning" \
+  '[[$w1, $w2, $w3, $w4] | .[] | select(length > 0)]'
+)
 
 # ── Final output ──
 overall="PASS"
@@ -278,10 +305,32 @@ if $blocking_failed; then
   overall="FAIL"
 fi
 
+# Build consolidated JSON output per SDD §7.1 contract
+passed_val=$([[ "$overall" == "PASS" ]] && echo "true" || echo "false")
+# Build violations array from failed gates
+violations_json=$(echo "$gates_json" | jq '[.[] | select(.status == "fail") | {
+  gate: .gate,
+  message: (.output | if type == "string" then . else tostring end),
+  severity: "error"
+}]' 2>/dev/null || echo "[]")
+summary="$passed_blocking/$total_blocking gates passed"
+
 if $JSON_OUTPUT; then
-  echo '{"file":"'"$DOC_PATH"'","overall":"'"$overall"'","blocking_gates":'"$gates_json"',"total_blocking":'"$total_blocking"',"passed_blocking":'"$passed_blocking"',"warnings":'"$warnings_json"',"untagged_count":'"$untagged_count"'}'
+  jq -nc \
+    --argjson passed "$passed_val" \
+    --arg file "$DOC_PATH" \
+    --arg overall "$overall" \
+    --argjson gates "$gates_json" \
+    --argjson blocking_gates "$gates_json" \
+    --argjson total_blocking "$total_blocking" \
+    --argjson passed_blocking "$passed_blocking" \
+    --argjson violations "$violations_json" \
+    --argjson warnings "$warnings_json" \
+    --argjson untagged_count "$untagged_count" \
+    --arg summary "$summary" \
+    '{passed: $passed, file: $file, overall: $overall, gates: $gates, blocking_gates: $blocking_gates, total_blocking: $total_blocking, passed_blocking: $passed_blocking, violations: $violations, warnings: $warnings, untagged_count: $untagged_count, summary: $summary}'
 else
-  echo "Quality Gates: $overall ($passed_blocking/$total_blocking blocking gates passed)"
+  echo "Quality Gates: $overall ($summary)"
   if $blocking_failed; then
     echo "BLOCKING FAILURES:"
     echo "$gates_json" | jq -r '.[] | select(.status == "fail") | "  [\(.gate)] \(.output)"' 2>/dev/null || true

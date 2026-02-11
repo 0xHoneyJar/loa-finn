@@ -1,0 +1,15 @@
+# banned-security-allow.txt — Allowlist for banned-security-terms.txt
+# Patterns here are intentionally safe and should NOT trigger the scanner.
+
+# Allowed IP ranges (RFC5737 documentation, loopback, private examples)
+127.0.0.1
+192.0.2.*
+198.51.100.*
+203.0.113.*
+10.0.0.*
+localhost
+
+# Allowed example tokens (truncated/placeholder format)
+Bearer eyJ...EXAMPLE
+sk-...
+OPENAI_API_KEY=sk-...
