@@ -9,6 +9,9 @@
 #   read_config "ground_truth.provenance.thresholds.high" "0.90"
 #   → Returns the value from config, or the default if unavailable
 #
+# Environment Variables:
+#   LOA_CONFIG_FILE — Override the config file path (default: .loa.config.yaml)
+#
 # Detection: Uses yq (mikefarah/yq v4+) when available.
 # Fallback: Returns default value silently when:
 #   - Config file missing
@@ -63,7 +66,9 @@ read_config() {
     fi
   else
     # Fallback: simple grep/awk for flat keys (last segment of dotted path)
-    # This only works for simple key: value pairs, not nested structures
+    # WARNING: Leaf-key matching has collision risk in configs with duplicate key
+    # names across nesting levels. The yq path is authoritative; this fallback
+    # only works for unique leaf keys.
     local leaf_key="${key_path##*.}"
     local result
     result=$(grep -E "^[[:space:]]*${leaf_key}:" "$_READ_CONFIG_FILE" 2>/dev/null | head -1 | sed 's/^[^:]*:[[:space:]]*//' | sed 's/[[:space:]]*#.*//' | sed 's/^"\(.*\)"$/\1/' | sed "s/^'\(.*\)'$/\1/")

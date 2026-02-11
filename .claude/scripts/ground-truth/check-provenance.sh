@@ -36,8 +36,9 @@ ALLOWLIST_FILE="$SCRIPT_DIR/shared/derived-script-allowlist.txt"
 HARDCODED_ALLOWLIST='provenance-stats\.sh|extract-doc-deps\.sh|quality-gates\.sh|generation-manifest\.json|verify-citations\.sh|check-provenance\.sh'
 
 if [[ -f "$ALLOWLIST_FILE" ]]; then
-  # Strip comments, blank lines, whitespace-only lines; escape dots for regex
-  allowlist_entries=$(grep -v '^[[:space:]]*#' "$ALLOWLIST_FILE" | grep -v '^[[:space:]]*$' | sed 's/[[:space:]]*$//' | sed 's/\./\\./g')
+  # Strip comments, blank lines, whitespace-only lines
+  # Escape all regex metacharacters in allowlist entries (not just dots)
+  allowlist_entries=$(grep -v '^[[:space:]]*#' "$ALLOWLIST_FILE" | grep -v '^[[:space:]]*$' | sed 's/[[:space:]]*$//' | sed 's/[.+*?^$(){}|[\]\\]/\\&/g')
   if [[ -n "$allowlist_entries" ]]; then
     # Build alternation regex from entries
     DERIVED_SCRIPT_REGEX=$(echo "$allowlist_entries" | paste -sd '|' -)
@@ -52,14 +53,14 @@ fi
 
 # ── Awk state machine: detect paragraphs and their provenance tags ──
 # Uses shared paragraph-detector.awk for state machine + consumer-specific process_paragraph()
-# Output format: TAGGED|UNTAGGED|CHECK_FAIL <line_num> <class> <detail>
+# Output format: TAGGED <start> <end> <class> | UNTAGGED <line_num> NONE <section>\t<preview> | SUMMARY <total> <tagged>
 SHARED_AWK="$SCRIPT_DIR/shared/paragraph-detector.awk"
 analysis=$(awk -f "$SHARED_AWK" -f <(cat <<'CONSUMER_AWK'
 function process_paragraph(start, tag_class,    preview, sec) {
   total_paragraphs++
   if (tag_class != "") {
     tagged_paragraphs++
-    print "TAGGED " start " " tag_class
+    print "TAGGED " start " " para_end " " tag_class
   } else {
     preview = para_first_line
     gsub(/"/, "\\\"", preview)
@@ -96,7 +97,10 @@ while IFS= read -r line; do
   fi
 
   line_num="${rest%% *}"
-  tag_class="${rest#* }"
+  rest2="${rest#* }"
+  # For TAGGED lines: rest2 = "<end> <class>"; for UNTAGGED: rest2 = "NONE <section>\t<preview>"
+  end_num="${rest2%% *}"
+  tag_class="${rest2#* }"
   tag_class="${tag_class%% *}"
 
   if [[ "$type" == "UNTAGGED" ]]; then
@@ -127,8 +131,8 @@ while IFS= read -r line; do
 
   if [[ "$type" == "TAGGED" ]]; then
     # Read the paragraph content to check class-specific rules
-    # Get a few lines starting from para_start
-    para_content=$(sed -n "${line_num},$((line_num + 10))p" "$DOC_PATH" | head -5)
+    # Use paragraph boundary (para_end) instead of fixed 5-line window (BridgeBuilder F4)
+    para_content=$(sed -n "${line_num},${end_num}p" "$DOC_PATH")
 
     case "$tag_class" in
       CODE-FACTUAL)
@@ -162,6 +166,8 @@ while IFS= read -r line; do
       DERIVED)
         # Must contain ≥2 unique backtick file:line citations OR a script reference
         # sort -u ensures duplicate citations (e.g., citing wal.ts:42 twice) don't inflate the count
+        # || true guards against pipefail propagation — grep returns exit 1 on no match,
+        # which propagates through sort -u to wc -l under set -o pipefail
         citation_count=$(echo "$para_content" | grep -oE '`[a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+:[0-9]+' | sort -u | wc -l || true)
         has_script_ref=$(echo "$para_content" | grep -qE "\`($DERIVED_SCRIPT_REGEX)\`" && echo "yes" || echo "no")
         if [[ $citation_count -lt 2 && "$has_script_ref" != "yes" ]]; then

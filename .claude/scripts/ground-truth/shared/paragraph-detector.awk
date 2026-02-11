@@ -5,7 +5,8 @@
 #   - Consumers MUST define: process_paragraph(start, tag_class)
 #   - Consumers MUST define: END block
 #   - This file provides: state machine, pending_tag_class, in_paragraph, para_start,
-#     current_section, para_first_line, total_paragraphs, tagged_paragraphs
+#     para_end, current_section, para_first_line, total_paragraphs, tagged_paragraphs,
+#     pending_tag_qualifier
 #   - State transitions: NORMAL, IN_FRONTMATTER, IN_FENCE, IN_HTML_COMMENT
 #
 # Usage (multi-file composition):
@@ -16,6 +17,7 @@ BEGIN {
   fm_count = 0
   in_paragraph = 0
   para_start = 0
+  para_end = 0
   pending_tag_class = ""
   pending_tag_qualifier = ""
   para_first_line = ""
@@ -24,19 +26,29 @@ BEGIN {
   tagged_paragraphs = 0
 }
 
+# reset_paragraph_state — Flush current paragraph and zero all state variables.
+# Extracted helper prevents forgetting to reset a new variable (e.g., pending_tag_confidence)
+# when one is added in the future. Ref: BridgeBuilder F1 — "K&R created clearerr() for the same reason"
+function reset_paragraph_state() {
+  process_paragraph(para_start, pending_tag_class)
+  in_paragraph = 0
+  pending_tag_class = ""
+  pending_tag_qualifier = ""
+}
+
 {
   # ── State transitions ──
 
   # Frontmatter
   if (state == "NORMAL" && /^---[[:space:]]*$/ && (NR <= 1 || fm_count == 0)) {
-    if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
+    if (in_paragraph) reset_paragraph_state()
     state = "IN_FRONTMATTER"; fm_count++; next
   }
   if (state == "IN_FRONTMATTER") { if (/^---[[:space:]]*$/) state = "NORMAL"; next }
 
   # Fenced code blocks
   if (state == "NORMAL" && /^```/) {
-    if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
+    if (in_paragraph) reset_paragraph_state()
     state = "IN_FENCE"; next
   }
   if (state == "IN_FENCE") { if (/^```/) state = "NORMAL"; next }
@@ -51,6 +63,9 @@ BEGIN {
       sub(/ .*/, "", tmp)  # Strip any qualifier after class name
       pending_tag_class = tmp
       # Extract qualifier if present: (architectural), (upgradeable), (pending-evidence)
+      # Intentionally permissive — unknown qualifiers are parsed but counted as
+      # unqualified in consumers. Strict validation would couple the parser to
+      # the qualifier vocabulary. See provenance-spec.md for valid qualifiers.
       pending_tag_qualifier = ""
       if (match($0, /\([a-z-]+\)/)) {
         pending_tag_qualifier = substr($0, RSTART+1, RLENGTH-2)
@@ -81,31 +96,34 @@ BEGIN {
   if (state == "NORMAL") {
     # Headings
     if (/^#+[[:space:]]/) {
-      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
+      if (in_paragraph) reset_paragraph_state()
       current_section = $0
       sub(/^#+[[:space:]]+/, "", current_section)
       next
     }
     # Table rows
     if (/^\|/) {
-      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
+      if (in_paragraph) reset_paragraph_state()
       next
     }
     # Blockquotes
     if (/^>/) {
-      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
+      if (in_paragraph) reset_paragraph_state()
       next
     }
     # Blank lines end paragraphs
     if (/^[[:space:]]*$/) {
-      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
+      if (in_paragraph) reset_paragraph_state()
       next
     }
     # Non-blank, non-control line = paragraph content
     if (!in_paragraph) {
       in_paragraph = 1
       para_start = NR
+      para_end = NR
       para_first_line = $0
+    } else {
+      para_end = NR
     }
   }
 }
