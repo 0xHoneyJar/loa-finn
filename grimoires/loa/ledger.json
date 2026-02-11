@@ -447,14 +447,14 @@
           "local_id": "sprint-1",
           "global_id": 41,
           "label": "Parser Hardening & Documentation Discipline",
-          "status": "in_progress",
+          "status": "completed",
           "tasks": 5
         },
         {
           "local_id": "sprint-2",
           "global_id": 42,
           "label": "Provenance Intelligence & Routing Preparation",
-          "status": "in_progress",
+          "status": "completed",
           "tasks": 6
         }
       ]

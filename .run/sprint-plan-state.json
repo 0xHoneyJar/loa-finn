@@ -1,15 +1,16 @@
 {
   "plan_id": "plan-20260211-pr58-deepening",
   "branch": "feature/bridgebuilder-pr58-deepening",
-  "state": "RUNNING",
+  "state": "JACKED_OUT",
   "timestamps": {
     "started": "2026-02-11T21:25:00Z",
-    "last_activity": "2026-02-11T21:34:18Z"
+    "last_activity": "2026-02-11T21:45:30Z",
+    "completed": "2026-02-11T21:45:30Z"
   },
   "sprints": {
     "total": 2,
-    "completed": 1,
-    "current": "sprint-2",
+    "completed": 2,
+    "current": null,
     "list": [
       {
         "id": "sprint-1",
@@ -20,9 +21,10 @@
       },
       {
         "id": "sprint-2",
-        "status": "in_progress",
-        "cycles": 0,
-        "label": "Provenance Intelligence & Routing Preparation"
+        "status": "completed",
+        "cycles": 1,
+        "label": "Provenance Intelligence & Routing Preparation",
+        "files_changed": 17
       }
     ]
   },
@@ -33,9 +35,9 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 1,
-    "total_files_changed": 12,
-    "total_findings_fixed": 9
+    "total_cycles": 2,
+    "total_files_changed": 29,
+    "total_findings_fixed": 17
   },
   "context": {
     "sprint_plan_file": "grimoires/loa/sprint-bridgebuilder-pr58.md",
