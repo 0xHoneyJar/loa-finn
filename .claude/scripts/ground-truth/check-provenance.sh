@@ -11,6 +11,7 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOC_PATH="${1:-}"
 JSON_OUTPUT=false
 
@@ -29,23 +30,32 @@ if [[ -z "$DOC_PATH" || ! -f "$DOC_PATH" ]]; then
   exit 2
 fi
 
-# ── Awk state machine: detect paragraphs and their provenance tags ──
-# Output format: TAGGED|UNTAGGED|CHECK_FAIL <line_num> <class> <detail>
-analysis=$(awk '
-BEGIN {
-  state = "NORMAL"
-  fm_count = 0
-  in_paragraph = 0
-  para_start = 0
-  pending_tag = ""
-  pending_tag_class = ""
-  para_first_line = ""
-  current_section = ""
-  total_paragraphs = 0
-  tagged_paragraphs = 0
-}
+# ── Build DERIVED script allowlist regex ──
+# Read from external file if available, fall back to hardcoded defaults
+ALLOWLIST_FILE="$SCRIPT_DIR/shared/derived-script-allowlist.txt"
+HARDCODED_ALLOWLIST='provenance-stats\.sh|extract-doc-deps\.sh|quality-gates\.sh|generation-manifest\.json|verify-citations\.sh|check-provenance\.sh'
 
-function emit_paragraph(start, tag_class,    preview) {
+if [[ -f "$ALLOWLIST_FILE" ]]; then
+  # Strip comments, blank lines, whitespace-only lines; escape dots for regex
+  allowlist_entries=$(grep -v '^[[:space:]]*#' "$ALLOWLIST_FILE" | grep -v '^[[:space:]]*$' | sed 's/[[:space:]]*$//' | sed 's/\./\\./g')
+  if [[ -n "$allowlist_entries" ]]; then
+    # Build alternation regex from entries
+    DERIVED_SCRIPT_REGEX=$(echo "$allowlist_entries" | paste -sd '|' -)
+  else
+    # Empty file after stripping → fall back to hardcoded defaults
+    DERIVED_SCRIPT_REGEX="$HARDCODED_ALLOWLIST"
+  fi
+else
+  echo "WARNING: Allowlist file not found at $ALLOWLIST_FILE — using hardcoded defaults" >&2
+  DERIVED_SCRIPT_REGEX="$HARDCODED_ALLOWLIST"
+fi
+
+# ── Awk state machine: detect paragraphs and their provenance tags ──
+# Uses shared paragraph-detector.awk for state machine + consumer-specific process_paragraph()
+# Output format: TAGGED|UNTAGGED|CHECK_FAIL <line_num> <class> <detail>
+SHARED_AWK="$SCRIPT_DIR/shared/paragraph-detector.awk"
+analysis=$(awk -f "$SHARED_AWK" -f <(cat <<'CONSUMER_AWK'
+function process_paragraph(start, tag_class,    preview, sec) {
   total_paragraphs++
   if (tag_class != "") {
     tagged_paragraphs++
@@ -59,87 +69,12 @@ function emit_paragraph(start, tag_class,    preview) {
     print "UNTAGGED " start " NONE " sec "\t" preview
   }
 }
-
-{
-  # ── State transitions ──
-
-  # Frontmatter
-  if (state == "NORMAL" && /^---[[:space:]]*$/ && (NR <= 1 || fm_count == 0)) {
-    if (in_paragraph) { emit_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-    state = "IN_FRONTMATTER"; fm_count++; next
-  }
-  if (state == "IN_FRONTMATTER") { if (/^---[[:space:]]*$/) state = "NORMAL"; next }
-
-  # Fenced code blocks
-  if (state == "NORMAL" && /^```/) {
-    if (in_paragraph) { emit_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-    state = "IN_FENCE"; next
-  }
-  if (state == "IN_FENCE") { if (/^```/) state = "NORMAL"; next }
-
-  # Multi-line HTML comments
-  if (state == "NORMAL" && /<!--/ && !/-->/) {
-    # Check for provenance tag (mawk-compatible: no 3-arg match)
-    # Accepts optional subclassification: <!-- provenance: INFERRED (architectural) -->
-    if (match($0, /<!-- provenance: [A-Z_-]+/)) {
-      tmp = substr($0, RSTART, RLENGTH)
-      sub(/<!-- provenance: /, "", tmp)
-      sub(/ .*/, "", tmp)  # Strip any qualifier after class name
-      pending_tag_class = tmp
-    }
-    state = "IN_HTML_COMMENT"; next
-  }
-  if (state == "IN_HTML_COMMENT") { if (/-->/) state = "NORMAL"; next }
-
-  # Single-line HTML comments (provenance tags or evidence anchors)
-  # Accepts optional subclassification: <!-- provenance: INFERRED (architectural) -->
-  if (state == "NORMAL" && /<!--.*-->/) {
-    if (match($0, /<!-- provenance: [A-Z_-]+/)) {
-      tmp = substr($0, RSTART, RLENGTH)
-      sub(/<!-- provenance: /, "", tmp)
-      sub(/ .*/, "", tmp)  # Strip any qualifier after class name
-      pending_tag_class = tmp
-    }
-    next
-  }
-
-  # Skip non-taggable lines in NORMAL state
-  if (state == "NORMAL") {
-    # Headings
-    if (/^#+[[:space:]]/) {
-      if (in_paragraph) { emit_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-      current_section = $0
-      sub(/^#+[[:space:]]+/, "", current_section)
-      next
-    }
-    # Table rows
-    if (/^\|/) {
-      if (in_paragraph) { emit_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-      next
-    }
-    # Blockquotes
-    if (/^>/) {
-      if (in_paragraph) { emit_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-      next
-    }
-    # Blank lines end paragraphs
-    if (/^[[:space:]]*$/) {
-      if (in_paragraph) { emit_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-      next
-    }
-    # Non-blank, non-control line = paragraph content
-    if (!in_paragraph) {
-      in_paragraph = 1
-      para_start = NR
-      para_first_line = $0
-    }
-  }
-}
-
 END {
-  if (in_paragraph) emit_paragraph(para_start, pending_tag_class)
+  if (in_paragraph) process_paragraph(para_start, pending_tag_class)
   print "SUMMARY " total_paragraphs " " tagged_paragraphs
-}' "$DOC_PATH")
+}
+CONSUMER_AWK
+) "$DOC_PATH")
 
 # ── Parse analysis results ──
 total_paragraphs=0
@@ -225,9 +160,10 @@ while IFS= read -r line; do
         fi
         ;;
       DERIVED)
-        # Must contain ≥2 backtick file:line citations OR a script reference
-        citation_count=$(echo "$para_content" | grep -oE '`[a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+:[0-9]+' | wc -l)
-        has_script_ref=$(echo "$para_content" | grep -qE '`(provenance-stats\.sh|extract-doc-deps\.sh|quality-gates\.sh|generation-manifest\.json|verify-citations\.sh|check-provenance\.sh)`' && echo "yes" || echo "no")
+        # Must contain ≥2 unique backtick file:line citations OR a script reference
+        # sort -u ensures duplicate citations (e.g., citing wal.ts:42 twice) don't inflate the count
+        citation_count=$(echo "$para_content" | grep -oE '`[a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+:[0-9]+' | sort -u | wc -l || true)
+        has_script_ref=$(echo "$para_content" | grep -qE "\`($DERIVED_SCRIPT_REGEX)\`" && echo "yes" || echo "no")
         if [[ $citation_count -lt 2 && "$has_script_ref" != "yes" ]]; then
           ((fail_count++)) || true
           if ! $first_failure; then failures_json+=","; fi

@@ -19,6 +19,7 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOC_PATH="${1:-}"
 JSON_OUTPUT=false
 
@@ -38,13 +39,10 @@ if [[ -z "$DOC_PATH" || ! -f "$DOC_PATH" ]]; then
 fi
 
 # ── Awk state machine: count provenance-tagged blocks per class ──
-# Same paragraph detection logic as check-provenance.sh for consistency
-stats=$(awk '
+# Uses shared paragraph-detector.awk for state machine + consumer-specific process_paragraph()
+SHARED_AWK="$SCRIPT_DIR/shared/paragraph-detector.awk"
+stats=$(awk -f "$SHARED_AWK" -f <(cat <<'CONSUMER_AWK'
 BEGIN {
-  state = "NORMAL"
-  fm_count = 0
-  in_paragraph = 0
-  pending_tag_class = ""
   total = 0
   code_factual = 0
   inferred = 0
@@ -55,7 +53,7 @@ BEGIN {
   untagged = 0
 }
 
-function count_paragraph(tag_class) {
+function process_paragraph(start, tag_class) {
   total++
   if (tag_class == "CODE-FACTUAL") code_factual++
   else if (tag_class == "INFERRED") inferred++
@@ -66,80 +64,13 @@ function count_paragraph(tag_class) {
   else untagged++
 }
 
-{
-  # Frontmatter
-  if (state == "NORMAL" && /^---[[:space:]]*$/ && (NR <= 1 || fm_count == 0)) {
-    if (in_paragraph) { count_paragraph(pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-    state = "IN_FRONTMATTER"; fm_count++; next
-  }
-  if (state == "IN_FRONTMATTER") { if (/^---[[:space:]]*$/) state = "NORMAL"; next }
-
-  # Fenced code blocks
-  if (state == "NORMAL" && /^```/) {
-    if (in_paragraph) { count_paragraph(pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-    state = "IN_FENCE"; next
-  }
-  if (state == "IN_FENCE") { if (/^```/) state = "NORMAL"; next }
-
-  # Multi-line HTML comments
-  # Accepts optional subclassification: <!-- provenance: INFERRED (architectural) -->
-  if (state == "NORMAL" && /<!--/ && !/-->/) {
-    if (match($0, /<!-- provenance: [A-Z_-]+/)) {
-      tmp = substr($0, RSTART, RLENGTH)
-      sub(/<!-- provenance: /, "", tmp)
-      sub(/ .*/, "", tmp)  # Strip any qualifier after class name
-      pending_tag_class = tmp
-    }
-    state = "IN_HTML_COMMENT"; next
-  }
-  if (state == "IN_HTML_COMMENT") { if (/-->/) state = "NORMAL"; next }
-
-  # Single-line HTML comments (provenance tags)
-  # Accepts optional subclassification: <!-- provenance: INFERRED (architectural) -->
-  if (state == "NORMAL" && /<!--.*-->/) {
-    if (match($0, /<!-- provenance: [A-Z_-]+/)) {
-      tmp = substr($0, RSTART, RLENGTH)
-      sub(/<!-- provenance: /, "", tmp)
-      sub(/ .*/, "", tmp)  # Strip any qualifier after class name
-      pending_tag_class = tmp
-    }
-    next
-  }
-
-  # Skip non-taggable lines in NORMAL state
-  if (state == "NORMAL") {
-    # Headings
-    if (/^#+[[:space:]]/) {
-      if (in_paragraph) { count_paragraph(pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-      next
-    }
-    # Table rows
-    if (/^\|/) {
-      if (in_paragraph) { count_paragraph(pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-      next
-    }
-    # Blockquotes
-    if (/^>/) {
-      if (in_paragraph) { count_paragraph(pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-      next
-    }
-    # Blank lines end paragraphs
-    if (/^[[:space:]]*$/) {
-      if (in_paragraph) { count_paragraph(pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
-      next
-    }
-    # Non-blank, non-control line = paragraph content
-    if (!in_paragraph) {
-      in_paragraph = 1
-    }
-  }
-}
-
 END {
-  if (in_paragraph) count_paragraph(pending_tag_class)
+  if (in_paragraph) process_paragraph(para_start, pending_tag_class)
   tagged = total - untagged
   print total " " code_factual " " inferred " " operational " " external_ref " " hypothesis " " derived " " untagged " " tagged
-}' "$DOC_PATH")
+}
+CONSUMER_AWK
+) "$DOC_PATH")
 
 # Parse awk output
 read -r total cf inf op er hy dv ut tagged <<< "$stats"
@@ -153,12 +84,18 @@ else
   ratio="0.0000"
 fi
 
+# Read configurable thresholds (fallback to hardcoded defaults)
+# shellcheck source=shared/read-config.sh
+source "$SCRIPT_DIR/shared/read-config.sh"
+THRESHOLD_HIGH=$(read_config "ground_truth.provenance.thresholds.high" "0.90")
+THRESHOLD_MEDIUM=$(read_config "ground_truth.provenance.thresholds.medium" "0.60")
+
 # Determine trust_level from ratio
 # Use awk for float comparison
 trust_level=$(awk "BEGIN {
   r = $ratio + 0
-  if (r >= 0.90) print \"high\"
-  else if (r >= 0.60) print \"medium\"
+  if (r >= $THRESHOLD_HIGH) print \"high\"
+  else if (r >= $THRESHOLD_MEDIUM) print \"medium\"
   else print \"low\"
 }")
 

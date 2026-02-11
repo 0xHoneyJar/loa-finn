@@ -119,6 +119,38 @@ The INFERRED class supports optional parenthetical qualifiers to distinguish bet
 - `provenance-stats.sh` counts both as INFERRED for trust_level computation
 - Qualifiers are informational for human reviewers and future tooling
 
+## Citation Hint Configuration
+
+When `verify-citations.sh` encounters a citation with an empty or out-of-range target line, it scans nearby lines for content. This "auto-repair hint" helps authors fix citations that drifted due to code edits.
+
+### Hint Scan Radius
+
+The scan window is controlled by `HINT_SCAN_RADIUS` (default: **5** lines in each direction).
+
+**Rationale**: Code rarely shifts more than a few lines between single-function edits. A ±5 window covers the vast majority of drift from typical refactoring operations — adding/removing a few lines of a function body, inserting a comment, or reordering statements. Larger values increase false-positive hints where the "nearby content" is from a different function entirely.
+
+**Override via config** (`.loa.config.yaml`):
+```yaml
+ground_truth:
+  provenance:
+    hint_scan_radius: 5
+```
+
+**Override via environment**:
+```bash
+HINT_SCAN_RADIUS=10 verify-citations.sh docs/architecture.md --json
+```
+
+### Extensible Hint Architecture
+
+The hint system is designed for extension. The current implementation provides line-proximity hints, but the architecture supports richer hint types:
+
+- **Fuzzy match**: Find the cited content at a different line number (content-addressed lookup)
+- **Git blame**: Trace the cited line through git history to find its new location
+- **AST-based**: Use section parser to relocate symbols within the same function/class
+
+Each extension follows the same pattern: when the primary citation check fails, generate a `HINT:` message on stderr that suggests the corrected citation. This fail-soft design ensures citations are never silently accepted when wrong, while providing actionable repair guidance.
+
 ## Tag Coverage Threshold
 
 - Minimum 95% of taggable paragraphs must have a provenance tag

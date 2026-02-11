@@ -212,6 +212,40 @@ assert_exit "Nonexistent input file" 2 "$exit_code"
 echo ""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo "▸ DERIVED provenance class"
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# T-D1: pass-derived-multi-citation.md — DERIVED with 3 unique citations (exit=0)
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/pass-derived-multi-citation.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "DERIVED multi-citation passes" 0 "$exit_code"
+assert_json "Coverage passes" "$output" '.coverage_pass' "true"
+
+# T-D2: fail-derived-duplicate-citation.md — DERIVED with same citation twice (exit=1)
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/fail-derived-duplicate-citation.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "DERIVED duplicate citation rejected" 1 "$exit_code"
+assert_json_gt "Has DERIVED failure" "$output" '.fail_count' 0
+
+# T-D3: pass-derived-script-ref.md — DERIVED with script reference (exit=0)
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/pass-derived-script-ref.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "DERIVED script-ref passes" 0 "$exit_code"
+assert_json "Coverage passes" "$output" '.coverage_pass' "true"
+
+# T-D4: fail-derived-single-citation.md — DERIVED with only 1 citation (exit=1)
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/fail-derived-single-citation.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "DERIVED single citation rejected" 1 "$exit_code"
+assert_json_gt "Has DERIVED failure" "$output" '.fail_count' 0
+
+echo ""
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo "▸ Cross-script consistency"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
