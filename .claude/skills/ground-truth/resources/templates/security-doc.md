@@ -74,6 +74,13 @@ note: Requires @janitooor sign-off before merge
 
 ---
 
+## Known Limitations
+
+<!-- provenance: CODE-FACTUAL -->
+{Security limitations and known gaps. Reference limitations.yaml entries.}
+
+---
+
 ## Vulnerability Reporting
 
 {Contact information and process for reporting security vulnerabilities.}

@@ -71,6 +71,13 @@ variables: MODULE_NAME, MODULE_PATH, MODULE_FILES
 
 ---
 
+## Known Limitations
+
+<!-- provenance: CODE-FACTUAL -->
+{Known limitations of this module. Reference limitations.yaml entries where applicable.}
+
+---
+
 ## Usage Examples
 
 <!-- provenance: CODE-FACTUAL -->

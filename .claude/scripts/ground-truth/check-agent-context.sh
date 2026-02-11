@@ -22,7 +22,7 @@ done
 
 if [[ -z "$DOC_PATH" || ! -f "$DOC_PATH" ]]; then
   if $JSON_OUTPUT; then
-    echo '{"error":"Document not found","file":"'"${DOC_PATH:-}"'"}'
+    jq -nc --arg file "${DOC_PATH:-}" '{"error":"Document not found","file":$file}'
   else
     echo "ERROR: Document path required and must exist: ${DOC_PATH:-<none>}" >&2
   fi

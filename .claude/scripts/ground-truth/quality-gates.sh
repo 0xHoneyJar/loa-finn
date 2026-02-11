@@ -39,7 +39,7 @@ done
 
 if [[ -z "$DOC_PATH" || ! -f "$DOC_PATH" ]]; then
   if $JSON_OUTPUT; then
-    echo '{"error":"Document not found","file":"'"${DOC_PATH:-}"'"}'
+    jq -nc --arg file "${DOC_PATH:-}" '{"error":"Document not found","file":$file}'
   else
     echo "ERROR: Document path required and must exist: ${DOC_PATH:-<none>}" >&2
   fi
@@ -64,7 +64,7 @@ Then edit the files to reflect your project and commit them.
 See: grimoires/loa/sdd-ground-truth.md §3.4 for registry format."
 
     if $JSON_OUTPUT; then
-      echo '{"error":"Missing registry","file":"'"$REGISTRY_DIR/$required"'","action":"Run bootstrap-registries.sh"}'
+      jq -nc --arg file "$REGISTRY_DIR/$required" '{"error":"Missing registry","file":$file,"action":"Run bootstrap-registries.sh"}'
     else
       echo "$msg" >&2
     fi
@@ -81,6 +81,8 @@ passed_blocking=0
 warnings_json="["
 first_warning=true
 
+LAST_GATE_OUTPUT=""
+
 run_gate() {
   local name="$1"
   local blocking="$2"
@@ -92,6 +94,7 @@ run_gate() {
   local result
   local exit_code=0
   result=$("$@" 2>&1) || exit_code=$?
+  LAST_GATE_OUTPUT="$result"
 
   local status="pass"
   if [[ $exit_code -ne 0 ]]; then
@@ -128,8 +131,7 @@ fi
 untagged_count=0
 if ! $blocking_failed; then
   run_gate "check-provenance" "true" "$SCRIPT_DIR/check-provenance.sh" "$DOC_PATH" --json || true
-  prov_output=$("$SCRIPT_DIR/check-provenance.sh" "$DOC_PATH" --json 2>/dev/null || echo '{}')
-  untagged_count=$(printf '%s' "$prov_output" | jq -r '.untagged_count // 0' 2>/dev/null | tr -d '[:space:]' || echo "0")
+  untagged_count=$(printf '%s' "$LAST_GATE_OUTPUT" | jq -r '.untagged_count // 0' 2>/dev/null | tr -d '[:space:]' || echo "0")
   untagged_count="${untagged_count:-0}"
   # Ensure numeric
   [[ "$untagged_count" =~ ^[0-9]+$ ]] || untagged_count=0
@@ -159,7 +161,7 @@ if ! $blocking_failed; then
   fi
 fi
 
-# ── BLOCKING GATE 4: freshness-check (inline) ──
+# ── INLINE GATE: freshness-check (blocking) ──
 if ! $blocking_failed; then
   if ! $first_gate; then gates_json+=","; fi
   first_gate=false
@@ -187,7 +189,7 @@ if ! $blocking_failed; then
   gates_json+='{"gate":"freshness-check","blocking":true,"status":"'"$freshness_status"'","exit_code":0,"output":"'"$freshness_detail"'"}'
 fi
 
-# ── BLOCKING GATE 5: registry-consistency (inline) ──
+# ── INLINE GATE: registry-consistency (blocking) ──
 if ! $blocking_failed; then
   if ! $first_gate; then gates_json+=","; fi
   first_gate=false
