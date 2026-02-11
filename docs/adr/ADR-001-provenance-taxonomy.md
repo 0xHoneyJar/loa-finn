@@ -50,6 +50,42 @@ The `trust_level` field in AGENT-CONTEXT v2 is computed from the ratio of CODE-F
 
 **Calibration note**: These thresholds are initial values derived from observing the natural distribution across 16 documents in the first corpus generation (cycle-010 through cycle-014). They are subject to recalibration as the corpus grows and provenance patterns stabilize. The approach parallels Netflix's content quality scoring, where initial thresholds are set from observed distributions and refined through operational experience rather than theoretical modeling.
 
+## Recalibration Protocol
+
+Thresholds are living parameters, not fixed constants. As the corpus grows and provenance patterns evolve, the thresholds should be periodically reviewed and adjusted. This protocol defines a structured 4-step process for threshold recalibration, inspired by Google SRE's quarterly SLO review practice.
+
+### Step 1: Observation
+
+Run `provenance-stats.sh --json` across the full corpus (via `provenance-history.sh`) and examine the trust_level distribution. Note any documents that cluster near threshold boundaries — these are the most sensitive to threshold changes.
+
+### Step 2: Distribution Analysis
+
+Plot or tabulate `code_factual_ratio` for all documents. Look for:
+- **Natural clusters**: Groups of documents with similar ratios that should share a trust_level
+- **Boundary cases**: Documents within ±0.05 of a threshold that may be misclassified
+- **New document types**: Documents added since the last calibration that don't fit existing clusters
+
+### Step 3: Anomaly Detection
+
+Identify anomalies that suggest threshold drift:
+- A module doc with 85% CODE-FACTUAL classified as "medium" when other module docs are "high"
+- An operational doc classified as "low" when its ratio improved through citation work
+- INFERRED breakdown showing high `upgradeable` counts — indicating the corpus is ready for a CODE-FACTUAL push
+
+### Step 4: ADR Amendment
+
+If thresholds need adjustment:
+1. Update `ground_truth.provenance.thresholds` in `.loa.config.yaml`
+2. Re-run `provenance-stats.sh` across the corpus to verify the new distribution
+3. Add an entry to the Recalibration History table below
+4. If the change is significant (>0.10 shift), update this ADR's Threshold Calibration section with new rationale
+
+### Recalibration History
+
+| Date | Reviewer | Thresholds Changed | Rationale |
+|------|----------|--------------------|-----------|
+| 2026-02-11 | cycle-015 | Initial calibration (high=0.90, medium=0.60) | Observed distribution across 16 documents in cycles 010-014 |
+
 ## Alternatives Considered
 
 ### Alternative A: 3-Class Taxonomy (True / Uncertain / Opinion)

@@ -112,12 +112,14 @@ The INFERRED class supports optional parenthetical qualifiers to distinguish bet
 |-----------|---------|
 | `(architectural)` | Inherently inferential — architectural properties, design rationale, cross-module behavior that cannot be reduced to code citations |
 | `(upgradeable)` | Lazily unverified — could potentially be upgraded to CODE-FACTUAL or DERIVED with additional citation work |
+| `(pending-evidence)` | Evidence trail is known to exist but hasn't been walked yet — a known upgrade candidate where the code location is identified but the citation work hasn't been done |
 
 **Rules**:
 - Qualifiers are optional — unqualified `INFERRED` remains valid
 - All quality gates accept both qualified and unqualified forms
-- `provenance-stats.sh` counts both as INFERRED for trust_level computation
+- `provenance-stats.sh` counts all as INFERRED for trust_level computation, with per-qualifier breakdown in `INFERRED_BREAKDOWN`
 - Qualifiers are informational for human reviewers and future tooling
+- The distinction between `(upgradeable)` and `(pending-evidence)` is intent: upgradeable means "this *might* be groundable with effort", while pending-evidence means "we *know* this is groundable, we just haven't done it yet"
 
 ## Citation Hint Configuration
 

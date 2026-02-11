@@ -1,0 +1,1 @@
+{"timestamp":"2026-02-11T14:38:23Z","cycle":"cycle-016","commit":"c7d93f2","corpus_size":16,"corpus_stats":{"total_blocks":230,"total_tagged":230,"total_code_factual":133,"total_inferred":17,"total_derived":7,"inferred_breakdown":{"architectural":0,"upgradeable":0,"pending-evidence":0,"unqualified":17},"trust_level_distribution":{"high":4,"medium":6,"low":6}},"missing_docs":[]}

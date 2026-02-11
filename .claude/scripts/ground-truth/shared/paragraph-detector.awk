@@ -17,6 +17,7 @@ BEGIN {
   in_paragraph = 0
   para_start = 0
   pending_tag_class = ""
+  pending_tag_qualifier = ""
   para_first_line = ""
   current_section = ""
   total_paragraphs = 0
@@ -28,14 +29,14 @@ BEGIN {
 
   # Frontmatter
   if (state == "NORMAL" && /^---[[:space:]]*$/ && (NR <= 1 || fm_count == 0)) {
-    if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
+    if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
     state = "IN_FRONTMATTER"; fm_count++; next
   }
   if (state == "IN_FRONTMATTER") { if (/^---[[:space:]]*$/) state = "NORMAL"; next }
 
   # Fenced code blocks
   if (state == "NORMAL" && /^```/) {
-    if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
+    if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
     state = "IN_FENCE"; next
   }
   if (state == "IN_FENCE") { if (/^```/) state = "NORMAL"; next }
@@ -49,6 +50,11 @@ BEGIN {
       sub(/<!-- provenance: /, "", tmp)
       sub(/ .*/, "", tmp)  # Strip any qualifier after class name
       pending_tag_class = tmp
+      # Extract qualifier if present: (architectural), (upgradeable), (pending-evidence)
+      pending_tag_qualifier = ""
+      if (match($0, /\([a-z-]+\)/)) {
+        pending_tag_qualifier = substr($0, RSTART+1, RLENGTH-2)
+      }
     }
     state = "IN_HTML_COMMENT"; next
   }
@@ -62,6 +68,11 @@ BEGIN {
       sub(/<!-- provenance: /, "", tmp)
       sub(/ .*/, "", tmp)  # Strip any qualifier after class name
       pending_tag_class = tmp
+      # Extract qualifier if present: (architectural), (upgradeable), (pending-evidence)
+      pending_tag_qualifier = ""
+      if (match($0, /\([a-z-]+\)/)) {
+        pending_tag_qualifier = substr($0, RSTART+1, RLENGTH-2)
+      }
     }
     next
   }
@@ -70,24 +81,24 @@ BEGIN {
   if (state == "NORMAL") {
     # Headings
     if (/^#+[[:space:]]/) {
-      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
+      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
       current_section = $0
       sub(/^#+[[:space:]]+/, "", current_section)
       next
     }
     # Table rows
     if (/^\|/) {
-      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
+      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
       next
     }
     # Blockquotes
     if (/^>/) {
-      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
+      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
       next
     }
     # Blank lines end paragraphs
     if (/^[[:space:]]*$/) {
-      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = "" }
+      if (in_paragraph) { process_paragraph(para_start, pending_tag_class); in_paragraph = 0; pending_tag_class = ""; pending_tag_qualifier = "" }
       next
     }
     # Non-blank, non-control line = paragraph content

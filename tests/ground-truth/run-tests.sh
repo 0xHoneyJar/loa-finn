@@ -246,6 +246,30 @@ assert_json_gt "Has DERIVED failure" "$output" '.fail_count' 0
 echo ""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo "▸ INFERRED subqualifiers"
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# T-I1: pass-inferred-pending-evidence.md — all three INFERRED qualifiers accepted (exit=0)
+exit_code=0
+output=$(run_script "$SCRIPTS/check-provenance.sh" "$FIXTURES/pass-inferred-pending-evidence.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "INFERRED (pending-evidence) accepted" 0 "$exit_code"
+assert_json "100% coverage" "$output" '.coverage_pct' "100"
+
+# T-I2: provenance-stats.sh counts INFERRED subqualifiers correctly
+exit_code=0
+output=$(run_script "$SCRIPTS/provenance-stats.sh" "$FIXTURES/pass-inferred-pending-evidence.md" --json) || exit_code=$?
+$VERBOSE && log "output: $output"
+assert_exit "provenance-stats runs on qualified INFERRED" 0 "$exit_code"
+assert_json "INFERRED total is 3" "$output" '.counts.INFERRED' "3"
+assert_json "architectural count" "$output" '.INFERRED_BREAKDOWN.architectural' "1"
+assert_json "upgradeable count" "$output" '.INFERRED_BREAKDOWN.upgradeable' "1"
+assert_json "pending-evidence count" "$output" '.INFERRED_BREAKDOWN["pending-evidence"]' "1"
+assert_json "unqualified count" "$output" '.INFERRED_BREAKDOWN.unqualified' "0"
+
+echo ""
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo "▸ Cross-script consistency"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

@@ -46,6 +46,10 @@ BEGIN {
   total = 0
   code_factual = 0
   inferred = 0
+  inf_architectural = 0
+  inf_upgradeable = 0
+  inf_pending_evidence = 0
+  inf_unqualified = 0
   operational = 0
   external_ref = 0
   hypothesis = 0
@@ -56,7 +60,13 @@ BEGIN {
 function process_paragraph(start, tag_class) {
   total++
   if (tag_class == "CODE-FACTUAL") code_factual++
-  else if (tag_class == "INFERRED") inferred++
+  else if (tag_class == "INFERRED") {
+    inferred++
+    if (pending_tag_qualifier == "architectural") inf_architectural++
+    else if (pending_tag_qualifier == "upgradeable") inf_upgradeable++
+    else if (pending_tag_qualifier == "pending-evidence") inf_pending_evidence++
+    else inf_unqualified++
+  }
   else if (tag_class == "OPERATIONAL") operational++
   else if (tag_class == "EXTERNAL-REFERENCE") external_ref++
   else if (tag_class == "HYPOTHESIS") hypothesis++
@@ -67,13 +77,13 @@ function process_paragraph(start, tag_class) {
 END {
   if (in_paragraph) process_paragraph(para_start, pending_tag_class)
   tagged = total - untagged
-  print total " " code_factual " " inferred " " operational " " external_ref " " hypothesis " " derived " " untagged " " tagged
+  print total " " code_factual " " inferred " " operational " " external_ref " " hypothesis " " derived " " untagged " " tagged " " inf_architectural " " inf_upgradeable " " inf_pending_evidence " " inf_unqualified
 }
 CONSUMER_AWK
 ) "$DOC_PATH")
 
 # Parse awk output
-read -r total cf inf op er hy dv ut tagged <<< "$stats"
+read -r total cf inf op er hy dv ut tagged inf_arch inf_upg inf_pend inf_unq <<< "$stats"
 
 # Compute ratio and trust_level
 # DERIVED counts equivalent to CODE-FACTUAL per ADR-002
@@ -111,6 +121,10 @@ if $JSON_OUTPUT; then
     --argjson hypothesis "$hy" \
     --argjson derived "$dv" \
     --argjson untagged "$ut" \
+    --argjson inf_arch "$inf_arch" \
+    --argjson inf_upg "$inf_upg" \
+    --argjson inf_pend "$inf_pend" \
+    --argjson inf_unq "$inf_unq" \
     --arg ratio "$ratio" \
     --arg trust_level "$trust_level" \
     '{
@@ -123,6 +137,12 @@ if $JSON_OUTPUT; then
         "HYPOTHESIS": $hypothesis,
         "DERIVED": $derived
       },
+      INFERRED_BREAKDOWN: {
+        "architectural": $inf_arch,
+        "upgradeable": $inf_upg,
+        "pending-evidence": $inf_pend,
+        "unqualified": $inf_unq
+      },
       total_blocks: $total,
       tagged_blocks: $tagged,
       untagged_blocks: $untagged,
@@ -133,7 +153,7 @@ else
   echo "Provenance Stats: $DOC_PATH"
   echo "  Total blocks:      $total (tagged: $tagged, untagged: $ut)"
   echo "  CODE-FACTUAL:      $cf"
-  echo "  INFERRED:          $inf"
+  echo "  INFERRED:          $inf (architectural: $inf_arch, upgradeable: $inf_upg, pending-evidence: $inf_pend, unqualified: $inf_unq)"
   echo "  OPERATIONAL:       $op"
   echo "  EXTERNAL-REFERENCE: $er"
   echo "  HYPOTHESIS:        $hy"
