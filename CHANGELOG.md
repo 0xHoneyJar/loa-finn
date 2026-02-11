@@ -5,6 +5,159 @@ All notable changes to Loa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.33.0] - 2026-02-11 — Garde Release
+
+### Why This Release
+
+The Garde Release builds protective infrastructure around Loa's development lifecycle. A full **eval sandbox** lands with deterministic framework testing, 9 code-based graders, CI pipeline with dual-checkout trust boundaries, and baseline regression detection. Alongside this, **bug mode** (`/bug`) introduces a lightweight triage-to-fix workflow that enforces test-first development while bypassing PRD/SDD gates for observed failures. **6 PRs** covering eval infrastructure, bug-fixing workflows, and RTFM-surfaced documentation repairs.
+
+### Added
+
+#### Eval Sandbox — Framework Evals, Regression Suite, CI Pipeline (#277, #282)
+
+Full evaluation infrastructure for deterministic framework testing:
+
+- **7-script harness pipeline**: `run-eval.sh` orchestrator, `validate-task.sh`, `sandbox.sh`, `grade.sh`, `compare.sh`, `report.sh`, `pr-comment.sh`
+- **9 code-based graders**: `file-exists`, `tests-pass`, `function-exported`, `pattern-match`, `diff-compare`, `quality-gate`, `no-secrets`, `constraint-enforced`, `skill-index-validator`
+- **Framework correctness suite**: 22 deterministic tasks covering config validation, constraint enforcement, golden path structure, quality gates
+- **Regression suite scaffold**: 11 agent-simulated tasks — bug triage, implementation, and review scenarios with 3 trials per task
+- **5 test fixtures**: `loa-skill-dir`, `hello-world-ts`, `buggy-auth-ts`, `simple-python`, `shell-scripts`
+- **GitHub Actions CI pipeline**: dual-checkout trust model (base=trusted graders, PR=untrusted tasks), source-injection scanning, symlink escape prevention, PR comment reports with collapsible results
+- **Dockerfile.sandbox**: container isolation with yq, jq, git, bash 4.0+
+- **Baseline comparison**: Wilson confidence intervals, regression/improvement/new/missing classification
+- **`/eval` command**: skill registration for running suites from Claude Code
+- 61 unit + integration tests across harness and graders
+
+#### Bug Mode — Lightweight Bug-Fixing Workflow (#278, #279)
+
+New `/bug` command and `bug-triaging` skill for observed-failure triage:
+
+- **5-phase triage**: dependency check → eligibility validation → hybrid interview → codebase analysis → micro-sprint creation
+- **Eligibility scoring**: 2-3 point rubric with disqualifiers for feature requests
+- **PII redaction**: API keys, JWT tokens, passwords, emails stripped from imported content
+- **GitHub issue import**: `--from-issue N` flag for automated intake
+- **Test-first enforcement**: HALTs if no test infrastructure detected
+- **Run mode integration**: `/run --bug "description"` with circuit breaker
+- **Golden path awareness**: `/build` auto-detects active bugs and routes correctly
+- **State management**: bug state tracking in `.run/bugs/{id}/state.json` with TOCTOU-safe detection
+- **Process compliance**: C-PROC-015 (validate eligibility) and C-PROC-016 (no feature work via `/bug`)
+
+### Changed
+
+- Process compliance tables in CLAUDE.loa.md updated to include `/bug` as valid implementation path
+- `/loa` status command extended to detect and report active bug workflows
+- Run mode SKILL.md updated with `/run --bug` documentation
+
+### Fixed
+
+- **CI trust boundary false positives**: refactored globstar save/restore in `run-eval.sh` to avoid `eval` command; test directories excluded from trust boundary scanner (#283)
+- **Fixture config tracking**: `.gitignore` negation for `evals/fixtures/**/.loa.config.yaml` — global ignore rule caused 3 framework task failures (#284)
+- **PR comment coverage**: workflow step now posts results for ALL suites, not just most recent run directory (#284)
+- **README documentation gaps**: added "What Is This?" definition, clarified slash commands vs shell commands, added prerequisites, post-install verification, first-run expectations, and beads_rust requirement clarification
+- **INSTALLATION documentation gaps**: moved optional enhancements after core install, fixed config bootstrap path, added minimal working config example, clarified `.beads/` creation timing, resolved beads_rust requirement contradiction, added uninstall section, added failure recovery guidance
+
+### Documentation
+
+- **Eval CI pipeline guide**: trust model, dual-checkout architecture, pipeline steps, suite types, artifact retention (#285)
+- **Eval health checks**: local verification commands, task category reference, monitoring recommendations (#285)
+- **Eval operational runbook**: adding tasks/graders/fixtures, investigating CI failures, baseline update procedures (#285)
+
+---
+
+## [1.32.0] - 2026-02-10 — Hounfour Release
+
+### Why This Release
+
+The Hounfour Release extracts multi-model provider infrastructure from loa-finn into upstream Loa as the `loa_cheval` Python package — a full provider abstraction layer with Anthropic + OpenAI adapters, cost metering, routing chains, and circuit breakers. Alongside this headline feature, Bridgebuilder v2.1 lands with typed errors, glob matching, incremental review, and persona routing, while `/rtfm` introduces zero-context documentation quality testing. **15 PRs** covering provider infrastructure, skill polish, documentation tooling, and template hygiene.
+
+### Added
+
+#### Hounfour: Multi-Model Provider Abstraction Layer (`loa_cheval`)
+
+Extracted from loa-finn as a standalone Python package under `.claude/adapters/loa_cheval/`:
+
+- **Provider adapters**: Anthropic (Claude) and OpenAI (GPT) with unified response types
+- **Config system**: YAML loading with `${ENV_VAR}` interpolation, secret redaction, validation
+- **Cost metering**: Micro-USD integer arithmetic ledger, pricing registry, budget enforcement
+- **Routing**: Model alias resolution, multi-step chains, circuit breaker with half-open recovery
+- **CLI**: `model-invoke` shell entry point for script-level model calls
+- **Schema**: `model-config.schema.json` for configuration validation
+- **185 tests** across 10 test files, zero regressions
+
+#### Bridgebuilder v2.1 — Typed Errors, Glob, Incremental Review, Persona Routing (#263, #267)
+
+- **Loa-aware filtering**: Auto-detect Loa-mounted repos, 39 security patterns with 6 categories
+- **Progressive truncation**: 3-level diff truncation targeting 90% budget, adaptive LLM retry
+- **Persona pack system**: 5 built-in personas (default, security, dx, architecture, quick) with CLI-wins precedence
+- **Enhanced glob matching**: `path.matchesGlob()` for Node 22+, fallback for older runtimes
+- **Incremental review**: Delta-only review on PR updates since last reviewed SHA
+- **Multi-model persona routing**: YAML frontmatter model hints, CLI `--model` override
+- 277 tests passing
+
+#### /rtfm Documentation Quality Testing (#236, #259)
+
+New skill that spawns zero-context tester agents to validate documentation usability:
+- Hermetic tester spawn via Task subagent with context isolation canary
+- Structured [GAP] report parsing with 6 types, 3 severities
+- Task template system (install, quickstart, mount, beads, gpt-review, update)
+- Prompt injection hardening per GPT-5.2 cross-model review
+- Progressive size limits with three-tier handling (50KB/100KB/reject)
+
+#### /ride: Persistent Artifact Writes + Verification Gate (#272)
+
+- Add `Write` tool to allowed-tools (root cause: agent could analyze but never persist)
+- 8 write checkpoints (CP-1 through CP-9) after each artifact phase
+- Phase 10.0 Artifact Verification Gate (BLOCKING) before handoff
+- Phase 0.6 staleness detection with configurable `ride.staleness_days`
+- Architecture-overview.md template added to output formats
+
+#### Bridgebuilder Autonomous PR Review Skill (#248)
+
+Full hexagonal architecture extraction over 6 sprints:
+- 7 port interfaces, 5 core domain classes, default adapters (GitHub CLI, Anthropic, sanitizer)
+- Config resolution with 5-level precedence (CLI > env > YAML > auto-detect > defaults)
+- GPT-5.2 cross-model security hardening, strict endpoint allowlist (default-deny)
+- Persona voice with Bridgebuilder identity, config provenance tracking
+- 100+ tests (unit + integration), zero runtime npm dependencies
+
+#### Skill Benchmark Audit Against Anthropic Guide (#261, #264)
+
+- 10-check validation script (`validate-skill-benchmarks.sh`) against Anthropic's skill guide
+- riding-codebase refactored: 6,905 → 1,915 words (72% reduction, under 5,000 limit)
+- Schema update: description maxLength 500 → 1024, added `negative_triggers`
+- 25-assertion test suite with compliant/non-compliant fixtures
+
+#### Mount: Structured Error Handling E010-E016 (#237, #241)
+
+- 7 new structured error codes for mount failures
+- Empty repo detection and handling (`detect_repo_state()`)
+- Path-scoped rollback in `create_upgrade_commit()`
+- Golden Path next steps banner
+- 20 hermetic shell tests, Bash 3.2 compatible
+
+### Changed
+
+- Token budgets raised: maxInputTokens 8K→128K, maxOutputTokens 4K→16K, maxDiffBytes 100K→512K (#260)
+- CLI flags added: `--max-input-tokens`, `--max-output-tokens`, `--max-diff-bytes`, `--model` (#260)
+- API timeout scales with prompt size: 50K→180s, 100K→300s (#262)
+- GPT review findings now persist to `grimoires/loa/a2a/gpt-review/` (#249, #251)
+- Update script skips when already at upstream version (#245, #250)
+- `.gitignore` hardened: `.beads/`, `.loa.config.yaml`, dev planning docs excluded (#253)
+- Simstim Telegram bridge package removed (#252)
+- Feature-specific mockups and screenshots removed from template (#254)
+- README.md, PROCESS.md, INSTALLATION.md, SECURITY.md, LICENSE.md updated
+
+### Fixed
+
+- Bridgebuilder `--pr` filter not propagated to resolveItems pipeline (#257, #258)
+- Bridgebuilder streaming: Cloudflare 60s TTFB timeout resolved via SSE streaming (#271)
+- Bridgebuilder self-review: 422 on REQUEST_CHANGES to own PR, falls back to COMMENT (#271)
+- Bash 4.0+ version guard added to all 17 `declare -A` scripts (#240, #244)
+- GPT review: curl payload via temp file instead of bash arg (size limit fix)
+- Hounfour: dead import, duplicate branches, safety comments, thread-safety docs
+
+---
+
 ## [1.31.0] - 2026-02-07 — Bridgebuilder Release
 
 ### Why This Release
