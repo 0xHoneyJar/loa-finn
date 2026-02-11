@@ -1,5 +1,8 @@
 # Sprint Plan: CLAUDE.md Context Loading Optimization
 
+> **Archived**: Loa upstream research (cycle-013).
+> No active decisions.
+
 **Version:** 1.0
 **Date:** 2026-02-02
 **Issue:** [#136](https://github.com/0xHoneyJar/loa/issues/136)

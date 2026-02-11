@@ -1,6 +1,6 @@
 # Architecture Overview
 
-<!-- AGENT-CONTEXT: name=loa-finn-architecture, type=overview, purpose=System architecture and component interaction documentation, key_files=[src/index.ts, src/hounfour/router.ts, src/persistence/wal.ts, src/cron/service.ts, src/gateway/server.ts], interfaces=[HounfourRouter, WAL, CronService, Scheduler, AuditTrail, WorkerPool], dependencies=[hono, @mariozechner/pi-ai, @aws-sdk/client-s3, ws, jose, croner], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=loa-finn-architecture, type=overview, purpose=System architecture and component interaction documentation, key_files=[src/index.ts, src/hounfour/router.ts, src/persistence/wal.ts, src/cron/service.ts, src/gateway/server.ts], interfaces=[HounfourRouter, WAL, CronService, Scheduler, AuditTrail, WorkerPool], dependencies=[hono, @mariozechner/pi-ai, @aws-sdk/client-s3, ws, jose, croner], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/index.ts, src/hounfour/router.ts, src/persistence/wal.ts], trust_level=medium, model_hints=[reasoning,code] -->
 
 ## System Overview
 

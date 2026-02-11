@@ -1,5 +1,8 @@
 # Maintainer Guide: Learning Proposals
 
+> **Archived**: Superseded by `CONTRIBUTING.md` (cycle-013).
+> No active decisions.
+
 This guide documents how to review and process learning proposals submitted via the Upstream Learning Flow (v1.16.0+).
 
 ## Overview

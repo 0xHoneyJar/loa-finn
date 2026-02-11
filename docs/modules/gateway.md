@@ -1,6 +1,6 @@
 # Gateway — HTTP & WebSocket API
 
-<!-- AGENT-CONTEXT: name=gateway, type=module, purpose=HTTP and WebSocket entry points with auth and rate limiting, key_files=[src/gateway/server.ts, src/gateway/auth.ts, src/gateway/ws.ts, src/gateway/cron-api.ts, src/gateway/csrf.ts], interfaces=[createApp, authMiddleware, corsMiddleware, handleWebSocket, CronApi], dependencies=[hono, @hono/node-server, ws], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=gateway, type=module, purpose=HTTP and WebSocket entry points with auth and rate limiting, key_files=[src/gateway/server.ts, src/gateway/auth.ts, src/gateway/ws.ts, src/gateway/cron-api.ts, src/gateway/csrf.ts], interfaces=[createApp, authMiddleware, corsMiddleware, handleWebSocket, CronApi], dependencies=[hono, @hono/node-server, ws], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/gateway/server.ts, src/gateway/auth.ts, src/gateway/ws.ts], trust_level=high, model_hints=[code,review] -->
 
 ## Purpose
 

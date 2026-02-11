@@ -1,6 +1,6 @@
 # Safety — Audit, Firewall & Redaction
 
-<!-- AGENT-CONTEXT: name=safety, type=module, purpose=Security enforcement with hash-chained audit trail and execution isolation, key_files=[src/safety/audit-trail.ts, src/safety/github-firewall.ts, src/safety/secret-redactor.ts, src/safety/tool-registry.ts, src/safety/boot-validation.ts], interfaces=[AuditTrail, AlertService, GithubFirewall, SecretRedactor, ToolRegistry], dependencies=[], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=safety, type=module, purpose=Security enforcement with hash-chained audit trail and execution isolation, key_files=[src/safety/audit-trail.ts, src/safety/github-firewall.ts, src/safety/secret-redactor.ts, src/safety/tool-registry.ts, src/safety/boot-validation.ts], interfaces=[AuditTrail, AlertService, GithubFirewall, SecretRedactor, ToolRegistry], dependencies=[], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/safety/audit-trail.ts, src/safety/github-firewall.ts, src/safety/secret-redactor.ts], trust_level=low, model_hints=[reasoning,review] -->
 
 ## Purpose
 
@@ -20,14 +20,14 @@ class AuditTrail {
 }
 ```
 
-<!-- provenance: INFERRED -->
-**Hash chain**: Each record contains `hash` (SHA-256 of canonical JSON) and `prevHash` (link to previous). Optional HMAC-SHA256 signing via `hmac` field. Canonical serialization uses sorted keys, excluding `hash` and `hmac` fields.
+<!-- provenance: CODE-FACTUAL -->
+**Hash chain**: Each record contains `hash` (SHA-256 of canonical JSON) and `prevHash` (link to previous). Optional HMAC-SHA256 signing via `hmac` field (`src/safety/audit-trail.ts:8`). Canonical serialization uses sorted keys, excluding `hash` and `hmac` fields (`src/safety/audit-trail.ts:141`).
 
-<!-- provenance: INFERRED -->
-**Phases**: `intent` (before action), `result` (after success), `denied` (blocked), `dry_run` (simulation).
+<!-- provenance: CODE-FACTUAL -->
+**Phases**: `intent` (before action), `result` (after success), `denied` (blocked), `dry_run` (simulation) (`src/safety/audit-trail.ts:37`).
 
-<!-- provenance: INFERRED -->
-**Rotation**: 10MB file size threshold triggers new segment.
+<!-- provenance: CODE-FACTUAL -->
+**Rotation**: 10MB file size threshold triggers new segment (`src/safety/audit-trail.ts:169`).
 
 ### AlertService (`src/safety/alert-service.ts`)
 
@@ -37,8 +37,8 @@ class AlertService {
 }
 ```
 
-<!-- provenance: INFERRED -->
-Severities: `critical`, `error`, `warning`, `info`. Channels: `github_issue`, `webhook`, `log`.
+<!-- provenance: CODE-FACTUAL -->
+Severities: `critical`, `error`, `warning`, `info` (`src/safety/alert-service.ts:10`). Channels: `github_issue`, `webhook`, `log` (`src/safety/alert-service.ts:13`).
 
 ### GithubFirewall (`src/safety/github-firewall.ts`)
 

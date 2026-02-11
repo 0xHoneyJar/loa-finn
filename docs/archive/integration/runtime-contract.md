@@ -1,5 +1,8 @@
 # Runtime Contract
 
+> **Archived**: Superseded by `docs/architecture.md` + `docs/modules/hounfour.md` (cycle-013).
+> No active decisions.
+
 > **Source**: PR #78 - Separation of Concerns Framework
 > **Related**: PR #73 - Autonomous Agent Orchestrator, PR #82 - Implementation
 

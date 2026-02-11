@@ -1,5 +1,8 @@
 # Anthropic Messages API Spike Report
 
+> **Archived**: Incorporated into Hounfour Phase 0 (cycle-013).
+> No active decisions.
+
 **Task**: T-B.1 (Sprint B, Global ID: 23)
 **Date**: 2026-02-09
 **Decision**: PROCEED with Messages API adapter

@@ -1,5 +1,8 @@
 # Separation of Concerns
 
+> **Archived**: Superseded by `docs/architecture.md` (cycle-013).
+> Decision to use 5-layer architecture is still active.
+
 > **Source**: PR #78 - Separation of Concerns Framework
 > **Related**: PR #73 - Autonomous Agent Orchestrator, PR #82 - Implementation
 

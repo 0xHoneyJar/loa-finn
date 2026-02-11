@@ -1,6 +1,6 @@
 # Agent — Session & Sandbox Execution
 
-<!-- AGENT-CONTEXT: name=agent, type=module, purpose=Agent session management with sandboxed tool execution, key_files=[src/agent/sandbox.ts, src/agent/worker-pool.ts], interfaces=[LoaSession, ToolSandbox, WorkerPool], dependencies=[@mariozechner/pi-coding-agent, @mariozechner/pi-agent-core], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=agent, type=module, purpose=Agent session management with sandboxed tool execution, key_files=[src/agent/sandbox.ts, src/agent/worker-pool.ts], interfaces=[LoaSession, ToolSandbox, WorkerPool], dependencies=[@mariozechner/pi-coding-agent, @mariozechner/pi-agent-core], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/agent/sandbox.ts, src/agent/worker-pool.ts], trust_level=low, model_hints=[code,review] -->
 
 ## Purpose
 
@@ -34,8 +34,8 @@ class ToolSandbox {
 }
 ```
 
-<!-- provenance: INFERRED -->
-Enforces `CommandPolicy` (allowed tools, bash blacklist, network blacklist) and `FilesystemJail` (chroot-like confinement to `FINN_SANDBOX_JAIL_ROOT`).
+<!-- provenance: CODE-FACTUAL -->
+Enforces `CommandPolicy` (`src/agent/sandbox.ts:35`) and `FilesystemJail` (`src/agent/sandbox.ts:109`) for chroot-like confinement to `FINN_SANDBOX_JAIL_ROOT`.
 
 ### WorkerPool (`src/agent/worker-pool.ts`)
 
@@ -47,8 +47,8 @@ class WorkerPool {
 }
 ```
 
-<!-- provenance: INFERRED -->
-**Two lanes**: `interactive` (user-facing prompt execution) and `system` (maintenance tasks). Lanes run independently so system tasks never block interactive requests.
+<!-- provenance: CODE-FACTUAL -->
+**Two lanes**: `interactive` (user-facing prompt execution) and `system` (maintenance tasks) (`src/agent/worker-pool.ts:63`). Lanes run independently so system tasks never block interactive requests.
 
 ## Architecture
 

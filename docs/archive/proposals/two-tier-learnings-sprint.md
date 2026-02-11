@@ -1,5 +1,8 @@
 # Sprint Plan: Two-Tier Learnings Architecture
 
+> **Archived**: Proposal for Loa upstream, not Finn-specific (cycle-013).
+> No active decisions.
+
 **PRD**: [two-tier-learnings-prd.md](two-tier-learnings-prd.md) (v1.1.0)
 **SDD**: [two-tier-learnings-sdd.md](two-tier-learnings-sdd.md) (v1.1.0)
 **Issues**: [#137](https://github.com/0xHoneyJar/loa/issues/137), [#76](https://github.com/0xHoneyJar/loa/issues/76)

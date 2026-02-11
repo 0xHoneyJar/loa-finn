@@ -1,6 +1,6 @@
 # loa-finn
 
-<!-- AGENT-CONTEXT: name=loa-finn, type=overview, purpose=AI agent runtime with multi-model orchestration and persistence, key_files=[src/index.ts, src/gateway/server.ts, src/hounfour/router.ts, src/persistence/wal.ts], interfaces=[HounfourRouter, WAL, CronService, AuditTrail], dependencies=[hono, @mariozechner/pi-ai, @aws-sdk/client-s3, jose, ws], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=loa-finn, type=overview, purpose=AI agent runtime with multi-model orchestration and persistence, key_files=[src/index.ts, src/gateway/server.ts, src/hounfour/router.ts, src/persistence/wal.ts], interfaces=[HounfourRouter, WAL, CronService, AuditTrail], dependencies=[hono, @mariozechner/pi-ai, @aws-sdk/client-s3, jose, ws], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/index.ts, src/hounfour/router.ts, src/gateway/server.ts], trust_level=low, model_hints=[fast,summary] -->
 
 <!-- provenance: INFERRED -->
 loa-finn is an AI agent runtime that provides multi-model orchestration, tool execution sandboxing, and durable persistence for Claude-powered applications. It exposes an HTTP and WebSocket API for session management, routes LLM requests across providers with budget enforcement, and maintains a write-ahead log with R2 cloud storage backup (`src/index.ts`).

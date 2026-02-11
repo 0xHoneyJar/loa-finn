@@ -1,6 +1,6 @@
 # Hounfour — Multi-Model Orchestration
 
-<!-- AGENT-CONTEXT: name=hounfour, type=module, purpose=Multi-model provider routing with budget enforcement and tool orchestration, key_files=[src/hounfour/router.ts, src/hounfour/orchestrator.ts, src/hounfour/budget.ts, src/hounfour/types.ts, src/hounfour/jwt-auth.ts], interfaces=[HounfourRouter, ToolCallOrchestrator, BudgetEnforcer, S2SJwtSigner, ModelPortBase], dependencies=[jose, @mariozechner/pi-ai], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=hounfour, type=module, purpose=Multi-model provider routing with budget enforcement and tool orchestration, key_files=[src/hounfour/router.ts, src/hounfour/orchestrator.ts, src/hounfour/budget.ts, src/hounfour/types.ts, src/hounfour/jwt-auth.ts], interfaces=[HounfourRouter, ToolCallOrchestrator, BudgetEnforcer, S2SJwtSigner, ModelPortBase], dependencies=[jose, @mariozechner/pi-ai], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/hounfour/router.ts, src/hounfour/orchestrator.ts, src/hounfour/budget.ts], trust_level=medium, model_hints=[code,review] -->
 
 ## Purpose
 

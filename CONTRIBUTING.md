@@ -1,4 +1,4 @@
-<!-- AGENT-CONTEXT: name=contributing-guide, type=operations, purpose=Developer contribution guide for Finn project, key_files=[package.json, tsconfig.json, src/index.ts, src/config.ts], interfaces=[], dependencies=[tsx, vitest, tsc], version=8d60958b2aa46facc5298b0f73252c084b74943e -->
+<!-- AGENT-CONTEXT: name=contributing-guide, type=operations, purpose=Developer contribution guide for Finn project, key_files=[package.json, tsconfig.json, src/index.ts, src/config.ts], interfaces=[], dependencies=[tsx, vitest, tsc], version=8d60958b2aa46facc5298b0f73252c084b74943e, priority_files=[package.json, src/index.ts, src/config.ts], trust_level=low, model_hints=[code,fast] -->
 
 # Contributing to Finn
 

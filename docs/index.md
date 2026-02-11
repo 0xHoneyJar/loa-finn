@@ -1,4 +1,4 @@
-<!-- AGENT-CONTEXT: name=documentation-index, type=overview, purpose=Central navigation hub for all Finn documentation, key_files=[src/index.ts], interfaces=[], dependencies=[], version=8d60958b2aa46facc5298b0f73252c084b74943e -->
+<!-- AGENT-CONTEXT: name=documentation-index, type=overview, purpose=Central navigation hub for all Finn documentation, key_files=[src/index.ts], interfaces=[], dependencies=[], version=8d60958b2aa46facc5298b0f73252c084b74943e, priority_files=[src/index.ts], trust_level=low, model_hints=[fast,summary] -->
 
 # Finn Documentation
 
@@ -62,6 +62,7 @@ These documents describe the Loa development framework, not the Finn application
 |----------|-------------|
 | [Development Process](../PROCESS.md) | Loa agent-driven workflow |
 | [Installation Guide](../INSTALLATION.md) | Loa framework setup |
+| [Loa Framework (upstream)](https://github.com/0xHoneyJar/loa) | Framework source and documentation |
 
 ## Archived Documentation
 

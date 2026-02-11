@@ -1,5 +1,8 @@
 # Decision Lineage
 
+> **Archived**: Superseded by `docs/architecture.md` (cycle-013).
+> No active decisions.
+
 > **Source**: Team of Rivals pattern (arXiv:2601.14351)
 > **Purpose**: Traceable decision history for auditability and learning
 

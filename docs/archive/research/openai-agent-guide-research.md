@@ -1,5 +1,8 @@
 # OpenAI Agent Building Guide: Research Analysis for Loa
 
+> **Archived**: Incorporated into agent module design (cycle-013).
+> No active decisions.
+
 **Date**: 2026-02-03
 **Branch**: `research/open-ai-agent-buildoors-guide`
 **Source**: [A Practical Guide to Building Agents (PDF)](https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf)

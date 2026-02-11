@@ -1,5 +1,8 @@
 # Agent Jobs Setup Guide
 
+> **Archived**: Superseded by `docs/operations.md` (cycle-013).
+> No active decisions.
+
 ## Overview
 
 Agent Jobs is an autonomous GitHub workflow system driven by a cron scheduler with a 14-layer safety stack. It enables Finn to perform scheduled operations on GitHub repositories -- reviewing pull requests, triaging issues, drafting PRs from labeled issues, and cleaning up stale items -- without manual intervention.

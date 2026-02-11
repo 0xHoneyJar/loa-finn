@@ -1,5 +1,8 @@
 # Research: CLAUDE.md Context Loading Optimization
 
+> **Archived**: Loa upstream research (cycle-013).
+> No active decisions.
+
 **Issue**: [#136 - chore: Slim CLAUDE.md to reduce token overhead](https://github.com/0xHoneyJar/loa/issues/136)
 **Branch**: `research/claude-md-context-loading-136`
 **Author**: Research Agent

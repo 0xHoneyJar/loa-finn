@@ -1,6 +1,6 @@
 # API Reference
 
-<!-- AGENT-CONTEXT: name=loa-finn-api, type=api, purpose=HTTP and WebSocket API endpoint documentation, key_files=[src/gateway/server.ts, src/gateway/auth.ts, src/gateway/cron-api.ts, src/gateway/workflow-api.ts, src/gateway/ws.ts, src/hounfour/jwt-auth.ts], interfaces=[createApp, authMiddleware, jwtAuthMiddleware, handleWebSocket], dependencies=[hono, ws, jose], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=loa-finn-api, type=api, purpose=HTTP and WebSocket API endpoint documentation, key_files=[src/gateway/server.ts, src/gateway/auth.ts, src/gateway/cron-api.ts, src/gateway/workflow-api.ts, src/gateway/ws.ts, src/hounfour/jwt-auth.ts], interfaces=[createApp, authMiddleware, jwtAuthMiddleware, handleWebSocket], dependencies=[hono, ws, jose], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/gateway/server.ts, src/gateway/auth.ts, src/gateway/ws.ts], trust_level=low, model_hints=[code,fast] -->
 
 ## Authentication Overview
 

@@ -1,5 +1,8 @@
 # Autonomous Agent Orchestra - Implementation Plan
 
+> **Archived**: Superseded by `docs/modules/agent.md` (cycle-013).
+> No active decisions.
+
 **Branch**: `feature/autonomous-agent-orchestra`
 **Date**: 2026-01-31
 **Status**: Planning Complete

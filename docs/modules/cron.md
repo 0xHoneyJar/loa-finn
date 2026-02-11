@@ -1,6 +1,6 @@
 # Cron — Scheduled Job System
 
-<!-- AGENT-CONTEXT: name=cron, type=module, purpose=Enterprise cron job orchestration with circuit breakers, key_files=[src/cron/service.ts, src/cron/job-registry.ts, src/cron/circuit-breaker.ts], interfaces=[CronService, JobRegistry, CircuitBreaker], dependencies=[croner, ulid], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=cron, type=module, purpose=Enterprise cron job orchestration with circuit breakers, key_files=[src/cron/service.ts, src/cron/job-registry.ts, src/cron/circuit-breaker.ts], interfaces=[CronService, JobRegistry, CircuitBreaker], dependencies=[croner, ulid], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/cron/service.ts, src/cron/job-registry.ts, src/cron/circuit-breaker.ts], trust_level=high, model_hints=[code,review] -->
 
 ## Purpose
 

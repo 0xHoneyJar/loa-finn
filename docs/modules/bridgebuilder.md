@@ -1,6 +1,6 @@
 # BridgeBuilder — PR Automation Pipeline
 
-<!-- AGENT-CONTEXT: name=bridgebuilder, type=module, purpose=Automated GitHub PR review with persona injection and R2 lease, key_files=[src/bridgebuilder/entry.ts, src/bridgebuilder/r2-client.ts, src/bridgebuilder/lease.ts], interfaces=[R2Client, RunLease], dependencies=[@aws-sdk/client-s3], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=bridgebuilder, type=module, purpose=Automated GitHub PR review with persona injection and R2 lease, key_files=[src/bridgebuilder/entry.ts, src/bridgebuilder/r2-client.ts, src/bridgebuilder/lease.ts], interfaces=[R2Client, RunLease], dependencies=[@aws-sdk/client-s3], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/bridgebuilder/entry.ts, src/bridgebuilder/r2-client.ts, src/bridgebuilder/lease.ts], trust_level=low, model_hints=[code,review] -->
 
 ## Purpose
 

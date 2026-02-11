@@ -1,5 +1,8 @@
 # Software Design Document: CLAUDE.md Context Loading Optimization
 
+> **Archived**: Loa upstream research (cycle-013).
+> No active decisions.
+
 **Version:** 1.0
 **Date:** 2026-02-02
 **Author:** Architecture Designer Agent

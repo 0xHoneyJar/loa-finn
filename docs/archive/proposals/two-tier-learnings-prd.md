@@ -1,5 +1,8 @@
 # Product Requirements Document: Two-Tier Learnings Architecture
 
+> **Archived**: Proposal for Loa upstream, not Finn-specific (cycle-013).
+> No active decisions.
+
 **Version**: 1.1.0
 **Status**: Draft
 **Author**: Claude (via /plan-and-analyze)

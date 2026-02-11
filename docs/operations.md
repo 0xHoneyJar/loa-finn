@@ -1,6 +1,6 @@
 # Operations Guide
 
-<!-- AGENT-CONTEXT: name=loa-finn-operations, type=operations, purpose=Deployment configuration monitoring and troubleshooting guide, key_files=[src/config.ts, src/index.ts, docker-compose.yml, docker-compose.gpu.yml, railway.toml], interfaces=[FinnConfig, Scheduler, HealthAggregator], dependencies=[hono, @hono/node-server, @aws-sdk/client-s3, ioredis], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=loa-finn-operations, type=operations, purpose=Deployment configuration monitoring and troubleshooting guide, key_files=[src/config.ts, src/index.ts, docker-compose.yml, docker-compose.gpu.yml, railway.toml], interfaces=[FinnConfig, Scheduler, HealthAggregator], dependencies=[hono, @hono/node-server, @aws-sdk/client-s3, ioredis], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/config.ts, src/index.ts, docker-compose.yml], trust_level=medium, model_hints=[code,fast] -->
 
 ## Prerequisites
 

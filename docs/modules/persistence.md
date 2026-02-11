@@ -1,6 +1,6 @@
 # Persistence — WAL, R2, Git Sync
 
-<!-- AGENT-CONTEXT: name=persistence, type=module, purpose=Three-tier durability with write-ahead log and cloud sync, key_files=[src/persistence/wal.ts, src/persistence/r2-storage.ts, src/persistence/git-sync.ts, src/persistence/recovery.ts], interfaces=[WAL, ICheckpointStorage, R2CheckpointStorage, GitSync, runRecovery], dependencies=[@aws-sdk/client-s3], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=persistence, type=module, purpose=Three-tier durability with write-ahead log and cloud sync, key_files=[src/persistence/wal.ts, src/persistence/r2-storage.ts, src/persistence/git-sync.ts, src/persistence/recovery.ts], interfaces=[WAL, ICheckpointStorage, R2CheckpointStorage, GitSync, runRecovery], dependencies=[@aws-sdk/client-s3], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/persistence/wal.ts, src/persistence/r2-storage.ts, src/persistence/recovery.ts], trust_level=high, model_hints=[code,review] -->
 
 ## Purpose
 

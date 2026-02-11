@@ -1,5 +1,8 @@
 # Autonomous Agent Integration Tests
 
+> **Archived**: Superseded by `CONTRIBUTING.md` testing section (cycle-013).
+> No active decisions.
+
 > **PR**: #82 - Autonomous Agent Orchestra Implementation
 > **Sprint**: 3 (Documentation & Testing)
 > **Date**: 2026-01-31

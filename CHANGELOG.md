@@ -1,4 +1,4 @@
-<!-- AGENT-CONTEXT: name=changelog, type=operations, purpose=Version history and release notes for Finn, key_files=[package.json, src/index.ts], interfaces=[], dependencies=[], version=8d60958b2aa46facc5298b0f73252c084b74943e -->
+<!-- AGENT-CONTEXT: name=changelog, type=operations, purpose=Version history and release notes for Finn, key_files=[package.json, src/index.ts], interfaces=[], dependencies=[], version=8d60958b2aa46facc5298b0f73252c084b74943e, priority_files=[package.json, src/index.ts], trust_level=low, model_hints=[code,fast] -->
 
 # Changelog
 
@@ -130,6 +130,16 @@ Finn follows [Semantic Versioning](https://semver.org/). The version in `package
 <!-- provenance: OPERATIONAL -->
 | Cycle | Version | Focus |
 |-------|---------|-------|
-| 001-002 | 0.0.1 | Initial setup, security foundation |
-| 003-005 | 0.1.0 | Persistence, sandbox, hounfour Phase 3 |
-| 006-013 | 0.2.0 | Hounfour Phase 5, bridgebuilder, docs rewrite |
+| 001 | 0.0.1 | loa-finn MVP: agent core, gateway, auth |
+| 002 | 0.0.1 | Adopt upstream Loa persistence framework |
+| 003 | 0.1.0 | Persistence hardening and tool sandbox |
+| 004 | 0.1.0 | Bridgebuilder: autonomous PR review agent |
+| 005 | 0.1.0 | Worker thread sandbox: non-blocking tool execution |
+| 006 | 0.2.0 | Hounfour Phases 0-2: multi-model provider abstraction |
+| 007 | 0.2.0 | Hounfour Phase 3: server integration and self-hosted inference |
+| 008 | 0.2.0 | Hounfour Phase 4: Arrakis distribution (Spice Gate) |
+| 009 | 0.2.0 | Hounfour Phase 5: integration and multi-model orchestration |
+| 010 | 0.2.0 | Ground Truth v1: factual GTM skill pack |
+| 011 | 0.2.0 | Ground Truth v2: verification hardening and incremental pipeline |
+| 012 | 0.2.0 | Bridgebuilder review hardening: PR #52 findings |
+| 013 | 0.2.0 | Documentation rewrite: complete loa-finn docs |

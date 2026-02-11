@@ -1,6 +1,6 @@
 # Scheduler — Periodic Task Management
 
-<!-- AGENT-CONTEXT: name=scheduler, type=module, purpose=Periodic task scheduling with circuit breaker isolation and health aggregation, key_files=[src/scheduler/scheduler.ts, src/scheduler/health.ts, src/scheduler/circuit-breaker.ts], interfaces=[Scheduler, HealthAggregator, CircuitBreaker], dependencies=[], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
+<!-- AGENT-CONTEXT: name=scheduler, type=module, purpose=Periodic task scheduling with circuit breaker isolation and health aggregation, key_files=[src/scheduler/scheduler.ts, src/scheduler/health.ts, src/scheduler/circuit-breaker.ts], interfaces=[Scheduler, HealthAggregator, CircuitBreaker], dependencies=[], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/scheduler/scheduler.ts, src/scheduler/health.ts, src/scheduler/circuit-breaker.ts], trust_level=low, model_hints=[code,review] -->
 
 ## Purpose
 
@@ -21,11 +21,11 @@ class Scheduler {
 }
 ```
 
-<!-- provenance: INFERRED -->
-**Task registration** accepts `id`, `name`, `intervalMs`, `jitterMs`, and `handler`. Jitter randomizes execution timing to prevent thundering herd patterns.
+<!-- provenance: CODE-FACTUAL -->
+**Task registration** accepts `id`, `name`, `intervalMs`, `jitterMs`, and `handler` (`src/scheduler/scheduler.ts:5`). Jitter randomizes execution timing to prevent thundering herd patterns.
 
-<!-- provenance: INFERRED -->
-**Timer management**: Uses `setInterval` with `.unref()` so timers don't prevent process exit during shutdown.
+<!-- provenance: CODE-FACTUAL -->
+**Timer management**: Uses `setInterval` with `.unref()` so timers don't prevent process exit during shutdown (`src/scheduler/scheduler.ts:123`).
 
 ### HealthAggregator (`src/scheduler/health.ts`)
 
@@ -35,13 +35,13 @@ class HealthAggregator {
 }
 ```
 
-<!-- provenance: INFERRED -->
-Runs on `HEALTH_INTERVAL_MS` (5m default). Collects status from all scheduler tasks, cron jobs, WAL, and provider health probes.
+<!-- provenance: CODE-FACTUAL -->
+Runs on `HEALTH_INTERVAL_MS` (5m default, `src/config.ts:179`). Collects status from all scheduler tasks, cron jobs, WAL, and provider health probes.
 
 ### CircuitBreaker (`src/scheduler/circuit-breaker.ts`)
 
-<!-- provenance: INFERRED -->
-Per-task circuit breaker with configurable thresholds.
+<!-- provenance: CODE-FACTUAL -->
+Per-task circuit breaker with configurable thresholds. States: `closed`, `open`, `half-open` (`src/scheduler/circuit-breaker.ts:3`).
 
 | State | Behavior |
 |-------|----------|
@@ -49,8 +49,8 @@ Per-task circuit breaker with configurable thresholds.
 | OPEN | All executions blocked, waiting for recovery interval |
 | HALF_OPEN | Single test execution allowed |
 
-<!-- provenance: INFERRED -->
-Transition: failure count exceeds threshold → OPEN → recovery interval expires → HALF_OPEN → success → CLOSED.
+<!-- provenance: CODE-FACTUAL -->
+Transition: failure count exceeds `failureThreshold` (default 3, `src/scheduler/circuit-breaker.ts:6`) → OPEN → `cooldownMs` expires (default 300s, `src/scheduler/circuit-breaker.ts:37`) → HALF_OPEN → success → CLOSED (`src/scheduler/circuit-breaker.ts:27`).
 
 ## Registered Tasks
 
