@@ -90,8 +90,8 @@ while IFS= read -r doc_path; do
     continue
   fi
 
-  # Run stats
-  stats_json=$("$STATS_SCRIPT" "$doc_path" --json 2>/dev/null || echo '{"error":"stats_failed"}')
+  # Run stats — pipe through jq -c to guarantee single-line compact JSON (BridgeBuilder F2 PR#59)
+  stats_json=$("$STATS_SCRIPT" "$doc_path" --json 2>/dev/null | jq -c . 2>/dev/null || echo '{"error":"stats_failed"}')
 
   # Check for error
   if echo "$stats_json" | jq -e '.error' &>/dev/null; then
@@ -147,7 +147,7 @@ fi
 # ── Read configurable threshold for unqualified INFERRED (Task 2.2) ──
 # shellcheck source=shared/read-config.sh
 source "$SCRIPT_DIR/shared/read-config.sh"
-MAX_UNQUALIFIED=$(read_config "ground_truth.thresholds.max_unqualified_inferred" "10")
+MAX_UNQUALIFIED=$(read_config "ground_truth.provenance.thresholds.max_unqualified_inferred" "10")
 
 # ── Build snapshot record ──
 snapshot=$(jq -nc \
@@ -201,6 +201,7 @@ snapshot=$(jq -nc \
   }')
 
 # ── Output ──
+# Strict enforcement runs after output — CI captures diagnostics before non-zero exit (BridgeBuilder F1 PR#59)
 if $JSON_ONLY; then
   echo "$snapshot"
 else
