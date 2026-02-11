@@ -1,0 +1,35 @@
+{
+  "description": "Standard OpenAI completion response",
+  "provider_type": "openai",
+  "raw_response": {
+    "id": "chatcmpl-abc123",
+    "object": "chat.completion",
+    "created": 1707350400,
+    "model": "gpt-4o-2024-08-06",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Hello! How can I help you today?"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 12,
+      "completion_tokens": 9,
+      "total_tokens": 21
+    }
+  },
+  "expected": {
+    "content": "Hello! How can I help you today?",
+    "thinking": null,
+    "tool_calls": null,
+    "usage": {
+      "prompt_tokens": 12,
+      "completion_tokens": 9,
+      "reasoning_tokens": 0
+    }
+  }
+}

@@ -4,12 +4,6 @@ export interface CLIArgs {
     repos?: string[];
     pr?: number;
     noAutoDetect?: boolean;
-    maxInputTokens?: number;
-    maxOutputTokens?: number;
-    maxDiffBytes?: number;
-    model?: string;
-    persona?: string;
-    exclude?: string[];
 }
 export interface YamlConfig {
     enabled?: boolean;
@@ -26,8 +20,6 @@ export interface YamlConfig {
     exclude_patterns?: string[];
     sanitizer_mode?: "default" | "strict";
     max_runtime_minutes?: number;
-    loa_aware?: boolean;
-    persona?: string;
 }
 export interface EnvVars {
     BRIDGEBUILDER_REPOS?: string;
@@ -58,9 +50,6 @@ export interface ConfigProvenance {
     repos: ConfigSource;
     model: ConfigSource;
     dryRun: ConfigSource;
-    maxInputTokens: ConfigSource;
-    maxOutputTokens: ConfigSource;
-    maxDiffBytes: ConfigSource;
 }
 /**
  * Format effective config for logging (secrets redacted).

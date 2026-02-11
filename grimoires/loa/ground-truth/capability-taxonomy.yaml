@@ -1,0 +1,32 @@
+# Ground Truth Capability Taxonomy — TEAM-CURATED
+# Top-level capability categories for the Capability Brief.
+# Every feature in features.yaml must map to one of these categories.
+
+capabilities:
+  - id: persistence
+    name: Durable State Management
+    description: Write-ahead logging, R2 object storage sync, git sync, checkpoint recovery, and pruning
+
+  - id: orchestration
+    name: Multi-Model Orchestration
+    description: Provider abstraction, dynamic routing, budget enforcement, tool-call orchestration, and ensemble strategies
+
+  - id: review
+    name: Autonomous Code Review
+    description: GitHub PR review pipeline, policy enforcement, and BridgeBuilder persona integration
+
+  - id: learning
+    name: Compound Learning
+    description: Trajectory capture, candidate extraction, quality gates, and persistent learning storage
+
+  - id: scheduling
+    name: Job Scheduling & Lifecycle
+    description: Cron orchestration, circuit breakers, rate limiting, kill switches, and health aggregation
+
+  - id: safety
+    name: Safety & Audit Infrastructure
+    description: Audit trail, alert service, GitHub firewall, tool sandbox, secret redaction, and boot validation
+
+  - id: gateway
+    name: HTTP Gateway & Dashboard
+    description: API server, authentication, session management, WebSocket, streaming, and activity feeds

@@ -1677,3 +1677,40 @@ simstim:
       - beads
   defaults:
     timeout_hours: 24
+
+# =============================================================================
+# Ground Truth Provenance Configuration (v1.31.0 — cycle-016)
+# =============================================================================
+# Configurable parameters for the provenance verification pipeline.
+# Scripts read these via shared/read-config.sh (yq v4+ preferred, grep fallback).
+ground_truth:
+  provenance:
+    # Citation hint window: how many lines to scan in each direction when
+    # a cited line is blank or out of range. Code rarely shifts more than
+    # a few lines between commits; 5 covers most single-function edits.
+    hint_scan_radius: 5
+    # Trust-level thresholds for provenance-stats.sh
+    # trust_ratio = (CODE-FACTUAL + DERIVED) / tagged_blocks
+    thresholds:
+      high: 0.90     # Documents with >=90% verifiable claims
+      medium: 0.60   # Documents with >=60% verifiable claims
+    # Maximum unqualified INFERRED blocks before --strict mode fails
+    max_unqualified_inferred: 10
+    # Path to the DERIVED script allowlist file
+    derived_script_allowlist_path: .claude/scripts/ground-truth/shared/derived-script-allowlist.txt
+  # Provenance-based model routing hints (Hounfour Phase 5+ integration)
+  # Declares which model profile to prefer/avoid based on document trust level
+  provenance_routing:
+    high_trust:       { prefer: "fast-code", avoid: "reasoning" }
+    medium_trust:     { prefer: "reviewer", fallback: "reasoning" }
+    low_trust:        { prefer: "reasoning", require_review: true }
+    high_pending:     { prefer: "fast-code", tool_calling: required }
+    high_unqualified: { prefer: "reasoning", auto_commit: false }
+
+# =============================================================================
+# Bridgebuilder Configuration
+# =============================================================================
+# Review marker for backward compatibility with existing reviewed PRs.
+# Upstream resolveConfig() picks this up at level 3 (YAML config) precedence.
+bridgebuilder:
+  reviewMarker: finn-review

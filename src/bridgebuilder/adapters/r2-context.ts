@@ -1,103 +1,182 @@
 // src/bridgebuilder/adapters/r2-context.ts
+// R2ContextStore: implements upstream IContextStore using atomic conditional writes.
+// Claim keys use owner/repo/prNumber for per-PR idempotency.
+// context.json uses putIfMatch with ETag for optimistic concurrency.
 
-import type { IContextStore, ContextData } from "../ports/index.js"
-import type { R2CheckpointStorage } from "../../persistence/r2-storage.js"
+import type { IContextStore, ReviewResult } from "../upstream.js"
+import type { IR2Client } from "../r2-client.js"
 
 const CONTEXT_KEY = "bridgebuilder/context.json"
-const IDEM_PREFIX = "bridgebuilder/reviewed/"
-
-/** In-progress claims expire after this many minutes (allows retry on failure). */
+const CLAIM_PREFIX = "bridgebuilder/claims/"
+const MAX_ENTRIES = 1000
 const CLAIM_TTL_MINUTES = 10
 
-const EMPTY_CONTEXT: ContextData = {
-  reviews: [],
-  stats: { totalRuns: 0, totalReviews: 0 },
+interface HashEntry {
+  hash: string
+  updatedAt: string
+}
+
+interface ContextData {
+  hashes: Record<string, HashEntry>  // key: "owner/repo/prNumber"
 }
 
 interface ClaimRecord {
   status: "in-progress" | "posted"
   claimedAt: string
-  expiresAt?: string  // only set for in-progress
-  postedAt?: string   // only set for posted
+  expiresAt?: string
+  postedAt?: string
 }
 
-/**
- * R2-backed context store with two-phase idempotency claims.
- *
- * R2 does not support true CAS (conditional writes). The claimReview
- * check-then-write has a small race window. This is acceptable because:
- * 1. The GitHub marker is the primary idempotency gate — checked first
- *    AND re-checked before posting in ReviewPipeline.reviewItem.
- * 2. The R2-backed lease with read-after-write verification prevents
- *    most concurrent runs.
- * 3. The R2 claim is defense-in-depth, not the sole authority.
- * 4. Claims use a two-phase lifecycle: claimReview writes "in-progress"
- *    with TTL, finalizeReview upgrades to permanent "posted".
- * 5. Permanent "posted" claims are never overwritten.
- */
-export class R2ContextAdapter implements IContextStore {
-  constructor(private readonly r2: R2CheckpointStorage) {}
+const EMPTY_CONTEXT: ContextData = { hashes: {} }
 
-  async load(): Promise<ContextData> {
-    const buf = await this.r2.readFile(CONTEXT_KEY)
-    if (!buf) return { ...EMPTY_CONTEXT, reviews: [], stats: { ...EMPTY_CONTEXT.stats } }
-    try {
-      return JSON.parse(buf.toString("utf-8")) as ContextData
-    } catch {
-      return { ...EMPTY_CONTEXT, reviews: [], stats: { ...EMPTY_CONTEXT.stats } }
+export class R2ContextStore implements IContextStore {
+  private data: ContextData = { ...EMPTY_CONTEXT, hashes: {} }
+  private contextEtag: string | undefined
+
+  constructor(private readonly r2: IR2Client) {}
+
+  async load(): Promise<void> {
+    const result = await this.r2.get(CONTEXT_KEY)
+    if (result) {
+      try {
+        this.data = JSON.parse(result.data) as ContextData
+        this.contextEtag = result.etag
+      } catch {
+        this.data = { ...EMPTY_CONTEXT, hashes: {} }
+        this.contextEtag = undefined
+      }
     }
   }
 
-  async save(data: ContextData): Promise<void> {
-    const buf = Buffer.from(JSON.stringify(data), "utf-8")
-    await this.r2.writeFile(CONTEXT_KEY, buf)
+  async getLastHash(owner: string, repo: string, prNumber: number): Promise<string | null> {
+    const key = `${owner}/${repo}/${prNumber}`
+    return this.data.hashes[key]?.hash ?? null
+  }
+
+  async setLastHash(owner: string, repo: string, prNumber: number, hash: string): Promise<void> {
+    const key = `${owner}/${repo}/${prNumber}`
+    const entry: HashEntry = { hash, updatedAt: new Date().toISOString() }
+    this.data.hashes[key] = entry
+    this.evictIfNeeded()
+    await this.persistContext(key, entry)
   }
 
   /**
-   * Two-phase claim: writes "in-progress" with TTL.
-   * Returns false if a valid claim exists (posted, or in-progress and not expired).
-   * Expired in-progress claims are overwritten (allows retry after failure).
+   * Atomic claim acquisition using putIfAbsent (If-None-Match: *).
+   * No read-then-write race — the S3 API rejects the write if key already exists.
+   * Expired in-progress claims are deleted first to allow retry.
    */
-  async claimReview(repo: string, prNumber: number, headSha: string): Promise<boolean> {
-    const key = `${IDEM_PREFIX}${repo}/${prNumber}/${headSha}`
+  async claimReview(owner: string, repo: string, prNumber: number): Promise<boolean> {
+    const claimKey = this.claimKey(owner, repo, prNumber)
 
-    // Check existing claim
-    const existing = await this.r2.readFile(key)
+    // Check for existing claim — may need to clean up expired ones
+    const existing = await this.r2.get(claimKey)
     if (existing) {
       try {
-        const record = JSON.parse(existing.toString("utf-8")) as ClaimRecord
-        // Permanent "posted" claims are never overwritten
+        const record = JSON.parse(existing.data) as ClaimRecord
         if (record.status === "posted") return false
-        // In-progress claims expire after TTL — allow retry
         if (record.expiresAt && new Date(record.expiresAt) > new Date()) {
           return false // Still in progress, not expired
         }
-        // Expired in-progress — fall through to overwrite
+        // Expired in-progress — delete to allow atomic re-claim
+        await this.r2.delete(claimKey)
       } catch {
-        // Corrupt claim — overwrite
+        // Corrupt claim — delete and retry
+        await this.r2.delete(claimKey)
       }
     }
 
-    // Write in-progress claim with TTL
+    // Atomic create — only succeeds if no key exists
     const now = new Date()
     const claim: ClaimRecord = {
       status: "in-progress",
       claimedAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + CLAIM_TTL_MINUTES * 60_000).toISOString(),
     }
-    return this.r2.writeFile(key, Buffer.from(JSON.stringify(claim), "utf-8"))
+    const result = await this.r2.putIfAbsent(claimKey, JSON.stringify(claim))
+    return result.created
   }
 
   /**
    * Finalize claim after successful post. Upgrades to permanent "posted" record.
+   * Also persists the review hash to context.json with optimistic concurrency.
    */
-  async finalizeReview(repo: string, prNumber: number, headSha: string): Promise<void> {
-    const key = `${IDEM_PREFIX}${repo}/${prNumber}/${headSha}`
+  async finalizeReview(owner: string, repo: string, prNumber: number, result: ReviewResult): Promise<void> {
+    const claimKey = this.claimKey(owner, repo, prNumber)
     const record: ClaimRecord = {
       status: "posted",
       claimedAt: new Date().toISOString(),
       postedAt: new Date().toISOString(),
     }
-    await this.r2.writeFile(key, Buffer.from(JSON.stringify(record), "utf-8"))
+
+    // Read existing claim to get ETag for conditional upgrade
+    const existing = await this.r2.get(claimKey)
+    if (existing?.etag) {
+      const upgraded = await this.r2.putIfMatch(claimKey, JSON.stringify(record), existing.etag)
+      if (!upgraded.updated) {
+        // Claim was concurrently modified — unconditional write as fallback
+        await this.r2.put(claimKey, JSON.stringify(record))
+      }
+    } else {
+      await this.r2.put(claimKey, JSON.stringify(record))
+    }
+
+    // Update hash in context for change detection
+    if (result.item) {
+      const hashKey = `${owner}/${repo}/${prNumber}`
+      const entry: HashEntry = { hash: result.item.hash, updatedAt: new Date().toISOString() }
+      this.data.hashes[hashKey] = entry
+      this.evictIfNeeded()
+      await this.persistContext(hashKey, entry)
+    }
+  }
+
+  private claimKey(owner: string, repo: string, prNumber: number): string {
+    return `${CLAIM_PREFIX}${owner}/${repo}/${prNumber}`
+  }
+
+  /** FIFO eviction: remove oldest entries when exceeding MAX_ENTRIES. */
+  private evictIfNeeded(): void {
+    const keys = Object.keys(this.data.hashes)
+    if (keys.length <= MAX_ENTRIES) return
+
+    const sorted = keys.sort((a, b) => {
+      const aTime = this.data.hashes[a].updatedAt
+      const bTime = this.data.hashes[b].updatedAt
+      return aTime.localeCompare(bTime)
+    })
+
+    const toRemove = sorted.slice(0, keys.length - MAX_ENTRIES)
+    for (const key of toRemove) {
+      delete this.data.hashes[key]
+    }
+  }
+
+  /**
+   * Persist context.json with optimistic concurrency.
+   * Uses putIfMatch when we have an ETag, retries on 412 with fresh read.
+   * On conflict, re-applies the pending change after reloading remote state.
+   */
+  private async persistContext(pendingKey?: string, pendingEntry?: HashEntry): Promise<void> {
+    const json = JSON.stringify(this.data)
+
+    if (this.contextEtag) {
+      const result = await this.r2.putIfMatch(CONTEXT_KEY, json, this.contextEtag)
+      if (result.updated) {
+        this.contextEtag = result.etag
+        return
+      }
+      // 412 — stale ETag, re-read remote state and re-apply our pending change
+      await this.load()
+      if (pendingKey && pendingEntry) {
+        this.data.hashes[pendingKey] = pendingEntry
+        this.evictIfNeeded()
+      }
+    }
+
+    // No ETag or retry after conflict — unconditional write with fresh data
+    const freshJson = JSON.stringify(this.data)
+    const putResult = await this.r2.put(CONTEXT_KEY, freshJson)
+    this.contextEtag = putResult.etag
   }
 }

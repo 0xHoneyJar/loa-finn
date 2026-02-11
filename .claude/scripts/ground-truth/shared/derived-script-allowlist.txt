@@ -1,0 +1,11 @@
+# Derived Script Allowlist — scripts valid for DERIVED provenance paragraph references
+# One script name per line. Lines starting with # and blank lines are ignored.
+# Entries are matched as backtick-wrapped references: `script-name`
+# To add a new valid script, add its filename here (no path needed).
+
+provenance-stats.sh
+extract-doc-deps.sh
+quality-gates.sh
+generation-manifest.json
+verify-citations.sh
+check-provenance.sh

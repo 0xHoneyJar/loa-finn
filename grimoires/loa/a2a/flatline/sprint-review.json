@@ -1,0 +1,14 @@
+{
+  "phase": "sprint",
+  "document": "grimoires/loa/sprint-docs-rewrite.md",
+  "timestamp": "2026-02-10T23:47:14Z",
+  "consensus_summary": {
+    "high_consensus_count": 4,
+    "disputed_count": 0,
+    "low_value_count": 0,
+    "blocker_count": 6,
+    "model_agreement_percent": 100
+  },
+  "high_consensus": ["IMP-001", "IMP-002", "IMP-005", "IMP-010"],
+  "blockers": ["SKP-001", "SKP-002", "SKP-003", "SKP-004", "SKP-007", "SKP-010"]
+}

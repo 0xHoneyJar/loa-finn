@@ -1,0 +1,62 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "The overall generate→deterministic-verify firewall is sound, but several script specs and integration assumptions are currently underspecified or internally inconsistent in ways that will prevent a reliable implementation and can cause false passes/fails or a non-converging repair loop.",
+  "blocking_issues": [
+    {
+      "location": "3.3.1 verify-citations.sh (CONTENT_MATCH) + 5.3 Repair rules",
+      "issue": "CONTENT_MATCH relies on extracting “key identifiers from the claim text (nouns after 'uses', 'calls', 'implements')” and requiring at least one to appear in the cited lines, but this heuristic is not deterministic enough to be correct across writing styles and will produce both false failures (blocking output) and false passes (letting hallucinated claims through).",
+      "why_blocking": "This gate is the core factuality guarantee. If it’s noisy, the repair loop will churn (can’t reliably satisfy a brittle heuristic) or, worse, will pass incorrect claims because a common token happens to appear in the cited range. Either outcome breaks the project’s primary requirement: factual, code-grounded docs with deterministic verification.",
+      "fix": "Replace CONTENT_MATCH with a deterministic, author-controlled claim→evidence contract. Example: require each CODE-FACTUAL paragraph to include an explicit evidence anchor list like `<!-- evidence: symbol=writeEntry, symbol=flock, literal=\"O_EXCL\" -->` or a required `Evidence:` line containing exact tokens/regexes that must appear in the cited range. The generator must emit these anchors; the verifier only checks anchors against extracted lines. Keep the heuristic only as a non-blocking warning if desired."
+    },
+    {
+      "location": "3.3.1 verify-citations.sh (citation extraction) + 9.2 Output Safety",
+      "issue": "Citation extraction is described as regex over backtick-wrapped `path/file.ext:NN(-MM)` but there is no explicit normalization/validation of paths (e.g., `../`, leading `/`, symlinks) before passing them to `sed`, and the design assumes 'git ls-files' prevents traversal. It doesn’t fully, especially with odd pathspecs or if the repo contains symlinks.",
+      "why_blocking": "A verifier that reads arbitrary paths is a security boundary violation for a tool intended to run in developer environments. Even if Loa zones restrict writes, reads of unintended files can leak secrets into JSON reports or logs. Also, path edge cases will cause spurious failures on legitimate citations (spaces, unicode, submodules).",
+      "fix": "Enforce a strict allowlist for citation paths before any file read: (1) reject any path containing `..`, starting with `/`, or containing control chars; (2) require `git ls-files -z -- <path>` exact match and then resolve to a repo-relative path; (3) optionally require path prefix allowlist (e.g., `src/`, `grimoires/`, `packages/` as needed). Also explicitly handle spaces via NUL-delimited plumbing (`-z`) and safe bash arrays."
+    },
+    {
+      "location": "3.3.2 scan-banned-terms.sh",
+      "issue": "The script requires context-aware skipping (HTML comment blocks, fenced code blocks, blockquotes) but the spec only describes it in prose and proposes `grep -i -n` per term. Implementing correct skipping with grep alone is brittle and will misclassify content, causing frequent blocking failures or letting banned terms through.",
+      "why_blocking": "Banned-term scanning is a blocking gate. If it false-positives on common markdown constructs, the pipeline will halt often and the repair loop will waste iterations on non-issues. If it false-negatives, it fails the PRD’s tone constraints.",
+      "fix": "Define a deterministic markdown preprocessor step for scanning: strip fenced code blocks, strip blockquotes, and optionally strip HTML comment blocks by a simple state machine (awk) before running term matching. Specify exact rules (e.g., GitHub fenced blocks start with ^```; blockquote lines start with ^>; HTML comment blocks start with <!-- and end with -->). Then run a single combined regex (terms joined with alternation) to avoid per-term grep complexity. Document exit codes for unreadable input (currently missing)."
+    },
+    {
+      "location": "3.3.3 check-provenance.sh (paragraph detection) + templates",
+      "issue": "The definition of 'paragraphs' excludes headings, code blocks, tables, frontmatter, but the spec doesn’t define a robust parser for markdown constructs (tables, lists, multi-line blockquotes, HTML comments). This will lead to inconsistent TAG_COVERAGE results depending on formatting, and can make it impossible for the generator to satisfy the gate reliably.",
+      "why_blocking": "Provenance is a blocking gate and a core product feature (paragraph-level classification). If the verifier’s paragraph segmentation is ambiguous, the LLM cannot reliably produce output that passes, and repair will oscillate by reformatting rather than fixing facts.",
+      "fix": "Narrow and formalize the required tagging surface: e.g., require provenance tags only for paragraphs that start with a non-whitespace, non-markdown-control line, and explicitly exempt lists/tables OR require tags per list item/table section. Implement a simple deterministic state machine (awk) with explicit states: in_frontmatter, in_fence, in_table, in_html_comment. Add golden test fixtures for common markdown patterns."
+    },
+    {
+      "location": "3.2 SKILL.md frontmatter allowed-tools + 6.1 /ride integration",
+      "issue": "allowed-tools restricts Bash to `.claude/scripts/ground-truth/*, git log*, git ls-files*` but the design requires running `stat`, `date`, `sed`, `grep`, `jq`, `yq`, `find`, and reading arbitrary repo files for repair. In Loa/Claude tool permission models, restricting Bash by command globs can prevent these from executing, making the pipeline non-implementable as written.",
+      "why_blocking": "If the agent cannot execute the required commands, verification and inventory cannot run, and the skill cannot function. This is a hard integration failure, not a quality issue.",
+      "fix": "Align permissions with the actual execution model: either (A) keep Bash restricted to your wrapper scripts only, and ensure every external command is invoked inside those scripts (so the agent only runs `quality-gates.sh`, `inventory-modules.sh`, etc.), or (B) expand allowed-tools to permit the needed commands explicitly. Also specify how the repair loop reads cited files: via Read tool (preferred) rather than arbitrary bash `sed` from the agent."
+    },
+    {
+      "location": "4.3 Context Loading Strategy (priority order) vs templates",
+      "issue": "Document template is listed as lowest priority, but templates contain mandatory structural constraints (required sections, required provenance expectations). If templates are truly lowest priority, generation can violate structure and then fail quality gates (Limitations section, analogy frequency, provenance coverage).",
+      "why_blocking": "This creates a systematic failure mode where generation doesn’t reliably satisfy deterministic gates, pushing work into the repair loop that cannot be fixed without re-generation. That risks non-convergence within 3 iterations.",
+      "fix": "Treat templates as a hard constraint, not low-priority context: load template requirements early and enforce them in the generation prompt as non-negotiable output schema. Keep voice/analogies as lower priority. Update the priority list to reflect 'constraints first' (template + provenance rules + gate requirements)."
+    },
+    {
+      "location": "3.3.5 inventory-modules.sh + 3.4 registries",
+      "issue": "inventory-modules.sh claims to cross-reference features.yaml/limitations.yaml using yq, but the spec doesn’t define the join key semantics (module path vs feature name), nor how to handle multiple modules per feature, directories in capability taxonomy, or missing entries. This will produce unstable inventories and break downstream generation that expects consistent status classification.",
+      "why_blocking": "The inventory output is a primary structured input to generation and citation selection. If it’s inconsistent, the generator will cite wrong files or omit required capabilities, causing repeated verification failures.",
+      "fix": "Define canonical keys: e.g., features entries must include `id` and `modules: [path...]` (not a single module string), and inventory output must emit `module_path`, `feature_ids[]`, `status`, `category`. Specify behavior for missing registry matches (status=unknown, warning only) and for multiple matches (error or deterministic tie-break)."
+    },
+    {
+      "location": "6.3 Flatline Protocol Integration",
+      "issue": "The SDD references `flatline-orchestrator.sh` but it is not included in the directory structure nor specified (inputs/outputs/exit codes). Yet the pipeline diagram implies it can run in-line after PASS.",
+      "why_blocking": "This is a missing component that will break execution if enabled in config or invoked with `--flatline`. Even if optional, the integration point must be implementable or explicitly out-of-scope for v1.0.0.",
+      "fix": "Either (A) include a stub script with defined interface that returns a clear 'SKIPPED' status when unavailable, or (B) remove the integration from v1.0.0 and mark it as Phase 2/3 with a separate SDD section. Also specify how `.loa.config.yaml` is read (yq path) and what happens if it’s missing."
+    },
+    {
+      "location": "8.1 Failure modes: 'features.yaml missing' recovery",
+      "issue": "Recovery says: 'Generate minimal version from inventory-modules.sh output; warn user to curate' but earlier states registries are team-curated and generator never writes them. This is a direct contradiction that will cause either policy violation or runtime failure when the file is missing.",
+      "why_blocking": "On a fresh repo clone or branch, missing registries is plausible. If the system both refuses to write registries and depends on them, it will halt or violate its own constraints.",
+      "fix": "Pick one: (A) Make registries required inputs and fail fast with a clear message and a bootstrap command, or (B) allow auto-generation into a separate file (e.g., `features.generated.yaml`) that is explicitly not committed, and keep `features.yaml` optional. Update scripts and SKILL.md accordingly."
+    }
+  ],
+  "question": "",
+  "iteration": 1
+}

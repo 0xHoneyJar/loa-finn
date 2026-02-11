@@ -1,0 +1,33 @@
+{
+  "verdict": "APPROVED",
+  "summary": "All previously blocking dependency/ordering, TTL semantics, ensemble scorer integration, manifest schema contract, and grep -P portability issues were addressed with explicit sequencing, algorithms, and testable acceptance criteria, and no new truly blocking problems were introduced.",
+  "previous_issues_status": [
+    {
+      "original_issue": "parse-sections.sh top-level JSON shape change (array→object) lacked explicit atomic sequencing across producer/consumers/tests, risking CI breakage mid-sprint",
+      "status": "fixed",
+      "notes": "Sprint 1 now calls out CRITICAL ORDERING and explicitly requires Task 1.4 to be an atomic changeset including all consumer updates and fixture/test updates, and Task 1.1 changes to parse-sections.sh must be with/after 1.4. This resolves the dependency/rollout risk."
+    },
+    {
+      "original_issue": "JTI replay protection TTL semantics underspecified/contradictory (how ttl derived from exp/now/skew; ordering vs claims validation; edge cases)",
+      "status": "fixed",
+      "notes": "Task 3.2 now defines an explicit TTL derivation algorithm with clamp + clock skew + min/max bounds, explicitly states validation ordering (claims first, then replay guard), and adds concrete tests for short/long-lived tokens, expired token, skew boundary, and replay timing."
+    },
+    {
+      "original_issue": "Ensemble best_of_n ‘quality gate pass rate’ claim lacked an explicit production integration task to actually run deterministic gates from TypeScript (sandboxing/timeouts/parsing/failure modes)",
+      "status": "fixed",
+      "notes": "Task 3.3 now includes Part B: a QualityGateScorer adapter that writes temp artifacts, spawns quality-gates.sh in the tool sandbox, parses JSON to compute pass-rate score, enforces timeouts/budget, defines failure behavior (score=0, no throw), and includes an integration test asserting correct selection."
+    },
+    {
+      "original_issue": "Dynamic REAL_CITATIONS depended on generation-manifest.json schema but plan didn’t pin/validate schema or ensure required fields exist deterministically",
+      "status": "fixed",
+      "notes": "Task 2.1 adds an explicit schema contract, a contract test that generates a manifest and asserts required citation paths are present/non-empty, version-warning behavior, and a deterministic fallback to hardcoded citations when missing/empty."
+    },
+    {
+      "original_issue": "TF-IDF precision task used grep -oP/-P (PCRE) which is non-portable; lacked toolchain enforcement or portable alternative",
+      "status": "fixed",
+      "notes": "Task 1.2 explicitly eliminates grep -P, specifies awk/perl portable word-boundary matching, and adds a portability preflight check with actionable failure messaging plus a dedicated test for substring false positives (WAL vs WALManager)."
+    }
+  ],
+  "new_blocking_concerns": [],
+  "iteration": 2
+}

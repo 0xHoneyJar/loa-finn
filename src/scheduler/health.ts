@@ -57,6 +57,11 @@ export interface HealthStatus {
       status: string
       stats?: WorkerPoolStats
     }
+    hounfour?: {
+      status: string
+      providers?: Record<string, { healthy: boolean; models: Record<string, { healthy: boolean }> }>
+      budget?: { spent_usd: number; limit_usd: number; percent_used: number }
+    }
   }
 }
 
@@ -72,6 +77,9 @@ export interface HealthDeps {
   getIdentityStatus: () => { checksum: string; watching: boolean }
   getLearningCounts: () => { total: number; active: number }
   getWorkerPoolStats: () => WorkerPoolStats | undefined
+  getProviderHealth?: () => Record<string, { healthy: boolean; models: Record<string, { healthy: boolean }> }> | undefined
+  getBudgetSnapshot?: () => { spent_usd: number; limit_usd: number; percent_used: number } | undefined
+  getRedisHealth?: () => Promise<{ connected: boolean; latencyMs: number }>
 }
 
 export class HealthAggregator {
@@ -131,6 +139,17 @@ export class HealthAggregator {
         status: poolStats ? "ok" : "disabled",
         stats: poolStats,
       },
+    }
+
+    // Optional: Hounfour provider health
+    const providerHealth = this.deps.getProviderHealth?.()
+    const budgetSnapshot = this.deps.getBudgetSnapshot?.()
+    if (providerHealth || budgetSnapshot) {
+      checks.hounfour = {
+        status: "ok",
+        providers: providerHealth,
+        budget: budgetSnapshot,
+      }
     }
 
     // Compute overall status

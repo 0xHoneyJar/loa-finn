@@ -1,0 +1,37 @@
+{
+  "description": "Moonshot Kimi-K2 thinking trace response (reasoning_content extraction)",
+  "provider_type": "openai-compatible",
+  "raw_response": {
+    "id": "cmpl-kimi-think",
+    "object": "chat.completion",
+    "created": 1707350400,
+    "model": "kimi-k2-thinking",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "The answer is 42.",
+          "reasoning_content": "Let me think step by step about this problem. First, I need to consider the factors involved. The question asks about the meaning of life, which according to Douglas Adams is 42."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 15,
+      "completion_tokens": 6,
+      "total_tokens": 21,
+      "reasoning_tokens": 45
+    }
+  },
+  "expected": {
+    "content": "The answer is 42.",
+    "thinking": "Let me think step by step about this problem. First, I need to consider the factors involved. The question asks about the meaning of life, which according to Douglas Adams is 42.",
+    "tool_calls": null,
+    "usage": {
+      "prompt_tokens": 15,
+      "completion_tokens": 6,
+      "reasoning_tokens": 45
+    }
+  }
+}

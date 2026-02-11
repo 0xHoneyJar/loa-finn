@@ -18,7 +18,7 @@
     "test:upstream": "vitest run --config .claude/lib/persistence/vitest.config.ts",
     "bridgebuilder": "tsx src/bridgebuilder/entry.ts",
     "bridgebuilder:dry-run": "BRIDGEBUILDER_DRY_RUN=true tsx src/bridgebuilder/entry.ts",
-    "test:bridgebuilder": "tsx tests/finn/bridgebuilder-github.test.ts && tsx tests/finn/bridgebuilder-integration.test.ts && tsx tests/finn/bridgebuilder-launch.test.ts"
+    "test:bridgebuilder": "tsx tests/finn/bridgebuilder-r2-context.test.ts && tsx tests/finn/bridgebuilder-launch.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.984.0",
@@ -29,6 +29,7 @@
     "@sinclair/typebox": "^0.34.48",
     "croner": "^10.0.1",
     "hono": "^4.0.0",
+    "jose": "^6.1.3",
     "ulid": "^2.0.0",
     "ws": "^8.19.0"
   },
@@ -38,6 +39,9 @@
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",
     "vitest": "^4.0.18"
+  },
+  "imports": {
+    "#upstream-bridgebuilder/*": "./.claude/skills/bridgebuilder-review/dist/*"
   },
   "engines": {
     "node": ">=22"

@@ -1,0 +1,33 @@
+{
+  "verdict": "APPROVED",
+  "summary": "All previously-blocking items (WS auth binding, req_hash feasibility, usage report durability, budget arithmetic consistency, and cross-repo contract clarity) are addressed with concrete, testable acceptance criteria and no new blocking issues introduced.",
+  "previous_issues_status": [
+    {
+      "original_issue": "WebSocket auth design was underspecified/incorrect (nonce challenge + JWT in query param without a verifiable binding).",
+      "status": "fixed",
+      "notes": "Nonce challenge is removed and replaced with a concrete, implementable scheme: validate JWT on upgrade + require jti + Redis TTL replay protection + enforce max token lifetime for WS. This is testable (duplicate jti rejected) and matches the reality that clients cannot sign challenges with the JWT signing key."
+    },
+    {
+      "original_issue": "Usage report dead-letter durability depended on R2/S3 without infra/deps plan; risk of blocking implementation/tests.",
+      "status": "fixed",
+      "notes": "Dead-letter is now Redis ZSET (atomic enough for this scope) with a local JSONL fallback if Redis is unavailable, and R2/S3 is explicitly deferred. This removes the external infra blocker and is covered by integration tests (arrakis down → queue → replay)."
+    },
+    {
+      "original_issue": "req_hash verification approach (ReadableStream tee) likely infeasible; needed a concrete raw-body plan and Content-Encoding stance.",
+      "status": "fixed",
+      "notes": "Plan is now buffer raw bytes once (<=1MB), hash those bytes, then parse JSON from the same buffer; plus explicit rejection of non-identity Content-Encoding with a defined 415 error. This is implementable in Hono/Node and testable (gzip rejected, empty body hash defined)."
+    },
+    {
+      "original_issue": "Budget arithmetic inconsistency (BigInt vs number) and conflicting drift thresholds between exit criteria and tests.",
+      "status": "fixed",
+      "notes": "The plan now unifies on integer Number arithmetic with explicit overflow guardrails and uses BigInt only as a test oracle. Drift criteria are aligned: deterministic vectors require 0 drift; randomized 10k allows ≤ max(1 micro, 0.1%). T-A.10 matches Sprint A exit criteria."
+    },
+    {
+      "original_issue": "Cross-repo coordination mismatch and missing explicit mock-contract endpoints for arrakis integration points.",
+      "status": "fixed",
+      "notes": "Coordination table is corrected (arrakis A.4/C.1/C.3), and the mock arrakis server endpoints are explicitly enumerated (JWKS, usage-reports, budget query, BYOK proxy) with verification expectations included in T-A.10/T-C tests."
+    }
+  ],
+  "new_blocking_concerns": [],
+  "iteration": 2
+}

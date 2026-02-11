@@ -1,5 +1,7 @@
 # Development Process
 
+> **This document describes the Loa development framework, not the Finn application.** For Finn-specific documentation, see [docs/](docs/) and [README.md](README.md).
+
 This document outlines the comprehensive agent-driven development workflow. Our process leverages specialized AI agents to guide you from initial concept to production-ready implementation.
 
 ## Managed Scaffolding Architecture

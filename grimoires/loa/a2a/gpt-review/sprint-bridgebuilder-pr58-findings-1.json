@@ -1,0 +1,32 @@
+{
+  "verdict": "CHANGES_REQUIRED",
+  "summary": "As written, this plan is likely to fail because it miscounts/doesn’t map the PR #57 second-round findings correctly and introduces a breaking interface change (TAGGED output format) without fully accounting for all consumers/tests that will need updates.",
+  "blocking_issues": [
+    {
+      "location": "Overview + Findings Index (scope accounting)",
+      "issue": "Plan claims “14 findings from PR #58 + 8 second-round findings from PR #57 (Parts 11-17)” but acceptance criteria says “14 + 4 = 18”; the Findings Index lists 4 second-round items (F9s, F10s, F15s, F16s) yet the overview text says 8.",
+      "why_blocking": "You cannot verify “all 18 findings addressed” if the plan itself is inconsistent about how many PR #57 second-round findings exist and which ones are in scope; this will cause sprint failure at review/acceptance because traceability to the 18 findings is not deterministically checkable.",
+      "fix": "Normalize the scope statement everywhere: explicitly list the exact 4 PR #57 second-round findings being addressed (IDs + one-line description) and remove/replace the “8 second-round findings” claim. If there truly are 8, add the missing 4 to the Findings Index and map each to a concrete task (or explicitly mark them out-of-scope with rationale and adjust acceptance criteria)."
+    },
+    {
+      "location": "Sprint 1 / Task 1.2 (paragraph-detector.awk output contract change)",
+      "issue": "Task 1.2 changes the awk state machine output format from `TAGGED <start> <class>` to `TAGGED <start> <end> <class>` but only mentions updating check-provenance.sh and asserts provenance-stats.sh needs no change; it does not enumerate all other consumers/parsers/tests that depend on the old token positions.",
+      "why_blocking": "This is a breaking interface change in a shared component; if any other script/test harness parses TAGGED lines (including run-tests.sh assertions, fixtures, or provenance-stats.sh indirectly), the suite will fail and the sprint can’t complete. The plan currently lacks a complete dependency update task, so implementation is likely to break CI.",
+      "fix": "Add an explicit subtask to inventory and update all TAGGED consumers (grep/awk/cut/read loops) and any golden fixtures that assert exact output. Alternatively, implement backward-compatible output (e.g., emit both forms behind a version flag or append end line as an optional field and make consumers tolerate 3- or 4-field TAGGED records). Add an acceptance check: “all consumers accept both old and new TAGGED formats (or all updated) and tests cover both.”"
+    },
+    {
+      "location": "Findings Index vs Tasks (traceability completeness)",
+      "issue": "F7 (“Track unqualified INFERRED count as health metric”) is referenced as addressed by triage (Task 2.2), but triage is not the same as adding a tracked metric; there is no explicit task to add/record/report that metric in provenance-history.sh snapshots or quality gates.",
+      "why_blocking": "If BridgeBuilder expects an explicit metric (e.g., a field in JSONL snapshots, a gate threshold, or a reported value), simply reducing the count won’t satisfy the finding; you’ll fail acceptance on “finding addressed” even if the docs are updated.",
+      "fix": "Add a concrete task: e.g., in provenance-history.sh snapshot JSON include `metrics.unqualified_inferred_count` (and/or per-document), and/or add a quality gate that asserts `unqualified <= N` (configurable via read-config.sh). Then map F7 directly to that task; keep triage as the action that improves the metric."
+    },
+    {
+      "location": "Sprint 2 / Task 2.1 (strict mode finding mapping)",
+      "issue": "Task 2.1 bundles per-document breakdown (F9/F10s) and `--strict` drift detection (F10), but acceptance criteria only mentions failing on `missing_docs`; it doesn’t define how `missing_docs` is computed or where it comes from, nor does it specify a test proving strict mode works in CI conditions.",
+      "why_blocking": "Without a deterministic definition and a test, `--strict` can be implemented inconsistently (or not at all) and still “seem done”; this will likely fail review or regress later because the behavior is not verifiable.",
+      "fix": "Add explicit acceptance tests: (1) fixture repo state where a manifest includes a doc that doesn’t exist → `provenance-history.sh --strict` exits non-zero and reports it in `missing_docs`; (2) same state without `--strict` exits 0 but includes `missing_docs` in JSON. Also add/point to the source of truth for expected docs (manifest file path) in the task."
+    }
+  ],
+  "question": "",
+  "iteration": 1
+}

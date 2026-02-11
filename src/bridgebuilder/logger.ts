@@ -1,33 +1,42 @@
 // src/bridgebuilder/logger.ts
-import type { IOutputSanitizer } from "./ports/index.js"
+// SanitizedLogger: wraps upstream ILogger and passes all output through
+// PatternSanitizer before delegating. Defense-in-depth for log output.
 
-export class BridgebuilderLogger {
-  constructor(private readonly sanitizer: IOutputSanitizer) {}
+import type { ILogger, IOutputSanitizer } from "./upstream.js"
 
-  info(msg: string): void {
-    const { sanitizedContent } = this.sanitizer.sanitize(msg)
-    console.log(`[bridgebuilder] ${sanitizedContent}`)
+export class SanitizedLogger implements ILogger {
+  constructor(
+    private readonly inner: ILogger,
+    private readonly sanitizer: IOutputSanitizer,
+  ) {}
+
+  info(message: string, data?: Record<string, unknown>): void {
+    this.inner.info(this.clean(message), this.cleanData(data))
   }
 
-  warn(msg: string): void {
-    const { sanitizedContent } = this.sanitizer.sanitize(msg)
-    console.warn(`[bridgebuilder] ${sanitizedContent}`)
+  warn(message: string, data?: Record<string, unknown>): void {
+    this.inner.warn(this.clean(message), this.cleanData(data))
   }
 
-  error(msg: string, err?: unknown): void {
-    const { sanitizedContent } = this.sanitizer.sanitize(msg)
-    if (err instanceof Error) {
-      const { sanitizedContent: errMsg } = this.sanitizer.sanitize(err.message)
-      console.error(`[bridgebuilder] ${sanitizedContent}: ${errMsg}`)
-    } else {
-      console.error(`[bridgebuilder] ${sanitizedContent}`)
+  error(message: string, data?: Record<string, unknown>): void {
+    this.inner.error(this.clean(message), this.cleanData(data))
+  }
+
+  debug(message: string, data?: Record<string, unknown>): void {
+    this.inner.debug(this.clean(message), this.cleanData(data))
+  }
+
+  private clean(message: string): string {
+    return this.sanitizer.sanitize(message).sanitizedContent
+  }
+
+  /** Sanitize string values in structured data to prevent secret leakage via metadata. */
+  private cleanData(data?: Record<string, unknown>): Record<string, unknown> | undefined {
+    if (!data) return undefined
+    const cleaned: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(data)) {
+      cleaned[key] = typeof value === "string" ? this.clean(value) : value
     }
-  }
-
-  debug(msg: string): void {
-    if (process.env.BRIDGEBUILDER_DEBUG === "true") {
-      const { sanitizedContent } = this.sanitizer.sanitize(msg)
-      console.log(`[bridgebuilder:debug] ${sanitizedContent}`)
-    }
+    return cleaned
   }
 }

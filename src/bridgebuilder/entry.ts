@@ -1,67 +1,59 @@
 // src/bridgebuilder/entry.ts
+// Composition root: GH_TOKEN bridge → loadConfig → createFinnAdapters → lease → pipeline → run
 
 import { readFileSync } from "node:fs"
-import { loadConfig } from "./config.js"
-import { createAdapters } from "./adapters/index.js"
-import { BridgebuilderLogger } from "./logger.js"
-import { PRReviewTemplate } from "./core/template.js"
-import { BridgebuilderContext } from "./core/context.js"
-import { ReviewPipeline } from "./core/reviewer.js"
-import { RunLease } from "./lease.js"
+import { loadFinnConfig } from "./config.js"
+import { createFinnAdapters } from "./adapters/index.js"
+import { SanitizedLogger } from "./logger.js"
+import { PRReviewTemplate, BridgebuilderContext, ReviewPipeline } from "./upstream.js"
+import { RunLease, type ILeaseStorage } from "./lease.js"
 import { R2CheckpointStorage } from "../persistence/r2-storage.js"
 
 async function main(): Promise<number> {
-  // Step 1: Load config (before adapters — no logger yet, but config errors are safe)
-  const envConfig = loadConfig()
+  // Step 1: Bridge GH_TOKEN from GITHUB_TOKEN if needed (upstream GitHubCLIAdapter uses GH_TOKEN)
+  if (!process.env.GH_TOKEN && process.env.GITHUB_TOKEN) {
+    process.env.GH_TOKEN = process.env.GITHUB_TOKEN
+  }
 
-  // Step 2: Create adapters (includes preflight-capable GitHub client)
-  const adapters = createAdapters(envConfig)
+  // Step 2: Load config (upstream resolveConfig + finn R2/lease)
+  const finnConfig = await loadFinnConfig()
+  const config = finnConfig.upstream
 
-  // Step 3: Create sanitized logger — all runtime logging goes through this
-  const log = new BridgebuilderLogger(adapters.sanitizer)
+  // Step 3: Create finn adapters (upstream + R2ContextStore override)
+  const adapters = createFinnAdapters(config, finnConfig.anthropicApiKey, finnConfig.r2)
+
+  // Step 4: Create sanitized logger wrapping upstream logger
+  const log = new SanitizedLogger(adapters.logger, adapters.sanitizer)
 
   log.info("Starting...")
-  log.info(`Repos: ${envConfig.repos.length} configured`)
-  log.info(`Dimensions: ${envConfig.dimensions.join(", ")}`)
-  log.info(`Model: ${envConfig.model}`)
-  log.info(`Dry run: ${envConfig.dryRun}`)
-  log.info(`Max PRs per run: ${envConfig.maxPRsPerRun}`)
-  log.info(`Max runtime: ${envConfig.maxRuntimeMinutes}m`)
-  for (const r of envConfig.repos) {
-    log.debug(`Repo: ${r.owner}/${r.repo}`)
-  }
+  log.info(`Repos: ${config.repos.length} configured`)
+  log.info(`Dimensions: ${config.dimensions.join(", ")}`)
+  log.info(`Model: ${config.model}`)
+  log.info(`Dry run: ${config.dryRun}`)
+  log.info(`Max PRs per run: ${config.maxPrs}`)
+  log.info(`Max runtime: ${config.maxRuntimeMinutes}m`)
 
-  // Step 4: Per-repo preflight — validate token can access each configured repo
-  for (const r of envConfig.repos) {
-    const result = await adapters.git.preflightRepo(r.owner, r.repo)
-    if (!result.accessible) {
-      throw new Error(`Preflight failed: ${result.error}`)
-    }
-  }
-  log.info(`Preflight: all ${envConfig.repos.length} repos accessible`)
-
-  // Step 5: Check API quota — skip run if insufficient
-  const quotaCheck = await adapters.git.preflight()
-  if (quotaCheck.remaining < 100) {
-    log.warn(`Insufficient GitHub API quota (${quotaCheck.remaining} remaining, need >= 100) — skipping run`)
-    return 0
-  }
-  log.debug(`API quota: ${quotaCheck.remaining} remaining`)
+  // Step 5: Load R2ContextStore state (if R2 configured)
+  await adapters.contextStore.load()
 
   // Step 6: Acquire run lease (if R2 available)
   let lease: RunLease | undefined
   const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-  if (envConfig.r2Endpoint && envConfig.r2Bucket && envConfig.r2AccessKeyId && envConfig.r2SecretAccessKey) {
-    const r2 = new R2CheckpointStorage({
-      endpoint: envConfig.r2Endpoint,
-      bucket: envConfig.r2Bucket,
-      accessKeyId: envConfig.r2AccessKeyId,
-      secretAccessKey: envConfig.r2SecretAccessKey,
+  if (finnConfig.r2) {
+    const r2Storage = new R2CheckpointStorage({
+      endpoint: finnConfig.r2.endpoint,
+      bucket: finnConfig.r2.bucket,
+      accessKeyId: finnConfig.r2.accessKeyId,
+      secretAccessKey: finnConfig.r2.secretAccessKey,
       prefix: "bridgebuilder",
     })
 
-    lease = new RunLease(r2, envConfig.maxRuntimeMinutes + 5)
+    lease = new RunLease(
+      r2Storage as ILeaseStorage,
+      finnConfig.lease.ttlMinutes,
+      finnConfig.lease.delayMs,
+    )
     const acquired = await lease.acquire(runId)
     if (acquired !== true) {
       const holder = typeof acquired === "object" && acquired.held ? acquired.heldBy : "unknown"
@@ -74,7 +66,7 @@ async function main(): Promise<number> {
   try {
     // Step 7: Load persona
     let persona: string
-    const personaPath = "grimoires/bridgebuilder/BEAUVOIR.md"
+    const personaPath = config.personaPath ?? "grimoires/bridgebuilder/BEAUVOIR.md"
     try {
       persona = readFileSync(personaPath, "utf-8")
     } catch {
@@ -83,50 +75,47 @@ async function main(): Promise<number> {
     }
 
     // Step 8: Wire core pipeline
-    const config = {
-      repos: envConfig.repos,
-      maxPRsPerRun: envConfig.maxPRsPerRun,
-      maxRuntimeMinutes: envConfig.maxRuntimeMinutes,
-      maxFilesPerPR: envConfig.maxFilesPerPR,
-      maxDiffBytesPerPR: envConfig.maxDiffBytesPerPR,
-      maxInputTokens: envConfig.maxInputTokens,
-      maxOutputTokens: envConfig.maxOutputTokens,
-      dimensions: envConfig.dimensions,
-      reReviewHours: envConfig.reReviewHours,
-      dryRun: envConfig.dryRun,
-    }
-
     const template = new PRReviewTemplate(adapters.git, adapters.hasher, config)
-    const context = new BridgebuilderContext(adapters.context, config)
+    const context = new BridgebuilderContext(adapters.contextStore)
     const pipeline = new ReviewPipeline(
-      template, context, adapters.poster, adapters.llm,
-      adapters.sanitizer, persona, config,
+      template, context, adapters.git, adapters.poster, adapters.llm,
+      adapters.sanitizer, log, persona, config,
     )
 
     // Step 9: Run
     const summary = await pipeline.run(runId)
 
-    // Step 10: Handle zero PRs
-    if (summary.totalPRs === 0) {
-      log.info(`No open PRs found across ${envConfig.repos.length} repos — nothing to review`)
-      return 0
-    }
-
+    // Step 10: Log results
     log.info("Run complete:")
-    log.info(`  PRs found:  ${summary.totalPRs}`)
     log.info(`  Reviewed:   ${summary.reviewed}`)
     log.info(`  Skipped:    ${summary.skipped}`)
     log.info(`  Errors:     ${summary.errors}`)
-    log.info(`  Tokens:     ${summary.tokenUsage.input} in / ${summary.tokenUsage.output} out`)
-    log.info(`  Duration:   ${Math.round(summary.durationMs / 1000)}s`)
 
     return summary.errors > 0 ? 1 : 0
   } finally {
     if (lease) {
-      await lease.release(runId).catch(() => {})
-      log.info("Lease released")
+      try {
+        await lease.release(runId)
+        log.info("Lease released")
+      } catch {
+        log.warn("Failed to release lease")
+      }
     }
   }
+}
+
+function redactFatalError(err: unknown): string {
+  const raw = err instanceof Error
+    ? `${err.message}${err.stack ? `\n${err.stack}` : ""}`
+    : String(err)
+  const secrets = [
+    process.env.GH_TOKEN,
+    process.env.GITHUB_TOKEN,
+    process.env.ANTHROPIC_API_KEY,
+    process.env.R2_ACCESS_KEY_ID,
+    process.env.R2_SECRET_ACCESS_KEY,
+  ].filter(Boolean) as string[]
+  return secrets.reduce((acc, s) => acc.split(s).join("[REDACTED]"), raw)
 }
 
 main()
@@ -134,7 +123,6 @@ main()
     process.exitCode = code
   })
   .catch((err) => {
-    // Fatal fallback — no logger available (adapters may have failed to initialize)
-    console.error("[bridgebuilder] Fatal error:", err)
+    console.error("[bridgebuilder] Fatal error:", redactFatalError(err))
     process.exitCode = 1
   })

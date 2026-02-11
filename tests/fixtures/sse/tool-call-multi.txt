@@ -1,0 +1,18 @@
+event: tool_call
+data: {"index":0,"id":"call_001","function":{"name":"get_weather","arguments":""}}
+
+event: tool_call
+data: {"index":0,"function":{"arguments":"{\"location\": \"NYC\"}"}}
+
+event: tool_call
+data: {"index":1,"id":"call_002","function":{"name":"get_time","arguments":""}}
+
+event: tool_call
+data: {"index":1,"function":{"arguments":"{\"timezone\": \"EST\"}"}}
+
+event: usage
+data: {"prompt_tokens":30,"completion_tokens":24,"reasoning_tokens":0}
+
+event: done
+data: {"finish_reason":"tool_calls"}
+

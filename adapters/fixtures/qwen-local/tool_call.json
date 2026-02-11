@@ -1,0 +1,54 @@
+{
+  "description": "Qwen3-Coder-Next tool call response via vLLM/SGLang",
+  "provider_type": "openai-compatible",
+  "raw_response": {
+    "id": "cmpl-qwen-tool",
+    "object": "chat.completion",
+    "created": 1707350400,
+    "model": "Qwen/Qwen3-Coder-Next",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "call_qwen_001",
+              "type": "function",
+              "function": {
+                "name": "read_file",
+                "arguments": "{\"path\":\"src/index.ts\"}"
+              }
+            }
+          ]
+        },
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 80,
+      "completion_tokens": 15,
+      "total_tokens": 95
+    }
+  },
+  "expected": {
+    "content": "",
+    "thinking": null,
+    "tool_calls": [
+      {
+        "id": "call_qwen_001",
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "arguments": "{\"path\":\"src/index.ts\"}"
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 80,
+      "completion_tokens": 15,
+      "reasoning_tokens": 0
+    }
+  }
+}

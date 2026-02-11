@@ -115,6 +115,13 @@ Pre-built configs available in `.claude/mcp-examples/` for Slack, GitHub, Sentry
 
 ---
 
+## Environment Variables
+
+| Variable | Script | Purpose |
+|----------|--------|---------|
+| `LOA_CONFIG_FILE` | `read-config.sh` | Override the config file path (default: `.loa.config.yaml`) |
+| `LOA_SEARCH_MODE` | `search-orchestrator.sh` | Force grep fallback (`grep`) |
+
 ## Full Documentation
 
 See `.claude/protocols/helper-scripts.md` for comprehensive script documentation.

@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { GitProviderError, } from "../ports/git-provider.js";
 const execFileAsync = promisify(execFile);
 // Decision: execFile+gh CLI over Octokit SDK.
 // gh handles token refresh, SSO, credential helpers, and proxy config automatically.
@@ -8,14 +7,6 @@ const execFileAsync = promisify(execFile);
 // than HTTP-direct, but review volume is low (<50 PRs/run) so latency is acceptable.
 // If throughput becomes a bottleneck, swap to Octokit behind IGitProvider port.
 const GH_TIMEOUT_MS = 30_000;
-/** Error from gh CLI that carries the HTTP status code when available. */
-class GhApiError extends GitProviderError {
-    httpStatus;
-    constructor(code, message, httpStatus) {
-        super(code, message);
-        this.httpStatus = httpStatus;
-    }
-}
 // SECURITY: Adding endpoints here requires review — each is an attack surface expansion.
 // Every regex must anchor start (^) and end ($), use [^/]+ (not .*) for path segments,
 // and escape query parameters literally. New entries should get their own PR with justification.
@@ -26,8 +17,6 @@ const ALLOWED_API_ENDPOINTS = [
     /^\/repos\/[^/]+\/[^/]+\/pulls\/\d+\/files\?per_page=100$/,
     /^\/repos\/[^/]+\/[^/]+\/pulls\/\d+\/reviews\?per_page=100$/,
     /^\/repos\/[^/]+\/[^/]+\/pulls\/\d+\/reviews$/,
-    // V3-1: compare commits for incremental review
-    /^\/repos\/[^/]+\/[^/]+\/compare\/[a-f0-9]{7,40}\.\.\.[a-f0-9]{7,40}$/,
 ];
 /**
  * Strict allowlist for gh api flags.
@@ -123,16 +112,11 @@ async function gh(args, timeoutMs = GH_TIMEOUT_MS) {
     catch (err) {
         const e = err;
         if (e.code === "ENOENT") {
-            throw new GitProviderError("NETWORK", "GitHub CLI (gh) required. Install: https://cli.github.com/ and run 'gh auth login'.");
+            throw new Error("GitHub CLI (gh) required. Install: https://cli.github.com/ and run 'gh auth login'.");
         }
         // Do not include stderr/message — may contain tokens or sensitive repo info
         const code = typeof e.code === "string" || typeof e.code === "number" ? String(e.code) : "unknown";
-        // Classify by exit code: 1 = general failure, 4 = auth/forbidden in gh
-        const errorCode = code === "4" ? "FORBIDDEN" : "NETWORK";
-        // Extract HTTP status from gh stderr: "gh: ... (HTTP NNN)"
-        const httpMatch = e.stderr?.match(/\(HTTP (\d{3})\)/);
-        const httpStatus = httpMatch ? parseInt(httpMatch[1], 10) : undefined;
-        throw new GhApiError(errorCode, `gh command failed (code=${code})`, httpStatus);
+        throw new Error(`gh command failed (code=${code})`);
     }
 }
 function parseJson(raw, context) {
@@ -141,7 +125,7 @@ function parseJson(raw, context) {
     }
     catch {
         // Do not include raw response — may contain sensitive data
-        throw new GitProviderError("NETWORK", `Failed to parse gh JSON for ${context}`);
+        throw new Error(`Failed to parse gh JSON for ${context}`);
     }
 }
 export class GitHubCLIAdapter {
@@ -230,18 +214,6 @@ export class GitHubCLIAdapter {
             };
         }
     }
-    async getCommitDiff(owner, repo, base, head) {
-        const raw = await gh([
-            "api",
-            `/repos/${owner}/${repo}/compare/${base}...${head}`,
-        ]);
-        const data = parseJson(raw, `getCommitDiff(${owner}/${repo}, ${base.slice(0, 7)}...${head.slice(0, 7)})`);
-        const files = data.files ?? [];
-        return {
-            filesChanged: files.map((f) => f.filename),
-            totalCommits: data.total_commits ?? 0,
-        };
-    }
     async hasExistingReview(owner, repo, prNumber, headSha) {
         const reviews = await this.getPRReviews(owner, repo, prNumber);
         const exact = `<!-- ${this.marker}: ${headSha} -->`;
@@ -250,7 +222,7 @@ export class GitHubCLIAdapter {
     async postReview(input) {
         const marker = `\n\n<!-- ${this.marker}: ${input.headSha} -->`;
         const body = input.body + marker;
-        const makeArgs = (event) => [
+        await gh([
             "api",
             `/repos/${input.owner}/${input.repo}/pulls/${input.prNumber}/reviews`,
             "-X",
@@ -258,24 +230,10 @@ export class GitHubCLIAdapter {
             "--raw-field",
             `body=${body}`,
             "-f",
-            `event=${event}`,
+            `event=${input.event}`,
             "-f",
             `commit_id=${input.headSha}`,
-        ];
-        try {
-            await gh(makeArgs(input.event));
-        }
-        catch (err) {
-            // GitHub returns 422 when REQUEST_CHANGES targets own PR.
-            // Fall back to COMMENT so the review content is still posted.
-            if (input.event === "REQUEST_CHANGES" &&
-                err instanceof GhApiError &&
-                err.httpStatus === 422) {
-                await gh(makeArgs("COMMENT"));
-                return true;
-            }
-            throw err;
-        }
+        ]);
         return true;
     }
 }

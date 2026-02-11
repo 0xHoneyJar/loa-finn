@@ -66,6 +66,40 @@ export interface FinnConfig {
   sandboxMode: "worker" | "child_process" | "disabled"
   /** Dev-only: sync fallback for debugging (never in production) */
   sandboxSyncFallback: boolean
+
+  /** Cheval adapter mode: subprocess (Phase 0-2 default) or sidecar (Phase 3) */
+  chevalMode: "subprocess" | "sidecar"
+
+  /** Redis state backend (Phase 3 — circuit breaker, budget, rate limiter, idempotency) */
+  redis: {
+    url: string
+    enabled: boolean
+    connectTimeoutMs: number
+    commandTimeoutMs: number
+  }
+
+  /** Model pool configuration (Phase 5 §3.2) */
+  pools: {
+    configPath: string
+  }
+
+  /** S2S JWT signing for loa-finn→arrakis communication (Phase 5 §3.4) */
+  s2s: {
+    privateKeyPem: string
+    kid: string
+    issuer: string
+    audience: string
+  }
+
+  /** JWT validation for arrakis-originated requests (Phase 5 §3.1) */
+  jwt: {
+    enabled: boolean
+    issuer: string
+    audience: string
+    jwksUrl: string
+    clockSkewSeconds: number
+    maxTokenLifetimeSeconds: number
+  }
 }
 
 const VALID_SANDBOX_MODES = ["worker", "child_process", "disabled"] as const
@@ -162,5 +196,34 @@ export function loadConfig(): FinnConfig {
 
     sandboxMode: parseSandboxMode(process.env.SANDBOX_MODE),
     sandboxSyncFallback: parseSyncFallback(process.env.SANDBOX_SYNC_FALLBACK, process.env.NODE_ENV),
+
+    chevalMode: (process.env.CHEVAL_MODE ?? "subprocess") as "subprocess" | "sidecar",
+
+    redis: {
+      url: process.env.REDIS_URL ?? "",
+      enabled: !!process.env.REDIS_URL,
+      connectTimeoutMs: parseIntEnv("REDIS_CONNECT_TIMEOUT_MS", "5000"),
+      commandTimeoutMs: parseIntEnv("REDIS_COMMAND_TIMEOUT_MS", "3000"),
+    },
+
+    pools: {
+      configPath: process.env.FINN_POOLS_CONFIG ?? "",
+    },
+
+    s2s: {
+      privateKeyPem: process.env.FINN_S2S_PRIVATE_KEY ?? "",
+      kid: process.env.FINN_S2S_KID ?? "loa-finn-v1",
+      issuer: process.env.FINN_S2S_ISSUER ?? "loa-finn",
+      audience: process.env.FINN_S2S_AUDIENCE ?? "arrakis",
+    },
+
+    jwt: {
+      enabled: process.env.FINN_JWT_ENABLED === "true",
+      issuer: process.env.FINN_JWT_ISSUER ?? "arrakis",
+      audience: process.env.FINN_JWT_AUDIENCE ?? "loa-finn",
+      jwksUrl: process.env.FINN_JWKS_URL ?? "",
+      clockSkewSeconds: parseIntEnv("FINN_JWT_CLOCK_SKEW", "30"),
+      maxTokenLifetimeSeconds: parseIntEnv("FINN_JWT_MAX_LIFETIME", "3600"),
+    },
   }
 }

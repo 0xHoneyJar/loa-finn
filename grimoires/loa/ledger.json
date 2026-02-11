@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-005",
-  "next_global_sprint_id": 14,
+  "current_cycle": "cycle-016",
+  "next_global_sprint_id": 43,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -123,8 +123,9 @@
     },
     "cycle-005": {
       "label": "Worker Thread Sandbox: Non-Blocking Tool Execution",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-08T00:00:00Z",
+      "archived": "2026-02-08T12:00:00Z",
       "prd": "grimoires/loa/prd-worker-thread-sandbox.md",
       "sdd": "grimoires/loa/sdd-worker-thread-sandbox.md",
       "sprints": [
@@ -141,6 +142,320 @@
           "label": "System Integration",
           "status": "completed",
           "tasks": 8
+        }
+      ]
+    },
+    "cycle-006": {
+      "label": "Hounfour Phases 0-2: Multi-Model Provider Abstraction",
+      "status": "archived",
+      "started": "2026-02-08T12:00:00Z",
+      "archived": "2026-02-09T00:00:00Z",
+      "prd": "grimoires/loa/prd-hounfour.md",
+      "sdd": "grimoires/loa/sdd-hounfour.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 14,
+          "label": "Phase 0: Foundation (cheval.py, config, ledger)",
+          "status": "completed",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 15,
+          "label": "Phase 1: Flatline Integration + Budget",
+          "status": "completed",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 16,
+          "label": "Phase 2: Agent Portability + Health Checks",
+          "status": "completed",
+          "tasks": 9
+        }
+      ]
+    },
+    "cycle-007": {
+      "label": "Hounfour Phase 3: Server Integration & Self-Hosted Inference",
+      "status": "archived",
+      "started": "2026-02-09T00:00:00Z",
+      "archived": "2026-02-09T02:00:00Z",
+      "prd": "grimoires/loa/prd-hounfour-phase3.md",
+      "sdd": "grimoires/loa/sdd-hounfour-phase3.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 17,
+          "label": "Sidecar + Tool-Call Orchestrator",
+          "status": "completed",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 18,
+          "label": "Streaming + Redis State",
+          "status": "completed",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 19,
+          "label": "GPU Deployment + Ledger Export",
+          "status": "completed",
+          "tasks": 8
+        }
+      ]
+    },
+    "cycle-008": {
+      "label": "Hounfour Phase 4: Arrakis Distribution (Spice Gate)",
+      "status": "archived",
+      "started": "2026-02-09T02:00:00Z",
+      "archived": "2026-02-09T12:00:00Z",
+      "prd": "arrakis:grimoires/loa/prd-spice-gate.md",
+      "sdd": "arrakis:grimoires/loa/sdd-spice-gate.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1-9",
+          "global_id": 20,
+          "label": "Arrakis Agent Gateway (9 sprints, 44 tasks)",
+          "status": "completed",
+          "tasks": 44
+        }
+      ],
+      "notes": "Executed in arrakis repo (PR #40). Consolidated as single ledger entry."
+    },
+    "cycle-009": {
+      "label": "Hounfour Phase 5: Integration & Multi-Model Orchestration",
+      "status": "active",
+      "started": "2026-02-09T18:00:00Z",
+      "prd": "grimoires/loa/prd-hounfour-phase5.md",
+      "sdd": "grimoires/loa/sdd-hounfour-phase5.md",
+      "sprints": [
+        {
+          "local_id": "sprint-A",
+          "global_id": 22,
+          "label": "Integration Debt (JWT, Pools, Budget, Abort, LRU)",
+          "status": "pending",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-B",
+          "global_id": 23,
+          "label": "NativeRuntimeAdapter + Ensemble Orchestrator",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-C",
+          "global_id": 24,
+          "label": "finnNFT Routing + BYOK Proxy",
+          "status": "pending",
+          "tasks": 5
+        }
+      ]
+    },
+    "cycle-010": {
+      "label": "Ground Truth: Factual GTM Skill Pack",
+      "status": "completed",
+      "started": "2026-02-10T10:30:00Z",
+      "prd": "grimoires/loa/prd-ground-truth.md",
+      "sdd": "grimoires/loa/sdd-ground-truth.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 25,
+          "label": "Verification Infrastructure + Capability Brief Draft",
+          "status": "completed",
+          "tasks": 17
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 26,
+          "label": "Repair Loop Proof + Architecture Overview",
+          "status": "completed",
+          "tasks": 9
+        }
+      ]
+    },
+    "cycle-011": {
+      "label": "Ground Truth v2: Verification Hardening & Incremental Pipeline",
+      "status": "active",
+      "started": "2026-02-10T10:45:00Z",
+      "prd": "grimoires/loa/prd-ground-truth.md",
+      "sdd": "grimoires/loa/sdd-ground-truth.md",
+      "notes": "Improvements from PR #51 BridgeBuilder review. Extends cycle-010 infrastructure.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 27,
+          "label": "Structural Verification + Property Testing",
+          "status": "completed",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 28,
+          "label": "Incremental Pipeline + Ecosystem Integration",
+          "status": "completed",
+          "tasks": 7
+        }
+      ]
+    },
+    "cycle-013": {
+      "label": "Documentation Rewrite: Complete loa-finn Docs",
+      "status": "active",
+      "started": "2026-02-10T22:48:00Z",
+      "prd": "grimoires/loa/prd-docs-rewrite.md",
+      "sdd": "grimoires/loa/sdd-docs-rewrite.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 32,
+          "label": "Tooling & Templates",
+          "status": "pending",
+          "tasks": 0
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 33,
+          "label": "Phase 0-2: Reality Extraction & Document Generation",
+          "status": "pending",
+          "tasks": 0
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 34,
+          "label": "Phase 3-5: Governance, Verification & Review",
+          "status": "pending",
+          "tasks": 0
+        }
+      ]
+    },
+    "cycle-014": {
+      "label": "BridgeBuilder PR #55 Feedback: Schema Evolution & Content Quality",
+      "status": "active",
+      "started": "2026-02-11T16:00:00Z",
+      "prd": "BridgeBuilder review PR #55 (10 findings + 3 coda threads)",
+      "sdd": "grimoires/loa/sdd-docs-rewrite.md",
+      "notes": "Implements all actionable findings from BridgeBuilder review of PR #55. Extends cycle-013 ground-truth infrastructure.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 35,
+          "label": "Schema Evolution & Tooling",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 36,
+          "label": "Content Quality & Archive Enrichment",
+          "status": "completed",
+          "tasks": 7
+        }
+      ]
+    },
+    "cycle-015": {
+      "label": "BridgeBuilder PR #56 Findings: Aim for the Stars",
+      "status": "active",
+      "started": "2026-02-11T07:00:00Z",
+      "prd": "grimoires/loa/prd-docs-rewrite.md",
+      "sdd": "grimoires/loa/sdd-docs-rewrite.md",
+      "notes": "Addresses all 5 formal findings + 3 broader suggestions from BridgeBuilder review of PR #56. Adds DERIVED provenance class, citation auto-repair, INFERRED subclassification.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 37,
+          "label": "Tooling Hardening & ADR Refinement",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 38,
+          "label": "Content Evolution & Pipeline Intelligence",
+          "status": "completed",
+          "tasks": 4
+        }
+      ]
+    },
+    "cycle-016": {
+      "label": "BridgeBuilder PR #57 Findings: Epistemic Infrastructure",
+      "status": "active",
+      "started": "2026-02-11T12:00:00Z",
+      "prd": "grimoires/loa/prd-docs-rewrite.md",
+      "sdd": "grimoires/loa/sdd-docs-rewrite.md",
+      "notes": "Addresses all 8 findings from BridgeBuilder review of PR #57 plus 4 broader infrastructure suggestions. Shared awk extraction, INFERRED subqualifier instrumentation, longitudinal metrics, config externalization.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 39,
+          "label": "Verification Hardening & Shared Infrastructure",
+          "status": "pending",
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 40,
+          "label": "Provenance Intelligence & Longitudinal Metrics",
+          "status": "pending",
+          "tasks": 5
+        }
+      ]
+    },
+    "cycle-012": {
+      "label": "Bridgebuilder Review Hardening: PR #52 Findings",
+      "status": "active",
+      "started": "2026-02-10T22:00:00Z",
+      "prd": "grimoires/loa/prd-ground-truth.md",
+      "sdd": "grimoires/loa/sdd-ground-truth.md",
+      "notes": "Implements all actionable findings from PR #52 Bridgebuilder review. Cross-domain: Ground Truth shell pipeline + Hounfour TypeScript security/ensemble.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 29,
+          "label": "Shell Pipeline Correctness Hardening",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 30,
+          "label": "Test Infrastructure & Data Quality",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 31,
+          "label": "Hounfour Security & Ensemble Hardening",
+          "status": "pending",
+          "tasks": 5
+        }
+      ]
+    },
+    "cycle-017": {
+      "label": "BridgeBuilder PR #58 Findings: Deepening the Epistemic Architecture",
+      "status": "active",
+      "started": "2026-02-11T21:23:37Z",
+      "prd": "grimoires/loa/prd-docs-rewrite.md",
+      "sdd": "grimoires/loa/sdd-docs-rewrite.md",
+      "notes": "Addresses 14 findings from BridgeBuilder PR #58 review + 4 second-round findings from PR #57. Parser hardening, provenance intelligence, routing preparation. GPT-5.2 APPROVED.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 41,
+          "label": "Parser Hardening & Documentation Discipline",
+          "status": "completed",
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 42,
+          "label": "Provenance Intelligence & Routing Preparation",
+          "status": "completed",
+          "tasks": 6
         }
       ]
     }

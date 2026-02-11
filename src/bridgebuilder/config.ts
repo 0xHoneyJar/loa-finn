@@ -1,87 +1,64 @@
 // src/bridgebuilder/config.ts
+// Finn-specific config: wraps upstream resolveConfig() with R2 and lease env vars.
 
-export interface BridgebuilderEnvConfig {
-  githubToken: string
-  repos: Array<{ owner: string; repo: string }>
+import type { BridgebuilderConfig, CLIArgs, EnvVars } from "./upstream.js"
+import { resolveConfig, parseCLIArgs } from "./upstream.js"
+import type { R2ClientConfig } from "./r2-client.js"
+
+export interface LeaseConfig {
+  ttlMinutes: number
+  delayMs: number
+}
+
+export interface FinnConfig {
+  upstream: BridgebuilderConfig
   anthropicApiKey: string
-  model: string
-  maxPRsPerRun: number
-  maxRuntimeMinutes: number
-  maxFilesPerPR: number
-  maxDiffBytesPerPR: number
-  maxInputTokens: number
-  maxOutputTokens: number
-  reReviewHours?: number
-  dimensions: string[]
-  dryRun: boolean
-  r2Endpoint?: string
-  r2Bucket?: string
-  r2AccessKeyId?: string
-  r2SecretAccessKey?: string
+  r2: R2ClientConfig | null
+  lease: LeaseConfig
 }
 
-export function loadConfig(): BridgebuilderEnvConfig {
-  // Collect all missing required vars before throwing
-  const missing: string[] = []
-  const githubToken = process.env.GITHUB_TOKEN
-  if (!githubToken) missing.push("GITHUB_TOKEN")
-  const reposRaw = process.env.BRIDGEBUILDER_REPOS
-  if (!reposRaw) missing.push("BRIDGEBUILDER_REPOS")
+/**
+ * Load finn config: upstream resolveConfig() for standard settings,
+ * plus finn-specific R2 and lease env vars.
+ */
+export async function loadFinnConfig(): Promise<FinnConfig> {
+  const cliArgs: CLIArgs = parseCLIArgs(process.argv.slice(2))
+  const envVars: EnvVars = {
+    BRIDGEBUILDER_REPOS: process.env.BRIDGEBUILDER_REPOS,
+    BRIDGEBUILDER_MODEL: process.env.BRIDGEBUILDER_MODEL,
+    BRIDGEBUILDER_DRY_RUN: process.env.BRIDGEBUILDER_DRY_RUN,
+  }
+
+  const { config: upstream } = await resolveConfig(cliArgs, envVars)
+
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY
-  if (!anthropicApiKey) missing.push("ANTHROPIC_API_KEY")
-
-  if (missing.length > 0) {
-    const hints: Record<string, string> = {
-      GITHUB_TOKEN: "Set a GitHub PAT with 'repo' scope (or GitHub App installation token)",
-      BRIDGEBUILDER_REPOS: 'Comma-separated repos, e.g. "owner/repo1,owner/repo2"',
-      ANTHROPIC_API_KEY: "Anthropic API key from console.anthropic.com",
-    }
-    const details = missing.map(v => `  - ${v}: ${hints[v] ?? "(no hint available)"}`).join("\n")
-    throw new Error(`Missing required environment variables:\n${details}`)
+  if (!anthropicApiKey) {
+    throw new Error("Missing required environment variable: ANTHROPIC_API_KEY")
   }
 
-  const repoEntries = reposRaw!.split(",").filter(r => r.trim().length > 0)
-  if (repoEntries.length === 0) {
-    throw new Error('BRIDGEBUILDER_REPOS is set but contains no valid entries (empty or whitespace-only)')
+  // R2 config is null when env vars missing (graceful degradation)
+  const r2Endpoint = process.env.R2_ENDPOINT
+  const r2Bucket = process.env.R2_BUCKET
+  const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID
+  const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY
+
+  const r2: R2ClientConfig | null =
+    r2Endpoint && r2Bucket && r2AccessKeyId && r2SecretAccessKey
+      ? { endpoint: r2Endpoint, bucket: r2Bucket, accessKeyId: r2AccessKeyId, secretAccessKey: r2SecretAccessKey }
+      : null
+
+  const lease: LeaseConfig = {
+    ttlMinutes: intEnv("BRIDGEBUILDER_LEASE_TTL_MINUTES", 30),
+    delayMs: intEnv("BRIDGEBUILDER_LEASE_DELAY_MS", 200),
   }
 
-  const repos = repoEntries.map(r => {
-    const [owner, repo] = r.trim().split("/")
-    if (!owner || !repo) throw new Error(`Invalid repo format: "${r}" — expected "owner/repo"`)
-    return { owner, repo }
-  })
-
-  return {
-    githubToken: githubToken!,
-    repos,
-    anthropicApiKey: anthropicApiKey!,
-    model: env("BRIDGEBUILDER_MODEL", "claude-sonnet-4-5-20250929"),
-    maxPRsPerRun: intEnv("BRIDGEBUILDER_MAX_PRS", 10),
-    maxRuntimeMinutes: intEnv("BRIDGEBUILDER_MAX_RUNTIME_MINUTES", 25),
-    maxFilesPerPR: intEnv("BRIDGEBUILDER_MAX_FILES_PER_PR", 50),
-    maxDiffBytesPerPR: intEnv("BRIDGEBUILDER_MAX_DIFF_BYTES", 100_000),
-    maxInputTokens: intEnv("BRIDGEBUILDER_MAX_INPUT_TOKENS", 8000),
-    maxOutputTokens: intEnv("BRIDGEBUILDER_MAX_OUTPUT_TOKENS", 4000),
-    reReviewHours: optionalIntEnv("BRIDGEBUILDER_RE_REVIEW_HOURS"),
-    dimensions: env("BRIDGEBUILDER_DIMENSIONS", "security,quality,test-coverage").split(","),
-    dryRun: env("BRIDGEBUILDER_DRY_RUN", "false") === "true",
-    r2Endpoint: process.env.R2_ENDPOINT,
-    r2Bucket: process.env.R2_BUCKET,
-    r2AccessKeyId: process.env.R2_ACCESS_KEY_ID,
-    r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  }
-}
-
-function env(key: string, fallback: string): string {
-  return process.env[key] ?? fallback
+  return { upstream, anthropicApiKey, r2, lease }
 }
 
 function intEnv(key: string, fallback: number): number {
   const raw = process.env[key]
-  return raw ? parseInt(raw, 10) : fallback
-}
-
-function optionalIntEnv(key: string): number | undefined {
-  const raw = process.env[key]
-  return raw ? parseInt(raw, 10) : undefined
+  if (!raw) return fallback
+  const parsed = parseInt(raw, 10)
+  if (Number.isNaN(parsed)) throw new Error(`${key}=${raw} is not a valid integer`)
+  return parsed
 }
