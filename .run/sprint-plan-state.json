@@ -4,16 +4,16 @@
   "state": "RUNNING",
   "timestamps": {
     "started": "2026-02-11T00:00:00Z",
-    "last_activity": "2026-02-11T00:00:00Z"
+    "last_activity": "2026-02-11T03:30:00Z"
   },
   "sprints": {
     "total": 3,
-    "completed": 1,
-    "current": "sprint-2",
+    "completed": 2,
+    "current": "sprint-3",
     "list": [
       {"id": "sprint-1", "status": "completed", "cycles": 1, "label": "Tooling & Templates"},
-      {"id": "sprint-2", "status": "in_progress", "cycles": 0, "label": "Reality Extraction & Document Generation"},
-      {"id": "sprint-3", "status": "pending", "cycles": 0, "label": "Governance, Verification & Review"}
+      {"id": "sprint-2", "status": "completed", "cycles": 1, "label": "Reality Extraction & Document Generation"},
+      {"id": "sprint-3", "status": "in_progress", "cycles": 0, "label": "Governance, Verification & Review"}
     ]
   },
   "options": {
@@ -23,9 +23,9 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 0,
-    "total_files_changed": 0,
-    "total_findings_fixed": 0
+    "total_cycles": 2,
+    "total_files_changed": 18,
+    "total_findings_fixed": 15
   },
   "context": {
     "sprint_plan_file": "grimoires/loa/sprint-docs-rewrite.md",

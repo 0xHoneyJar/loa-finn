@@ -1,1 +1,217 @@
-{"documents":[{"path":"README.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":0}},{"path":"docs/architecture.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":1}},{"path":"docs/operations.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":0}},{"path":"docs/api-reference.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":0}},{"path":"docs/modules/hounfour.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":0}},{"path":"docs/modules/gateway.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":0}},{"path":"docs/modules/persistence.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":1}},{"path":"docs/modules/cron.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":0}},{"path":"docs/modules/safety.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":0}},{"path":"docs/modules/agent.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":1}},{"path":"docs/modules/bridgebuilder.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":0}},{"path":"docs/modules/scheduler.md","status":"passed","timestamp":"2026-02-11T03:21:05Z","commit":"1ef38a64bfda4b35c37707c710fc9b796ada7ee5","commit_short":"1ef38a6","gates":{"overall":"PASS","gates_passed":9,"gates_total":9,"warnings":0}}],"metadata":{"created":"2026-02-11T03:21:05Z","version":"2.0.0","updated":"2026-02-11T03:21:05Z"}}
+{
+  "documents": [
+    {
+      "path": "README.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "SECURITY.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "CHANGELOG.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/architecture.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/operations.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/api-reference.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/index.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/modules/hounfour.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/modules/gateway.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/modules/persistence.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/modules/cron.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/modules/safety.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/modules/agent.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/modules/bridgebuilder.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    },
+    {
+      "path": "docs/modules/scheduler.md",
+      "status": "passed",
+      "timestamp": "2026-02-11T03:56:57Z",
+      "commit": "8d60958b2aa46facc5298b0f73252c084b74943e",
+      "commit_short": "8d60958",
+      "gates": {
+        "overall": "PASS",
+        "gates_passed": 9,
+        "gates_total": 9,
+        "warnings": 0
+      }
+    }
+  ],
+  "metadata": {
+    "created": "2026-02-11T03:56:57Z",
+    "version": "2.0.0",
+    "updated": "2026-02-11T03:56:57Z"
+  }
+}
