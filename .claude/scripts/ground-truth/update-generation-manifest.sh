@@ -80,14 +80,14 @@ doc_entry=$(jq -nc \
   }')
 
 # ── Update manifest (upsert by path) ──
-tmp_manifest="${MANIFEST_FILE}.tmp"
+tmp_manifest=$(mktemp "${MANIFEST_FILE}.XXXXXX")
 jq --argjson entry "$doc_entry" '
   .documents = [
     (.documents // [] | map(select(.path != $entry.path))),
     [$entry]
   ] | flatten |
   .metadata.updated = ($entry.timestamp)
-' "$MANIFEST_FILE" > "$tmp_manifest" && mv "$tmp_manifest" "$MANIFEST_FILE"
+' "$MANIFEST_FILE" > "$tmp_manifest" && mv "$tmp_manifest" "$MANIFEST_FILE" || { rm -f "$tmp_manifest"; exit 1; }
 
 # ── Output ──
 if $JSON_OUTPUT; then

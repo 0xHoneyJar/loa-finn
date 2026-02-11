@@ -4,7 +4,7 @@
 
 | Sprint | Global ID | Status | Report |
 |--------|-----------|--------|--------|
-| Sprint 1 | 32 | IN_REVIEW | [reviewer.md](sprint-32/reviewer.md) |
+| Sprint 1 | 32 | COMPLETED | [reviewer.md](sprint-32/reviewer.md) / [engineer-feedback.md](sprint-32/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-32/auditor-sprint-feedback.md) |
 | Sprint 2 | 33 | PENDING | — |
 | Sprint 3 | 34 | PENDING | — |
 

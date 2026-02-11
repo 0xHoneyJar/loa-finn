@@ -40,7 +40,7 @@ fi
 
 if [[ -z "$context_block" ]]; then
   if $JSON_OUTPUT; then
-    echo '{"file":"'"$DOC_PATH"'","valid":false,"violations":[{"field":"AGENT-CONTEXT","message":"No AGENT-CONTEXT block found","severity":"error"}]}'
+    jq -nc --arg file "$DOC_PATH" '{"file":$file,"valid":false,"violations":[{"field":"AGENT-CONTEXT","message":"No AGENT-CONTEXT block found","severity":"error"}]}'
   else
     echo "FAIL: No AGENT-CONTEXT block found in $DOC_PATH" >&2
   fi
@@ -173,7 +173,18 @@ fi
 
 # ── Output ──
 if $JSON_OUTPUT; then
-  echo '{"file":"'"$DOC_PATH"'","valid":'"$valid"',"errors":'"$error_count"',"warnings":'"$warning_count"',"violations":'"$violations"',"fields":{"name":'"$(echo "$name" | jq -Rs .)"',"type":'"$(echo "$type" | jq -Rs .)"',"purpose":'"$(echo "$purpose" | jq -Rs .)"',"key_files":'"$(echo "$key_files" | jq -Rs .)"',"version":'"$(echo "$version" | jq -Rs .)"'}}'
+  jq -nc \
+    --arg file "$DOC_PATH" \
+    --argjson valid "$valid" \
+    --argjson errors "$error_count" \
+    --argjson warnings "$warning_count" \
+    --argjson violations "$violations" \
+    --arg name "$name" \
+    --arg type "$type" \
+    --arg purpose "$purpose" \
+    --arg key_files "$key_files" \
+    --arg version "$version" \
+    '{file: $file, valid: $valid, errors: $errors, warnings: $warnings, violations: $violations, fields: {name: $name, type: $type, purpose: $purpose, key_files: $key_files, version: $version}}'
 else
   if $valid; then
     echo "PASS: AGENT-CONTEXT block valid ($warning_count warnings)"

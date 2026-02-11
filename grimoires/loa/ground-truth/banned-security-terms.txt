@@ -4,10 +4,17 @@
 
 # API keys and tokens (provider-specific patterns)
 sk-[a-zA-Z0-9]{20,}
+sk_live_[a-zA-Z0-9]{24,}
+pk_live_[a-zA-Z0-9]{24,}
+rk_live_[a-zA-Z0-9]{24,}
 ghp_[a-zA-Z0-9]{36}
 xoxb-[a-zA-Z0-9-]+
 AKIA[A-Z0-9]{16}
 Bearer eyJ[a-zA-Z0-9._-]{100,}
+SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}
+npm_[a-zA-Z0-9]{36}
+pypi-[a-zA-Z0-9_-]{50,}
+SK[a-f0-9]{32}
 
 # Internal/local hostnames (NOT example/test domains)
 \.internal\.

@@ -116,6 +116,29 @@ while IFS= read -r term || [[ -n "$term" ]]; do
   terms_regex+="$term"
 done < "$TERMS_FILE"
 
+# ── Build allowlist regex if allowlist file exists ──
+ALLOW_FILE="${TERMS_FILE%.txt}"
+ALLOW_FILE="${ALLOW_FILE}-allow.txt"
+# For banned-security-terms.txt → banned-security-allow.txt
+if [[ "$TERMS_FILE" == *"banned-security-terms"* ]]; then
+  ALLOW_FILE="$(dirname "$TERMS_FILE")/banned-security-allow.txt"
+elif [[ "$TERMS_FILE" == *"banned-terms"* ]]; then
+  ALLOW_FILE="$(dirname "$TERMS_FILE")/banned-allow.txt"
+fi
+
+allow_regex=""
+if [[ -f "$ALLOW_FILE" ]]; then
+  while IFS= read -r aterm || [[ -n "$aterm" ]]; do
+    [[ -z "$aterm" || "$aterm" == \#* ]] && continue
+    aterm=$(echo "$aterm" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [[ -z "$aterm" ]] && continue
+    if [[ -n "$allow_regex" ]]; then
+      allow_regex+="|"
+    fi
+    allow_regex+="$aterm"
+  done < "$ALLOW_FILE"
+fi
+
 if [[ -z "$terms_regex" ]]; then
   if $JSON_OUTPUT; then
     echo '{"file":"'"$DOC_PATH"'","found":[],"count":0}'
@@ -134,6 +157,11 @@ while IFS= read -r line; do
   [[ -z "$line" ]] && continue
   line_num="${line%%:*}"
   line_content="${line#*:}"
+
+  # Skip if line matches allowlist
+  if [[ -n "$allow_regex" ]] && echo "$line_content" | grep -qiE "$allow_regex" 2>/dev/null; then
+    continue
+  fi
 
   # Case-insensitive match
   matches=$(echo "$line_content" | grep -oiE "$terms_regex" 2>/dev/null || true)

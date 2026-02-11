@@ -30,8 +30,9 @@ if [[ -z "$DOC_PATH" || ! -f "$DOC_PATH" ]]; then
   exit 2
 fi
 
-# ── Get document directory for relative path resolution ──
+# ── Get document directory and project root for path jail ──
 doc_dir=$(dirname "$DOC_PATH")
+project_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 
 # ── Extract markdown links: [text](path) ──
 # Skip external URLs (http://, https://, mailto:, #anchors)
@@ -84,6 +85,20 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     # Normalize path (remove ./ and resolve ../)
     resolved=$(cd "$doc_dir" 2>/dev/null && realpath -m "$link_file" 2>/dev/null || echo "$resolved")
 
+    # Project-root jail: reject paths that escape the repository
+    if [[ "$resolved" != "$project_root"* ]]; then
+      ((broken_count++)) || true
+      if ! $first; then broken+=","; fi
+      first=false
+      broken+=$(jq -nc \
+        --argjson line "$line_num" \
+        --arg link "$link_path" \
+        --arg resolved "(outside project root)" \
+        --arg text "$link_text" \
+        '{line: $line, link: $link, resolved: $resolved, text: $text}')
+      continue
+    fi
+
     if [[ ! -f "$resolved" && ! -d "$resolved" ]]; then
       ((broken_count++)) || true
       if ! $first; then broken+=","; fi
@@ -102,7 +117,12 @@ broken+="]"
 
 # ── Output ──
 if $JSON_OUTPUT; then
-  echo '{"file":"'"$DOC_PATH"'","total_links":'"$total_count"',"broken_count":'"$broken_count"',"broken":'"$broken"'}'
+  jq -nc \
+    --arg file "$DOC_PATH" \
+    --argjson total_links "$total_count" \
+    --argjson broken_count "$broken_count" \
+    --argjson broken "$broken" \
+    '{file: $file, total_links: $total_links, broken_count: $broken_count, broken: $broken}'
 else
   if [[ $broken_count -gt 0 ]]; then
     echo "FAIL: $broken_count broken link(s) out of $total_count total"

@@ -103,7 +103,13 @@ run_gate() {
 
   local escaped_output
   escaped_output=$(printf '%s' "$result" | jq -Rs . 2>/dev/null || echo '""')
-  gates_json+='{"gate":"'"$name"'","blocking":'"$blocking"',"status":"'"$status"'","exit_code":'"$exit_code"',"output":'"$escaped_output"'}'
+  gates_json+=$(jq -nc \
+    --arg gate "$name" \
+    --argjson blocking "$blocking" \
+    --arg status "$status" \
+    --argjson exit_code "$exit_code" \
+    --argjson output "$escaped_output" \
+    '{gate: $gate, blocking: $blocking, status: $status, exit_code: $exit_code, output: $output}')
 
   if [[ "$blocking" == "true" ]]; then
     ((total_blocking++)) || true
@@ -186,7 +192,8 @@ if ! $blocking_failed; then
     ((passed_blocking++)) || true
   fi
 
-  gates_json+='{"gate":"freshness-check","blocking":true,"status":"'"$freshness_status"'","exit_code":0,"output":"'"$freshness_detail"'"}'
+  gates_json+=$(jq -nc --arg status "$freshness_status" --arg output "$freshness_detail" \
+    '{gate: "freshness-check", blocking: true, status: $status, exit_code: 0, output: $output}')
 fi
 
 # ── INLINE GATE: registry-consistency (blocking) ──
@@ -239,14 +246,23 @@ if ! $blocking_failed; then
     ((passed_blocking++)) || true
   fi
 
-  gates_json+='{"gate":"registry-consistency","blocking":true,"status":"'"$consistency_status"'","exit_code":'"$([[ "$consistency_status" == "pass" ]] && echo 0 || echo 1)"',"output":"'"$consistency_detail"'"}'
+  consistency_exit=$([[ "$consistency_status" == "pass" ]] && echo 0 || echo 1)
+  gates_json+=$(jq -nc --arg status "$consistency_status" --argjson exit_code "$consistency_exit" --arg output "$consistency_detail" \
+    '{gate: "registry-consistency", blocking: true, status: $status, exit_code: $exit_code, output: $output}')
 fi
 
 gates_json+="]"
 
 # ── GATE 7: export-gate-metrics (always runs, non-blocking) ──
 # Build the full JSON output first so we can pass it to export-gate-metrics
-_full_json='{"file":"'"$DOC_PATH"'","overall":"'"$([[ $blocking_failed == true ]] && echo "FAIL" || echo "PASS")"'","blocking_gates":'"$gates_json"',"total_blocking":'"$total_blocking"',"passed_blocking":'"$passed_blocking"'}'
+_overall=$([[ $blocking_failed == true ]] && echo "FAIL" || echo "PASS")
+_full_json=$(jq -nc \
+  --arg file "$DOC_PATH" \
+  --arg overall "$_overall" \
+  --argjson blocking_gates "$gates_json" \
+  --argjson total_blocking "$total_blocking" \
+  --argjson passed_blocking "$passed_blocking" \
+  '{file: $file, overall: $overall, blocking_gates: $blocking_gates, total_blocking: $total_blocking, passed_blocking: $passed_blocking}')
 if [[ -x "$SCRIPT_DIR/export-gate-metrics.sh" ]]; then
   "$SCRIPT_DIR/export-gate-metrics.sh" "$DOC_PATH" --gates-json "$_full_json" --start-time "$GATE_START_TIME" --json >/dev/null 2>&1 || true
 fi

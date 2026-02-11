@@ -49,7 +49,8 @@ run_test() {
     ((passed++)) || true
   fi
 
-  results+='{"test":"'"$name"'","description":"'"$description"'","status":"'"$status"'","exit_code":'"$exit_code"'}'
+  results+=$(jq -nc --arg test "$name" --arg desc "$description" --arg status "$status" --argjson exit_code "$exit_code" \
+    '{test: $test, description: $desc, status: $status, exit_code: $exit_code}')
 
   if $VERBOSE; then
     echo "  [$status] $name: $description"
@@ -105,7 +106,7 @@ This is a test section with a citation to `README.md:1`.
 TESTEOF
 
 run_test "quality-gates-runs" "quality-gates.sh runs without crash on test doc" \
-  bash -c "$SCRIPT_DIR/quality-gates.sh '$test_doc' --json >/dev/null 2>&1; true"
+  bash -c '"$1" "$2" --json >/dev/null 2>&1; true' _ "$SCRIPT_DIR/quality-gates.sh" "$test_doc"
 
 # ── Test 6: quality-gates.sh produces valid JSON ──
 # Capture metrics line count BEFORE running quality-gates.sh for Test 8

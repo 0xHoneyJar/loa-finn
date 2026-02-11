@@ -171,7 +171,16 @@ fi
 
 # ── Output ──
 if $JSON_OUTPUT; then
-  echo '{"file":"'"$DOC_PATH"'","passed":'"$passed"',"total_claims":'"$total_claims"',"grounded":'"$grounded_claims"',"ungrounded":'"$ungrounded_claims"',"errors":'"$error_count"',"warnings":'"$warning_count"',"violations":'"$violations"'}'
+  jq -nc \
+    --arg file "$DOC_PATH" \
+    --argjson passed "$passed" \
+    --argjson total_claims "$total_claims" \
+    --argjson grounded "$grounded_claims" \
+    --argjson ungrounded "$ungrounded_claims" \
+    --argjson errors "$error_count" \
+    --argjson warnings "$warning_count" \
+    --argjson violations "$violations" \
+    '{file: $file, passed: $passed, total_claims: $total_claims, grounded: $grounded, ungrounded: $ungrounded, errors: $errors, warnings: $warnings, violations: $violations}'
 else
   if $passed; then
     echo "PASS: Claim grounding check ($total_claims claims, $grounded_claims grounded, $warning_count warnings)"
