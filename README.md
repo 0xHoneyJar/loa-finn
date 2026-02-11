@@ -1,171 +1,102 @@
-# Loa
+# loa-finn
 
-<!-- AGENT-CONTEXT: Loa is an agent-driven development framework for Claude Code.
-Primary interface: 5 Golden Path commands (/loa, /plan, /build, /review, /ship).
-Power user interface: 47 slash commands (truenames).
-Architecture: Three-zone model (System: .claude/, State: grimoires/ + .beads/, App: src/).
-Configuration: .loa.config.yaml (user-owned, never modified by framework).
-Health check: /loa doctor
-Version: 1.31.0
--->
+<!-- AGENT-CONTEXT: name=loa-finn, type=overview, purpose=AI agent runtime with multi-model orchestration and persistence, key_files=[src/index.ts, src/gateway/server.ts, src/hounfour/router.ts, src/persistence/wal.ts], interfaces=[HounfourRouter, WAL, CronService, AuditTrail], dependencies=[hono, @mariozechner/pi-ai, @aws-sdk/client-s3, jose, ws], version=0.1.0 -->
 
-[![Version](https://img.shields.io/badge/version-1.31.0-blue.svg)](CHANGELOG.md)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE.md)
-[![Release](https://img.shields.io/badge/release-Bridgebuilder%20Release-purple.svg)](CHANGELOG.md#1310---2026-02-07--bridgebuilder-release)
+loa-finn is an AI agent runtime that provides multi-model orchestration, tool execution sandboxing, and durable persistence for Claude-powered applications. It exposes an HTTP and WebSocket API for session management, routes LLM requests across providers with budget enforcement, and maintains a write-ahead log with R2 cloud storage backup (`src/index.ts`).
 
-> *"The Loa are pragmatic entities... They're not worshipped for salvation—they're worked with for practical results."*
+The architecture follows a similar pattern to Kubernetes' control plane: a central orchestrator (`src/index.ts`) coordinates specialized subsystems (model routing, job scheduling, persistence) that communicate through well-defined interfaces rather than direct coupling.
 
-## Why "Loa"?
+## Key Capabilities
 
-In William Gibson's Sprawl trilogy, Loa are AI entities that "ride" humans through neural interfaces. These agents don't replace you—they **ride with you**, channeling expertise through the interface.
+- **Multi-Model Routing** — Route LLM requests across providers with alias resolution, capability matching, budget enforcement, and automatic fallback chains (`src/hounfour/router.ts:invoke`)
+- **Tool-Call Orchestration** — Execute multi-step tool-call loops with configurable iteration limits (20), wall time (120s), and total tool call caps (50) (`src/hounfour/orchestrator.ts`)
+- **Write-Ahead Log Persistence** — Append-only WAL with R2 checkpoint sync and Git archive snapshots for crash recovery (`src/persistence/wal.ts`)
+- **Cron Job System** — Enterprise cron with per-job circuit breakers, stuck detection, concurrency policies, and a kill switch (`src/cron/service.ts`)
+- **Tool Execution Sandbox** — Worker-thread isolation with filesystem jail, command allowlists, and 30s timeout enforcement (`src/agent/sandbox.ts`)
+- **Hash-Chained Audit Trail** — SHA-256 chained JSONL with optional HMAC signing across 4 phases: intent, result, denied, dry_run (`src/safety/audit-trail.ts`)
+- **JWT Multi-Tenant Auth** — ES256 JWT validation with JWKS caching, JTI replay prevention, and tenant-aware model pool routing (`src/hounfour/jwt-auth.ts`)
+- **BridgeBuilder PR Automation** — Automated GitHub PR review pipeline with R2-backed run leases and persona injection (`src/bridgebuilder/entry.ts`)
+- **WebSocket Streaming** — Real-time agent streaming with 8 event types, per-IP connection limits, and automatic compaction (`src/gateway/ws.ts`)
+- **Activity Dashboard** — Aggregated health snapshot with audit trail browsing and GitHub activity feed (`src/gateway/dashboard-routes.ts`)
 
-## Quick Start (~2 minutes)
+## Quick Start
 
-```bash
-# Install (one command, any existing repo)
-curl -fsSL https://raw.githubusercontent.com/0xHoneyJar/loa/main/.claude/scripts/mount-loa.sh | bash
+### Prerequisites
 
-# Start Claude Code
-claude
+- Node.js 22+ (`"engines": { "node": ">=22" }` in `package.json`)
+- `ANTHROPIC_API_KEY` environment variable set
 
-# 5 commands. Full development cycle.
-/plan      # Requirements -> Architecture -> Sprints
-/build     # Implement the current sprint
-/review    # Code review + security audit
-/ship      # Deploy and archive
-```
-
-Not sure where you are? `/loa` shows your current state, health, and next step. Creating a project from scratch? See **[INSTALLATION.md](INSTALLATION.md)** to clone the template at start riding and for more detailed setup, prerequisites, and configuration.
-
-## Why Loa?
-
-**The problem**: AI coding assistants are powerful but unstructured. Without guardrails, you get ad-hoc code with no traceability, no security review, and no memory across sessions.
-
-**The solution**: Loa adds structure without ceremony. Each phase produces a traceable artifact (PRD, SDD, Sprint Plan, Code, Review, Audit) using specialized AI agents. Your code gets reviewed by a Tech Lead agent *and* a Security Auditor agent before it ships.
-
-**Key differentiators**:
-- **Multi-agent orchestration**: 17 specialized skills, not one general-purpose prompt
-- **Quality gates**: Two-phase review (code + security) prevents unreviewed code from shipping
-- **Session persistence**: Beads task graph + persistent memory survive context clears
-- **Adversarial review**: Flatline Protocol uses cross-model dissent (Opus + GPT-5.2) for planning QA
-- **Zero-config start**: Mount onto any repo, type `/plan`, start building
-
-## The Workflow
-
-### Golden Path (5 commands, zero arguments)
-
-| Command | What It Does |
-|---------|-------------|
-| `/loa` | Where am I? What's next? |
-| `/plan` | Plan your project (requirements -> architecture -> sprints) |
-| `/build` | Build the current sprint |
-| `/review` | Review and audit your work |
-| `/ship` | Deploy and archive |
-
-Each Golden Path command auto-detects context and does the right thing. No arguments needed.
-
-### Diagnostics
+### Run Locally
 
 ```bash
-/loa doctor          # Full system health check with structured error codes
-/loa doctor --json   # CI-friendly output
+# Clone and install
+git clone <repo-url> && cd loa-finn
+npm install
+
+# Set required environment
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Start development server (tsx watch)
+npm run dev
 ```
 
-### Power User Commands (Truenames)
+The server starts at `http://localhost:3000` with health check at `GET /health` (`src/gateway/server.ts`).
 
-For fine-grained control, use the underlying commands directly:
+### Run with Docker
 
-| Phase | Command | Output |
-|-------|---------|--------|
-| 1 | `/plan-and-analyze` | Product Requirements (PRD) |
-| 2 | `/architect` | Software Design (SDD) |
-| 3 | `/sprint-plan` | Sprint Plan |
-| 4 | `/implement sprint-N` | Code + Tests |
-| 5 | `/review-sprint sprint-N` | Approval or Feedback |
-| 5.5 | `/audit-sprint sprint-N` | Security Approval |
-| 6 | `/deploy-production` | Infrastructure |
+```bash
+docker compose up
+```
 
-**47 total commands.** Type `/loa` for the Golden Path or see [PROCESS.md](PROCESS.md) for all commands.
+For GPU-accelerated local models (vLLM + Qwen):
 
-## The Agents
+```bash
+docker compose -f docker-compose.gpu.yml up
+```
 
-Seventeen specialized skills that ride alongside you:
+### Deploy BridgeBuilder (Railway)
 
-| Skill | Role |
-|-------|------|
-| discovering-requirements | Senior Product Manager |
-| designing-architecture | Software Architect |
-| planning-sprints | Technical PM |
-| implementing-tasks | Senior Engineer |
-| reviewing-code | Tech Lead |
-| auditing-security | Security Auditor |
-| deploying-infrastructure | DevOps Architect |
-| translating-for-executives | Developer Relations |
-| enhancing-prompts | Prompt Engineer |
-| run-mode | Autonomous Executor |
-| simstim-workflow | HITL Orchestrator |
-| riding-codebase | Codebase Analyst |
-| continuous-learning | Learning Extractor |
-| flatline-knowledge | Knowledge Retriever |
-| browsing-constructs | Construct Browser |
-| mounting-framework | Framework Installer |
-| autonomous-agent | Autonomous Agent |
+The `railway.toml` configures automated PR review as a cron job running every 30 minutes:
 
-## Architecture
+```bash
+npm run bridgebuilder
+```
 
-Loa uses a **three-zone model** inspired by AWS Projen and Google's ADK:
+## Module Map
 
-| Zone | Path | Description |
-|------|------|-------------|
-| **System** | `.claude/` | Framework-managed (never edit directly) |
-| **State** | `grimoires/`, `.beads/` | Project memory |
-| **App** | `src/`, `lib/` | Your code |
+| Module | Purpose | Documentation |
+|--------|---------|---------------|
+| **hounfour** | Multi-model routing, budget, JWT, orchestration | [docs/modules/hounfour.md](docs/modules/hounfour.md) |
+| **gateway** | HTTP API, WebSocket, auth, rate limiting | [docs/modules/gateway.md](docs/modules/gateway.md) |
+| **persistence** | WAL, R2 sync, Git sync, recovery | [docs/modules/persistence.md](docs/modules/persistence.md) |
+| **cron** | Scheduled job system with circuit breakers | [docs/modules/cron.md](docs/modules/cron.md) |
+| **agent** | Session management, sandbox, worker pool | [docs/modules/agent.md](docs/modules/agent.md) |
+| **safety** | Audit trail, firewall, secret redaction | [docs/modules/safety.md](docs/modules/safety.md) |
+| **bridgebuilder** | GitHub PR automation pipeline | [docs/modules/bridgebuilder.md](docs/modules/bridgebuilder.md) |
+| **scheduler** | Periodic task scheduling with health | [docs/modules/scheduler.md](docs/modules/scheduler.md) |
 
-**Key principle**: Customize via `.claude/overrides/` and `.loa.config.yaml`, not by editing `.claude/` directly.
+## Documentation Index
 
-## Key Features
-
-| Feature | Description | Documentation |
-|---------|-------------|---------------|
-| **Golden Path** | 5 zero-arg commands for 90% of users | [CLAUDE.md](CLAUDE.md#golden-path) |
-| **Error Codes & `/loa doctor`** | Structured LOA-E001+ codes with fix suggestions | [Data](.claude/data/error-codes.json) |
-| **Flatline Protocol** | Multi-model adversarial review (Opus + GPT-5.2) | [Protocol](.claude/protocols/flatline-protocol.md) |
-| **Adversarial Dissent** | Cross-model challenge during review and audit | [CHANGELOG.md](CHANGELOG.md) |
-| **Cross-Repo Patterns** | 25 reusable patterns in 5 library modules | [Lib](.claude/lib/) |
-| **DRY Constraint Registry** | Single-source constraint generation from JSON | [Data](.claude/data/constraints.json) |
-| **Beads-First Architecture** | Task tracking as expected default, not optional | [CLAUDE.md](CLAUDE.md#beads-first-architecture) |
-| **Persistent Memory** | Session-spanning observations with progressive disclosure | [Scripts](.claude/scripts/memory-query.sh) |
-| **Input Guardrails** | PII filtering, injection detection, danger levels | [Protocol](.claude/protocols/input-guardrails.md) |
-| **Portable Persistence** | WAL-based persistence with circuit breakers | [Lib](.claude/lib/persistence/) |
-| **Cross-Platform Compat** | Shell scripting protocol for macOS + Linux | [Scripts](.claude/scripts/compat/) |
-| **Prompt Enhancement** | PTCF-based prompt analysis and improvement | [CHANGELOG.md](CHANGELOG.md) |
-| **Run Mode** | Autonomous sprint execution with draft PRs | [CLAUDE.md](CLAUDE.md#run-mode) |
-| **Simstim** | HITL accelerated development (PRD -> SDD -> Sprint -> Run) | [Command](.claude/commands/simstim.md) |
-| **Compound Learning** | Cross-session pattern detection + feedback loop | [CHANGELOG.md](CHANGELOG.md) |
-| **Construct Manifest Standard** | Event-driven contracts with schema validation | [CHANGELOG.md](CHANGELOG.md) |
-| **Quality Gates** | Two-phase review: Tech Lead + Security Auditor | [PROCESS.md](PROCESS.md#agent-to-agent-communication) |
-| **Loa Constructs** | Commercial skill packs from registry | [INSTALLATION.md](INSTALLATION.md#loa-constructs-commercial-skills) |
-| **Sprint Ledger** | Global sprint numbering across cycles | [CLAUDE.md](CLAUDE.md#sprint-ledger) |
-| **beads_rust** | Persistent task graph across sessions | [INSTALLATION.md](INSTALLATION.md#beads_rust-optional) |
-| **ck Search** | Semantic code search | [INSTALLATION.md](INSTALLATION.md#ck-semantic-code-search) |
-
-## Documentation
-
-| Document | Purpose |
-|----------|---------|
-| **[INSTALLATION.md](INSTALLATION.md)** | Setup, prerequisites, configuration, updates |
-| **[PROCESS.md](PROCESS.md)** | Complete workflow, agents, commands, protocols |
-| **[CLAUDE.md](CLAUDE.md)** | Technical reference for Claude Code |
-| **[CHANGELOG.md](CHANGELOG.md)** | Version history |
-
-## License
-
-[AGPL-3.0](LICENSE.md) — Use, modify, distribute freely. Network service deployments must release source code.
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/architecture.md) | System design, layers, component interactions |
+| [Operations](docs/operations.md) | Deployment, configuration, monitoring, troubleshooting |
+| [API Reference](docs/api-reference.md) | HTTP endpoints, WebSocket contracts, auth |
+| [Security](SECURITY.md) | Auth architecture, audit trail, vulnerability reporting |
+| [Contributing](CONTRIBUTING.md) | Development setup, workflow, code standards |
+| [Changelog](CHANGELOG.md) | Version history and release notes |
 
 ## Links
 
-- [Repository](https://github.com/0xHoneyJar/loa)
-- [Issues](https://github.com/0xHoneyJar/loa/issues)
-- [Changelog](CHANGELOG.md)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
-- [beads_rust](https://github.com/Dicklesworthstone/beads_rust)
+- **Repository**: [GitHub](https://github.com/0xHoneyJar/loa-finn)
+- **Issues**: [GitHub Issues](https://github.com/0xHoneyJar/loa-finn/issues)
+- **Upstream**: [Loa Framework](https://github.com/0xHoneyJar/loa)
+
+## Known Limitations
+
+- Single-writer WAL — no concurrent sessions per WAL file (`src/persistence/wal.ts`)
+- No horizontal scaling — single Hono instance per deployment (`src/gateway/server.ts`)
+- Tool sandbox 30s default timeout — long-running tools may be killed (`src/config.ts`)
+- BridgeBuilder can only COMMENT on PRs, not APPROVE or REQUEST_CHANGES (`src/bridgebuilder/entry.ts`)
+
+<!-- ground-truth-meta: head_sha=689a777 generated_at=2026-02-11T01:06:00Z features_sha=689a777 limitations_sha=689a777 ride_sha=689a777 -->
