@@ -1,10 +1,11 @@
 # Safety — Audit, Firewall & Redaction
 
-<!-- AGENT-CONTEXT: name=safety, type=module, purpose=Security enforcement with hash-chained audit trail and execution isolation, key_files=[src/safety/audit-trail.ts, src/safety/github-firewall.ts, src/safety/secret-redactor.ts, src/safety/tool-registry.ts, src/safety/boot-validation.ts], interfaces=[AuditTrail, AlertService, GithubFirewall, SecretRedactor, ToolRegistry], dependencies=[], version=0.1.0 -->
+<!-- AGENT-CONTEXT: name=safety, type=module, purpose=Security enforcement with hash-chained audit trail and execution isolation, key_files=[src/safety/audit-trail.ts, src/safety/github-firewall.ts, src/safety/secret-redactor.ts, src/safety/tool-registry.ts, src/safety/boot-validation.ts], interfaces=[AuditTrail, AlertService, GithubFirewall, SecretRedactor, ToolRegistry], dependencies=[], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
 
 ## Purpose
 
-The safety module provides security enforcement, tamper-evident logging, and execution isolation. Its hash-chained audit trail records all agent actions with cryptographic integrity verification (`src/safety/audit-trail.ts`).
+<!-- provenance: CODE-FACTUAL -->
+The safety module provides security enforcement, tamper-evident logging, and execution isolation. Its hash-chained audit trail records all agent actions with cryptographic integrity verification (`src/safety/audit-trail.ts:1`).
 
 ## Key Interfaces
 
@@ -19,10 +20,13 @@ class AuditTrail {
 }
 ```
 
+<!-- provenance: INFERRED -->
 **Hash chain**: Each record contains `hash` (SHA-256 of canonical JSON) and `prevHash` (link to previous). Optional HMAC-SHA256 signing via `hmac` field. Canonical serialization uses sorted keys, excluding `hash` and `hmac` fields.
 
+<!-- provenance: INFERRED -->
 **Phases**: `intent` (before action), `result` (after success), `denied` (blocked), `dry_run` (simulation).
 
+<!-- provenance: INFERRED -->
 **Rotation**: 10MB file size threshold triggers new segment.
 
 ### AlertService (`src/safety/alert-service.ts`)
@@ -33,22 +37,27 @@ class AlertService {
 }
 ```
 
+<!-- provenance: INFERRED -->
 Severities: `critical`, `error`, `warning`, `info`. Channels: `github_issue`, `webhook`, `log`.
 
 ### GithubFirewall (`src/safety/github-firewall.ts`)
 
+<!-- provenance: INFERRED -->
 Validates GitHub operations through a 3-phase protocol: intent → dry_run → result. Prevents unintended repository mutations.
 
 ### SecretRedactor (`src/safety/secret-redactor.ts`)
 
+<!-- provenance: INFERRED -->
 Pattern-based secret detection and replacement. Identifies API keys, tokens, passwords, PEM blocks, and other credential patterns.
 
 ### ToolRegistry (`src/safety/tool-registry.ts`)
 
+<!-- provenance: INFERRED -->
 Tool allowlist with policy enforcement. Controls which tools the agent can invoke and with what constraints.
 
 ### BootValidation (`src/safety/boot-validation.ts`)
 
+<!-- provenance: INFERRED -->
 Structured exit code system for boot failures. Returns specific codes to indicate missing config, unavailable services, or incompatible versions.
 
 ## Architecture
@@ -80,11 +89,13 @@ Agent Action → AuditTrail (intent phase)
 
 ## Dependencies
 
+<!-- provenance: INFERRED -->
 - **Internal**: `src/gateway/` (dashboard audit API), `src/agent/` (sandbox policy)
 - **External**: Node.js `crypto` (SHA-256, HMAC, timingSafeEqual)
 
 ## Known Limitations
 
+<!-- provenance: INFERRED -->
 - Audit trail is append-only with no deletion — rotation creates new segments but old segments remain
 - Secret redaction is pattern-based — novel credential formats may not be detected
 

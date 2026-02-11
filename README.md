@@ -1,28 +1,32 @@
 # loa-finn
 
-<!-- AGENT-CONTEXT: name=loa-finn, type=overview, purpose=AI agent runtime with multi-model orchestration and persistence, key_files=[src/index.ts, src/gateway/server.ts, src/hounfour/router.ts, src/persistence/wal.ts], interfaces=[HounfourRouter, WAL, CronService, AuditTrail], dependencies=[hono, @mariozechner/pi-ai, @aws-sdk/client-s3, jose, ws], version=0.1.0 -->
+<!-- AGENT-CONTEXT: name=loa-finn, type=overview, purpose=AI agent runtime with multi-model orchestration and persistence, key_files=[src/index.ts, src/gateway/server.ts, src/hounfour/router.ts, src/persistence/wal.ts], interfaces=[HounfourRouter, WAL, CronService, AuditTrail], dependencies=[hono, @mariozechner/pi-ai, @aws-sdk/client-s3, jose, ws], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
 
+<!-- provenance: INFERRED -->
 loa-finn is an AI agent runtime that provides multi-model orchestration, tool execution sandboxing, and durable persistence for Claude-powered applications. It exposes an HTTP and WebSocket API for session management, routes LLM requests across providers with budget enforcement, and maintains a write-ahead log with R2 cloud storage backup (`src/index.ts`).
 
-The architecture follows a similar pattern to Kubernetes' control plane: a central orchestrator (`src/index.ts`) coordinates specialized subsystems (model routing, job scheduling, persistence) that communicate through well-defined interfaces rather than direct coupling.
+<!-- provenance: INFERRED -->
+The architecture follows a layered runtime pattern: a central orchestrator (`src/index.ts`) coordinates specialized subsystems (model routing, job scheduling, persistence) that communicate through well-defined interfaces rather than direct coupling.
 
 ## Key Capabilities
 
-- **Multi-Model Routing** — Route LLM requests across providers with alias resolution, capability matching, budget enforcement, and automatic fallback chains (`src/hounfour/router.ts:invoke`)
-- **Tool-Call Orchestration** — Execute multi-step tool-call loops with configurable iteration limits (20), wall time (120s), and total tool call caps (50) (`src/hounfour/orchestrator.ts`)
-- **Write-Ahead Log Persistence** — Append-only WAL with R2 checkpoint sync and Git archive snapshots for crash recovery (`src/persistence/wal.ts`)
-- **Cron Job System** — Enterprise cron with per-job circuit breakers, stuck detection, concurrency policies, and a kill switch (`src/cron/service.ts`)
-- **Tool Execution Sandbox** — Worker-thread isolation with filesystem jail, command allowlists, and 30s timeout enforcement (`src/agent/sandbox.ts`)
-- **Hash-Chained Audit Trail** — SHA-256 chained JSONL with optional HMAC signing across 4 phases: intent, result, denied, dry_run (`src/safety/audit-trail.ts`)
-- **JWT Multi-Tenant Auth** — ES256 JWT validation with JWKS caching, JTI replay prevention, and tenant-aware model pool routing (`src/hounfour/jwt-auth.ts`)
-- **BridgeBuilder PR Automation** — Automated GitHub PR review pipeline with R2-backed run leases and persona injection (`src/bridgebuilder/entry.ts`)
-- **WebSocket Streaming** — Real-time agent streaming with 8 event types, per-IP connection limits, and automatic compaction (`src/gateway/ws.ts`)
-- **Activity Dashboard** — Aggregated health snapshot with audit trail browsing and GitHub activity feed (`src/gateway/dashboard-routes.ts`)
+<!-- provenance: CODE-FACTUAL -->
+- **Multi-Model Routing** — Route LLM requests across providers with alias resolution, capability matching, budget enforcement, and automatic fallback chains (`src/hounfour/router.ts:29`)
+- **Tool-Call Orchestration** — Execute multi-step tool-call loops with configurable iteration limits (20), wall time (120s), and total tool call caps (50) (`src/hounfour/orchestrator.ts:1`)
+- **Write-Ahead Log Persistence** — Append-only WAL with R2 checkpoint sync and Git archive snapshots for crash recovery (`src/persistence/wal.ts:1`)
+- **Cron Job System** — Enterprise cron with per-job circuit breakers, stuck detection, concurrency policies, and a kill switch (`src/cron/service.ts:1`)
+- **Tool Execution Sandbox** — Worker-thread isolation with filesystem jail, command allowlists, and 30s timeout enforcement (`src/agent/sandbox.ts:1`)
+- **Hash-Chained Audit Trail** — SHA-256 chained JSONL with optional HMAC signing across 4 phases: intent, result, denied, dry_run (`src/safety/audit-trail.ts:1`)
+- **JWT Multi-Tenant Auth** — ES256 JWT validation with JWKS caching, JTI replay prevention, and tenant-aware model pool routing (`src/hounfour/jwt-auth.ts:1`)
+- **BridgeBuilder PR Automation** — Automated GitHub PR review pipeline with R2-backed run leases and persona injection (`src/bridgebuilder/entry.ts:1`)
+- **WebSocket Streaming** — Real-time agent streaming with 8 event types, per-IP connection limits, and automatic compaction (`src/gateway/ws.ts:1`)
+- **Activity Dashboard** — Aggregated health snapshot with audit trail browsing and GitHub activity feed (`src/gateway/dashboard-routes.ts:1`)
 
 ## Quick Start
 
 ### Prerequisites
 
+<!-- provenance: OPERATIONAL -->
 - Node.js 22+ (`"engines": { "node": ">=22" }` in `package.json`)
 - `ANTHROPIC_API_KEY` environment variable set
 
@@ -40,7 +44,8 @@ export ANTHROPIC_API_KEY=sk-ant-...
 npm run dev
 ```
 
-The server starts at `http://localhost:3000` with health check at `GET /health` (`src/gateway/server.ts`).
+<!-- provenance: CODE-FACTUAL -->
+The server starts at `http://localhost:3000` with health check at `GET /health` (`src/gateway/server.ts:1`).
 
 ### Run with Docker
 
@@ -48,6 +53,7 @@ The server starts at `http://localhost:3000` with health check at `GET /health` 
 docker compose up
 ```
 
+<!-- provenance: OPERATIONAL -->
 For GPU-accelerated local models (vLLM + Qwen):
 
 ```bash
@@ -56,7 +62,8 @@ docker compose -f docker-compose.gpu.yml up
 
 ### Deploy BridgeBuilder (Railway)
 
-The `railway.toml` configures automated PR review as a cron job running every 30 minutes:
+<!-- provenance: CODE-FACTUAL -->
+The `railway.toml` configures automated PR review as a cron job running every 30 minutes (`src/bridgebuilder/entry.ts:1`):
 
 ```bash
 npm run bridgebuilder
@@ -88,15 +95,17 @@ npm run bridgebuilder
 
 ## Links
 
+<!-- provenance: EXTERNAL-REFERENCE -->
 - **Repository**: [GitHub](https://github.com/0xHoneyJar/loa-finn)
 - **Issues**: [GitHub Issues](https://github.com/0xHoneyJar/loa-finn/issues)
 - **Upstream**: [Loa Framework](https://github.com/0xHoneyJar/loa)
 
 ## Known Limitations
 
-- Single-writer WAL — no concurrent sessions per WAL file (`src/persistence/wal.ts`)
-- No horizontal scaling — single Hono instance per deployment (`src/gateway/server.ts`)
-- Tool sandbox 30s default timeout — long-running tools may be killed (`src/config.ts`)
-- BridgeBuilder can only COMMENT on PRs, not APPROVE or REQUEST_CHANGES (`src/bridgebuilder/entry.ts`)
+<!-- provenance: CODE-FACTUAL -->
+- Single-writer WAL — no concurrent sessions per WAL file (`src/persistence/wal.ts:1`)
+- No horizontal scaling — single Hono instance per deployment (`src/gateway/server.ts:1`)
+- Tool sandbox 30s default timeout — long-running tools may be killed (`src/config.ts:1`)
+- BridgeBuilder can only COMMENT on PRs, not APPROVE or REQUEST_CHANGES (`src/bridgebuilder/entry.ts:1`)
 
 <!-- ground-truth-meta: head_sha=689a777 generated_at=2026-02-11T01:06:00Z features_sha=689a777 limitations_sha=689a777 ride_sha=689a777 -->

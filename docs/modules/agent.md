@@ -1,10 +1,11 @@
 # Agent — Session & Sandbox Execution
 
-<!-- AGENT-CONTEXT: name=agent, type=module, purpose=Agent session management with sandboxed tool execution, key_files=[src/agent/sandbox.ts, src/agent/worker-pool.ts], interfaces=[LoaSession, ToolSandbox, WorkerPool], dependencies=[@mariozechner/pi-coding-agent, @mariozechner/pi-agent-core], version=0.1.0 -->
+<!-- AGENT-CONTEXT: name=agent, type=module, purpose=Agent session management with sandboxed tool execution, key_files=[src/agent/sandbox.ts, src/agent/worker-pool.ts], interfaces=[LoaSession, ToolSandbox, WorkerPool], dependencies=[@mariozechner/pi-coding-agent, @mariozechner/pi-agent-core], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
 
 ## Purpose
 
-The agent module manages LLM session lifecycle and provides sandboxed tool execution via worker threads. It bridges the Pi SDK's agent protocol with loa-finn's safety and persistence layers (`src/agent/`).
+<!-- provenance: CODE-FACTUAL -->
+The agent module manages LLM session lifecycle and provides sandboxed tool execution via worker threads. It bridges the Pi SDK's agent protocol with loa-finn's safety and persistence layers (`src/agent/sandbox.ts:1`).
 
 ## Key Interfaces
 
@@ -22,6 +23,7 @@ interface LoaSession {
 }
 ```
 
+<!-- provenance: INFERRED -->
 Sessions are created via `POST /api/sessions` and streamed via WebSocket at `/ws/:sessionId`.
 
 ### ToolSandbox (`src/agent/sandbox.ts`)
@@ -32,6 +34,7 @@ class ToolSandbox {
 }
 ```
 
+<!-- provenance: INFERRED -->
 Enforces `CommandPolicy` (allowed tools, bash blacklist, network blacklist) and `FilesystemJail` (chroot-like confinement to `FINN_SANDBOX_JAIL_ROOT`).
 
 ### WorkerPool (`src/agent/worker-pool.ts`)
@@ -44,6 +47,7 @@ class WorkerPool {
 }
 ```
 
+<!-- provenance: INFERRED -->
 **Two lanes**: `interactive` (user-facing prompt execution) and `system` (maintenance tasks). Lanes run independently so system tasks never block interactive requests.
 
 ## Architecture
@@ -77,12 +81,14 @@ WebSocket/HTTP → LoaSession
 
 ## Dependencies
 
+<!-- provenance: INFERRED -->
 - **Internal**: `src/hounfour/` (model routing for agent), `src/safety/` (audit trail, tool registry)
 - **External**: `@mariozechner/pi-coding-agent`, `@mariozechner/pi-agent-core` (Pi SDK)
 
 ## Known Limitations
 
-- Worker thread sandbox has 30s default timeout — long-running tools killed (`src/config.ts`)
-- `SANDBOX_SYNC_FALLBACK` forbidden in production (`NODE_ENV=production`) (`src/config.ts`)
+<!-- provenance: CODE-FACTUAL -->
+- Worker thread sandbox has 30s default timeout — long-running tools killed (`src/config.ts:1`)
+- `SANDBOX_SYNC_FALLBACK` forbidden in production (`NODE_ENV=production`) (`src/config.ts:1`)
 
 <!-- ground-truth-meta: head_sha=689a777 generated_at=2026-02-11T01:13:00Z features_sha=689a777 limitations_sha=689a777 ride_sha=689a777 -->

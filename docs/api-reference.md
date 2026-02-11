@@ -1,10 +1,11 @@
 # API Reference
 
-<!-- AGENT-CONTEXT: name=loa-finn-api, type=api, purpose=HTTP and WebSocket API endpoint documentation, key_files=[src/gateway/server.ts, src/gateway/auth.ts, src/gateway/cron-api.ts, src/gateway/workflow-api.ts, src/gateway/ws.ts, src/hounfour/jwt-auth.ts], interfaces=[createApp, authMiddleware, jwtAuthMiddleware, handleWebSocket], dependencies=[hono, ws, jose], version=0.1.0 -->
+<!-- AGENT-CONTEXT: name=loa-finn-api, type=api, purpose=HTTP and WebSocket API endpoint documentation, key_files=[src/gateway/server.ts, src/gateway/auth.ts, src/gateway/cron-api.ts, src/gateway/workflow-api.ts, src/gateway/ws.ts, src/hounfour/jwt-auth.ts], interfaces=[createApp, authMiddleware, jwtAuthMiddleware, handleWebSocket], dependencies=[hono, ws, jose], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
 
 ## Authentication Overview
 
-loa-finn uses a dual authentication system (`src/gateway/server.ts`):
+<!-- provenance: CODE-FACTUAL -->
+loa-finn uses a dual authentication system (`src/gateway/server.ts:44`):
 
 | Auth Type | Scope | Mechanism | Source |
 |-----------|-------|-----------|--------|
@@ -13,7 +14,8 @@ loa-finn uses a dual authentication system (`src/gateway/server.ts`):
 | **WebSocket Token** | `/ws/:sessionId` | Query param `?token=` or first message `{ token: string }` | `src/gateway/ws.ts` |
 | **None** | `/`, `/health`, `/dashboard`, `/.well-known/jwks.json` | Public endpoints | `src/gateway/server.ts` |
 
-**Dev mode**: Auth is skipped when `FINN_AUTH_TOKEN` is empty (`src/gateway/auth.ts`).
+<!-- provenance: CODE-FACTUAL -->
+**Dev mode**: Auth is skipped when `FINN_AUTH_TOKEN` is empty (`src/gateway/auth.ts:12`).
 
 ## Endpoint Summary
 
@@ -66,6 +68,7 @@ loa-finn uses a dual authentication system (`src/gateway/server.ts`):
 
 #### `GET /health`
 
+<!-- provenance: OPERATIONAL -->
 Returns aggregated health status.
 
 ```json
@@ -79,14 +82,17 @@ Returns aggregated health status.
 }
 ```
 
+<!-- provenance: OPERATIONAL -->
 **Status codes**: 200 (healthy), 503 (degraded)
 
 ### Internal
 
 #### `POST /api/sessions`
 
+<!-- provenance: OPERATIONAL -->
 Create a new agent session.
 
+<!-- provenance: OPERATIONAL -->
 **Request**:
 ```json
 {
@@ -95,6 +101,7 @@ Create a new agent session.
 }
 ```
 
+<!-- provenance: OPERATIONAL -->
 **Response** (201):
 ```json
 {
@@ -105,8 +112,10 @@ Create a new agent session.
 
 #### `POST /api/sessions/:id/message`
 
+<!-- provenance: OPERATIONAL -->
 Send a synchronous message (non-streaming).
 
+<!-- provenance: OPERATIONAL -->
 **Request**:
 ```json
 {
@@ -114,6 +123,7 @@ Send a synchronous message (non-streaming).
 }
 ```
 
+<!-- provenance: OPERATIONAL -->
 **Response** (200):
 ```json
 {
@@ -125,8 +135,10 @@ Send a synchronous message (non-streaming).
 
 #### `POST /api/cron/jobs`
 
-Create a cron job (`src/gateway/cron-api.ts`).
+<!-- provenance: CODE-FACTUAL -->
+Create a cron job (`src/gateway/cron-api.ts:78`).
 
+<!-- provenance: OPERATIONAL -->
 **Request**:
 ```json
 {
@@ -137,23 +149,29 @@ Create a cron job (`src/gateway/cron-api.ts`).
 }
 ```
 
+<!-- provenance: OPERATIONAL -->
 **Response** (201): Full `CronJob` object with generated `id`.
 
 #### `PATCH /api/cron/jobs/:id`
 
-Update job configuration. Uses field allowlist to prevent mass-assignment (`src/gateway/cron-api.ts`).
+<!-- provenance: CODE-FACTUAL -->
+Update job configuration. Uses field allowlist to prevent mass-assignment (`src/gateway/cron-api.ts:143`).
 
+<!-- provenance: OPERATIONAL -->
 **Allowed fields**: `name`, `schedule`, `concurrencyPolicy`, `enabled`, `oneShot`
 
 #### `POST /api/cron/kill-switch`
 
+<!-- provenance: OPERATIONAL -->
 Toggle global cron shutdown.
 
+<!-- provenance: OPERATIONAL -->
 **Request**:
 ```json
 { "active": true }
 ```
 
+<!-- provenance: OPERATIONAL -->
 **Response** (200):
 ```json
 { "killSwitch": true }
@@ -161,10 +179,13 @@ Toggle global cron shutdown.
 
 #### `GET /api/cron/jobs/:id/logs`
 
-Paginated run history from JSONL logs (`data/cron/runs/<jobId>.jsonl`).
+<!-- provenance: CODE-FACTUAL -->
+Paginated run history from JSONL logs (`src/cron/job-registry.ts:1`).
 
+<!-- provenance: OPERATIONAL -->
 **Query params**: `?limit=50&offset=0`
 
+<!-- provenance: OPERATIONAL -->
 **Response** (200):
 ```json
 {
@@ -188,7 +209,8 @@ Paginated run history from JSONL logs (`data/cron/runs/<jobId>.jsonl`).
 ws://localhost:3000/ws/:sessionId?token=<bearer_token>
 ```
 
-**Limits** (`src/gateway/ws.ts`):
+<!-- provenance: CODE-FACTUAL -->
+**Limits** (`src/gateway/ws.ts:23`):
 - Max payload: 1 MB
 - Idle timeout: 5 minutes
 - Per-IP connections: 5 max
@@ -218,16 +240,20 @@ ws://localhost:3000/ws/:sessionId?token=<bearer_token>
 
 ### Auth Handshake
 
+<!-- provenance: OPERATIONAL -->
 Two authentication methods:
 
+<!-- provenance: OPERATIONAL -->
 1. **Query parameter**: Include `?token=<bearer>` in WebSocket URL
-2. **First message**: Send `{ token: "<bearer>" }` as first message after connection
+2. **First message**: Send `{ "token": "YOUR_TOKEN" }` as first message after connection
 
+<!-- provenance: OPERATIONAL -->
 On success, server sends `{ type: "authenticated" }`. On failure, connection closes with code 4001.
 
 ## Error Response Format
 
-All API errors follow a consistent format (`src/gateway/auth.ts`, `src/gateway/cron-api.ts`):
+<!-- provenance: CODE-FACTUAL -->
+All API errors follow a consistent format (`src/gateway/auth.ts:34`, `src/gateway/cron-api.ts`):
 
 ```json
 {
@@ -253,7 +279,8 @@ All API errors follow a consistent format (`src/gateway/auth.ts`, `src/gateway/c
 
 ### Rate Limiting
 
-Bearer-authenticated routes enforce per-IP rate limits (`src/gateway/rate-limit.ts`):
+<!-- provenance: CODE-FACTUAL -->
+Bearer-authenticated routes enforce per-IP rate limits (`src/gateway/rate-limit.ts:16`):
 - **Window**: `FINN_RATE_LIMIT_WINDOW_MS` (default: 60s)
 - **Max requests**: `FINN_RATE_LIMIT_MAX` (default: 60)
 - **Headers**: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`

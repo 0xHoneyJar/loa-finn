@@ -1,10 +1,11 @@
 # Persistence — WAL, R2, Git Sync
 
-<!-- AGENT-CONTEXT: name=persistence, type=module, purpose=Three-tier durability with write-ahead log and cloud sync, key_files=[src/persistence/wal.ts, src/persistence/r2-storage.ts, src/persistence/git-sync.ts, src/persistence/recovery.ts], interfaces=[WAL, ICheckpointStorage, R2CheckpointStorage, GitSync, runRecovery], dependencies=[@aws-sdk/client-s3], version=0.1.0 -->
+<!-- AGENT-CONTEXT: name=persistence, type=module, purpose=Three-tier durability with write-ahead log and cloud sync, key_files=[src/persistence/wal.ts, src/persistence/r2-storage.ts, src/persistence/git-sync.ts, src/persistence/recovery.ts], interfaces=[WAL, ICheckpointStorage, R2CheckpointStorage, GitSync, runRecovery], dependencies=[@aws-sdk/client-s3], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
 
 ## Purpose
 
-The persistence module implements a 3-tier durability strategy: local write-ahead log (WAL), Cloudflare R2 cloud checkpoints, and Git archive snapshots. This ensures data survives any single-point failure — similar to PostgreSQL's WAL + checkpoint architecture (`src/persistence/`).
+<!-- provenance: CODE-FACTUAL -->
+The persistence module implements a 3-tier durability strategy: local write-ahead log (WAL), Cloudflare R2 cloud checkpoints, and Git archive snapshots. This ensures data survives any single-point failure — similar to PostgreSQL's WAL + checkpoint architecture (`src/persistence/wal.ts:1`).
 
 ## Key Interfaces
 
@@ -22,7 +23,8 @@ class WAL {
 }
 ```
 
-Entry types (`WALEntryType`): `session`, `bead`, `memory`, `config`. Uses mutex for serialized appends — single-writer only.
+<!-- provenance: CODE-FACTUAL -->
+Entry types (`WALEntryType`): `session`, `bead`, `memory`, `config`. Uses mutex for serialized appends — single-writer only (`src/persistence/wal.ts:1`).
 
 ### ICheckpointStorage (`src/persistence/r2-storage.ts`)
 
@@ -37,7 +39,8 @@ interface ICheckpointStorage {
 }
 ```
 
-`R2CheckpointStorage` implements this via `@aws-sdk/client-s3` for Cloudflare R2.
+<!-- provenance: CODE-FACTUAL -->
+`R2CheckpointStorage` implements this via `@aws-sdk/client-s3` for Cloudflare R2 (`src/persistence/r2-storage.ts:1`).
 
 ### Recovery (`src/persistence/recovery.ts`)
 
@@ -45,10 +48,12 @@ interface ICheckpointStorage {
 async function runRecovery(config, wal, r2Sync, gitSync): Promise<RecoveryResult>
 ```
 
-**Recovery cascade**: R2 checkpoint → Git snapshot → local WAL replay. Modes: `strict` (require all tiers), `degraded` (best-effort), `clean` (fresh start).
+<!-- provenance: CODE-FACTUAL -->
+**Recovery cascade**: R2 checkpoint → Git snapshot → local WAL replay. Modes: `strict` (require all tiers), `degraded` (best-effort), `clean` (fresh start) (`src/persistence/recovery.ts:1`).
 
 ## Architecture
 
+<!-- provenance: INFERRED -->
 ```
 Application → WAL (local, append-only)
                 │
@@ -65,6 +70,7 @@ Recovery: R2 → Git → WAL (cascade fallback)
 
 ## Components (10 files)
 
+<!-- provenance: CODE-FACTUAL -->
 | File | Responsibility |
 |------|---------------|
 | `wal.ts` | Append-only WAL with mutex serialization |
@@ -78,8 +84,11 @@ Recovery: R2 → Git → WAL (cascade fallback)
 | `upstream-check.ts` | Upstream compatibility validation |
 | `index.ts` | Barrel exports |
 
+(Reference: `src/persistence/wal.ts:1`)
+
 ## Configuration
 
+<!-- provenance: OPERATIONAL -->
 | Env Var | Default | Purpose |
 |---------|---------|---------|
 | `DATA_DIR` | `./data` | WAL storage root |
@@ -93,12 +102,14 @@ Recovery: R2 → Git → WAL (cascade fallback)
 
 ## Dependencies
 
+<!-- provenance: CODE-FACTUAL -->
 - **Internal**: `src/scheduler/` (sync scheduling), `src/config.ts` (configuration)
-- **External**: `@aws-sdk/client-s3` (R2 operations), Git CLI (archive snapshots)
+- **External**: `@aws-sdk/client-s3` (R2 operations), Git CLI (archive snapshots) (`src/persistence/r2-storage.ts:1`)
 
 ## Known Limitations
 
-- Single-writer WAL — no concurrent sessions per WAL file (`src/persistence/wal.ts`)
-- S3 compatibility untested with non-Cloudflare providers (`src/persistence/r2-storage.ts`)
+<!-- provenance: CODE-FACTUAL -->
+- Single-writer WAL — no concurrent sessions per WAL file (`src/persistence/wal.ts:1`)
+- S3 compatibility untested with non-Cloudflare providers (`src/persistence/r2-storage.ts:1`)
 
 <!-- ground-truth-meta: head_sha=689a777 generated_at=2026-02-11T01:12:00Z features_sha=689a777 limitations_sha=689a777 ride_sha=689a777 -->

@@ -1,10 +1,11 @@
 # Gateway — HTTP & WebSocket API
 
-<!-- AGENT-CONTEXT: name=gateway, type=module, purpose=HTTP and WebSocket entry points with auth and rate limiting, key_files=[src/gateway/server.ts, src/gateway/auth.ts, src/gateway/ws.ts, src/gateway/cron-api.ts, src/gateway/csrf.ts], interfaces=[createApp, authMiddleware, corsMiddleware, handleWebSocket, CronApi], dependencies=[hono, @hono/node-server, ws], version=0.1.0 -->
+<!-- AGENT-CONTEXT: name=gateway, type=module, purpose=HTTP and WebSocket entry points with auth and rate limiting, key_files=[src/gateway/server.ts, src/gateway/auth.ts, src/gateway/ws.ts, src/gateway/cron-api.ts, src/gateway/csrf.ts], interfaces=[createApp, authMiddleware, corsMiddleware, handleWebSocket, CronApi], dependencies=[hono, @hono/node-server, ws], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5 -->
 
 ## Purpose
 
-The gateway module provides all external-facing entry points — HTTP routes, WebSocket streaming, authentication middleware, rate limiting, and dashboard APIs. It uses Hono v4 as the HTTP framework with ws for WebSocket support (`src/gateway/server.ts`).
+<!-- provenance: CODE-FACTUAL -->
+The gateway module provides all external-facing entry points — HTTP routes, WebSocket streaming, authentication middleware, rate limiting, and dashboard APIs. It uses Hono v4 as the HTTP framework with ws for WebSocket support (`src/gateway/server.ts:1`).
 
 ## Key Interfaces
 
@@ -14,24 +15,31 @@ The gateway module provides all external-facing entry points — HTTP routes, We
 function createApp(config: FinnConfig, options: AppOptions): { app: Hono, router: SessionRouter }
 ```
 
-Registers all routes and middleware in a single Hono application.
+<!-- provenance: CODE-FACTUAL -->
+Registers all routes and middleware in a single Hono application (`src/gateway/server.ts:1`).
 
 ### Auth Middleware (`src/gateway/auth.ts`)
 
+<!-- provenance: CODE-FACTUAL -->
 | Middleware | Scope | Mechanism |
 |-----------|-------|-----------|
 | `authMiddleware(config)` | `/api/*` | Bearer token, timing-safe SHA-256 |
 | `corsMiddleware(config)` | All routes | Origin whitelist with wildcards |
 | `validateWsToken(token, config)` | WebSocket | Same as bearer auth |
 
+(Reference: `src/gateway/auth.ts:1`)
+
 ### WebSocket Handler (`src/gateway/ws.ts`)
 
-Handles `/ws/:sessionId` connections with streaming events. 8 server-to-client message types: `text_delta`, `tool_start`, `tool_end`, `turn_end`, `agent_end`, `compaction`, `error`, `authenticated`.
+<!-- provenance: CODE-FACTUAL -->
+Handles `/ws/:sessionId` connections with streaming events. 8 server-to-client message types: `text_delta`, `tool_start`, `tool_end`, `turn_end`, `agent_end`, `compaction`, `error`, `authenticated` (`src/gateway/ws.ts:1`).
 
-**Limits**: 1MB payload, 5min idle timeout, 5 connections per IP.
+<!-- provenance: CODE-FACTUAL -->
+**Limits**: 1MB payload, 5min idle timeout, 5 connections per IP (`src/gateway/ws.ts:1`).
 
 ## Architecture
 
+<!-- provenance: INFERRED -->
 ```
 Client → Hono App
           ├─→ CORS Middleware
@@ -48,6 +56,7 @@ Client → Hono App
 
 ## Components (17 files)
 
+<!-- provenance: CODE-FACTUAL -->
 | File | Responsibility |
 |------|---------------|
 | `server.ts` | Route registration, middleware composition |
@@ -67,14 +76,18 @@ Client → Hono App
 | `stream-bridge.ts` | Agent event to WebSocket bridge |
 | `ws-broadcast.ts` | WebSocket broadcast utilities |
 
+(Reference: `src/gateway/server.ts:1`)
+
 ## Dependencies
 
+<!-- provenance: CODE-FACTUAL -->
 - **Internal**: `src/hounfour/` (JWT auth), `src/safety/` (audit trail, redaction), `src/cron/` (job service)
-- **External**: `hono` v4, `@hono/node-server`, `ws` v8
+- **External**: `hono` v4, `@hono/node-server`, `ws` v8 (`src/gateway/server.ts:1`)
 
 ## Known Limitations
 
-- No horizontal scaling — single Hono instance per deployment (`src/gateway/server.ts`)
-- Max 5 concurrent WebSocket connections per IP (`src/gateway/ws.ts`)
+<!-- provenance: CODE-FACTUAL -->
+- No horizontal scaling — single Hono instance per deployment (`src/gateway/server.ts:1`)
+- Max 5 concurrent WebSocket connections per IP (`src/gateway/ws.ts:1`)
 
 <!-- ground-truth-meta: head_sha=689a777 generated_at=2026-02-11T01:12:00Z features_sha=689a777 limitations_sha=689a777 ride_sha=689a777 -->
