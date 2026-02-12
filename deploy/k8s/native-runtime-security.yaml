@@ -1,0 +1,77 @@
+# deploy/k8s/native-runtime-security.yaml — NativeRuntime K8s Security Context (SDD §4.5, T-3.3)
+# Hardened pod spec for running local model inference via NativeRuntimeAdapter.
+# Drop ALL capabilities, no privilege escalation, read-only root, unprivileged user.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: native-runtime
+  labels:
+    app: loa-finn
+    component: native-runtime
+spec:
+  # tini as init process for zombie reaping
+  shareProcessNamespace: false
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: native-runtime
+      image: loa-finn:latest
+      command: ["tini", "--", "node", "dist/src/hounfour/native-runtime-entry.js"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+      resources:
+        limits:
+          memory: "2Gi"
+          cpu: "2"
+          # PID limit via LimitRange or RuntimeClass
+        requests:
+          memory: "512Mi"
+          cpu: "500m"
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cgroup
+          mountPath: /sys/fs/cgroup
+          readOnly: true
+      env:
+        - name: NODE_ENV
+          value: "production"
+        - name: NATIVE_RUNTIME_MODE
+          value: "true"
+      startupProbe:
+        exec:
+          command:
+            - node
+            - -e
+            - |
+              try {
+                require('fs').readFileSync('/sys/fs/cgroup/cgroup.controllers', 'utf8');
+                process.exit(0);
+              } catch {
+                process.exit(1);
+              }
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        failureThreshold: 3
+      livenessProbe:
+        exec:
+          command: ["node", "-e", "process.exit(0)"]
+        periodSeconds: 30
+  volumes:
+    - name: tmp
+      emptyDir:
+        medium: Memory
+        sizeLimit: 512Mi
+    - name: cgroup
+      hostPath:
+        path: /sys/fs/cgroup
+        type: Directory

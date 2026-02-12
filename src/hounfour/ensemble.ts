@@ -10,11 +10,16 @@ import type {
   ExecutionContext,
   LedgerEntry,
   ModelPortBase,
+  ModelPortStreaming,
   PricingEntry,
+  StreamChunk,
   UsageInfo,
 } from "./types.js"
+import { isStreamingPort } from "./types.js"
 import type { UsageReport } from "./usage-reporter.js"
 import { calculateCost } from "./budget.js"
+import { StreamCostTracker, type StreamCostResult, type BillingMethod } from "./stream-cost.js"
+import type { MicroPricingEntry } from "./pricing.js"
 
 // --- Types ---
 
@@ -59,6 +64,31 @@ export interface EnsembleResult {
 /** Resolves a pool ID to a ModelPortBase adapter and its pricing */
 export interface ModelResolver {
   resolve(pool: string): { adapter: ModelPortBase; pricing: PricingEntry }
+}
+
+/** Resolves a pool ID to a streaming adapter and micro-USD pricing */
+export interface StreamingModelResolver {
+  resolve(pool: string): { adapter: ModelPortStreaming; pricing: MicroPricingEntry }
+}
+
+/** Per-branch status after ensemble completes */
+export type EnsembleBranchStatus = "completed" | "cancelled" | "failed" | "timeout"
+
+/** Per-branch result from streaming ensemble */
+export interface EnsembleStreamingBranchResult {
+  pool: string
+  status: EnsembleBranchStatus
+  cost: StreamCostResult | null
+  latency_ms: number
+  error: string | null
+}
+
+/** Result metadata from a streaming ensemble (available after stream ends) */
+export interface EnsembleStreamingResult {
+  ensemble_id: string
+  winner_pool: string
+  branches: EnsembleStreamingBranchResult[]
+  total_cost_micro: bigint
 }
 
 // --- Default Scorer ---
@@ -404,6 +434,217 @@ export class EnsembleOrchestrator {
   }
 }
 
+// --- Streaming Ensemble ---
+
+/**
+ * Streaming first_complete ensemble: race N streaming adapters,
+ * forward only the winner's chunks. Winner latch is safe in
+ * single-threaded JS (no atomic/mutex needed).
+ *
+ * Returns: { stream, getResult } — consume stream, then call getResult()
+ * for branch metadata and cost attribution.
+ */
+export function firstCompleteStreaming(
+  pools: string[],
+  request: CompletionRequest,
+  resolver: StreamingModelResolver,
+  options?: {
+    timeoutMs?: number
+    promptTokens?: number
+    signal?: AbortSignal
+  },
+): {
+  stream: AsyncGenerator<StreamChunk>
+  getResult: () => EnsembleStreamingResult
+} {
+  if (pools.length === 0) {
+    throw new Error("firstCompleteStreaming: no pools specified")
+  }
+
+  const ensembleId = ulid()
+  const timeoutMs = options?.timeoutMs ?? 30_000
+  const promptTokens = options?.promptTokens ?? 0
+
+  // Per-branch state
+  const controllers: AbortController[] = pools.map(() => new AbortController())
+  const costTrackers: StreamCostTracker[] = []
+  const branchResults: EnsembleStreamingBranchResult[] = pools.map((pool) => ({
+    pool,
+    status: "cancelled" as EnsembleBranchStatus,
+    cost: null,
+    latency_ms: 0,
+    error: null,
+  }))
+  const branchStarts: number[] = pools.map(() => Date.now())
+
+  // Winner latch — first branch to emit a chunk/tool_call wins
+  let winnerIndex = -1
+  let resultFinalized = false
+  let finalResult: EnsembleStreamingResult | null = null
+
+  // Resolve adapters and create cost trackers
+  const adapters: ModelPortStreaming[] = []
+  for (let i = 0; i < pools.length; i++) {
+    const { adapter, pricing } = resolver.resolve(pools[i])
+    adapters.push(adapter)
+    costTrackers.push(
+      new StreamCostTracker({ pricing, promptTokens }),
+    )
+  }
+
+  // Link external abort signal to all controllers
+  if (options?.signal) {
+    options.signal.addEventListener("abort", () => {
+      controllers.forEach((ctrl) => ctrl.abort())
+    }, { once: true })
+  }
+
+  // Timeout: abort all branches
+  const timeoutId = setTimeout(() => {
+    controllers.forEach((ctrl) => ctrl.abort())
+  }, timeoutMs)
+
+  /**
+   * Race all branches for the first content-bearing chunk.
+   * Uses manual .next() calls instead of for-await to avoid
+   * closing the winner's iterator prematurely.
+   */
+  async function raceForFirstChunk(): Promise<{
+    winnerIdx: number
+    firstChunk: StreamChunk
+    iterators: AsyncGenerator<StreamChunk>[]
+  }> {
+    // Start all streams
+    const iterators = adapters.map((adapter, i) =>
+      costTrackers[i].track(
+        adapter.stream(request, { signal: controllers[i].signal }),
+        controllers[i].signal,
+      ),
+    )
+
+    return new Promise<{
+      winnerIdx: number
+      firstChunk: StreamChunk
+      iterators: AsyncGenerator<StreamChunk>[]
+    }>((resolve, reject) => {
+      let settled = false
+      let doneCount = 0
+
+      iterators.forEach((iter, i) => {
+        // Pull chunks via .next() to avoid for-await closing the iterator
+        ;(async () => {
+          try {
+            while (true) {
+              if (settled) return // Another branch already won
+
+              const { value, done } = await iter.next()
+              if (done) {
+                branchResults[i].status = "failed"
+                branchResults[i].error = "Stream ended without content"
+                break
+              }
+
+              // Winner latch: first branch to emit chunk or tool_call
+              if (value.event === "chunk" || value.event === "tool_call") {
+                if (!settled) {
+                  settled = true
+                  winnerIndex = i
+                  branchResults[i].status = "completed"
+
+                  // Cancel all other branches immediately
+                  controllers.forEach((ctrl, j) => {
+                    if (j !== i) ctrl.abort()
+                  })
+
+                  resolve({ winnerIdx: i, firstChunk: value, iterators })
+                }
+                return // Stop pulling from this branch — main generator takes over
+              }
+              // Skip non-content events during race (e.g., metadata)
+            }
+          } catch (err) {
+            if (controllers[i].signal.aborted) {
+              branchResults[i].status = "cancelled"
+            } else {
+              branchResults[i].status = "failed"
+              branchResults[i].error = err instanceof Error ? err.message : String(err)
+            }
+          } finally {
+            branchResults[i].latency_ms = Date.now() - branchStarts[i]
+            doneCount++
+
+            if (!settled && doneCount === pools.length) {
+              reject(new Error(`firstCompleteStreaming: all ${pools.length} branches failed`))
+            }
+          }
+        })()
+      })
+    })
+  }
+
+  // The main generator that yields winning stream chunks
+  async function* generateStream(): AsyncGenerator<StreamChunk> {
+    let iterators: AsyncGenerator<StreamChunk>[]
+
+    try {
+      const race = await raceForFirstChunk()
+      iterators = race.iterators
+
+      // Yield the winning first chunk
+      yield race.firstChunk
+
+      // Forward the rest of the winner's stream
+      const winnerIter = iterators[race.winnerIdx]
+      for await (const chunk of winnerIter) {
+        yield chunk
+      }
+    } finally {
+      clearTimeout(timeoutId)
+
+      // Ensure all controllers are aborted (losers)
+      controllers.forEach((ctrl) => ctrl.abort())
+
+      // Finalize cost for all branches
+      for (let i = 0; i < pools.length; i++) {
+        branchResults[i].latency_ms = Date.now() - branchStarts[i]
+        try {
+          if (i === winnerIndex) {
+            branchResults[i].cost = costTrackers[i].getResult()
+          } else {
+            branchResults[i].cost = costTrackers[i].getOvercountResult()
+          }
+        } catch {
+          // Cost tracker may not have been started if branch failed early
+          branchResults[i].cost = null
+        }
+      }
+
+      // Compute total cost
+      let totalCost = 0n
+      for (const br of branchResults) {
+        if (br.cost) totalCost += br.cost.total_cost_micro
+      }
+
+      finalResult = {
+        ensemble_id: ensembleId,
+        winner_pool: winnerIndex >= 0 ? pools[winnerIndex] : "",
+        branches: branchResults,
+        total_cost_micro: totalCost,
+      }
+      resultFinalized = true
+    }
+  }
+
+  function getResult(): EnsembleStreamingResult {
+    if (!resultFinalized || !finalResult) {
+      throw new Error("firstCompleteStreaming: stream not yet consumed — call getResult() after stream ends")
+    }
+    return finalResult
+  }
+
+  return { stream: generateStream(), getResult }
+}
+
 // --- Consensus Helpers ---
 
 /** Default field extractor: try JSON.parse on content */
@@ -458,6 +699,371 @@ function aggregateUsage(usages: UsageInfo[]): UsageInfo {
     prompt_tokens: usages.reduce((sum, u) => sum + (u.prompt_tokens ?? 0), 0),
     completion_tokens: usages.reduce((sum, u) => sum + (u.completion_tokens ?? 0), 0),
     reasoning_tokens: usages.reduce((sum, u) => sum + (u.reasoning_tokens ?? 0), 0),
+  }
+}
+
+// --- Streaming best_of_n & consensus (Task 3.7, B.4 part 3) ---
+
+/** Options for bestOfNStreaming and consensusStreaming */
+export interface EnsembleStreamingOptions {
+  /** Overall timeout for the ensemble run (ms). Default: 30000 */
+  timeoutMs?: number
+  /** Per-branch timeout (ms). Branches exceeding this are aborted. Default: timeoutMs */
+  perBranchTimeoutMs?: number
+  /** Prompt tokens for cost estimation. Default: 0 */
+  promptTokens?: number
+  /** External abort signal */
+  signal?: AbortSignal
+}
+
+/** Result from bestOfNStreaming or consensusStreaming */
+export interface EnsembleStreamingFinalResult {
+  ensemble_id: string
+  selected: CompletionResult
+  branches: EnsembleStreamingBranchResult[]
+  total_cost_micro: bigint
+  strategy: MergeStrategy
+}
+
+/**
+ * Consume a single streaming branch fully, buffering content.
+ * Returns the assembled CompletionResult and cost data.
+ */
+async function consumeBranch(
+  adapter: ModelPortStreaming,
+  request: CompletionRequest,
+  costTracker: StreamCostTracker,
+  controller: AbortController,
+): Promise<{ content: string; usage: UsageInfo | null }> {
+  let content = ""
+  let usage: UsageInfo | null = null
+
+  const tracked = costTracker.track(
+    adapter.stream(request, { signal: controller.signal }),
+    controller.signal,
+  )
+
+  for await (const chunk of tracked) {
+    if (chunk.event === "chunk") {
+      const data = chunk.data as { delta: string; tool_calls: unknown }
+      content += data.delta ?? ""
+    } else if (chunk.event === "usage") {
+      usage = chunk.data as UsageInfo
+    }
+  }
+
+  return { content, usage }
+}
+
+/**
+ * Streaming best_of_n: launch all branches via streaming adapters,
+ * consume all fully, score, return the best.
+ *
+ * Unlike firstCompleteStreaming, this waits for ALL branches (or timeout).
+ * Returns a final result, not a stream — scoring requires all results.
+ */
+export async function bestOfNStreaming(
+  pools: string[],
+  request: CompletionRequest,
+  resolver: StreamingModelResolver,
+  options?: EnsembleStreamingOptions & {
+    scorer?: ScorerFunction
+    quorum?: number
+  },
+): Promise<EnsembleStreamingFinalResult> {
+  if (pools.length === 0) {
+    throw new Error("bestOfNStreaming: no pools specified")
+  }
+
+  const ensembleId = ulid()
+  const timeoutMs = options?.timeoutMs ?? 30_000
+  const perBranchTimeoutMs = options?.perBranchTimeoutMs ?? timeoutMs
+  const promptTokens = options?.promptTokens ?? 0
+  const quorum = options?.quorum ?? 1
+  const scorer = options?.scorer ?? (async (r: CompletionResult) => defaultSyncScorer(r))
+
+  const controllers: AbortController[] = pools.map(() => new AbortController())
+  const costTrackers: StreamCostTracker[] = []
+  const branchResults: EnsembleStreamingBranchResult[] = pools.map((pool) => ({
+    pool,
+    status: "failed" as EnsembleBranchStatus,
+    cost: null,
+    latency_ms: 0,
+    error: null,
+  }))
+
+  // Resolve adapters and create cost trackers
+  const adapters: ModelPortStreaming[] = []
+  for (let i = 0; i < pools.length; i++) {
+    const { adapter, pricing } = resolver.resolve(pools[i])
+    adapters.push(adapter)
+    costTrackers.push(new StreamCostTracker({ pricing, promptTokens }))
+  }
+
+  // Link external abort signal
+  if (options?.signal) {
+    options.signal.addEventListener("abort", () => {
+      controllers.forEach((ctrl) => ctrl.abort())
+    }, { once: true })
+  }
+
+  // Global timeout
+  const globalTimer = setTimeout(() => {
+    controllers.forEach((ctrl) => ctrl.abort())
+  }, timeoutMs)
+
+  // Per-branch timeouts
+  const branchTimers = controllers.map((ctrl) =>
+    setTimeout(() => ctrl.abort(), perBranchTimeoutMs),
+  )
+
+  // Launch all branches in parallel
+  const branchPromises = pools.map(async (pool, i) => {
+    const start = Date.now()
+    try {
+      const { content, usage } = await consumeBranch(
+        adapters[i], request, costTrackers[i], controllers[i],
+      )
+      branchResults[i].latency_ms = Date.now() - start
+
+      // Check if branch was aborted (timeout or external signal)
+      if (controllers[i].signal.aborted) {
+        branchResults[i].status = "timeout"
+        try { branchResults[i].cost = costTrackers[i].getOvercountResult() } catch { /* no data */ }
+        return null
+      }
+
+      branchResults[i].status = "completed"
+      branchResults[i].cost = costTrackers[i].getResult()
+      return {
+        content,
+        usage: usage ?? { prompt_tokens: 0, completion_tokens: 0, reasoning_tokens: 0 },
+        pool,
+      }
+    } catch (err) {
+      branchResults[i].latency_ms = Date.now() - start
+      if (controllers[i].signal.aborted) {
+        branchResults[i].status = "timeout"
+      } else {
+        branchResults[i].status = "failed"
+      }
+      branchResults[i].error = err instanceof Error ? err.message : String(err)
+      try { branchResults[i].cost = costTrackers[i].getOvercountResult() } catch { /* no data */ }
+      return null
+    }
+  })
+
+  try {
+    const results = await Promise.all(branchPromises)
+    clearTimeout(globalTimer)
+    branchTimers.forEach(clearTimeout)
+
+    // Filter successful results
+    const successful = results.filter((r): r is NonNullable<typeof r> => r !== null)
+
+    if (successful.length < quorum) {
+      throw new Error(
+        `bestOfNStreaming: only ${successful.length}/${pools.length} branches succeeded (quorum: ${quorum})`,
+      )
+    }
+
+    // Score and select best
+    let bestIdx = 0
+    let bestScore = -Infinity
+    for (let i = 0; i < successful.length; i++) {
+      const completionResult: CompletionResult = {
+        content: successful[i].content,
+        thinking: null,
+        tool_calls: null,
+        usage: successful[i].usage,
+        metadata: { model: successful[i].pool },
+      }
+      const score = await scorer(completionResult)
+      if (score > bestScore) {
+        bestScore = score
+        bestIdx = i
+      }
+    }
+
+    const best = successful[bestIdx]
+    const selected: CompletionResult = {
+      content: best.content,
+      thinking: null,
+      tool_calls: null,
+      usage: best.usage,
+      metadata: { model: best.pool },
+    }
+
+    let totalCost = 0n
+    for (const br of branchResults) {
+      if (br.cost) totalCost += br.cost.total_cost_micro
+    }
+
+    return {
+      ensemble_id: ensembleId,
+      selected,
+      branches: branchResults,
+      total_cost_micro: totalCost,
+      strategy: "best_of_n",
+    }
+  } finally {
+    clearTimeout(globalTimer)
+    branchTimers.forEach(clearTimeout)
+    controllers.forEach((ctrl) => ctrl.abort())
+  }
+}
+
+/**
+ * Streaming consensus: launch all branches via streaming adapters,
+ * consume all fully, merge via field extraction + majority vote.
+ *
+ * Returns a final result — consensus requires all branch outputs.
+ */
+export async function consensusStreaming(
+  pools: string[],
+  request: CompletionRequest,
+  resolver: StreamingModelResolver,
+  options?: EnsembleStreamingOptions & {
+    quorum?: number
+    fieldExtractor?: (result: CompletionResult) => Record<string, unknown> | null
+  },
+): Promise<EnsembleStreamingFinalResult> {
+  if (pools.length === 0) {
+    throw new Error("consensusStreaming: no pools specified")
+  }
+
+  const ensembleId = ulid()
+  const timeoutMs = options?.timeoutMs ?? 30_000
+  const perBranchTimeoutMs = options?.perBranchTimeoutMs ?? timeoutMs
+  const promptTokens = options?.promptTokens ?? 0
+  const quorum = options?.quorum ?? pools.length // Default: all must succeed
+  const extractor = options?.fieldExtractor ?? defaultFieldExtractor
+
+  const controllers: AbortController[] = pools.map(() => new AbortController())
+  const costTrackers: StreamCostTracker[] = []
+  const branchResults: EnsembleStreamingBranchResult[] = pools.map((pool) => ({
+    pool,
+    status: "failed" as EnsembleBranchStatus,
+    cost: null,
+    latency_ms: 0,
+    error: null,
+  }))
+
+  const adapters: ModelPortStreaming[] = []
+  for (let i = 0; i < pools.length; i++) {
+    const { adapter, pricing } = resolver.resolve(pools[i])
+    adapters.push(adapter)
+    costTrackers.push(new StreamCostTracker({ pricing, promptTokens }))
+  }
+
+  if (options?.signal) {
+    options.signal.addEventListener("abort", () => {
+      controllers.forEach((ctrl) => ctrl.abort())
+    }, { once: true })
+  }
+
+  const globalTimer = setTimeout(() => {
+    controllers.forEach((ctrl) => ctrl.abort())
+  }, timeoutMs)
+
+  const branchTimers = controllers.map((ctrl) =>
+    setTimeout(() => ctrl.abort(), perBranchTimeoutMs),
+  )
+
+  const branchPromises = pools.map(async (pool, i) => {
+    const start = Date.now()
+    try {
+      const { content, usage } = await consumeBranch(
+        adapters[i], request, costTrackers[i], controllers[i],
+      )
+      branchResults[i].latency_ms = Date.now() - start
+
+      // Check if branch was aborted (timeout or external signal)
+      if (controllers[i].signal.aborted) {
+        branchResults[i].status = "timeout"
+        try { branchResults[i].cost = costTrackers[i].getOvercountResult() } catch { /* no data */ }
+        return null
+      }
+
+      branchResults[i].status = "completed"
+      branchResults[i].cost = costTrackers[i].getResult()
+      return {
+        content,
+        usage: usage ?? { prompt_tokens: 0, completion_tokens: 0, reasoning_tokens: 0 },
+        pool,
+      }
+    } catch (err) {
+      branchResults[i].latency_ms = Date.now() - start
+      if (controllers[i].signal.aborted) {
+        branchResults[i].status = "timeout"
+      } else {
+        branchResults[i].status = "failed"
+      }
+      branchResults[i].error = err instanceof Error ? err.message : String(err)
+      try { branchResults[i].cost = costTrackers[i].getOvercountResult() } catch { /* no data */ }
+      return null
+    }
+  })
+
+  try {
+    const results = await Promise.all(branchPromises)
+    clearTimeout(globalTimer)
+    branchTimers.forEach(clearTimeout)
+
+    const successful = results.filter((r): r is NonNullable<typeof r> => r !== null)
+
+    if (successful.length < quorum) {
+      throw new Error(
+        `consensusStreaming: only ${successful.length}/${pools.length} branches succeeded (quorum: ${quorum})`,
+      )
+    }
+
+    // Build CompletionResults for field extraction
+    const completionResults: CompletionResult[] = successful.map((r) => ({
+      content: r.content,
+      thinking: null,
+      tool_calls: null,
+      usage: r.usage,
+      metadata: { model: r.pool },
+    }))
+
+    // Extract structured fields and run majority vote
+    const parsedFields = completionResults
+      .map((cr) => extractor(cr))
+      .filter((f): f is Record<string, unknown> => f !== null)
+
+    let selected: CompletionResult
+    if (parsedFields.length >= 2) {
+      // Enough structured data for majority vote
+      const consensusFields = majorityVote(parsedFields)
+      selected = {
+        content: JSON.stringify(consensusFields),
+        thinking: null,
+        tool_calls: null,
+        usage: aggregateUsage(successful.map((r) => r.usage)),
+        metadata: { model: `ensemble:consensus:${pools.join("+")}` },
+      }
+    } else {
+      // Not enough structured data — fall back to first successful
+      selected = completionResults[0]
+    }
+
+    let totalCost = 0n
+    for (const br of branchResults) {
+      if (br.cost) totalCost += br.cost.total_cost_micro
+    }
+
+    return {
+      ensemble_id: ensembleId,
+      selected,
+      branches: branchResults,
+      total_cost_micro: totalCost,
+      strategy: "consensus",
+    }
+  } finally {
+    clearTimeout(globalTimer)
+    branchTimers.forEach(clearTimeout)
+    controllers.forEach((ctrl) => ctrl.abort())
   }
 }
 

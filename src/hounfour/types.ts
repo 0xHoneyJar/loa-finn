@@ -278,7 +278,7 @@ export interface LedgerEntryV2 {
   reasoning_cost_micro: string          // String-serialized BigInt micro-USD
   total_cost_micro: string              // String-serialized BigInt micro-USD
   price_table_version: number
-  billing_method: "provider_reported" | "byte_estimated" | "reconciled"
+  billing_method: "provider_reported" | "byte_estimated" | "observed_chunks_overcount" | "prompt_only" | "reconciled"
   crc32?: string                        // CRC32 of the entry (corruption detection)
   latency_ms: number
 }
