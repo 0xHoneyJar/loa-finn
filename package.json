@@ -21,7 +21,7 @@
     "test:bridgebuilder": "tsx tests/finn/bridgebuilder-r2-context.test.ts && tsx tests/finn/bridgebuilder-launch.test.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.984.0",
+    "@aws-sdk/client-s3": "^3.985.0",
     "@hono/node-server": "^1.19.9",
     "@mariozechner/pi-agent-core": "~0.52.6",
     "@mariozechner/pi-ai": "~0.52.6",
