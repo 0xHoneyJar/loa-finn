@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-016",
+  "current_cycle": "cycle-018",
   "next_global_sprint_id": 43,
   "cycles": {
     "cycle-001": {
@@ -458,6 +458,46 @@
           "tasks": 6
         }
       ]
+    },
+    "cycle-018": {
+      "label": "Hounfour Phase 5: Protocol Extraction, Integration Hardening & Multi-Model Orchestration",
+      "status": "active",
+      "started": "2026-02-12T00:00:00Z",
+      "prd": "grimoires/loa/prd-hounfour-phase5-integration.md",
+      "sdd": "grimoires/loa/sdd-hounfour-phase5-integration.md",
+      "notes": "Supersedes cycle-009 (archived, never implemented). 5 threads: protocol package extraction (loa-hounfour), integration debt (JWT/budget/abort), upstream cheval reconciliation, NativeRuntimeAdapter+ensemble, finnNFT routing+BYOK. Grounded in RFC #31 and Issue #60. PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 6 blocking issues resolved).",
+      "sprint_plan": "grimoires/loa/sprint-hounfour-phase5-integration.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 43,
+          "label": "Protocol Package & Foundation",
+          "status": "pending",
+          "tasks": 15
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 44,
+          "label": "Integration Hardening",
+          "status": "pending",
+          "tasks": 11
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 45,
+          "label": "NativeRuntime & Ensemble",
+          "status": "pending",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 46,
+          "label": "NFT Routing & BYOK",
+          "status": "pending",
+          "tasks": 7
+        }
+      ]
     }
-  }
+  },
+  "next_global_sprint_id": 47
 }
