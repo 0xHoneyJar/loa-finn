@@ -2,7 +2,6 @@
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
   "current_cycle": "cycle-018",
-  "next_global_sprint_id": 43,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -227,30 +226,32 @@
     },
     "cycle-009": {
       "label": "Hounfour Phase 5: Integration & Multi-Model Orchestration",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-09T18:00:00Z",
+      "archived": "2026-02-12T00:00:00Z",
       "prd": "grimoires/loa/prd-hounfour-phase5.md",
       "sdd": "grimoires/loa/sdd-hounfour-phase5.md",
+      "notes": "Superseded by cycle-018 which re-planned and executed all work. Sprints 22-24 never implemented — work covered by cycle-018 sprints 43-46.",
       "sprints": [
         {
           "local_id": "sprint-A",
           "global_id": 22,
           "label": "Integration Debt (JWT, Pools, Budget, Abort, LRU)",
-          "status": "pending",
+          "status": "superseded",
           "tasks": 10
         },
         {
           "local_id": "sprint-B",
           "global_id": 23,
           "label": "NativeRuntimeAdapter + Ensemble Orchestrator",
-          "status": "pending",
+          "status": "superseded",
           "tasks": 6
         },
         {
           "local_id": "sprint-C",
           "global_id": 24,
           "label": "finnNFT Routing + BYOK Proxy",
-          "status": "pending",
+          "status": "superseded",
           "tasks": 5
         }
       ]
@@ -472,41 +473,62 @@
           "local_id": "sprint-1",
           "global_id": 43,
           "label": "Protocol Package & Foundation",
-          "status": "pending",
-          "tasks": 15
+          "status": "completed",
+          "tasks": 15,
+          "notes": "Commit 5bb3fad — protocol package, cheval adapter imports, budget golden vectors"
         },
         {
           "local_id": "sprint-2",
           "global_id": 44,
           "label": "Integration Hardening",
-          "status": "pending",
-          "tasks": 11
+          "status": "completed",
+          "tasks": 11,
+          "notes": "Commit 8cbea71 — budget, JWT, reconciliation, E2E tests"
         },
         {
           "local_id": "sprint-3",
           "global_id": 45,
           "label": "NativeRuntime & Ensemble",
-          "status": "pending",
-          "tasks": 10
+          "status": "completed",
+          "tasks": 10,
+          "notes": "Commit 3f1ae92 — NativeRuntime adapter, ensemble orchestrator, routing matrix — 121 tests"
         },
         {
           "local_id": "sprint-4",
           "global_id": 46,
           "label": "NFT Routing & BYOK",
-          "status": "pending",
-          "tasks": 7
+          "status": "completed",
+          "tasks": 7,
+          "notes": "Commit 637c8c6 — review approved, audit passed, sprint-46 COMPLETED — 144 tests"
         },
         {
           "local_id": "sprint-extraction",
           "global_id": 47,
           "label": "loa-hounfour Extraction & Publishing",
-          "status": "pending",
+          "status": "completed",
           "tasks": 6,
           "notes": "Fast-track extraction of packages/loa-hounfour/ to 0xHoneyJar/loa-hounfour. Code already exists (90 tests passing). Covers repo push, CI, publish, consumer migration."
+        },
+        {
+          "local_id": "sprint-bb-protocol",
+          "global_id": 48,
+          "label": "BridgeBuilder Findings: Protocol Hardening",
+          "status": "completed",
+          "tasks": 8,
+          "notes": "loa-hounfour v1.1.0 — 7 BridgeBuilder findings implemented, 91 tests passing"
+        },
+        {
+          "local_id": "sprint-bb-consumer",
+          "global_id": 49,
+          "label": "BridgeBuilder Findings: Consumer Updates",
+          "status": "completed",
+          "tasks": 2,
+          "notes": "Commit 0e747a1 — pinned v1.1.0, fixed budget-migration test no-op"
         }
       ],
-      "sprint_plan_extraction": "grimoires/loa/sprint-hounfour-extraction.md"
+      "sprint_plan_extraction": "grimoires/loa/sprint-hounfour-extraction.md",
+      "sprint_plan_bridgebuilder": "grimoires/loa/sprint-bridgebuilder-findings.md"
     }
   },
-  "next_global_sprint_id": 48
+  "next_global_sprint_id": 50
 }
