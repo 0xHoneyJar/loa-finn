@@ -95,10 +95,14 @@ export interface FinnConfig {
   jwt: {
     enabled: boolean
     issuer: string
+    issuers?: string[]                    // Issuer allowlist (overrides issuer if set)
     audience: string
     jwksUrl: string
     clockSkewSeconds: number
     maxTokenLifetimeSeconds: number
+    maxStalenessMs?: number               // JWKS DEGRADED threshold (default: 24h)
+    compromiseMode?: boolean              // Tighten staleness to 1h
+    compromiseMaxStalenessMs?: number     // Compromise-mode staleness (default: 1h)
   }
 }
 

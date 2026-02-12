@@ -254,6 +254,46 @@ export interface LedgerEntry {
   ensemble_id?: string                  // Shared across ensemble model invocations
 }
 
+// --- Ledger Entry V2 (integer micro-USD, string serialization) ---
+
+export interface LedgerEntryV2 {
+  schema_version: 2
+  timestamp: string                     // ISO 8601
+  trace_id: string
+  agent: string
+  provider: string
+  model: string
+  project_id: string
+  phase_id: string
+  sprint_id: string
+  tenant_id: string
+  nft_id?: string
+  pool_id?: string
+  ensemble_id?: string
+  prompt_tokens: number
+  completion_tokens: number
+  reasoning_tokens: number
+  input_cost_micro: string              // String-serialized BigInt micro-USD
+  output_cost_micro: string             // String-serialized BigInt micro-USD
+  reasoning_cost_micro: string          // String-serialized BigInt micro-USD
+  total_cost_micro: string              // String-serialized BigInt micro-USD
+  price_table_version: number
+  billing_method: "provider_reported" | "byte_estimated" | "reconciled"
+  crc32?: string                        // CRC32 of the entry (corruption detection)
+  latency_ms: number
+}
+
+// --- Budget Snapshot V2 (integer micro-USD) ---
+
+export interface BudgetSnapshotMicro {
+  scope: string
+  spent_micro: string                   // String-serialized BigInt micro-USD
+  limit_micro: string                   // String-serialized BigInt micro-USD
+  percent_used: number
+  warning: boolean
+  exceeded: boolean
+}
+
 // --- Routing Config ---
 
 export interface RoutingConfig {

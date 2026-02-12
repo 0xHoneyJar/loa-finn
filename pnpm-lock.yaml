@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@0xhoneyjar/loa-hounfour':
+        specifier: file:./packages/loa-hounfour
+        version: file:packages/loa-hounfour
       '@aws-sdk/client-s3':
         specifier: ^3.984.0
         version: 3.984.0
@@ -59,6 +62,10 @@ importers:
         version: 4.0.18(@types/node@22.19.9)(tsx@4.21.0)(yaml@2.8.2)
 
 packages:
+
+  '@0xhoneyjar/loa-hounfour@file:packages/loa-hounfour':
+    resolution: {directory: packages/loa-hounfour, type: directory}
+    engines: {node: '>=22'}
 
   '@anthropic-ai/sdk@0.73.0':
     resolution: {integrity: sha512-URURVzhxXGJDGUGFunIOtBlSl7KWvZiAAKY/ttTkZAkXT9bTPqdk2eK0b8qqSxXpikh3QKPnPYpiyX98zf5ebw==}
@@ -1753,6 +1760,11 @@ packages:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
 snapshots:
+
+  '@0xhoneyjar/loa-hounfour@file:packages/loa-hounfour':
+    dependencies:
+      '@sinclair/typebox': 0.34.48
+      jose: 6.1.3
 
   '@anthropic-ai/sdk@0.73.0(zod@3.25.76)':
     dependencies:

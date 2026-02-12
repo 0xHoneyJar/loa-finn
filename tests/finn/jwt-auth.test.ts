@@ -1,6 +1,9 @@
 // tests/finn/jwt-auth.test.ts — JWT Validation Middleware tests (T-A.1)
+// Phase 5 Sprint 2: JWKS state machine, issuer allowlist, jti namespace, audience rules.
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { Hono } from "hono"
 import { generateKeyPair, exportJWK, SignJWT } from "jose"
 import { serve } from "@hono/node-server"
@@ -10,9 +13,23 @@ import {
   validateWsJWT,
   isStructurallyJWT,
   resetJWKSCache,
+  JWKSStateMachine,
+  namespaceJti,
+  isJtiRequired,
+  resolveAudience,
+  jwksInvalidateHandler,
+  getJWKSStateMachine,
+  JTI_POLICY,
+  AUDIENCE_MAP,
 } from "../../src/hounfour/jwt-auth.js"
-import type { JWTConfig } from "../../src/hounfour/jwt-auth.js"
+import type { JWTConfig, EndpointType, ValidateJWTOptions } from "../../src/hounfour/jwt-auth.js"
 import type { FinnConfig } from "../../src/config.js"
+import { InMemoryJtiReplayGuard } from "../../src/hounfour/jti-replay.js"
+
+// --- Golden Vectors ---
+
+const VECTORS_DIR = resolve(import.meta.dirname ?? ".", "../../packages/loa-hounfour/vectors/jwt")
+const conformanceVectors = JSON.parse(readFileSync(resolve(VECTORS_DIR, "conformance.json"), "utf-8"))
 
 // --- Test JWKS Server ---
 
@@ -52,7 +69,7 @@ async function startJWKSServer(): Promise<void> {
   })
 }
 
-function getJWTConfig(): JWTConfig {
+function getJWTConfig(overrides?: Partial<JWTConfig>): JWTConfig {
   return {
     enabled: true,
     issuer: "arrakis",
@@ -60,18 +77,24 @@ function getJWTConfig(): JWTConfig {
     jwksUrl: `http://localhost:${jwksPort}/.well-known/jwks.json`,
     clockSkewSeconds: 30,
     maxTokenLifetimeSeconds: 3600,
+    ...overrides,
   }
 }
 
 async function signJWT(
   claims: Record<string, unknown>,
-  options?: { kid?: string; privateKey?: CryptoKey },
+  options?: { kid?: string; privateKey?: CryptoKey; noTyp?: boolean },
 ): Promise<string> {
   const key = options?.privateKey ?? currentKeyPair.privateKey
   const kid = options?.kid ?? "key-current"
 
+  const headerParams: Record<string, unknown> = { alg: "ES256", kid }
+  if (!options?.noTyp) {
+    headerParams.typ = "JWT"
+  }
+
   const builder = new SignJWT(claims as Record<string, unknown>)
-    .setProtectedHeader({ alg: "ES256", typ: "JWT", kid })
+    .setProtectedHeader(headerParams as { alg: string; kid: string; typ?: string })
     .setIssuedAt()
     .setExpirationTime("1h")
 
@@ -86,6 +109,7 @@ function validClaims(): Record<string, unknown> {
     tenant_id: "community:thj",
     tier: "pro",
     req_hash: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    jti: "unique-request-id-001",
   }
 }
 
@@ -104,9 +128,18 @@ describe("JWT Auth (T-A.1)", () => {
     resetJWKSCache()
   })
 
+  // =========================================================================
+  // Structural Pre-Check
+  // =========================================================================
+
   describe("isStructurallyJWT", () => {
-    it("returns true for valid JWT structure", async () => {
+    it("returns true for valid JWT structure (ES256 + kid)", async () => {
       const token = await signJWT(validClaims())
+      expect(isStructurallyJWT(token)).toBe(true)
+    })
+
+    it("returns true without typ header (kid present)", async () => {
+      const token = await signJWT(validClaims(), { noTyp: true })
       expect(isStructurallyJWT(token)).toBe(true)
     })
 
@@ -119,18 +152,27 @@ describe("JWT Auth (T-A.1)", () => {
     })
 
     it("returns false for non-ES256 JWT header", () => {
-      // Craft a token with RS256 header
-      const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url")
+      const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT", kid: "k1" })).toString("base64url")
       const payload = Buffer.from("{}").toString("base64url")
       expect(isStructurallyJWT(`${header}.${payload}.fakesig`)).toBe(false)
     })
 
-    it("returns false for missing typ in header", () => {
-      const header = Buffer.from(JSON.stringify({ alg: "ES256" })).toString("base64url")
+    it("returns false for missing kid in header", () => {
+      const header = Buffer.from(JSON.stringify({ alg: "ES256", typ: "JWT" })).toString("base64url")
+      const payload = Buffer.from("{}").toString("base64url")
+      expect(isStructurallyJWT(`${header}.${payload}.fakesig`)).toBe(false)
+    })
+
+    it("returns false for empty kid in header", () => {
+      const header = Buffer.from(JSON.stringify({ alg: "ES256", kid: "" })).toString("base64url")
       const payload = Buffer.from("{}").toString("base64url")
       expect(isStructurallyJWT(`${header}.${payload}.fakesig`)).toBe(false)
     })
   })
+
+  // =========================================================================
+  // Core JWT Validation
+  // =========================================================================
 
   describe("validateJWT", () => {
     it("validates a correctly signed ES256 JWT", async () => {
@@ -182,7 +224,6 @@ describe("JWT Auth (T-A.1)", () => {
     })
 
     it("accepts token within clock skew tolerance", async () => {
-      // Token issued 25s in the future (within 30s skew)
       const token = await new SignJWT(validClaims() as Record<string, unknown>)
         .setProtectedHeader({ alg: "ES256", typ: "JWT", kid: "key-current" })
         .setIssuedAt(Math.floor(Date.now() / 1000) + 25)
@@ -194,17 +235,14 @@ describe("JWT Auth (T-A.1)", () => {
     })
 
     it("handles dual-key rotation window", async () => {
-      // Rotate key: current becomes previous, generate new current
       previousKeyPair = currentKeyPair
       currentKeyPair = await generateKeyPair("ES256")
 
-      // Sign with the old key
       const token = await signJWT(validClaims(), {
         kid: "key-previous",
         privateKey: previousKeyPair.privateKey,
       })
 
-      // Should still validate (JWKS includes both keys)
       const result = await validateJWT(token, getJWTConfig())
       expect(result.ok).toBe(true)
 
@@ -212,10 +250,8 @@ describe("JWT Auth (T-A.1)", () => {
     })
 
     it("refetches JWKS on kid cache miss via new kid", async () => {
-      // Sign with a kid that doesn't exist yet
       const newKeyPair = await generateKeyPair("ES256")
 
-      // Create a separate JWKS server that serves both the current and new key
       const jwksApp = new Hono()
       jwksApp.get("/.well-known/jwks.json", async (c) => {
         const currentJwk = await exportJWK(currentKeyPair.publicKey)
@@ -238,12 +274,10 @@ describe("JWT Auth (T-A.1)", () => {
       })
 
       try {
-        const config = {
-          ...getJWTConfig(),
+        const config = getJWTConfig({
           jwksUrl: `http://localhost:${rotatedServer.port}/.well-known/jwks.json`,
-        }
+        })
 
-        // Sign with new kid — first JWKS fetch will find it
         const token = await signJWT(validClaims(), {
           kid: "key-rotated",
           privateKey: newKeyPair.privateKey,
@@ -312,10 +346,367 @@ describe("JWT Auth (T-A.1)", () => {
     })
   })
 
+  // =========================================================================
+  // Issuer Allowlist
+  // =========================================================================
+
+  describe("issuer allowlist", () => {
+    it("accepts token from single issuer (legacy config)", async () => {
+      const token = await signJWT(validClaims())
+      const result = await validateJWT(token, getJWTConfig())
+      expect(result.ok).toBe(true)
+    })
+
+    it("accepts token from allowlisted issuer (multi-issuer config)", async () => {
+      const config = getJWTConfig({
+        issuers: ["arrakis", "https://auth.honeyjar.xyz"],
+      })
+      const token = await signJWT(validClaims())
+      const result = await validateJWT(token, config)
+      expect(result.ok).toBe(true)
+    })
+
+    it("accepts token from second allowlisted issuer", async () => {
+      const config = getJWTConfig({
+        issuers: ["https://auth.honeyjar.xyz", "arrakis"],
+      })
+      const token = await signJWT(validClaims())
+      const result = await validateJWT(token, config)
+      expect(result.ok).toBe(true)
+    })
+
+    it("rejects token from non-allowlisted issuer", async () => {
+      const config = getJWTConfig({
+        issuers: ["https://auth.honeyjar.xyz"],
+      })
+      const token = await signJWT({ ...validClaims(), iss: "arrakis" })
+      const result = await validateJWT(token, config)
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("ISSUER_NOT_ALLOWED")
+      }
+    })
+
+    it("uses exact string match (no substring matching)", async () => {
+      const config = getJWTConfig({
+        issuers: ["arrakis-prod"],
+      })
+      const token = await signJWT({ ...validClaims(), iss: "arrakis" })
+      const result = await validateJWT(token, config)
+      expect(result.ok).toBe(false)
+    })
+  })
+
+  // =========================================================================
+  // JTI Requirement Matrix
+  // =========================================================================
+
+  describe("jti requirement matrix", () => {
+    it("requires jti for invoke endpoints", () => {
+      expect(isJtiRequired("invoke")).toBe(true)
+    })
+
+    it("requires jti for admin endpoints", () => {
+      expect(isJtiRequired("admin")).toBe(true)
+    })
+
+    it("does not require jti for s2s endpoints", () => {
+      expect(isJtiRequired("s2s")).toBe(false)
+    })
+
+    it("rejects invoke token without jti", async () => {
+      const claims = validClaims()
+      delete claims.jti
+      const token = await signJWT(claims)
+      const result = await validateJWT(token, getJWTConfig(), undefined, { endpointType: "invoke" })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("JTI_REQUIRED")
+      }
+    })
+
+    it("rejects admin token without jti", async () => {
+      const claims = { ...validClaims(), aud: "loa-finn-admin" }
+      delete claims.jti
+      const token = await signJWT(claims)
+      const config = getJWTConfig()
+      const result = await validateJWT(token, config, undefined, { endpointType: "admin" })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("JTI_REQUIRED")
+      }
+    })
+
+    it("accepts s2s token without jti (short exp compensates)", async () => {
+      const claims = { ...validClaims(), aud: "arrakis" }
+      delete claims.jti
+      const token = await signJWT(claims)
+      const config = getJWTConfig()
+      const result = await validateJWT(token, config, undefined, { endpointType: "s2s" })
+      expect(result.ok).toBe(true)
+    })
+  })
+
+  // =========================================================================
+  // Audience Rules
+  // =========================================================================
+
+  describe("audience rules", () => {
+    it("resolves invoke audience to loa-finn", () => {
+      expect(resolveAudience("invoke")).toBe("loa-finn")
+    })
+
+    it("resolves admin audience to loa-finn-admin", () => {
+      expect(resolveAudience("admin")).toBe("loa-finn-admin")
+    })
+
+    it("resolves s2s audience to arrakis", () => {
+      expect(resolveAudience("s2s")).toBe("arrakis")
+    })
+
+    it("rejects invoke token with admin audience", async () => {
+      const token = await signJWT({ ...validClaims(), aud: "loa-finn-admin" })
+      const result = await validateJWT(token, getJWTConfig(), undefined, { endpointType: "invoke" })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("AUDIENCE_MISMATCH")
+      }
+    })
+
+    it("accepts admin token with admin audience", async () => {
+      const token = await signJWT({ ...validClaims(), aud: "loa-finn-admin" })
+      const result = await validateJWT(token, getJWTConfig(), undefined, { endpointType: "admin" })
+      expect(result.ok).toBe(true)
+    })
+
+    it("rejects admin token with invoke audience", async () => {
+      const token = await signJWT(validClaims())
+      const result = await validateJWT(token, getJWTConfig(), undefined, { endpointType: "admin" })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("AUDIENCE_MISMATCH")
+      }
+    })
+
+    it("accepts s2s token with arrakis audience", async () => {
+      const claims = { ...validClaims(), aud: "arrakis" }
+      const token = await signJWT(claims)
+      const result = await validateJWT(token, getJWTConfig(), undefined, { endpointType: "s2s" })
+      expect(result.ok).toBe(true)
+    })
+  })
+
+  // =========================================================================
+  // JTI Namespace
+  // =========================================================================
+
+  describe("jti namespace", () => {
+    it("namespaces jti as jti:{iss}:{jti}", () => {
+      expect(namespaceJti("arrakis", "req-123")).toBe("jti:arrakis:req-123")
+    })
+
+    it("namespaces with URL-style issuer", () => {
+      expect(namespaceJti("https://auth.honeyjar.xyz", "req-456")).toBe("jti:https://auth.honeyjar.xyz:req-456")
+    })
+
+    it("isolates jti across issuers (cross-issuer collision prevention)", async () => {
+      const guard = new InMemoryJtiReplayGuard(1000)
+
+      // First token from issuer A
+      const tokenA = await signJWT({ ...validClaims(), iss: "arrakis", jti: "shared-jti" })
+      const resultA = await validateJWT(tokenA, getJWTConfig(), guard, { endpointType: "invoke" })
+      expect(resultA.ok).toBe(true)
+
+      // Second token from issuer B with same jti value
+      const configB = getJWTConfig({ issuers: ["arrakis", "issuer-b"] })
+      const tokenB = await signJWT({ ...validClaims(), iss: "issuer-b", jti: "shared-jti" })
+
+      // Create a separate JWKS server for issuer-b that serves the same key
+      // (In practice issuers would have different keys, but for jti isolation test
+      // we just need the same signing key to pass signature verification)
+      const resultB = await validateJWT(tokenB, configB, guard, { endpointType: "invoke" })
+      // Should succeed — different namespace prevents collision
+      expect(resultB.ok).toBe(true)
+
+      // Replay with same issuer should be detected
+      const tokenA2 = await signJWT({ ...validClaims(), iss: "arrakis", jti: "shared-jti" })
+      const resultA2 = await validateJWT(tokenA2, getJWTConfig(), guard, { endpointType: "invoke" })
+      expect(resultA2.ok).toBe(false)
+      if (!resultA2.ok) {
+        expect(resultA2.code).toBe("JTI_REPLAY_DETECTED")
+      }
+
+      guard.dispose()
+    })
+  })
+
+  // =========================================================================
+  // JWKS State Machine
+  // =========================================================================
+
+  describe("JWKSStateMachine", () => {
+    it("starts in DEGRADED state (no successful fetch yet)", () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      expect(machine.state).toBe("DEGRADED")
+    })
+
+    it("transitions to HEALTHY after successful validation", () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      machine.recordSuccess("key-current")
+      expect(machine.state).toBe("HEALTHY")
+    })
+
+    it("transitions to STALE after 15 minutes", () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      machine.recordSuccess("key-current")
+      // Simulate 16 minutes ago
+      machine._setLastSuccessMs(Date.now() - 16 * 60 * 1000)
+      expect(machine.state).toBe("STALE")
+    })
+
+    it("transitions to DEGRADED after max staleness (24h default)", () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      machine.recordSuccess("key-current")
+      // Simulate 25 hours ago
+      machine._setLastSuccessMs(Date.now() - 25 * 60 * 60 * 1000)
+      expect(machine.state).toBe("DEGRADED")
+    })
+
+    it("uses compromise mode staleness (1h) when enabled", () => {
+      const machine = new JWKSStateMachine(
+        `http://localhost:${jwksPort}/.well-known/jwks.json`,
+        { compromiseMode: true },
+      )
+      machine.recordSuccess("key-current")
+      // Simulate 2 hours ago — DEGRADED in compromise mode
+      machine._setLastSuccessMs(Date.now() - 2 * 60 * 60 * 1000)
+      expect(machine.state).toBe("DEGRADED")
+    })
+
+    it("tracks known kids", () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      expect(machine.isKnownKid("key-current")).toBe(false)
+      machine.recordSuccess("key-current")
+      expect(machine.isKnownKid("key-current")).toBe(true)
+      expect(machine.isKnownKid("key-other")).toBe(false)
+    })
+
+    it("invalidate clears known kids and resets state", () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      machine.recordSuccess("key-current")
+      expect(machine.state).toBe("HEALTHY")
+      expect(machine.knownKidCount).toBe(1)
+
+      machine.invalidate()
+      expect(machine.state).toBe("DEGRADED")
+      expect(machine.knownKidCount).toBe(0)
+    })
+
+    it("rate limits refresh to 1/sec", () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      const first = machine.refresh()
+      const second = machine.refresh()
+      // Same reference when rate limited
+      expect(first).toBe(second)
+    })
+
+    it("circuit breaker opens after 5 consecutive failures", () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      for (let i = 0; i < 5; i++) machine.recordRefreshFailure()
+      // Force past rate limit
+      machine._setLastRefreshAttemptMs(Date.now() - 2000)
+      const before = machine.getJWKS()
+      const after = machine.refresh()
+      // Circuit is open — returns same reference (no refresh within 60s cooldown)
+      expect(before).toBe(after)
+    })
+
+    it("setMaxStaleness updates threshold at runtime", () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      machine.recordSuccess("key-current")
+      machine._setLastSuccessMs(Date.now() - 2 * 60 * 60 * 1000) // 2h ago
+
+      expect(machine.state).toBe("STALE") // 2h < 24h default
+
+      machine.setMaxStaleness(60 * 60 * 1000) // 1h
+      expect(machine.state).toBe("DEGRADED") // 2h > 1h
+    })
+
+    it("DEGRADED rejects unknown kid in validateJWT", async () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      // Initialize with a different kid, then degrade
+      machine.recordSuccess("key-old")
+      machine._setLastSuccessMs(Date.now() - 25 * 60 * 60 * 1000)
+      expect(machine.state).toBe("DEGRADED")
+      expect(machine.initialized).toBe(true)
+
+      // "key-current" is NOT a known kid — should be rejected
+      const token = await signJWT(validClaims())
+      const result = await validateJWT(token, getJWTConfig(), undefined, {
+        jwksMachine: machine,
+      })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("JWKS_DEGRADED")
+      }
+    })
+
+    it("DEGRADED accepts known kid", async () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      // Record success then make DEGRADED
+      machine.recordSuccess("key-current")
+      machine._setLastSuccessMs(Date.now() - 25 * 60 * 60 * 1000)
+      expect(machine.state).toBe("DEGRADED")
+
+      const token = await signJWT(validClaims())
+      const result = await validateJWT(token, getJWTConfig(), undefined, {
+        jwksMachine: machine,
+      })
+      // Known kid — should pass through to signature verification
+      expect(result.ok).toBe(true)
+    })
+
+    it("STALE validates known kids without refresh", async () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      machine.recordSuccess("key-current")
+      machine._setLastSuccessMs(Date.now() - 16 * 60 * 1000)
+      expect(machine.state).toBe("STALE")
+
+      const token = await signJWT(validClaims())
+      const result = await validateJWT(token, getJWTConfig(), undefined, {
+        jwksMachine: machine,
+      })
+      expect(result.ok).toBe(true)
+    })
+
+    // Contract test: extended outage → DEGRADED → all-reject for unknown kids
+    it("extended outage transitions to DEGRADED and rejects unknown kids", async () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      machine.recordSuccess("key-old")
+      // Simulate 25h outage
+      machine._setLastSuccessMs(Date.now() - 25 * 60 * 60 * 1000)
+      expect(machine.state).toBe("DEGRADED")
+
+      // Unknown kid (key-current is not known)
+      const token = await signJWT(validClaims(), { kid: "key-current" })
+      const result = await validateJWT(token, getJWTConfig(), undefined, {
+        jwksMachine: machine,
+      })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("JWKS_DEGRADED")
+      }
+    })
+  })
+
+  // =========================================================================
+  // Hono Middleware
+  // =========================================================================
+
   describe("jwtAuthMiddleware", () => {
-    function createTestApp(config: FinnConfig): Hono {
+    function createTestApp(config: FinnConfig, endpointType?: EndpointType): Hono {
       const app = new Hono()
-      app.use("/api/v1/*", jwtAuthMiddleware(config))
+      app.use("/api/v1/*", jwtAuthMiddleware(config, undefined, endpointType))
       app.get("/api/v1/test", (c) => {
         const tenant = c.get("tenant")
         return c.json({ tenant })
@@ -323,9 +714,9 @@ describe("JWT Auth (T-A.1)", () => {
       return app
     }
 
-    function mockConfig(): FinnConfig {
+    function mockConfig(overrides?: Partial<JWTConfig>): FinnConfig {
       return {
-        jwt: getJWTConfig(),
+        jwt: getJWTConfig(overrides),
       } as FinnConfig
     }
 
@@ -361,8 +752,7 @@ describe("JWT Auth (T-A.1)", () => {
     })
 
     it("skips validation when jwt.enabled is false", async () => {
-      const config = mockConfig()
-      config.jwt.enabled = false
+      const config = mockConfig({ enabled: false })
       const app = createTestApp(config)
 
       const res = await app.request("/api/v1/test")
@@ -383,6 +773,10 @@ describe("JWT Auth (T-A.1)", () => {
     })
   })
 
+  // =========================================================================
+  // WebSocket JWT
+  // =========================================================================
+
   describe("validateWsJWT", () => {
     it("validates JWT from query param", async () => {
       const token = await signJWT(validClaims())
@@ -397,7 +791,7 @@ describe("JWT Auth (T-A.1)", () => {
     })
 
     it("returns null when jwt disabled", async () => {
-      const config = { ...getJWTConfig(), enabled: false }
+      const config = getJWTConfig({ enabled: false })
       const token = await signJWT(validClaims())
       const result = await validateWsJWT(token, config)
       expect(result).toBeNull()
@@ -406,6 +800,177 @@ describe("JWT Auth (T-A.1)", () => {
     it("returns null for invalid token", async () => {
       const result = await validateWsJWT("invalid-token", getJWTConfig())
       expect(result).toBeNull()
+    })
+  })
+
+  // =========================================================================
+  // JWKS Invalidation Handler
+  // =========================================================================
+
+  describe("jwksInvalidateHandler", () => {
+    it("rejects without admin:jwks scope", async () => {
+      const app = new Hono()
+      app.post("/admin/jwks/invalidate", jwksInvalidateHandler())
+
+      const res = await app.request("/admin/jwks/invalidate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      expect(res.status).toBe(403)
+    })
+  })
+
+  // =========================================================================
+  // Protocol Constants
+  // =========================================================================
+
+  describe("protocol constants", () => {
+    it("JTI_POLICY matches loa-hounfour spec", () => {
+      expect(JTI_POLICY.invoke.required).toBe(true)
+      expect(JTI_POLICY.admin.required).toBe(true)
+      expect(JTI_POLICY.s2s_get.required).toBe(false)
+      expect(JTI_POLICY.s2s_get.compensating).toBe("exp <= 60s")
+    })
+
+    it("AUDIENCE_MAP matches loa-hounfour spec", () => {
+      expect(AUDIENCE_MAP.invoke).toBe("loa-finn")
+      expect(AUDIENCE_MAP.admin).toBe("loa-finn-admin")
+      expect(AUDIENCE_MAP.s2s).toBe("arrakis")
+    })
+  })
+
+  // =========================================================================
+  // Golden Vectors (from loa-hounfour conformance.json)
+  // =========================================================================
+
+  describe("golden vectors: JWT conformance", () => {
+    const multiIssuerConfig = () => getJWTConfig({
+      issuers: ["https://auth.honeyjar.xyz", "arrakis"],
+    })
+
+    it("jwt-valid-invoke: Valid invoke JWT with all required claims", async () => {
+      const vec = conformanceVectors.vectors.find((v: { id: string }) => v.id === "jwt-valid-invoke")
+      const token = await signJWT(vec.claims)
+      const result = await validateJWT(token, multiIssuerConfig())
+      expect(result.ok).toBe(true)
+    })
+
+    it("jwt-expired: Expired JWT (exp in the past)", async () => {
+      const vec = conformanceVectors.vectors.find((v: { id: string }) => v.id === "jwt-expired")
+      // Must create actually expired token — signJWT override won't work
+      const nowSec = Math.floor(Date.now() / 1000)
+      const token = await new SignJWT({ ...vec.claims } as Record<string, unknown>)
+        .setProtectedHeader({ alg: "ES256", typ: "JWT", kid: "key-current" })
+        .setIssuedAt(nowSec - 7200)
+        .setExpirationTime(nowSec - 3600)
+        .sign(currentKeyPair.privateKey)
+      const result = await validateJWT(token, multiIssuerConfig())
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("JWT_INVALID") // jose rejects expired
+      }
+    })
+
+    it("jwt-wrong-aud: Wrong audience (arrakis instead of loa-finn)", async () => {
+      const vec = conformanceVectors.vectors.find((v: { id: string }) => v.id === "jwt-wrong-aud")
+      const token = await signJWT(vec.claims)
+      const result = await validateJWT(token, multiIssuerConfig(), undefined, { endpointType: "invoke" })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("AUDIENCE_MISMATCH")
+      }
+    })
+
+    it("jwt-rotated-key: JWT signed with previous key (kid mismatch on primary, valid on rotated)", async () => {
+      previousKeyPair = currentKeyPair
+      currentKeyPair = await generateKeyPair("ES256")
+
+      const vec = conformanceVectors.vectors.find((v: { id: string }) => v.id === "jwt-rotated-key")
+      const token = await signJWT(vec.claims, {
+        kid: "key-previous",
+        privateKey: previousKeyPair.privateKey,
+      })
+      const result = await validateJWT(token, multiIssuerConfig())
+      expect(result.ok).toBe(true)
+
+      previousKeyPair = null
+    })
+
+    it("jwt-disallowed-iss: Issuer not in allowlist", async () => {
+      const vec = conformanceVectors.vectors.find((v: { id: string }) => v.id === "jwt-disallowed-iss")
+      const token = await signJWT(vec.claims)
+      const result = await validateJWT(token, multiIssuerConfig())
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("ISSUER_NOT_ALLOWED")
+      }
+    })
+
+    it("jwt-jwks-timeout: JWKS endpoint unreachable — DEGRADED known kid accepted", async () => {
+      const machine = new JWKSStateMachine(`http://localhost:${jwksPort}/.well-known/jwks.json`)
+      // Record "key-current" as known, then simulate 25h outage
+      machine.recordSuccess("key-current")
+      machine._setLastSuccessMs(Date.now() - 25 * 60 * 60 * 1000)
+      expect(machine.state).toBe("DEGRADED")
+
+      const vec = conformanceVectors.vectors.find((v: { id: string }) => v.id === "jwt-jwks-timeout")
+      // Use actual "key-current" kid (matches JWKS server) instead of conceptual "known-kid"
+      const token = await signJWT(vec.claims, { kid: "key-current" })
+      const result = await validateJWT(token, multiIssuerConfig(), undefined, { jwksMachine: machine })
+      expect(result.ok).toBe(true)
+    })
+  })
+
+  // =========================================================================
+  // Contract Tests
+  // =========================================================================
+
+  describe("contract tests", () => {
+    it("CT-1: rejects missing kid in header", async () => {
+      // Craft a token without kid
+      const header = Buffer.from(JSON.stringify({ alg: "ES256", typ: "JWT" })).toString("base64url")
+      const payload = Buffer.from(JSON.stringify(validClaims())).toString("base64url")
+      const fakeToken = `${header}.${payload}.fakesignature`
+
+      const result = await validateJWT(fakeToken, getJWTConfig())
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("JWT_STRUCTURAL_INVALID")
+      }
+    })
+
+    it("CT-2: rejects wrong alg in header", async () => {
+      const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT", kid: "k1" })).toString("base64url")
+      const payload = Buffer.from(JSON.stringify(validClaims())).toString("base64url")
+      const fakeToken = `${header}.${payload}.fakesignature`
+
+      const result = await validateJWT(fakeToken, getJWTConfig())
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("JWT_STRUCTURAL_INVALID")
+      }
+    })
+
+    it("CT-3: audience mismatch per endpoint type", async () => {
+      // invoke token with s2s audience
+      const token = await signJWT({ ...validClaims(), aud: "arrakis" })
+      const result = await validateJWT(token, getJWTConfig(), undefined, { endpointType: "invoke" })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.code).toBe("AUDIENCE_MISMATCH")
+      }
+    })
+
+    it("CT-4: S2S short-exp exempt path (no jti required)", async () => {
+      const claims = {
+        ...validClaims(),
+        aud: "arrakis",
+      }
+      delete claims.jti  // Remove jti
+      const token = await signJWT(claims)
+      const result = await validateJWT(token, getJWTConfig(), undefined, { endpointType: "s2s" })
+      expect(result.ok).toBe(true)
     })
   })
 })
