@@ -350,11 +350,9 @@ describe("migrateV1ToV2", () => {
     const entries = [
       makeV1Entry({ tenant_id: "", total_cost_usd: 0.005, trace_id: "l1" }),
     ]
-    // Fix: empty tenant_id gets mapped to "local"
+    // makeV1Entry({ tenant_id: "" }) already writes empty tenant_id to file.
+    // Migration should map empty tenant_id → "local" as fallback.
     const v1Path = writeV1Ledger(tempDir, entries)
-    // Manually fix the entries to have empty tenant_id
-    const raw = readFileSync(v1Path, "utf8")
-    writeFileSync(v1Path, raw.replace(/"tenant_id":""/, '"tenant_id":""'), "utf8")
     const v2Dir = join(tempDir, "v2")
 
     const result = await migrateV1ToV2({
