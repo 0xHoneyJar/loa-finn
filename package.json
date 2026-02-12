@@ -24,7 +24,7 @@
     "@aws-sdk/client-s3": "^3.985.0",
     "@hono/node-server": "^1.19.9",
     "@mariozechner/pi-agent-core": "~0.52.6",
-    "@mariozechner/pi-ai": "~0.52.6",
+    "@mariozechner/pi-ai": "~0.52.10",
     "@mariozechner/pi-coding-agent": "~0.52.6",
     "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#v1.1.0",
     "@sinclair/typebox": "^0.34.48",
