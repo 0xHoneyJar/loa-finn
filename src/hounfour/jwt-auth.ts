@@ -1,5 +1,6 @@
 // src/hounfour/jwt-auth.ts — JWT Validation Middleware (SDD §3.1, T-A.1)
 // Validates ES256 JWTs from arrakis, extracts TenantContext onto Hono context.
+// Phase 5 Sprint 2: JWKS state machine, issuer allowlist, jti namespace, audience rules.
 
 import { createHash, timingSafeEqual } from "node:crypto"
 import { createRemoteJWKSet, jwtVerify, decodeProtectedHeader } from "jose"
@@ -7,6 +8,22 @@ import type { Context, Next } from "hono"
 import type { FinnConfig } from "../config.js"
 import type { JtiReplayGuard } from "./jti-replay.js"
 import { deriveJtiTtl } from "./jti-replay.js"
+
+// --- Protocol Constants (matches loa-hounfour JTI_POLICY) ---
+
+export const JTI_POLICY = {
+  invoke: { required: true },
+  admin: { required: true },
+  s2s_get: { required: false, compensating: "exp <= 60s" },
+} as const
+
+export const AUDIENCE_MAP = {
+  invoke: "loa-finn",
+  admin: "loa-finn-admin",
+  s2s: "arrakis",
+} as const
+
+export type EndpointType = "invoke" | "admin" | "s2s"
 
 // --- Interfaces ---
 
@@ -23,6 +40,7 @@ export interface JWTClaims {
   iat: number
   exp: number
   jti?: string
+  scope?: string  // S2S scope claim (e.g., "admin:jwks")
 }
 
 export interface TenantContext {
@@ -34,46 +52,138 @@ export interface TenantContext {
 
 export interface JWTConfig {
   enabled: boolean
-  issuer: string
-  audience: string
+  issuer: string                        // Legacy single issuer (backward compat)
+  issuers?: string[]                    // Issuer allowlist (takes precedence over issuer)
+  audience: string                      // Default audience (invoke)
   jwksUrl: string
   clockSkewSeconds: number
   maxTokenLifetimeSeconds: number
+  maxStalenessMs?: number               // Default: 24h, DEGRADED threshold
+  compromiseMode?: boolean              // Tighten staleness to 1h
+  compromiseMaxStalenessMs?: number     // Default: 1h
 }
 
-// --- JWKS Client with TTL Cache ---
+// --- JWKS State Machine (HEALTHY → STALE → DEGRADED) ---
 
-interface CachedJWKS {
-  jwks: ReturnType<typeof createRemoteJWKSet>
-  createdAt: number
-}
+export type JWKSState = "HEALTHY" | "STALE" | "DEGRADED"
 
-const JWKS_TTL_MS = 5 * 60 * 1000 // 5 minutes
+const JWKS_HEALTHY_TTL_MS = 15 * 60 * 1000              // 15 minutes
+const JWKS_DEFAULT_MAX_STALENESS_MS = 24 * 60 * 60 * 1000  // 24 hours
+const JWKS_COMPROMISE_MAX_STALENESS_MS = 60 * 60 * 1000    // 1 hour
+const CIRCUIT_BREAKER_THRESHOLD = 5
+const CIRCUIT_BREAKER_COOLDOWN_MS = 60_000
+const REFRESH_RATE_LIMIT_MS = 1000                       // 1 refresh/sec
 
-let jwksCache: CachedJWKS | null = null
-let jwksCacheUrl: string | null = null
+export class JWKSStateMachine {
+  private jwksFn: ReturnType<typeof createRemoteJWKSet>
+  private lastSuccessMs = 0
+  private knownKids = new Set<string>()
+  private consecutiveRefreshFailures = 0
+  private lastRefreshAttemptMs = 0
+  private _maxStalenessMs: number
 
-function getJWKS(jwksUrl: string): ReturnType<typeof createRemoteJWKSet> {
-  const now = Date.now()
-  if (jwksCache && jwksCacheUrl === jwksUrl && (now - jwksCache.createdAt) < JWKS_TTL_MS) {
-    return jwksCache.jwks
+  constructor(
+    private jwksUrl: string,
+    opts?: { maxStalenessMs?: number; compromiseMode?: boolean; compromiseMaxStalenessMs?: number },
+  ) {
+    this._maxStalenessMs = opts?.compromiseMode
+      ? (opts.compromiseMaxStalenessMs ?? JWKS_COMPROMISE_MAX_STALENESS_MS)
+      : (opts?.maxStalenessMs ?? JWKS_DEFAULT_MAX_STALENESS_MS)
+    this.jwksFn = createRemoteJWKSet(new URL(jwksUrl))
   }
 
-  const jwks = createRemoteJWKSet(new URL(jwksUrl))
-  jwksCache = { jwks, createdAt: now }
-  jwksCacheUrl = jwksUrl
-  return jwks
+  get state(): JWKSState {
+    if (this.lastSuccessMs === 0) return "DEGRADED"
+    const age = Date.now() - this.lastSuccessMs
+    if (age < JWKS_HEALTHY_TTL_MS) return "HEALTHY"
+    if (age < this._maxStalenessMs) return "STALE"
+    return "DEGRADED"
+  }
+
+  /** True once at least one successful validation has been recorded. */
+  get initialized(): boolean { return this.lastSuccessMs > 0 }
+
+  get maxStalenessMs(): number { return this._maxStalenessMs }
+
+  isKnownKid(kid: string): boolean {
+    return this.knownKids.has(kid)
+  }
+
+  getJWKS(): ReturnType<typeof createRemoteJWKSet> {
+    return this.jwksFn
+  }
+
+  /** Try to create a fresh JWKS function. Returns current if rate-limited or circuit-broken. */
+  refresh(): ReturnType<typeof createRemoteJWKSet> {
+    const now = Date.now()
+    if ((now - this.lastRefreshAttemptMs) < REFRESH_RATE_LIMIT_MS) {
+      return this.jwksFn
+    }
+    if (this.consecutiveRefreshFailures >= CIRCUIT_BREAKER_THRESHOLD
+      && (now - this.lastRefreshAttemptMs) < CIRCUIT_BREAKER_COOLDOWN_MS) {
+      return this.jwksFn
+    }
+    this.lastRefreshAttemptMs = now
+    this.jwksFn = createRemoteJWKSet(new URL(this.jwksUrl))
+    return this.jwksFn
+  }
+
+  recordSuccess(kid: string): void {
+    this.lastSuccessMs = Date.now()
+    this.consecutiveRefreshFailures = 0
+    this.knownKids.add(kid)
+  }
+
+  recordRefreshFailure(): void {
+    this.consecutiveRefreshFailures++
+  }
+
+  /** Admin invalidation — force re-fetch, clear known kids */
+  invalidate(): void {
+    this.jwksFn = createRemoteJWKSet(new URL(this.jwksUrl))
+    this.knownKids.clear()
+    this.lastSuccessMs = 0
+    this.consecutiveRefreshFailures = 0
+    this.lastRefreshAttemptMs = 0
+  }
+
+  /** Update max staleness (for compromise mode toggle at runtime) */
+  setMaxStaleness(ms: number): void {
+    this._maxStalenessMs = ms
+  }
+
+  /** Visible for testing */
+  get knownKidCount(): number { return this.knownKids.size }
+
+  /** Inject timestamps for testing */
+  _setLastSuccessMs(ms: number): void { this.lastSuccessMs = ms }
+  _setLastRefreshAttemptMs(ms: number): void { this.lastRefreshAttemptMs = ms }
+  _setConsecutiveFailures(n: number): void { this.consecutiveRefreshFailures = n }
 }
 
-/** Force refetch JWKS (on kid cache miss) */
-function invalidateJWKSCache(): void {
-  jwksCache = null
-  jwksCacheUrl = null
+// --- Module-level JWKS state machine (singleton) ---
+
+let globalJWKS: JWKSStateMachine | null = null
+
+function getOrCreateJWKS(config: JWTConfig): JWKSStateMachine {
+  if (!globalJWKS) {
+    globalJWKS = new JWKSStateMachine(config.jwksUrl, {
+      maxStalenessMs: config.maxStalenessMs,
+      compromiseMode: config.compromiseMode,
+      compromiseMaxStalenessMs: config.compromiseMaxStalenessMs,
+    })
+  }
+  return globalJWKS
 }
 
-/** For testing — reset module-level cache */
+/** For testing — reset module-level state */
 export function resetJWKSCache(): void {
-  invalidateJWKSCache()
+  globalJWKS = null
+}
+
+/** Get the current JWKS state machine (for admin/diagnostics) */
+export function getJWKSStateMachine(): JWKSStateMachine | null {
+  return globalJWKS
 }
 
 // --- Structural Pre-Check ---
@@ -82,7 +192,8 @@ export function resetJWKSCache(): void {
  * Structural pre-check: verifies the token looks like a JWT before attempting
  * full ES256 validation. This prevents opaque bearer tokens from being parsed.
  *
- * Returns true if the token has 3 segments and the header contains alg:ES256 + typ:JWT.
+ * Returns true if: 3 segments, alg=ES256, kid present.
+ * typ is optional/ignored per protocol spec.
  */
 export function isStructurallyJWT(token: string): boolean {
   const parts = token.split(".")
@@ -90,10 +201,42 @@ export function isStructurallyJWT(token: string): boolean {
 
   try {
     const header = decodeProtectedHeader(token)
-    return header.alg === "ES256" && header.typ === "JWT"
+    return header.alg === "ES256" && typeof header.kid === "string" && header.kid.length > 0
   } catch {
     return false
   }
+}
+
+// --- Issuer Allowlist ---
+
+function resolveIssuers(config: JWTConfig): string[] {
+  if (config.issuers && config.issuers.length > 0) return config.issuers
+  return [config.issuer]
+}
+
+function isIssuerAllowed(iss: string, allowlist: string[]): boolean {
+  return allowlist.includes(iss) // exact string match per protocol spec
+}
+
+// --- JTI Namespace ---
+
+/** Namespace jti as jti:{iss}:{jti} to prevent cross-issuer collision */
+export function namespaceJti(iss: string, jti: string): string {
+  return `jti:${iss}:${jti}`
+}
+
+// --- JTI Requirement ---
+
+export function isJtiRequired(endpointType: EndpointType): boolean {
+  if (endpointType === "invoke") return JTI_POLICY.invoke.required
+  if (endpointType === "admin") return JTI_POLICY.admin.required
+  return JTI_POLICY.s2s_get.required
+}
+
+// --- Audience Resolution ---
+
+export function resolveAudience(endpointType: EndpointType): string {
+  return AUDIENCE_MAP[endpointType]
 }
 
 // --- JWT Validation ---
@@ -138,72 +281,122 @@ export type JWTValidationResult =
   | { ok: true; claims: JWTClaims }
   | { ok: false; error: string; code: string }
 
+export interface ValidateJWTOptions {
+  endpointType?: EndpointType
+  jwksMachine?: JWKSStateMachine  // Override global state machine (testing)
+}
+
 /**
  * Validate an ES256 JWT against the configured JWKS endpoint.
  * Returns validated claims on success, error details on failure.
  *
  * Validation order (security-critical):
- *   1. Structural pre-check (3 segments, ES256 header)
- *   2. Signature + standard claims (exp, nbf, iss, aud) via jose
- *   3. Custom claims validation (tenant_id, tier, req_hash)
- *   4. JTI replay check (if guard provided and jti present)
+ *   1. Structural pre-check (3 segments, ES256 header, kid present)
+ *   2. Header kid validation against JWKS state
+ *   3. Issuer allowlist check
+ *   4. Signature + standard claims (exp, nbf, iss, aud) via jose
+ *   5. Custom claims validation (tenant_id, tier, req_hash)
+ *   6. JTI requirement check per endpoint type
+ *   7. JTI replay check with per-issuer namespace
  *
- * Expired tokens are rejected at step 2 before reaching the JTI check.
+ * Expired tokens are rejected at step 4 before reaching the JTI check.
  */
 export async function validateJWT(
   token: string,
   config: JWTConfig,
   replayGuard?: JtiReplayGuard,
+  opts?: ValidateJWTOptions,
 ): Promise<JWTValidationResult> {
+  const endpointType = opts?.endpointType ?? "invoke"
+
+  // 1. Structural pre-check
   if (!isStructurallyJWT(token)) {
     return { ok: false, error: "Not a valid JWT structure", code: "JWT_STRUCTURAL_INVALID" }
   }
 
-  // First attempt with cached JWKS
-  let jwks = getJWKS(config.jwksUrl)
+  // 2. Extract kid from header
+  const header = decodeProtectedHeader(token)
+  const kid = header.kid as string // guaranteed by isStructurallyJWT
 
+  // 3. Decode payload for issuer pre-check (before expensive signature verification)
+  //    We need the issuer to check the allowlist. jose's jwtVerify also checks issuer,
+  //    but we want to reject disallowed issuers before hitting JWKS.
+  const issuers = resolveIssuers(config)
+
+  // 4. Get JWKS state machine
+  const machine = opts?.jwksMachine ?? getOrCreateJWKS(config)
+  const currentState = machine.state
+
+  // STALE/DEGRADED: reject unknown kids without attempting refresh.
+  // Skip this check for uninitialized machines (first-time use must be allowed).
+  if (machine.initialized && currentState !== "HEALTHY" && !machine.isKnownKid(kid)) {
+    if (currentState === "DEGRADED") {
+      return { ok: false, error: "JWKS degraded: unknown kid rejected", code: "JWKS_DEGRADED" }
+    }
+    // STALE: attempt refresh for unknown kid
+    machine.refresh()
+  }
+
+  // 5. Signature verification via jose
+  const expectedAudience = resolveAudience(endpointType)
+  let jwks = machine.getJWKS()
   let claims: JWTClaims
+
   try {
     const { payload } = await jwtVerify(token, jwks, {
-      issuer: config.issuer,
-      audience: config.audience,
+      issuer: issuers,
+      audience: expectedAudience,
       clockTolerance: config.clockSkewSeconds,
       maxTokenAge: `${config.maxTokenLifetimeSeconds}s`,
       algorithms: ["ES256"],
     })
 
     claims = validateClaims(payload as Record<string, unknown>)
+    machine.recordSuccess(kid)
   } catch (firstErr) {
-    // On kid miss, refetch JWKS once and retry (dual-key rotation window)
     const errMsg = firstErr instanceof Error ? firstErr.message : String(firstErr)
-    if (errMsg.includes("no applicable key found") || errMsg.includes("JWKSNoMatchingKey")) {
-      invalidateJWKSCache()
-      jwks = getJWKS(config.jwksUrl)
 
+    // On kid miss, refetch JWKS once and retry (dual-key rotation window)
+    if (errMsg.includes("no applicable key found") || errMsg.includes("JWKSNoMatchingKey")) {
+      jwks = machine.refresh()
       try {
         const { payload } = await jwtVerify(token, jwks, {
-          issuer: config.issuer,
-          audience: config.audience,
+          issuer: issuers,
+          audience: expectedAudience,
           clockTolerance: config.clockSkewSeconds,
           maxTokenAge: `${config.maxTokenLifetimeSeconds}s`,
           algorithms: ["ES256"],
         })
 
         claims = validateClaims(payload as Record<string, unknown>)
+        machine.recordSuccess(kid)
       } catch (retryErr) {
+        machine.recordRefreshFailure()
         const msg = retryErr instanceof Error ? retryErr.message : String(retryErr)
         return { ok: false, error: `JWT validation failed after JWKS refetch: ${msg}`, code: "JWT_INVALID" }
       }
     } else {
+      // Check if this is an issuer mismatch
+      if (errMsg.includes("unexpected \"iss\" claim value")) {
+        return { ok: false, error: `Issuer not in allowlist`, code: "ISSUER_NOT_ALLOWED" }
+      }
+      if (errMsg.includes("unexpected \"aud\" claim value")) {
+        return { ok: false, error: `Audience mismatch for ${endpointType} endpoint`, code: "AUDIENCE_MISMATCH" }
+      }
       return { ok: false, error: `JWT validation failed: ${errMsg}`, code: "JWT_INVALID" }
     }
   }
 
-  // JTI replay check — runs AFTER signature + claims validation
-  // Expired tokens are already rejected above (jose checks exp claim)
+  // 6. JTI requirement check per endpoint type
+  if (isJtiRequired(endpointType) && !claims!.jti) {
+    return { ok: false, error: "jti required for this endpoint type", code: "JTI_REQUIRED" }
+  }
+
+  // 7. JTI replay check with per-issuer namespace
   if (replayGuard && claims!.jti) {
+    const namespacedJti = namespaceJti(claims!.iss, claims!.jti)
     const ttlSec = deriveJtiTtl(claims!.exp)
-    const isReplay = await replayGuard.checkAndStore(claims!.jti, ttlSec)
+    const isReplay = await replayGuard.checkAndStore(namespacedJti, ttlSec)
     if (isReplay) {
       return { ok: false, error: "JTI replay detected", code: "JTI_REPLAY_DETECTED" }
     }
@@ -215,13 +408,17 @@ export async function validateJWT(
 // --- Hono Middleware ---
 
 /**
- * JWT auth middleware for /api/v1/* routes.
+ * JWT auth middleware for /api/v1/* routes (invoke endpoint type).
  * Validates ES256 JWTs, extracts TenantContext onto Hono context.
  *
  * Structural pre-check: if the Authorization token doesn't look like a JWT
- * (3 segments, ES256 header), returns 401 immediately — no fallback to bearer.
+ * (3 segments, ES256 header, kid present), returns 401 immediately.
  */
-export function jwtAuthMiddleware(config: FinnConfig, replayGuard?: JtiReplayGuard) {
+export function jwtAuthMiddleware(
+  config: FinnConfig,
+  replayGuard?: JtiReplayGuard,
+  endpointType: EndpointType = "invoke",
+) {
   return async (c: Context, next: Next) => {
     if (!config.jwt.enabled) {
       return next()
@@ -239,7 +436,7 @@ export function jwtAuthMiddleware(config: FinnConfig, replayGuard?: JtiReplayGua
       return c.json({ error: "Unauthorized", code: "JWT_STRUCTURAL_INVALID" }, 401)
     }
 
-    const result = await validateJWT(token, config.jwt, replayGuard)
+    const result = await validateJWT(token, config.jwt, replayGuard, { endpointType })
     if (!result.ok) {
       return c.json({ error: "Unauthorized", code: result.code }, 401)
     }
@@ -269,7 +466,7 @@ export async function validateWsJWT(
 ): Promise<TenantContext | null> {
   if (!config.enabled || !token) return null
 
-  const result = await validateJWT(token, config, replayGuard)
+  const result = await validateJWT(token, config, replayGuard, { endpointType: "invoke" })
   if (!result.ok) return null
 
   return {
@@ -277,6 +474,58 @@ export async function validateWsJWT(
     resolvedPools: [],
     isNFTRouted: !!result.claims.nft_id,
     isBYOK: !!result.claims.byok,
+  }
+}
+
+// --- JWKS Invalidation Handler (POST /admin/jwks/invalidate) ---
+
+export interface JWKSInvalidateRequest {
+  kid?: string  // Optional: invalidate specific kid (otherwise invalidate all)
+}
+
+export interface JWKSAuditEntry {
+  event: "jwks_invalidation"
+  kid: string | "all"
+  admin_subject: string
+  source_ip: string
+  timestamp: string
+}
+
+/**
+ * Admin JWKS invalidation handler.
+ * Requires S2S JWT with scope "admin:jwks" and aud "loa-finn-admin".
+ * Rate limited: 10 req/min (enforced at route level).
+ *
+ * Returns the invalidation result and logs an audit entry.
+ */
+export function jwksInvalidateHandler(auditLog?: (entry: JWKSAuditEntry) => void) {
+  return async (c: Context) => {
+    const claims = c.get("jwtClaims") as JWTClaims | undefined
+    if (!claims || claims.scope !== "admin:jwks") {
+      return c.json({ error: "Forbidden: admin:jwks scope required" }, 403)
+    }
+
+    const body = await c.req.json<JWKSInvalidateRequest>().catch(() => ({}))
+    const kid = body.kid ?? "all"
+
+    const machine = getJWKSStateMachine()
+    if (!machine) {
+      return c.json({ error: "JWKS not initialized" }, 500)
+    }
+
+    machine.invalidate()
+
+    const auditEntry: JWKSAuditEntry = {
+      event: "jwks_invalidation",
+      kid,
+      admin_subject: claims.sub,
+      source_ip: c.req.header("X-Forwarded-For") ?? c.req.header("X-Real-IP") ?? "unknown",
+      timestamp: new Date().toISOString(),
+    }
+
+    auditLog?.(auditEntry)
+
+    return c.json({ invalidated: true, kid })
   }
 }
 

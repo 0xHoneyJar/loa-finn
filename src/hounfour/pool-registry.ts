@@ -3,6 +3,8 @@
 // All routing uses pool IDs — JWT claims never contain raw model names.
 
 import type { ModelCapabilities, ModelEntry } from "./types.js"
+import type { Tier, PoolId } from "@0xhoneyjar/loa-hounfour"
+import { isValidPoolId } from "@0xhoneyjar/loa-hounfour"
 
 /** Minimal interface for provider registry validation (avoids circular import) */
 export interface ProviderRegistryLike {
@@ -10,9 +12,8 @@ export interface ProviderRegistryLike {
   getModel(provider: string, modelId: string): ModelEntry | undefined
 }
 
-// --- Types ---
-
-export type Tier = "free" | "pro" | "enterprise"
+// Re-export Tier for backward compatibility
+export type { Tier }
 
 export interface PoolDefinition {
   id: string
@@ -97,6 +98,10 @@ export class PoolRegistry {
     for (const config of configs) {
       if (this.pools.has(config.id)) {
         throw new Error(`Duplicate pool ID: ${config.id}`)
+      }
+      // Validate pool ID against loa-hounfour canonical vocabulary
+      if (!isValidPoolId(config.id)) {
+        throw new Error(`Unknown pool ID "${config.id}" — must be one of: ${["cheap", "fast-code", "reviewer", "reasoning", "architect"].join(", ")}`)
       }
       this.pools.set(config.id, { ...config })
     }

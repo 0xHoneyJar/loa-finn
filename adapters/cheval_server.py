@@ -44,6 +44,16 @@ from cheval import (  # noqa: E402
     normalize_response,
 )
 from sse_decoder import sse_decode  # noqa: E402
+from usage_calculator import enrich_response_with_cost, record_usage  # noqa: E402
+from circuit_breaker import (  # noqa: E402
+    CLOSED,
+    OPEN,
+    HALF_OPEN,
+    check_state,
+    increment_probe,
+    record_failure,
+    record_success,
+)
 
 # --- Configuration ---
 
@@ -479,12 +489,29 @@ async def invoke(request: Request) -> JSONResponse:
         total_timeout_ms=provider.get("total_timeout_ms", 300000),
     )
 
+    # Circuit breaker check — reject immediately if OPEN (SDD §4.2.6)
+    cb_config = cheval_request.get("config", {})
+    cb_state = check_state(provider_name, cb_config)
+    if cb_state == OPEN:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "ChevalError",
+                "code": "circuit_open",
+                "message": f"Circuit breaker OPEN for provider {provider_name}",
+                "retryable": True,
+            },
+        )
+    if cb_state == HALF_OPEN:
+        increment_probe(provider_name)
+
     start_time = time.monotonic()
     try:
         response = await invoke_with_retry_async(
             client, url, headers, openai_body, retry_config, trace_id,
         )
     except ChevalError as e:
+        record_failure(provider_name, cb_config)
         return JSONResponse(status_code=502, content=e.to_dict())
 
     latency_ms = (time.monotonic() - start_time) * 1000
@@ -492,6 +519,7 @@ async def invoke(request: Request) -> JSONResponse:
     try:
         raw_response = response.json()
     except json.JSONDecodeError:
+        record_failure(provider_name, cb_config)
         return JSONResponse(
             status_code=502,
             content={
@@ -501,7 +529,24 @@ async def invoke(request: Request) -> JSONResponse:
             },
         )
 
+    # Record circuit breaker success
+    record_success(provider_name, cb_config)
+
     result = normalize_response(raw_response, provider_type, trace_id, latency_ms)
+
+    # Enrich with cost estimates (usage calculator — NOT budget enforcer)
+    model_name = cheval_request.get("model", "")
+    result = enrich_response_with_cost(result, provider_name, model_name)
+
+    # Record usage to cost ledger (fire-and-forget, best-effort)
+    record_usage(
+        trace_id=trace_id,
+        provider=provider_name,
+        model=model_name,
+        usage=result.get("usage", {}),
+        latency_ms=latency_ms,
+    )
+
     return JSONResponse(content=result)
 
 
@@ -558,8 +603,11 @@ async def invoke_stream(request: Request) -> Response:
 
     async def event_generator():
         finish_reason = "stop"
+        upstream_response = None
         try:
             async with client.stream("POST", url, json=openai_body, headers=headers) as response:
+                upstream_response = response
+
                 if response.status_code != 200:
                     error_body = await response.aread()
                     error_text = error_body.decode("utf-8", errors="replace")[:200]
@@ -664,8 +712,22 @@ async def invoke_stream(request: Request) -> Response:
                 }),
             }
         except asyncio.CancelledError:
-            # Client disconnected — cancel upstream
-            pass
+            # Client disconnected — close upstream connection immediately
+            print(
+                f"[cheval-sidecar] STREAM_ABORT {trace_id}: "
+                f"client disconnected, closing upstream to {provider_name}",
+                flush=True,
+            )
+            if upstream_response is not None:
+                await upstream_response.aclose()
+            return
+        except httpx.StreamClosed:
+            # Upstream already closed (race with abort) — safe to ignore
+            print(
+                f"[cheval-sidecar] STREAM_CLOSED {trace_id}: "
+                f"upstream already closed for {provider_name}",
+                flush=True,
+            )
         except Exception as e:
             yield {
                 "event": "error",

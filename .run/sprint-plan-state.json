@@ -1,50 +1,28 @@
 {
-  "plan_id": "plan-20260211-pr58-deepening",
-  "branch": "feature/bridgebuilder-pr58-deepening",
-  "state": "JACKED_OUT",
+  "plan_id": "plan-20260212-extraction",
+  "branch": "feature/hounfour-phase5-implementation",
+  "state": "RUNNING",
   "timestamps": {
-    "started": "2026-02-11T21:25:00Z",
-    "last_activity": "2026-02-11T21:45:30Z",
-    "completed": "2026-02-11T21:45:30Z"
+    "started": "2026-02-12T17:10:00Z",
+    "last_activity": "2026-02-12T17:10:00Z"
   },
   "sprints": {
-    "total": 2,
-    "completed": 2,
-    "current": null,
+    "total": 1,
+    "completed": 0,
+    "current": "sprint-extraction",
     "list": [
-      {
-        "id": "sprint-1",
-        "status": "completed",
-        "cycles": 1,
-        "label": "Parser Hardening & Documentation Discipline",
-        "files_changed": 12
-      },
-      {
-        "id": "sprint-2",
-        "status": "completed",
-        "cycles": 1,
-        "label": "Provenance Intelligence & Routing Preparation",
-        "files_changed": 17
-      }
+      {"id": "sprint-extraction", "status": "in_progress", "cycles": 0, "label": "loa-hounfour Extraction & Publishing"}
     ]
   },
   "options": {
     "from": 1,
-    "to": 2,
+    "to": 1,
     "max_cycles": 20,
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 2,
-    "total_files_changed": 29,
-    "total_findings_fixed": 17
-  },
-  "context": {
-    "sprint_plan_file": "grimoires/loa/sprint-bridgebuilder-pr58.md",
-    "cycle": "cycle-017",
-    "global_sprint_ids": [
-      41,
-      42
-    ]
+    "total_cycles": 0,
+    "total_files_changed": 0,
+    "total_findings_fixed": 0
   }
 }

@@ -12,6 +12,111 @@ import type {
   BudgetSnapshot,
 } from "./types.js"
 
+// --- BigInt Cost Computation (SDD §4.3, Task 2.1) ---
+
+/** Maximum cost per single request: $1,000 = 1,000,000,000 micro-USD */
+export const MAX_REQUEST_COST_MICRO = 1_000_000_000n
+
+/**
+ * Compute cost in micro-USD using BigInt arithmetic.
+ *
+ * Formula: cost_micro = (tokens * price_micro_per_million) / 1_000_000n
+ *
+ * BigInt eliminates precision loss for values > Number.MAX_SAFE_INTEGER.
+ * Pure arithmetic — no business-limit enforcement (see validateRequestCost).
+ */
+export function computeCostMicro(
+  tokens: bigint,
+  priceMicroPerMillion: bigint,
+): { cost_micro: bigint; remainder_micro: bigint } {
+  if (tokens < 0n || priceMicroPerMillion < 0n) {
+    throw new Error("BUDGET_INVALID: tokens and price must be non-negative")
+  }
+
+  const product = tokens * priceMicroPerMillion
+  const cost_micro = product / 1_000_000n
+  const remainder_micro = product % 1_000_000n
+
+  return { cost_micro, remainder_micro }
+}
+
+/**
+ * Validate that a request cost does not exceed per-request limit.
+ * Call after computeCostMicro/computeTotalCostMicro during budget enforcement.
+ * Throws BUDGET_OVERFLOW if cost > MAX_REQUEST_COST_MICRO ($1000).
+ */
+export function validateRequestCost(costMicro: bigint): void {
+  if (costMicro > MAX_REQUEST_COST_MICRO) {
+    throw new Error(
+      `BUDGET_OVERFLOW: cost ${costMicro} micro-USD exceeds max $1000/request (${MAX_REQUEST_COST_MICRO} micro-USD)`
+    )
+  }
+}
+
+/**
+ * Compute total cost breakdown for a completion using BigInt.
+ * Returns all values as BigInt for downstream budget enforcement.
+ */
+export interface BigIntUsage {
+  prompt_tokens: bigint
+  completion_tokens: bigint
+  reasoning_tokens: bigint
+}
+
+export interface BigIntPricing {
+  input_micro_per_million: bigint
+  output_micro_per_million: bigint
+  reasoning_micro_per_million?: bigint
+}
+
+export interface BigIntCostBreakdown {
+  input_cost_micro: bigint
+  output_cost_micro: bigint
+  reasoning_cost_micro: bigint
+  total_cost_micro: bigint
+  remainder_input_micro: bigint
+  remainder_output_micro: bigint
+  remainder_reasoning_micro: bigint
+}
+
+export function computeTotalCostMicro(
+  usage: BigIntUsage,
+  pricing: BigIntPricing,
+): BigIntCostBreakdown {
+  const input = computeCostMicro(usage.prompt_tokens, pricing.input_micro_per_million)
+  const output = computeCostMicro(usage.completion_tokens, pricing.output_micro_per_million)
+  const reasoning = pricing.reasoning_micro_per_million
+    ? computeCostMicro(usage.reasoning_tokens, pricing.reasoning_micro_per_million)
+    : { cost_micro: 0n, remainder_micro: 0n }
+
+  const total = input.cost_micro + output.cost_micro + reasoning.cost_micro
+
+  return {
+    input_cost_micro: input.cost_micro,
+    output_cost_micro: output.cost_micro,
+    reasoning_cost_micro: reasoning.cost_micro,
+    total_cost_micro: total,
+    remainder_input_micro: input.remainder_micro,
+    remainder_output_micro: output.remainder_micro,
+    remainder_reasoning_micro: reasoning.remainder_micro,
+  }
+}
+
+// --- Wire Serialization (string micro-USD) ---
+
+/** Serialize BigInt micro-USD to string for JSON wire format */
+export function microToString(micro: bigint): string {
+  return micro.toString()
+}
+
+/** Parse string micro-USD from JSON wire format to BigInt */
+export function stringToMicro(s: string): bigint {
+  if (!/^[0-9]+$/.test(s)) {
+    throw new Error(`BUDGET_PARSE: invalid micro-USD string: "${s}"`)
+  }
+  return BigInt(s)
+}
+
 // --- Scope Key Derivation ---
 
 export interface ScopeKeys {

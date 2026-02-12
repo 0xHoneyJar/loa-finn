@@ -10,8 +10,9 @@ import type { ChevalInvoker, HealthProber } from "./cheval-invoker.js"
 import { createModelAdapter } from "./cheval-invoker.js"
 import { loadPersona } from "./persona-loader.js"
 import { validateExecutionContext } from "./types.js"
-import type { PoolRegistry, Tier } from "./pool-registry.js"
+import type { PoolRegistry } from "./pool-registry.js"
 import type { TenantContext } from "./jwt-auth.js"
+import { resolvePool, assertValidPoolId, assertTierAccess, type Tier } from "./tier-bridge.js"
 import type { BYOKProxyClient } from "./byok-proxy-client.js"
 import type {
   AgentBinding,
@@ -271,19 +272,15 @@ export class HounfourRouter {
       throw new HounfourError("BINDING_INVALID", `Agent "${agent}" not found in registry`, { agent })
     }
 
-    // Resolve pool via NFT preferences → tier default → global fallback
-    const poolId = this.resolvePoolForTenant(tenantContext, taskType)
+    // Resolve pool via loa-hounfour tier bridge: NFT preferences → tier default
+    const tier = tenantContext.claims.tier as Tier
+    const poolId = resolvePool(tier, taskType, tenantContext.claims.model_preferences)
 
-    // Validate tier authorization for the resolved pool
-    if (!this.poolRegistry.authorize(poolId, tenantContext.claims.tier as Tier)) {
-      throw new HounfourError("TIER_UNAUTHORIZED",
-        `Tier "${tenantContext.claims.tier}" cannot access pool "${poolId}"`, {
-          agent,
-          tier: tenantContext.claims.tier,
-          pool: poolId,
-          nft_id: tenantContext.claims.nft_id,
-        })
-    }
+    // Validate pool ID against loa-hounfour canonical vocabulary (rejects unknown with 400)
+    assertValidPoolId(poolId)
+
+    // Validate tier authorization for the resolved pool (rejects unauthorized with 403)
+    assertTierAccess(tier, poolId)
 
     // Resolve pool with health-aware fallback
     const pool = this.poolRegistry.resolveWithFallback(
@@ -390,29 +387,6 @@ export class HounfourRouter {
     }
 
     return result
-  }
-
-  /**
-   * Resolve pool ID for a tenant request.
-   * Resolution order: (1) NFT preferences per task type → (2) tier default → (3) global fallback
-   */
-  private resolvePoolForTenant(tenantContext: TenantContext, taskType: string): string {
-    // 1. NFT-specific preferences
-    if (tenantContext.isNFTRouted && tenantContext.claims.model_preferences) {
-      const prefs = tenantContext.claims.model_preferences
-      if (prefs[taskType] && this.poolRegistry!.resolve(prefs[taskType])) {
-        return prefs[taskType]
-      }
-    }
-
-    // 2. Tier default — first pool accessible to this tier
-    const tierPools = this.poolRegistry!.resolveForTier(tenantContext.claims.tier as Tier)
-    if (tierPools.length > 0) {
-      return tierPools[0].id
-    }
-
-    // 3. Global fallback — "cheap" pool
-    return "cheap"
   }
 
   /**

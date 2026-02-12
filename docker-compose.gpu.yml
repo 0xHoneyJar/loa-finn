@@ -67,6 +67,40 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
 
+  # NativeRuntime adapter — local model inference via process spawning (SDD §4.5, T-3.3)
+  # Runs as unprivileged user with tini for zombie reaping, cgroup v2 delegation,
+  # read-only root filesystem, and tmpfs for scratch space.
+  native-runtime:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    init: true  # tini — reap zombie child processes
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,size=512m
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2"
+          pids: 256
+    environment:
+      - NODE_ENV=production
+      - NATIVE_RUNTIME_MODE=true
+      - CGROUP_DELEGATE=true
+    # Startup probe: detect cgroup v2 availability
+    healthcheck:
+      test: ["CMD", "node", "-e", "try{require('fs').readFileSync('/sys/fs/cgroup/cgroup.controllers','utf8');process.exit(0)}catch{process.exit(1)}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
   loa-finn:
     build:
       context: .

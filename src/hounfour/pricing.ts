@@ -10,7 +10,11 @@ export interface MicroPricingEntry {
   input_micro_per_million: number   // micro-USD per 1M input tokens
   output_micro_per_million: number  // micro-USD per 1M output tokens
   reasoning_micro_per_million?: number // micro-USD per 1M reasoning tokens
+  bytesPerToken?: number            // Average bytes per token for byte-based estimation
 }
+
+/** Current pricing table version. Monotonically increasing. */
+export const PRICE_TABLE_VERSION = 1
 
 // --- Cost Calculation (Integer-Only) ---
 
@@ -121,12 +125,14 @@ export const DEFAULT_PRICING: MicroPricingEntry[] = [
     model: "Qwen/Qwen2.5-7B-Instruct",
     input_micro_per_million: 10_000,      // $0.01/1M tokens
     output_micro_per_million: 10_000,
+    bytesPerToken: 4,
   },
   {
     provider: "qwen-local",
     model: "Qwen/Qwen2.5-Coder-7B-Instruct",
     input_micro_per_million: 10_000,
     output_micro_per_million: 10_000,
+    bytesPerToken: 4,
   },
   // OpenAI
   {
@@ -134,6 +140,7 @@ export const DEFAULT_PRICING: MicroPricingEntry[] = [
     model: "gpt-4o",
     input_micro_per_million: 2_500_000,   // $2.50/1M input
     output_micro_per_million: 10_000_000, // $10.00/1M output
+    bytesPerToken: 4,
   },
   {
     provider: "openai",
@@ -141,6 +148,7 @@ export const DEFAULT_PRICING: MicroPricingEntry[] = [
     input_micro_per_million: 10_000_000,  // $10.00/1M input
     output_micro_per_million: 40_000_000, // $40.00/1M output
     reasoning_micro_per_million: 40_000_000,
+    bytesPerToken: 4,
   },
   // Anthropic
   {
@@ -149,6 +157,7 @@ export const DEFAULT_PRICING: MicroPricingEntry[] = [
     input_micro_per_million: 15_000_000,  // $15.00/1M input
     output_micro_per_million: 75_000_000, // $75.00/1M output
     reasoning_micro_per_million: 75_000_000,
+    bytesPerToken: 3.5,                   // Claude tokenizer slightly more efficient
   },
   {
     provider: "anthropic",
@@ -156,6 +165,7 @@ export const DEFAULT_PRICING: MicroPricingEntry[] = [
     input_micro_per_million: 3_000_000,   // $3.00/1M input
     output_micro_per_million: 15_000_000, // $15.00/1M output
     reasoning_micro_per_million: 15_000_000,
+    bytesPerToken: 3.5,
   },
 ]
 
