@@ -1,5 +1,14 @@
 # A2A Sprint Index
 
+## Cycle-018: Hounfour Phase 5 — RFC Integration & Commercial Features
+
+| Sprint | Global ID | Status | Report |
+|--------|-----------|--------|--------|
+| Sprint 1: Protocol Package & Foundation | 43 | COMPLETED | [reviewer.md](sprint-43/reviewer.md) |
+| Sprint 2: Integration Hardening | 44 | COMPLETED | [reviewer.md](sprint-44/reviewer.md) |
+| Sprint 3: NativeRuntime & Ensemble | 45 | COMPLETED | [reviewer.md](sprint-45/reviewer.md) |
+| Sprint 4: NFT Routing & BYOK | 46 | COMPLETED | [reviewer.md](sprint-46/reviewer.md) |
+
 ## Cycle-013: Documentation Rewrite
 
 | Sprint | Global ID | Status | Report |
