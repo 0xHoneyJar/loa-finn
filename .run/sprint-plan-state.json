@@ -4,11 +4,11 @@
   "state": "RUNNING",
   "timestamps": {
     "started": "2026-02-12T07:25:00Z",
-    "last_activity": "2026-02-12T16:24:00Z"
+    "last_activity": "2026-02-12T16:39:00Z"
   },
   "sprints": {
     "total": 4,
-    "completed": 3,
+    "completed": 4,
     "current": "sprint-4",
     "list": [
       {
@@ -35,8 +35,9 @@
       {
         "id": "sprint-4",
         "global_id": 46,
-        "status": "in_progress",
-        "label": "NFT Routing & BYOK"
+        "status": "completed",
+        "label": "NFT Routing & BYOK",
+        "cycles": 1
       }
     ]
   },
