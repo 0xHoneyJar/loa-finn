@@ -495,9 +495,18 @@
           "label": "NFT Routing & BYOK",
           "status": "pending",
           "tasks": 7
+        },
+        {
+          "local_id": "sprint-extraction",
+          "global_id": 47,
+          "label": "loa-hounfour Extraction & Publishing",
+          "status": "pending",
+          "tasks": 6,
+          "notes": "Fast-track extraction of packages/loa-hounfour/ to 0xHoneyJar/loa-hounfour. Code already exists (90 tests passing). Covers repo push, CI, publish, consumer migration."
         }
-      ]
+      ],
+      "sprint_plan_extraction": "grimoires/loa/sprint-hounfour-extraction.md"
     }
   },
-  "next_global_sprint_id": 47
+  "next_global_sprint_id": 48
 }

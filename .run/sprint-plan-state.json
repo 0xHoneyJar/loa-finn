@@ -1,66 +1,28 @@
 {
-  "plan_id": "plan-20260212-hounfour-phase5",
+  "plan_id": "plan-20260212-extraction",
   "branch": "feature/hounfour-phase5-implementation",
-  "state": "JACKED_OUT",
+  "state": "RUNNING",
   "timestamps": {
-    "started": "2026-02-12T07:25:00Z",
-    "last_activity": "2026-02-12T16:39:00Z"
+    "started": "2026-02-12T17:10:00Z",
+    "last_activity": "2026-02-12T17:10:00Z"
   },
   "sprints": {
-    "total": 4,
-    "completed": 4,
-    "current": "sprint-4",
+    "total": 1,
+    "completed": 0,
+    "current": "sprint-extraction",
     "list": [
-      {
-        "id": "sprint-1",
-        "global_id": 43,
-        "status": "completed",
-        "label": "Protocol Package & Foundation",
-        "cycles": 1
-      },
-      {
-        "id": "sprint-2",
-        "global_id": 44,
-        "status": "completed",
-        "label": "Integration Hardening",
-        "cycles": 1
-      },
-      {
-        "id": "sprint-3",
-        "global_id": 45,
-        "status": "completed",
-        "label": "NativeRuntime & Ensemble",
-        "cycles": 1
-      },
-      {
-        "id": "sprint-4",
-        "global_id": 46,
-        "status": "completed",
-        "label": "NFT Routing & BYOK",
-        "cycles": 1
-      }
+      {"id": "sprint-extraction", "status": "in_progress", "cycles": 0, "label": "loa-hounfour Extraction & Publishing"}
     ]
   },
   "options": {
     "from": 1,
-    "to": 4,
+    "to": 1,
     "max_cycles": 20,
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 2,
-    "total_files_changed": 128,
+    "total_cycles": 0,
+    "total_files_changed": 0,
     "total_findings_fixed": 0
-  },
-  "context": {
-    "sprint_plan_file": "grimoires/loa/sprint-hounfour-phase5-integration.md",
-    "cycle": "cycle-018",
-    "global_sprint_ids": [
-      43,
-      44,
-      45,
-      46
-    ],
-    "simstim_id": "simstim-20260212-hounfour-phase5"
   }
 }
