@@ -12,7 +12,7 @@ import { loadPersona } from "./persona-loader.js"
 import { validateExecutionContext } from "./types.js"
 import type { PoolRegistry } from "./pool-registry.js"
 import type { TenantContext } from "./jwt-auth.js"
-import { resolvePool, assertValidPoolId, assertTierAccess, type Tier } from "./tier-bridge.js"
+import { selectAuthorizedPool } from "./pool-enforcement.js"
 import type { BYOKProxyClient } from "./byok-proxy-client.js"
 import type {
   AgentBinding,
@@ -272,15 +272,8 @@ export class HounfourRouter {
       throw new HounfourError("BINDING_INVALID", `Agent "${agent}" not found in registry`, { agent })
     }
 
-    // Resolve pool via loa-hounfour tier bridge: NFT preferences → tier default
-    const tier = tenantContext.claims.tier as Tier
-    const poolId = resolvePool(tier, taskType, tenantContext.claims.model_preferences)
-
-    // Validate pool ID against loa-hounfour canonical vocabulary (rejects unknown with 400)
-    assertValidPoolId(poolId)
-
-    // Validate tier authorization for the resolved pool (rejects unauthorized with 403)
-    assertTierAccess(tier, poolId)
+    // Pool selection via single choke point (SDD §3.5.2)
+    const poolId = selectAuthorizedPool(tenantContext, taskType)
 
     // Resolve pool with health-aware fallback
     const pool = this.poolRegistry.resolveWithFallback(

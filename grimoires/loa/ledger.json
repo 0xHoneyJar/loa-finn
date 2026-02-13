@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-019",
+  "current_cycle": "cycle-020",
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -542,8 +542,11 @@
     },
     "cycle-019": {
       "label": "Loa Update & Bridgebuilder Migration (v1.33.1 → v1.35.0)",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-13T00:00:00Z",
+      "archived": "2026-02-13T13:25:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-13-bridgebuilder-v3-migration",
+      "notes": "Sprint-50 + 3-iteration Bridgebuilder review loop on PR #63. 35 findings → 0 unresolved HIGH/MEDIUM. 256 tests pass.",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -554,7 +557,34 @@
           "notes": "Bridgebuilder V3 migration — R2ContextStore SHA methods, upstream re-exports, dist rebuild — 40 tests"
         }
       ]
+    },
+    "cycle-020": {
+      "label": "Pool Claim Enforcement: Confused Deputy Prevention",
+      "status": "active",
+      "started": "2026-02-13T14:00:00Z",
+      "prd": "grimoires/loa/prd-pool-claim-enforcement.md",
+      "sdd": "grimoires/loa/sdd-pool-claim-enforcement.md",
+      "notes": "RFC #31 Phase 4 remaining work. Issue #53. PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 7 blocking issues resolved). Sprint plan: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved).",
+      "sprint_plan": "grimoires/loa/sprint-pool-claim-enforcement.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 51,
+          "label": "Pool Enforcement Foundation & Integration",
+          "status": "completed",
+          "tasks": 5,
+          "notes": "Commit 46e93a8 — pool enforcement, composed auth, 40 tests. Review approved, audit passed."
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 52,
+          "label": "Bridgebuilder Findings: Code Quality & Test Hardening",
+          "status": "completed",
+          "tasks": 7,
+          "notes": "Commit d82c352 — 22 findings fixed (8M+14L), GPT-5.2 APPROVED, 45 tests. Bridge flatlined: 54→0 in 2 iterations."
+        }
+      ]
     }
   },
-  "next_global_sprint_id": 51
+  "next_global_sprint_id": 53
 }

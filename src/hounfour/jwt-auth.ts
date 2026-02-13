@@ -8,6 +8,7 @@ import type { Context, Next } from "hono"
 import type { FinnConfig } from "../config.js"
 import type { JtiReplayGuard } from "./jti-replay.js"
 import { deriveJtiTtl } from "./jti-replay.js"
+import type { PoolId, Tier } from "@0xhoneyjar/loa-hounfour"
 
 // --- Protocol Constants (matches loa-hounfour JTI_POLICY) ---
 
@@ -32,7 +33,7 @@ export interface JWTClaims {
   aud: string
   sub: string
   tenant_id: string
-  tier: "free" | "pro" | "enterprise"
+  tier: Tier
   nft_id?: string
   model_preferences?: Record<string, string>
   byok?: boolean
@@ -41,13 +42,24 @@ export interface JWTClaims {
   exp: number
   jti?: string
   scope?: string  // S2S scope claim (e.g., "admin:jwks")
+  pool_id?: string         // Optional: requested pool (validated by pool enforcement)
+  allowed_pools?: string[] // Optional: gateway hint (never trusted, re-derived)
 }
 
 export interface TenantContext {
   claims: JWTClaims
-  resolvedPools: string[]
+  resolvedPools: readonly PoolId[]
+  requestedPool?: PoolId | null
   isNFTRouted: boolean
   isBYOK: boolean
+}
+
+/** All inputs the JWT validation logic needs — no Hono dependency */
+export interface AuthRequestInput {
+  authorizationHeader: string | undefined
+  jwtConfig: JWTConfig
+  replayGuard?: JtiReplayGuard
+  endpointType?: EndpointType
 }
 
 export interface JWTConfig {
@@ -427,14 +439,52 @@ export async function validateJWT(
   return { ok: true, claims: claims! }
 }
 
+// --- Core Authentication (Framework-Agnostic) ---
+
+/**
+ * Core JWT authentication logic — no Hono dependency.
+ * Takes an explicit input object covering all data the middleware uses.
+ * Returns TenantContext on success, or a structured 401 error.
+ */
+export async function authenticateRequest(
+  input: AuthRequestInput,
+): Promise<{ ok: true; context: TenantContext } | { ok: false; status: 401; body: object }> {
+  const { authorizationHeader, jwtConfig, replayGuard, endpointType } = input
+
+  if (!authorizationHeader?.startsWith("Bearer ")) {
+    return { ok: false, status: 401, body: { error: "Unauthorized", code: "JWT_REQUIRED" } }
+  }
+
+  const token = authorizationHeader.slice(7)
+
+  if (!isStructurallyJWT(token)) {
+    return { ok: false, status: 401, body: { error: "Unauthorized", code: "JWT_STRUCTURAL_INVALID" } }
+  }
+
+  const result = await validateJWT(token, jwtConfig, replayGuard, { endpointType })
+  if (!result.ok) {
+    return { ok: false, status: 401, body: { error: "Unauthorized", code: result.code } }
+  }
+
+  const tenantContext: TenantContext = {
+    claims: result.claims,
+    resolvedPools: [] as PoolId[],
+    requestedPool: null,
+    isNFTRouted: !!result.claims.nft_id,
+    isBYOK: !!result.claims.byok,
+  }
+
+  return { ok: true, context: tenantContext }
+}
+
 // --- Hono Middleware ---
 
 /**
+ * @internal — Use hounfourAuth() for routes. This is the identity-only path.
+ *
  * JWT auth middleware for /api/v1/* routes (invoke endpoint type).
  * Validates ES256 JWTs, extracts TenantContext onto Hono context.
- *
- * Structural pre-check: if the Authorization token doesn't look like a JWT
- * (3 segments, ES256 header, kid present), returns 401 immediately.
+ * Does NOT perform pool enforcement — use hounfourAuth() instead.
  */
 export function jwtAuthMiddleware(
   config: FinnConfig,
@@ -446,32 +496,19 @@ export function jwtAuthMiddleware(
       return next()
     }
 
-    const authHeader = c.req.header("Authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return c.json({ error: "Unauthorized", code: "JWT_REQUIRED" }, 401)
-    }
+    const result = await authenticateRequest({
+      authorizationHeader: c.req.header("Authorization"),
+      jwtConfig: config.jwt,
+      replayGuard,
+      endpointType,
+    })
 
-    const token = authHeader.slice(7)
-
-    // Structural pre-check: must look like a JWT
-    if (!isStructurallyJWT(token)) {
-      return c.json({ error: "Unauthorized", code: "JWT_STRUCTURAL_INVALID" }, 401)
-    }
-
-    const result = await validateJWT(token, config.jwt, replayGuard, { endpointType })
     if (!result.ok) {
-      return c.json({ error: "Unauthorized", code: result.code }, 401)
+      return c.json(result.body, result.status)
     }
 
-    const tenantContext: TenantContext = {
-      claims: result.claims,
-      resolvedPools: [], // populated by pool-registry middleware downstream
-      isNFTRouted: !!result.claims.nft_id,
-      isBYOK: !!result.claims.byok,
-    }
-
-    c.set("tenant", tenantContext)
-    c.set("jwtClaims", result.claims)
+    c.set("tenant", result.context)
+    c.set("jwtClaims", result.context.claims)
     return next()
   }
 }

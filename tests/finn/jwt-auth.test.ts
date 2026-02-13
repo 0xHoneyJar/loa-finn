@@ -831,6 +831,43 @@ describe("JWT Auth (T-A.1)", () => {
   })
 
   // =========================================================================
+  // Pool Claim Passthrough (Sprint 51 — T5)
+  // =========================================================================
+
+  describe("pool claim passthrough", () => {
+    it("token with pool_id claim passes validateClaims", async () => {
+      const token = await signJWT({ ...validClaims(), pool_id: "cheap" })
+      const result = await validateJWT(token, getJWTConfig())
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.claims.pool_id).toBe("cheap")
+      }
+    })
+
+    it("token with allowed_pools claim passes validateClaims", async () => {
+      const token = await signJWT({
+        ...validClaims(),
+        allowed_pools: ["cheap", "fast-code"],
+      })
+      const result = await validateJWT(token, getJWTConfig())
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.claims.allowed_pools).toEqual(["cheap", "fast-code"])
+      }
+    })
+
+    it("token with unknown extra claims passes (backward compat)", async () => {
+      const token = await signJWT({
+        ...validClaims(),
+        some_future_claim: "value",
+        another_claim: 42,
+      })
+      const result = await validateJWT(token, getJWTConfig())
+      expect(result.ok).toBe(true)
+    })
+  })
+
+  // =========================================================================
   // Protocol Constants
   // =========================================================================
 
