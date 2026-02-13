@@ -283,7 +283,11 @@ export class NativeRuntimeAdapter implements ModelPortBase, ModelPortStreaming {
     }
 
     const proc = spawn(this.config.binary, this.config.args ?? [], spawnOpts)
-    proc.unref()
+    // BB-063-009: Do NOT call proc.unref() here or anywhere.
+    // With detached: true, unref() would allow the parent to exit while
+    // the child process group is still running, orphaning it before
+    // escalateKill can clean up. By keeping the child ref, Node stays
+    // alive until the child exits or escalateKill terminates the group.
 
     if (!proc.pid) {
       throw new Error(`NativeRuntime: failed to spawn ${this.config.binary}`)

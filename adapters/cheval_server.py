@@ -529,10 +529,13 @@ async def invoke(request: Request) -> JSONResponse:
             },
         )
 
-    # Record circuit breaker success
-    record_success(provider_name, cb_config)
-
     result = normalize_response(raw_response, provider_type, trace_id, latency_ms)
+
+    # Record circuit breaker success AFTER normalize_response (BB-063-019).
+    # Provider 200 responses with error bodies (e.g., OpenAI server_error)
+    # should not count as circuit breaker successes.
+    if "error" not in raw_response:
+        record_success(provider_name, cb_config)
 
     # Enrich with cost estimates (usage calculator — NOT budget enforcer)
     model_name = cheval_request.get("model", "")

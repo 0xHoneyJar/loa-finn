@@ -101,6 +101,10 @@ def _check_file_allowed(
             f"Allowed: .loa.config.d/ or paths in hounfour.secret_paths"
         )
 
+    # BB-063-007: Symlink rejection is handled at line 83 (on the original
+    # path, before resolve()). Callers should use O_NOFOLLOW at open time
+    # to close the TOCTOU window between this check and file open.
+
     if not resolved.is_file():
         raise ValueError(f"Secret file not found: {resolved}")
 

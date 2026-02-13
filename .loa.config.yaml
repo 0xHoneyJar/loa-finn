@@ -1714,3 +1714,34 @@ ground_truth:
 # Upstream resolveConfig() picks this up at level 3 (YAML config) precedence.
 bridgebuilder:
   reviewMarker: finn-review
+
+# =============================================================================
+# Run Bridge (v1.35.0)
+# =============================================================================
+# Autonomous excellence loop: sprint → bridgebuilder review → iterate
+run_bridge:
+  enabled: true
+  defaults:
+    depth: 3
+    per_sprint: false
+    flatline_threshold: 0.05
+    consecutive_flatline: 2
+  timeouts:
+    per_iteration_hours: 4
+    total_hours: 24
+  github_trail:
+    post_comments: true
+    update_pr_body: true
+  ground_truth:
+    enabled: false
+  vision_registry:
+    enabled: true
+    auto_capture: true
+  rtfm:
+    enabled: false
+    max_fix_iterations: 1
+  lore:
+    enabled: true
+    categories:
+      - mibera
+      - neuromancer

@@ -1,7 +1,7 @@
 // tests/finn/budget-micro.test.ts — BigInt micro-USD budget data model (Task 2.1)
 
-import { describe, it, expect } from "vitest"
-import { readFileSync } from "node:fs"
+import { describe, it, expect, beforeAll } from "vitest"
+import { readFileSync, existsSync } from "node:fs"
 import { resolve } from "node:path"
 import {
   computeCostMicro,
@@ -24,6 +24,18 @@ import type { LedgerEntryV2, BudgetSnapshotMicro } from "../../src/hounfour/type
 // --- Golden vector loader ---
 
 const VECTORS_DIR = resolve("packages/loa-hounfour/vectors/budget")
+
+// BB-PR63-F009: Guard against missing vector files. If the loa-hounfour
+// subpackage is not installed or vectors are missing, golden vector tests
+// will fail with a clear message instead of a cryptic ENOENT.
+beforeAll(() => {
+  if (!existsSync(VECTORS_DIR)) {
+    throw new Error(
+      `Golden vector directory not found: ${VECTORS_DIR}\n` +
+      `Ensure loa-hounfour is installed: npm install or git submodule update --init`,
+    )
+  }
+})
 
 function loadVectors(filename: string): Record<string, unknown> {
   return JSON.parse(readFileSync(resolve(VECTORS_DIR, filename), "utf8"))

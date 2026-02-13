@@ -387,9 +387,10 @@ export class LedgerV2 {
     // Synchronous O_APPEND write for atomicity (entries < 4096 bytes)
     appendFileSync(filePath, line, { encoding: "utf8", flag: "a" })
 
-    // Optional fsync for durability
+    // Optional fsync for durability (BB-063-006: use writable fd so fdatasync
+    // flushes data written through this fd, not a separate file description).
     if (this.config.fsync) {
-      const fd = openSync(filePath, "r")
+      const fd = openSync(filePath, "r+")
       try {
         fdatasyncSync(fd)
       } finally {

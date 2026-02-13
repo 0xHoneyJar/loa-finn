@@ -1,6 +1,13 @@
 // tests/finn/abort-cleanup.test.ts — Abort Cleanup E2E (Task 2.10, A.8)
 // 100 disconnects → 0 orphans. Validates StreamCostTracker abort handling,
 // billing method selection, and cost attribution after stream termination.
+//
+// BB-PR63-F001: Timing sensitivity note — tests that use setTimeout for abort
+// timing (e.g., `setTimeout(() => controller.abort(), 5)`) are inherently
+// non-deterministic. The exact chunk count before abort fires depends on event
+// loop scheduling. Assertions use ranges (e.g., `toBeGreaterThan(0)`) rather
+// than exact counts. If these tests flake under CI load, increase the timeout
+// values or switch to deterministic chunk-count-based abort triggers.
 
 import { describe, it, expect } from "vitest"
 import {

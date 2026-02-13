@@ -190,7 +190,11 @@ export class BYOKProxyStub {
       this.logAudit(requestId, tenantId, request.provider, 409, "nonce_replay")
       return { status: 409, body: { error: "nonce_replay", req_nonce: nonceKey } }
     }
-    // Store nonce with 60s TTL
+    // Store nonce with 60s TTL (BB-PR63-F008: nonce entries expire after 60 seconds.
+    // This prevents unbounded memory growth in long-running test suites while still
+    // catching rapid replays. Production arrakis uses a longer TTL; this stub uses
+    // a shorter window to keep tests fast. Call cleanupNonces() periodically to
+    // reclaim expired entries.)
     this.nonces.set(nonceKey, now + 60)
 
     // 6. Increment request count

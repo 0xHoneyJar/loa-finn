@@ -501,12 +501,21 @@ describe("JWT Auth (T-A.1)", () => {
   // =========================================================================
 
   describe("jti namespace", () => {
-    it("namespaces jti as jti:{iss}:{jti}", () => {
-      expect(namespaceJti("arrakis", "req-123")).toBe("jti:arrakis:req-123")
+    it("namespaces jti with length-prefixed issuer", () => {
+      expect(namespaceJti("arrakis", "req-123")).toBe("jti:7:arrakis:req-123")
     })
 
     it("namespaces with URL-style issuer", () => {
-      expect(namespaceJti("https://auth.honeyjar.xyz", "req-456")).toBe("jti:https://auth.honeyjar.xyz:req-456")
+      expect(namespaceJti("https://auth.honeyjar.xyz", "req-456")).toBe("jti:25:https://auth.honeyjar.xyz:req-456")
+    })
+
+    it("prevents canonicalization collision (BB-063-004)", () => {
+      // Without length prefix, these would collide: both produce "jti:evil:fake:victim"
+      const a = namespaceJti("evil", "fake:victim")
+      const b = namespaceJti("evil:fake", "victim")
+      expect(a).not.toBe(b)
+      expect(a).toBe("jti:4:evil:fake:victim")
+      expect(b).toBe("jti:9:evil:fake:victim")
     })
 
     it("isolates jti across issuers (cross-issuer collision prevention)", async () => {
@@ -971,6 +980,34 @@ describe("JWT Auth (T-A.1)", () => {
       const token = await signJWT(claims)
       const result = await validateJWT(token, getJWTConfig(), undefined, { endpointType: "s2s" })
       expect(result.ok).toBe(true)
+    })
+
+    it("CT-5: rejects alg:none JWT (CVE-2015-9235) (BB-PR63-F003)", async () => {
+      // Construct a JWT with alg: none and no signature
+      const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url")
+      const payload = Buffer.from(JSON.stringify(validClaims())).toString("base64url")
+      const noneToken = `${header}.${payload}.`
+
+      const result = await validateJWT(noneToken, getJWTConfig())
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        // Should be rejected at structural check (no kid) or algorithm validation
+        expect(["JWT_STRUCTURAL_INVALID", "JWT_INVALID"]).toContain(result.code)
+      }
+    })
+
+    it("CT-6: rejects alg:HS256 with forged HMAC signature (BB-PR63-F003)", async () => {
+      // Construct a JWT with HS256 header but ES256-signed body
+      const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT", kid: "key-current" })).toString("base64url")
+      const payload = Buffer.from(JSON.stringify(validClaims())).toString("base64url")
+      const forgedToken = `${header}.${payload}.forged-hmac-signature`
+
+      const result = await validateJWT(forgedToken, getJWTConfig())
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        // Rejected because only ES256 is in the algorithms allowlist
+        expect(["JWT_STRUCTURAL_INVALID", "JWT_INVALID"]).toContain(result.code)
+      }
     })
   })
 })

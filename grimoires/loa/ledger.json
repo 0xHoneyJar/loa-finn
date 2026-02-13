@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-018",
+  "current_cycle": "cycle-019",
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -258,8 +258,9 @@
     },
     "cycle-010": {
       "label": "Ground Truth: Factual GTM Skill Pack",
-      "status": "completed",
+      "status": "archived",
       "started": "2026-02-10T10:30:00Z",
+      "archived": "2026-02-13T00:00:00Z",
       "prd": "grimoires/loa/prd-ground-truth.md",
       "sdd": "grimoires/loa/sdd-ground-truth.md",
       "sprints": [
@@ -281,8 +282,9 @@
     },
     "cycle-011": {
       "label": "Ground Truth v2: Verification Hardening & Incremental Pipeline",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-10T10:45:00Z",
+      "archived": "2026-02-13T00:00:00Z",
       "prd": "grimoires/loa/prd-ground-truth.md",
       "sdd": "grimoires/loa/sdd-ground-truth.md",
       "notes": "Improvements from PR #51 BridgeBuilder review. Extends cycle-010 infrastructure.",
@@ -305,38 +307,41 @@
     },
     "cycle-013": {
       "label": "Documentation Rewrite: Complete loa-finn Docs",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-10T22:48:00Z",
+      "archived": "2026-02-13T00:00:00Z",
       "prd": "grimoires/loa/prd-docs-rewrite.md",
       "sdd": "grimoires/loa/sdd-docs-rewrite.md",
+      "notes": "Sprints never started. Work was executed incrementally via BridgeBuilder feedback cycles (cycles 014-017).",
       "sprints": [
         {
           "local_id": "sprint-1",
           "global_id": 32,
           "label": "Tooling & Templates",
-          "status": "pending",
+          "status": "superseded",
           "tasks": 0
         },
         {
           "local_id": "sprint-2",
           "global_id": 33,
           "label": "Phase 0-2: Reality Extraction & Document Generation",
-          "status": "pending",
+          "status": "superseded",
           "tasks": 0
         },
         {
           "local_id": "sprint-3",
           "global_id": 34,
           "label": "Phase 3-5: Governance, Verification & Review",
-          "status": "pending",
+          "status": "superseded",
           "tasks": 0
         }
       ]
     },
     "cycle-014": {
       "label": "BridgeBuilder PR #55 Feedback: Schema Evolution & Content Quality",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-11T16:00:00Z",
+      "archived": "2026-02-13T00:00:00Z",
       "prd": "BridgeBuilder review PR #55 (10 findings + 3 coda threads)",
       "sdd": "grimoires/loa/sdd-docs-rewrite.md",
       "notes": "Implements all actionable findings from BridgeBuilder review of PR #55. Extends cycle-013 ground-truth infrastructure.",
@@ -359,8 +364,9 @@
     },
     "cycle-015": {
       "label": "BridgeBuilder PR #56 Findings: Aim for the Stars",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-11T07:00:00Z",
+      "archived": "2026-02-13T00:00:00Z",
       "prd": "grimoires/loa/prd-docs-rewrite.md",
       "sdd": "grimoires/loa/sdd-docs-rewrite.md",
       "notes": "Addresses all 5 formal findings + 3 broader suggestions from BridgeBuilder review of PR #56. Adds DERIVED provenance class, citation auto-repair, INFERRED subclassification.",
@@ -383,63 +389,66 @@
     },
     "cycle-016": {
       "label": "BridgeBuilder PR #57 Findings: Epistemic Infrastructure",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-11T12:00:00Z",
+      "archived": "2026-02-13T00:00:00Z",
       "prd": "grimoires/loa/prd-docs-rewrite.md",
       "sdd": "grimoires/loa/sdd-docs-rewrite.md",
-      "notes": "Addresses all 8 findings from BridgeBuilder review of PR #57 plus 4 broader infrastructure suggestions. Shared awk extraction, INFERRED subqualifier instrumentation, longitudinal metrics, config externalization.",
+      "notes": "Sprints never started. Findings were addressed in cycle-017 instead. Addresses all 8 findings from BridgeBuilder review of PR #57 plus 4 broader infrastructure suggestions.",
       "sprints": [
         {
           "local_id": "sprint-1",
           "global_id": 39,
           "label": "Verification Hardening & Shared Infrastructure",
-          "status": "pending",
+          "status": "superseded",
           "tasks": 5
         },
         {
           "local_id": "sprint-2",
           "global_id": 40,
           "label": "Provenance Intelligence & Longitudinal Metrics",
-          "status": "pending",
+          "status": "superseded",
           "tasks": 5
         }
       ]
     },
     "cycle-012": {
       "label": "Bridgebuilder Review Hardening: PR #52 Findings",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-10T22:00:00Z",
+      "archived": "2026-02-13T00:00:00Z",
       "prd": "grimoires/loa/prd-ground-truth.md",
       "sdd": "grimoires/loa/sdd-ground-truth.md",
-      "notes": "Implements all actionable findings from PR #52 Bridgebuilder review. Cross-domain: Ground Truth shell pipeline + Hounfour TypeScript security/ensemble.",
+      "notes": "Sprints never started under this cycle. Work was implemented directly in PR #54. Implements all actionable findings from PR #52 Bridgebuilder review.",
       "sprints": [
         {
           "local_id": "sprint-1",
           "global_id": 29,
           "label": "Shell Pipeline Correctness Hardening",
-          "status": "pending",
+          "status": "superseded",
           "tasks": 6
         },
         {
           "local_id": "sprint-2",
           "global_id": 30,
           "label": "Test Infrastructure & Data Quality",
-          "status": "pending",
+          "status": "superseded",
           "tasks": 6
         },
         {
           "local_id": "sprint-3",
           "global_id": 31,
           "label": "Hounfour Security & Ensemble Hardening",
-          "status": "pending",
+          "status": "superseded",
           "tasks": 5
         }
       ]
     },
     "cycle-017": {
       "label": "BridgeBuilder PR #58 Findings: Deepening the Epistemic Architecture",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-11T21:23:37Z",
+      "archived": "2026-02-13T00:00:00Z",
       "prd": "grimoires/loa/prd-docs-rewrite.md",
       "sdd": "grimoires/loa/sdd-docs-rewrite.md",
       "notes": "Addresses 14 findings from BridgeBuilder PR #58 review + 4 second-round findings from PR #57. Parser hardening, provenance intelligence, routing preparation. GPT-5.2 APPROVED.",
@@ -462,8 +471,10 @@
     },
     "cycle-018": {
       "label": "Hounfour Phase 5: Protocol Extraction, Integration Hardening & Multi-Model Orchestration",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-12T00:00:00Z",
+      "archived": "2026-02-13T00:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-12-hounfour-phase5-complete",
       "prd": "grimoires/loa/prd-hounfour-phase5-integration.md",
       "sdd": "grimoires/loa/sdd-hounfour-phase5-integration.md",
       "notes": "Supersedes cycle-009 (archived, never implemented). 5 threads: protocol package extraction (loa-hounfour), integration debt (JWT/budget/abort), upstream cheval reconciliation, NativeRuntimeAdapter+ensemble, finnNFT routing+BYOK. Grounded in RFC #31 and Issue #60. PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 6 blocking issues resolved).",
@@ -528,7 +539,22 @@
       ],
       "sprint_plan_extraction": "grimoires/loa/sprint-hounfour-extraction.md",
       "sprint_plan_bridgebuilder": "grimoires/loa/sprint-bridgebuilder-findings.md"
+    },
+    "cycle-019": {
+      "label": "Loa Update & Bridgebuilder Migration (v1.33.1 → v1.35.0)",
+      "status": "active",
+      "started": "2026-02-13T00:00:00Z",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 50,
+          "label": "Framework Update & Bridgebuilder Port Adaptation",
+          "status": "completed",
+          "tasks": 7,
+          "notes": "Bridgebuilder V3 migration — R2ContextStore SHA methods, upstream re-exports, dist rebuild — 40 tests"
+        }
+      ]
     }
   },
-  "next_global_sprint_id": 50
+  "next_global_sprint_id": 51
 }

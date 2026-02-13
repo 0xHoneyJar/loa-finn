@@ -1,4 +1,11 @@
 // tests/finn/ledger-v2.test.ts — JSONL Ledger V2 tests (Task 2.2a)
+//
+// BB-PR63-F004: Multi-process limitation — these tests validate the single-writer
+// mutex (per-tenant Promise chain) and O_APPEND atomicity within a single Node
+// process. They do NOT test multi-process concurrent appends, which would require
+// spawning multiple workers writing to the same file. The POSIX O_APPEND guarantee
+// (atomic writes < PIPE_BUF = 4096 bytes) is the safety net for multi-process
+// scenarios, and the maxEntryBytes config enforces this limit.
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"

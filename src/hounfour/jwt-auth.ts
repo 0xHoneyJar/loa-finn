@@ -113,7 +113,15 @@ export class JWKSStateMachine {
     return this.jwksFn
   }
 
-  /** Try to create a fresh JWKS function. Returns current if rate-limited or circuit-broken. */
+  /**
+   * Try to create a fresh JWKS function. Returns current if rate-limited or circuit-broken.
+   *
+   * Note (BB-063-018): The old RemoteJWKSet instance is replaced without explicit cleanup.
+   * This is safe because: (1) jose's RemoteJWKSet holds no persistent resources — it is
+   * a closure over a URL that fetches on demand, (2) the rate limiter prevents rapid
+   * replacement, and (3) any in-flight fetch from the old instance will complete but its
+   * result is simply discarded (not referenced by this.jwksFn anymore).
+   */
   refresh(): ReturnType<typeof createRemoteJWKSet> {
     const now = Date.now()
     if ((now - this.lastRefreshAttemptMs) < REFRESH_RATE_LIMIT_MS) {
@@ -162,6 +170,13 @@ export class JWKSStateMachine {
 }
 
 // --- Module-level JWKS state machine (singleton) ---
+//
+// Design constraint (BB-063-003): Single JWKS endpoint assumed. All endpoint
+// types (invoke, admin, s2s) share this singleton. If gateway and S2S keys
+// are ever served from different endpoints, refactor to per-endpoint machines.
+//
+// The singleton is safe in single-threaded JS (no mutex needed). The
+// ValidateJWTOptions.jwksMachine override exists for testing isolation.
 
 let globalJWKS: JWKSStateMachine | null = null
 
@@ -220,9 +235,16 @@ function isIssuerAllowed(iss: string, allowlist: string[]): boolean {
 
 // --- JTI Namespace ---
 
-/** Namespace jti as jti:{iss}:{jti} to prevent cross-issuer collision */
+/**
+ * Namespace jti with length-prefixed issuer to prevent cross-issuer collision.
+ * Format: jti:{iss.length}:{iss}:{jti}
+ *
+ * Length prefix prevents canonicalization attacks where crafted issuer strings
+ * containing the delimiter could produce collisions. E.g. without length prefix,
+ * namespaceJti("evil:fake", "victim") === namespaceJti("evil", "fake:victim").
+ */
 export function namespaceJti(iss: string, jti: string): string {
-  return `jti:${iss}:${jti}`
+  return `jti:${iss.length}:${iss}:${jti}`
 }
 
 // --- JTI Requirement ---
