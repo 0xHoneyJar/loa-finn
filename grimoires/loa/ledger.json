@@ -571,8 +571,9 @@
           "local_id": "sprint-1",
           "global_id": 51,
           "label": "Pool Enforcement Foundation & Integration",
-          "status": "pending",
-          "tasks": 5
+          "status": "completed",
+          "tasks": 5,
+          "notes": "Commit 46e93a8 — pool enforcement, composed auth, 40 tests. Review approved, audit passed."
         }
       ]
     }
