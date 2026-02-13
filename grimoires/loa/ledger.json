@@ -579,9 +579,9 @@
           "local_id": "sprint-2",
           "global_id": 52,
           "label": "Bridgebuilder Findings: Code Quality & Test Hardening",
-          "status": "in_progress",
+          "status": "completed",
           "tasks": 7,
-          "notes": "Bridgebuilder iter-1: 8 MEDIUM + 14 LOW findings. Score: 54."
+          "notes": "Commit d82c352 — 22 findings fixed (8M+14L), GPT-5.2 APPROVED, 45 tests. Bridge flatlined: 54→0 in 2 iterations."
         }
       ]
     }
