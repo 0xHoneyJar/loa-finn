@@ -226,6 +226,64 @@ describe("R2ContextStore", () => {
     })
   })
 
+  describe("getLastReviewedSha() / setLastReviewedSha()", () => {
+    it("returns null for unknown PR", async () => {
+      await store.load()
+      const sha = await store.getLastReviewedSha("owner", "repo", 99)
+      assert.equal(sha, null)
+    })
+
+    it("stores and retrieves SHA", async () => {
+      await store.load()
+      await store.setLastReviewedSha("owner", "repo", 1, "abc123def")
+      const sha = await store.getLastReviewedSha("owner", "repo", 1)
+      assert.equal(sha, "abc123def")
+    })
+
+    it("persists SHA to R2 without clobbering hashes", async () => {
+      await store.load()
+      // Set a hash first
+      await store.setLastHash("owner", "repo", 1, "hash-xyz")
+      // Then set a SHA
+      await store.setLastReviewedSha("owner", "repo", 1, "sha-abc")
+
+      const stored = await r2.get("bridgebuilder/context.json")
+      assert.ok(stored)
+      const data = JSON.parse(stored.data)
+      // Both hash and SHA should be present
+      assert.equal(data.hashes["owner/repo/1"].hash, "hash-xyz")
+      assert.equal(data.shas["owner/repo/1"].sha, "sha-abc")
+    })
+
+    it("handles legacy context.json without shas field (backward compat)", async () => {
+      // Seed with legacy format — no shas field
+      await r2.put("bridgebuilder/context.json", JSON.stringify({
+        hashes: { "owner/repo/1": { hash: "legacy-hash", updatedAt: "2026-01-01T00:00:00Z" } },
+      }))
+      await store.load()
+
+      // getLastReviewedSha returns null (not throw) for legacy data
+      const sha = await store.getLastReviewedSha("owner", "repo", 1)
+      assert.equal(sha, null)
+
+      // Hash still accessible
+      const hash = await store.getLastHash("owner", "repo", 1)
+      assert.equal(hash, "legacy-hash")
+    })
+
+    it("two-run incremental simulation", async () => {
+      // Run 1: set SHA after review
+      await store.load()
+      await store.setLastReviewedSha("owner", "repo", 42, "first-head-sha")
+
+      // Simulate new store instance loading persisted state (run 2)
+      const store2 = new R2ContextStore(r2)
+      await store2.load()
+      const sha = await store2.getLastReviewedSha("owner", "repo", 42)
+      assert.equal(sha, "first-head-sha")
+    })
+  })
+
   describe("optimistic concurrency", () => {
     it("uses putIfMatch for context updates when ETag available", async () => {
       // Seed context.json so we have an ETag

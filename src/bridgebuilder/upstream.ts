@@ -15,7 +15,7 @@
 export { ReviewPipeline } from "#upstream-bridgebuilder/core/reviewer.js"
 export { PRReviewTemplate } from "#upstream-bridgebuilder/core/template.js"
 export { BridgebuilderContext } from "#upstream-bridgebuilder/core/context.js"
-export { truncateFiles } from "#upstream-bridgebuilder/core/truncation.js"
+export { truncateFiles, progressiveTruncate, estimateTokens, getTokenBudget } from "#upstream-bridgebuilder/core/truncation.js"
 
 // === Core types ===
 export type {
@@ -26,6 +26,11 @@ export type {
   ErrorCategory,
   RunSummary,
   TruncationResult,
+  LoaDetectionResult,
+  SecurityPatternEntry,
+  TokenBudget,
+  ProgressiveTruncationResult,
+  TokenEstimateBreakdown,
 } from "#upstream-bridgebuilder/core/types.js"
 
 export type { PromptPair } from "#upstream-bridgebuilder/core/template.js"
@@ -47,12 +52,19 @@ export type {
   PRReview,
   PreflightResult,
   RepoPreflightResult,
+  GitProviderErrorCode,
+  CommitCompareResult,
 } from "#upstream-bridgebuilder/ports/git-provider.js"
+
+export { GitProviderError } from "#upstream-bridgebuilder/ports/git-provider.js"
 
 export type {
   ReviewRequest,
   ReviewResponse,
+  LLMProviderErrorCode,
 } from "#upstream-bridgebuilder/ports/llm-provider.js"
+
+export { LLMProviderError } from "#upstream-bridgebuilder/ports/llm-provider.js"
 
 export type {
   ReviewEvent,

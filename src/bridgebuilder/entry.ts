@@ -66,7 +66,7 @@ async function main(): Promise<number> {
   try {
     // Step 7: Load persona
     let persona: string
-    const personaPath = config.personaPath ?? "grimoires/bridgebuilder/BEAUVOIR.md"
+    const personaPath = config.repoOverridePath ?? "grimoires/bridgebuilder/BEAUVOIR.md"
     try {
       persona = readFileSync(personaPath, "utf-8")
     } catch {

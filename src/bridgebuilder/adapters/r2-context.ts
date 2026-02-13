@@ -16,8 +16,14 @@ interface HashEntry {
   updatedAt: string
 }
 
+interface ShaEntry {
+  sha: string
+  updatedAt: string
+}
+
 interface ContextData {
   hashes: Record<string, HashEntry>  // key: "owner/repo/prNumber"
+  shas?: Record<string, ShaEntry>    // key: "owner/repo/prNumber" — V3 incremental review
 }
 
 interface ClaimRecord {
@@ -58,7 +64,20 @@ export class R2ContextStore implements IContextStore {
     const entry: HashEntry = { hash, updatedAt: new Date().toISOString() }
     this.data.hashes[key] = entry
     this.evictIfNeeded()
-    await this.persistContext(key, entry)
+    await this.persistContext({ key, hash: entry })
+  }
+
+  async getLastReviewedSha(owner: string, repo: string, prNumber: number): Promise<string | null> {
+    const key = `${owner}/${repo}/${prNumber}`
+    return this.data.shas?.[key]?.sha ?? null
+  }
+
+  async setLastReviewedSha(owner: string, repo: string, prNumber: number, sha: string): Promise<void> {
+    const key = `${owner}/${repo}/${prNumber}`
+    if (!this.data.shas) this.data.shas = {}
+    const entry: ShaEntry = { sha, updatedAt: new Date().toISOString() }
+    this.data.shas[key] = entry
+    await this.persistContext({ key, sha: entry })
   }
 
   /**
@@ -127,7 +146,7 @@ export class R2ContextStore implements IContextStore {
       const entry: HashEntry = { hash: result.item.hash, updatedAt: new Date().toISOString() }
       this.data.hashes[hashKey] = entry
       this.evictIfNeeded()
-      await this.persistContext(hashKey, entry)
+      await this.persistContext({ key: hashKey, hash: entry })
     }
   }
 
@@ -157,7 +176,7 @@ export class R2ContextStore implements IContextStore {
    * Uses putIfMatch when we have an ETag, retries on 412 with fresh read.
    * On conflict, re-applies the pending change after reloading remote state.
    */
-  private async persistContext(pendingKey?: string, pendingEntry?: HashEntry): Promise<void> {
+  private async persistContext(pending?: { key: string; hash?: HashEntry; sha?: ShaEntry }): Promise<void> {
     const json = JSON.stringify(this.data)
 
     if (this.contextEtag) {
@@ -168,9 +187,15 @@ export class R2ContextStore implements IContextStore {
       }
       // 412 — stale ETag, re-read remote state and re-apply our pending change
       await this.load()
-      if (pendingKey && pendingEntry) {
-        this.data.hashes[pendingKey] = pendingEntry
-        this.evictIfNeeded()
+      if (pending) {
+        if (pending.hash) {
+          this.data.hashes[pending.key] = pending.hash
+          this.evictIfNeeded()
+        }
+        if (pending.sha) {
+          if (!this.data.shas) this.data.shas = {}
+          this.data.shas[pending.key] = pending.sha
+        }
       }
     }
 
