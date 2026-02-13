@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": null,
+  "current_cycle": "cycle-020",
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -557,7 +557,25 @@
           "notes": "Bridgebuilder V3 migration — R2ContextStore SHA methods, upstream re-exports, dist rebuild — 40 tests"
         }
       ]
+    },
+    "cycle-020": {
+      "label": "Pool Claim Enforcement: Confused Deputy Prevention",
+      "status": "active",
+      "started": "2026-02-13T14:00:00Z",
+      "prd": "grimoires/loa/prd-pool-claim-enforcement.md",
+      "sdd": "grimoires/loa/sdd-pool-claim-enforcement.md",
+      "notes": "RFC #31 Phase 4 remaining work. Issue #53. PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 7 blocking issues resolved). Sprint plan: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved).",
+      "sprint_plan": "grimoires/loa/sprint-pool-claim-enforcement.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 51,
+          "label": "Pool Enforcement Foundation & Integration",
+          "status": "pending",
+          "tasks": 5
+        }
+      ]
     }
   },
-  "next_global_sprint_id": 51
+  "next_global_sprint_id": 52
 }

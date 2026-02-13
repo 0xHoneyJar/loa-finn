@@ -8,7 +8,7 @@ import type { WorkerPool } from "../agent/worker-pool.js"
 import type { SandboxExecutor } from "../agent/sandbox-executor.js"
 import { SessionRouter } from "./sessions.js"
 import { authMiddleware, corsMiddleware } from "./auth.js"
-import { jwtAuthMiddleware } from "../hounfour/jwt-auth.js"
+import { hounfourAuth } from "../hounfour/pool-enforcement.js"
 import { rateLimitMiddleware } from "./rate-limit.js"
 import type { HealthAggregator } from "../scheduler/health.js"
 import type { ActivityFeed } from "../dashboard/activity-feed.js"
@@ -78,7 +78,7 @@ export function createApp(config: FinnConfig, options: AppOptions) {
 
   // JWT auth for arrakis-originated requests (T-A.2)
   app.use("/api/v1/*", rateLimitMiddleware(config))
-  app.use("/api/v1/*", jwtAuthMiddleware(config))
+  app.use("/api/v1/*", hounfourAuth(config))
 
   // Bearer token auth for direct API access (existing behavior)
   // Skip /api/v1/* paths — already handled by JWT middleware above
