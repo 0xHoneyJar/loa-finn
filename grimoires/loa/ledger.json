@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-019",
+  "current_cycle": null,
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -542,8 +542,11 @@
     },
     "cycle-019": {
       "label": "Loa Update & Bridgebuilder Migration (v1.33.1 → v1.35.0)",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-13T00:00:00Z",
+      "archived": "2026-02-13T13:25:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-13-bridgebuilder-v3-migration",
+      "notes": "Sprint-50 + 3-iteration Bridgebuilder review loop on PR #63. 35 findings → 0 unresolved HIGH/MEDIUM. 256 tests pass.",
       "sprints": [
         {
           "local_id": "sprint-1",
