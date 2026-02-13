@@ -220,9 +220,16 @@ function isIssuerAllowed(iss: string, allowlist: string[]): boolean {
 
 // --- JTI Namespace ---
 
-/** Namespace jti as jti:{iss}:{jti} to prevent cross-issuer collision */
+/**
+ * Namespace jti with length-prefixed issuer to prevent cross-issuer collision.
+ * Format: jti:{iss.length}:{iss}:{jti}
+ *
+ * Length prefix prevents canonicalization attacks where crafted issuer strings
+ * containing the delimiter could produce collisions. E.g. without length prefix,
+ * namespaceJti("evil:fake", "victim") === namespaceJti("evil", "fake:victim").
+ */
 export function namespaceJti(iss: string, jti: string): string {
-  return `jti:${iss}:${jti}`
+  return `jti:${iss.length}:${iss}:${jti}`
 }
 
 // --- JTI Requirement ---

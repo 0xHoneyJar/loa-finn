@@ -80,8 +80,9 @@ export function redactKeyPatterns(input: string): string {
     result = result.replace(new RegExp(regex.source, "g"), REDACTED)
   }
 
-  // Layer 2: High-entropy base64 strings > 20 chars
-  result = result.replace(/[A-Za-z0-9+/=_-]{21,}/g, (match) => {
+  // Layer 2: High-entropy base64 strings >= 16 chars (lowered from 21 to catch
+  // truncated API key fragments in error messages — BB-063-002)
+  result = result.replace(/[A-Za-z0-9+/=_-]{16,}/g, (match) => {
     if (shannonEntropy(match) > 4.5) {
       return REDACTED
     }
@@ -100,8 +101,8 @@ export function containsKeyPattern(input: string): boolean {
     if (regex.test(input)) return true
   }
 
-  // Check for high-entropy base64 strings
-  const matches = input.match(/[A-Za-z0-9+/=_-]{21,}/g)
+  // Check for high-entropy base64 strings (threshold matches redactSecrets)
+  const matches = input.match(/[A-Za-z0-9+/=_-]{16,}/g)
   if (matches) {
     for (const match of matches) {
       if (shannonEntropy(match) > 4.5) return true

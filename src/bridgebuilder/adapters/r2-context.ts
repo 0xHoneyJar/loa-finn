@@ -77,6 +77,7 @@ export class R2ContextStore implements IContextStore {
     if (!this.data.shas) this.data.shas = {}
     const entry: ShaEntry = { sha, updatedAt: new Date().toISOString() }
     this.data.shas[key] = entry
+    this.evictShasIfNeeded()
     await this.persistContext({ key, sha: entry })
   }
 
@@ -171,6 +172,24 @@ export class R2ContextStore implements IContextStore {
     }
   }
 
+  /** FIFO eviction for SHA entries — same policy as hashes (BB-063-010). */
+  private evictShasIfNeeded(): void {
+    if (!this.data.shas) return
+    const keys = Object.keys(this.data.shas)
+    if (keys.length <= MAX_ENTRIES) return
+
+    const sorted = keys.sort((a, b) => {
+      const aTime = this.data.shas![a].updatedAt
+      const bTime = this.data.shas![b].updatedAt
+      return aTime.localeCompare(bTime)
+    })
+
+    const toRemove = sorted.slice(0, keys.length - MAX_ENTRIES)
+    for (const key of toRemove) {
+      delete this.data.shas![key]
+    }
+  }
+
   /**
    * Persist context.json with optimistic concurrency.
    * Uses putIfMatch when we have an ETag, retries on 412 with fresh read.
@@ -195,6 +214,7 @@ export class R2ContextStore implements IContextStore {
         if (pending.sha) {
           if (!this.data.shas) this.data.shas = {}
           this.data.shas[pending.key] = pending.sha
+          this.evictShasIfNeeded()
         }
       }
     }

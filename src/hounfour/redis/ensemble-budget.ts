@@ -81,6 +81,33 @@ end
 return cjson.encode({refund = refund, actual = actual, reserved = reserved})
 `
 
+/**
+ * Atomic release-all remaining reservations (BB-063-008).
+ *
+ * KEYS[1] = tenant:{id}:budget_micro (spent counter)
+ * KEYS[2] = ensemble:{ensemble_id}:reserved (hash: branch_idx → amount)
+ *
+ * Returns JSON: { refund: number, branches: number }
+ */
+const ENSEMBLE_RELEASE_ALL_LUA = `
+local remaining = redis.call('HGETALL', KEYS[2])
+local total_refund = 0
+local branch_count = 0
+
+for i = 1, #remaining, 2 do
+  total_refund = total_refund + tonumber(remaining[i + 1])
+  branch_count = branch_count + 1
+end
+
+if total_refund > 0 then
+  redis.call('DECRBY', KEYS[1], total_refund)
+end
+
+redis.call('DEL', KEYS[2])
+
+return cjson.encode({refund = total_refund, branches = branch_count})
+`
+
 // --- Types ---
 
 export interface EnsembleReservation {
@@ -224,8 +251,9 @@ export class EnsembleBudgetReserver {
   }
 
   /**
-   * Force-release all remaining reservation for an ensemble.
-   * Used for error recovery when branches fail without committing.
+   * Atomic force-release all remaining reservations for an ensemble.
+   * Uses Lua script for atomicity — prevents double-refund race with
+   * concurrent commitBranch calls (BB-063-008).
    */
   async releaseAll(
     ensembleId: string,
@@ -237,23 +265,15 @@ export class EnsembleBudgetReserver {
       const spentKey = this.redis.key("budget", `${tenantId}:spent_micro`)
       const reservedKey = this.redis.key("ensemble", `${ensembleId}:reserved`)
 
-      // Get all remaining reservations
-      const remaining = await this.redis.getClient().hgetall(reservedKey)
-      let totalRefund = 0
+      const raw = await this.redis.getClient().eval(
+        ENSEMBLE_RELEASE_ALL_LUA,
+        2,
+        spentKey,
+        reservedKey,
+      ) as string
 
-      for (const amount of Object.values(remaining)) {
-        totalRefund += parseInt(amount, 10)
-      }
-
-      if (totalRefund > 0) {
-        // Refund in one operation
-        await this.redis.getClient().incrby(spentKey, -totalRefund)
-      }
-
-      // Delete the reservation hash
-      await this.redis.getClient().del(reservedKey)
-
-      return totalRefund
+      const result = JSON.parse(raw) as { refund: number; branches: number }
+      return result.refund
     } catch {
       return 0
     }
