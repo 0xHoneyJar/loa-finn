@@ -19,13 +19,13 @@ T2 (skill rebuild) is intentionally deferred until AFTER finn integration code i
 
 ## Tasks
 
-### T1: Run `/update-loa` (v1.33.1 → v1.35.0)
+### T1: Run `/update-loa` (v1.33.1 → v1.35.0) :white_check_mark:
 - Fetch and merge upstream Loa framework files
 - Resolve any conflicts in `.claude/` managed files
 - Verify `.claude/skills/bridgebuilder-review/` updated with V3 code
 - **AC**: `CLAUDE.loa.md` shows v1.35.0, skill source files contain V3 code
 
-### T3: Adapt R2ContextStore — implement new IContextStore methods
+### T3: Adapt R2ContextStore — implement new IContextStore methods :white_check_mark:
 - Add `getLastReviewedSha(owner, repo, prNumber)` to `R2ContextStore`
 - Add `setLastReviewedSha(owner, repo, prNumber, sha)` to `R2ContextStore`
 - Store SHA alongside existing hash data in R2 context.json
@@ -34,34 +34,34 @@ T2 (skill rebuild) is intentionally deferred until AFTER finn integration code i
 - **Legacy fixture test**: include a fixture representing pre-v1.35.0 context.json and verify upgrade-in-place (no throw, graceful null return)
 - **AC**: R2ContextStore implements full IContextStore interface (7 methods), TypeScript compiles, legacy context fixture test passes
 
-### T4: Update upstream.ts re-exports
+### T4: Update upstream.ts re-exports :white_check_mark:
 - Add new types: `LoaDetectionResult`, `SecurityPatternEntry`, `TokenBudget`, `ProgressiveTruncationResult`, `TokenEstimateBreakdown`
 - Add new git-provider types: `GitProviderError`, `GitProviderErrorCode`, `CommitCompareResult`
 - Add new config types if any changed signatures
 - **Completeness verification**: `npm run typecheck` with all finn imports coming through `upstream.ts` (no deep `#upstream-bridgebuilder/` imports outside the barrel)
 - **AC**: All upstream types available to finn consumers, `npm run typecheck` passes
 
-### T5: Adapt config.ts for renamed fields
+### T5: Adapt config.ts for renamed fields :white_check_mark:
 - `personaPath` → `repoOverridePath` in BridgebuilderConfig
 - Handle new optional fields: `persona`, `personaFilePath`, `loaAware`, `forceFullReview`, `targetPr`
 - **Audit all usage sites**: grep for `personaPath` across entire repo (src/, tests/, docs/) and update all references
 - Verify `repoOverridePath` override is actually applied at runtime (entry.ts reads it, persona loads from it)
 - **AC**: `loadFinnConfig()` returns valid upstream BridgebuilderConfig, zero `personaPath` references remain in codebase
 
-### T6: Update entry.ts for V3 compatibility
+### T6: Update entry.ts for V3 compatibility :white_check_mark:
 - Verify ReviewPipeline constructor signature still matches
 - Adopt 5-level persona loading from upstream `loadPersona()` or keep current approach
 - Ensure persona model override flows through correctly
 - **Do NOT commit dist/ until this task passes**
 - **AC**: `npm run bridgebuilder:dry-run` executes without errors
 
-### T2: Rebuild bridgebuilder skill dist/
+### T2: Rebuild bridgebuilder skill dist/ :white_check_mark:
 - Run `npm run build` in `.claude/skills/bridgebuilder-review/`
 - Verify compiled JS in `dist/` reflects new source
 - Only execute AFTER T3/T4/T5/T6 are complete and dry-run passes
 - **AC**: `dist/` contains compiled V3 code, `npm run bridgebuilder:dry-run` still passes after rebuild
 
-### T7: Tests & verification
+### T7: Tests & verification :white_check_mark:
 - Run existing bridgebuilder tests: `npm run test:bridgebuilder`
 - Add test cases for new R2ContextStore methods:
   - `getLastReviewedSha` returns `null` for unknown PR

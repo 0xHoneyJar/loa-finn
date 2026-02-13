@@ -549,8 +549,9 @@
           "local_id": "sprint-1",
           "global_id": 50,
           "label": "Framework Update & Bridgebuilder Port Adaptation",
-          "status": "in_progress",
-          "tasks": 7
+          "status": "completed",
+          "tasks": 7,
+          "notes": "Bridgebuilder V3 migration — R2ContextStore SHA methods, upstream re-exports, dist rebuild — 40 tests"
         }
       ]
     }
