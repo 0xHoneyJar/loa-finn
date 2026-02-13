@@ -95,6 +95,13 @@ def check_state(
     - OPEN → HALF_OPEN when reset_timeout expires
 
     Returns: CLOSED, OPEN, or HALF_OPEN.
+
+    Note (BB-063-001): The OPEN→HALF_OPEN transition has a race window between
+    _read_state and _write_state where concurrent requests can both transition
+    simultaneously, resetting half_open_probes to 0 twice. This is acceptable:
+    extra probes are bounded by concurrency count and self-correct on the next
+    failure (which re-opens the breaker). The file-level flock in _write_state
+    ensures no data corruption, only duplicate transitions.
     """
     cb_config = config.get("routing", {}).get("circuit_breaker", {})
     reset_timeout = cb_config.get("reset_timeout_seconds", DEFAULT_RESET_TIMEOUT)

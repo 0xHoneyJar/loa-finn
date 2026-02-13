@@ -118,7 +118,13 @@ def resolve_auth_headers(provider: Dict[str, Any]) -> Dict[str, str]:
 
 
 def resolve_chat_url(provider: Dict[str, Any]) -> str:
-    """Resolve the chat completions URL for a provider."""
+    """Resolve the chat completions URL for a provider.
+
+    Note (BB-063-011): Despite the name, this returns a path, not a full URL.
+    The base_url is prepended by the caller (invoke_with_retry_async).
+    Renaming to resolve_chat_path would be more accurate but is deferred
+    to avoid a breaking change across all callers.
+    """
     ptype = provider.get("type", "openai")
     base_url = provider.get("base_url", "").rstrip("/")
     defaults = get_defaults(ptype) or ProviderDefaults()

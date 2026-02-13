@@ -65,12 +65,18 @@ async function main(): Promise<number> {
 
   try {
     // Step 7: Load persona
+    // BB-063-017: Support legacy personaPath config for backward compatibility
     let persona: string
-    const personaPath = config.repoOverridePath ?? "grimoires/bridgebuilder/BEAUVOIR.md"
+    const resolvedPath = config.repoOverridePath
+      ?? (config as Record<string, unknown>).personaPath as string | undefined
+      ?? "grimoires/bridgebuilder/BEAUVOIR.md"
+    if ((config as Record<string, unknown>).personaPath && !config.repoOverridePath) {
+      log.warn("config.personaPath is deprecated — use config.repoOverridePath instead")
+    }
     try {
-      persona = readFileSync(personaPath, "utf-8")
+      persona = readFileSync(resolvedPath, "utf-8")
     } catch {
-      log.warn(`BEAUVOIR.md not found at ${personaPath}, using default persona`)
+      log.warn(`BEAUVOIR.md not found at ${resolvedPath}, using default persona`)
       persona = "You are Bridgebuilder, a constructive code reviewer. Focus on security, quality, and test coverage. Be specific and actionable. Never approve — only COMMENT or REQUEST_CHANGES."
     }
 

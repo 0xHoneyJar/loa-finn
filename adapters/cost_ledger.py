@@ -4,6 +4,10 @@ Implements:
 - JSONL append with fcntl.flock for concurrent append safety
 - Atomic daily spend counter with flock-protected read-modify-write
 - Corruption recovery: truncate to last valid JSONL line on read
+
+All timestamps use UTC (datetime.now(timezone.utc)). Daily spend counters
+use UTC date boundaries (strftime '%Y-%m-%d'). This convention must be
+maintained across all functions to prevent timezone-drift bugs (BB-063-020).
 """
 
 from __future__ import annotations

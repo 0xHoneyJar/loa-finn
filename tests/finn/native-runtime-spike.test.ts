@@ -160,13 +160,15 @@ describe("process isolation primitives", () => {
     expect(empty).toBe(true)
   })
 
+  // BB-PR63-F006: Platform guard — this test requires Linux /proc filesystem.
+  // On macOS and other non-Linux platforms it returns early (no-op).
+  // Use `it.skipIf` when vitest supports runtime condition skips.
   it("/proc/{pid}/stat is accessible for process monitoring", () => {
-    // Verify /proc filesystem is mounted and readable
     const myPid = process.pid
     const statPath = `/proc/${myPid}/stat`
 
     if (!existsSync("/proc")) {
-      // Skip on systems without procfs (macOS)
+      // No procfs (macOS, FreeBSD) — skip gracefully
       return
     }
 

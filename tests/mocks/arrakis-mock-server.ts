@@ -210,6 +210,14 @@ export class ArrakisMockServer {
           }, 403)
         }
 
+        // BB-PR63-F007: Validate JWT expiry (reject expired tokens)
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+          return c.json({
+            error: "token_expired",
+            message: `Token expired at ${new Date(payload.exp * 1000).toISOString()}`,
+          }, 401)
+        }
+
         // Store claims for handlers
         c.set("jwtClaims" as any, payload)
       } catch {

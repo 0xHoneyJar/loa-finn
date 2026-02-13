@@ -266,8 +266,20 @@ export class ReconciliationClient {
   /** Start periodic polling. */
   startPolling(tenantId: string): void {
     if (this.pollTimer) return
+    let consecutivePollFailures = 0
     this.pollTimer = setInterval(
-      () => { this.poll(tenantId).catch(() => {}) },
+      () => {
+        this.poll(tenantId).then(() => {
+          consecutivePollFailures = 0
+        }).catch((err) => {
+          consecutivePollFailures++
+          // Log errors instead of swallowing silently (BB-063-005).
+          // After 5 consecutive failures, warn loudly — likely a config issue.
+          if (consecutivePollFailures >= 5) {
+            console.error(`[reconciliation] ${consecutivePollFailures} consecutive poll failures for ${tenantId}:`, err)
+          }
+        })
+      },
       this.config.pollIntervalMs,
     )
   }

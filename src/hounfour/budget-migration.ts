@@ -110,6 +110,14 @@ export function verifyMigration(
   totalV2Micro: bigint,
   entryCount: number,
 ): { passed: boolean; driftMicro: bigint; maxAllowedDriftMicro: bigint } {
+  // BB-063-012: Guard against precision loss when totalV1Usd * 1_000_000
+  // exceeds Number.MAX_SAFE_INTEGER (~$9.007B). Beyond that boundary,
+  // Math.round silently loses precision, making drift verification unreliable.
+  if (totalV1Usd * 1_000_000 > Number.MAX_SAFE_INTEGER) {
+    throw new Error(
+      `BUDGET_MIGRATION_PRECISION: totalV1Usd ${totalV1Usd} exceeds safe integer boundary for micro-USD conversion`,
+    )
+  }
   const expectedMicro = BigInt(Math.round(totalV1Usd * 1_000_000))
   const drift = totalV2Micro > expectedMicro
     ? totalV2Micro - expectedMicro

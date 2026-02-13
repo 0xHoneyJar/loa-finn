@@ -283,7 +283,12 @@ export class NativeRuntimeAdapter implements ModelPortBase, ModelPortStreaming {
     }
 
     const proc = spawn(this.config.binary, this.config.args ?? [], spawnOpts)
-    proc.unref()
+    // BB-063-009: Defer unref() — do NOT call immediately after spawn.
+    // The escalateKill sequence in complete()/stream() calls proc.unref()
+    // after cleanup completes. Calling it here would allow the parent to
+    // exit before escalateKill finishes, orphaning the child process group.
+    // The verifyGroupEmpty pgrep check is the safety net, but deferring
+    // unref is the primary defense against orphans.
 
     if (!proc.pid) {
       throw new Error(`NativeRuntime: failed to spawn ${this.config.binary}`)

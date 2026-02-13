@@ -101,6 +101,14 @@ def _check_file_allowed(
             f"Allowed: .loa.config.d/ or paths in hounfour.secret_paths"
         )
 
+    # Reject symlinks to prevent path traversal (BB-063-007).
+    # Note: TOCTOU exists between this check and open(). For full protection,
+    # callers should use O_NOFOLLOW when opening the returned path.
+    if resolved.is_symlink():
+        raise ValueError(
+            f"Secret file is a symlink (rejected for security): {resolved}"
+        )
+
     if not resolved.is_file():
         raise ValueError(f"Secret file not found: {resolved}")
 

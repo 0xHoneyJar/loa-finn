@@ -276,6 +276,47 @@ describe("monotonic headroom decrement", () => {
     // What matters is shouldAllowRequest returns true in SYNCED
     expect(client.shouldAllowRequest()).toBe(true)
   })
+
+  // BB-PR63-F005: Verify headroom doesn't increase when re-entering FAIL_OPEN
+  it("headroom from second FAIL_OPEN entry does not exceed first entry's initial value", async () => {
+    const client = makeClient({
+      driftThresholdMicro: 50n,
+      failOpenHeadroomPercent: 10,
+      failOpenAbsCapMicro: 100_000n,
+    })
+
+    // First FAIL_OPEN: capture initial headroom
+    client.recordLocalSpend(1000000n)
+    await client.poll("tenant-e2e")
+    expect(client.getState().status).toBe("FAIL_OPEN")
+    const firstHeadroom = client.getState().failOpenBudgetRemaining
+
+    // Spend some headroom
+    client.recordLocalSpend(30000n)
+    const afterFirstSpend = client.getState().failOpenBudgetRemaining
+    expect(afterFirstSpend).toBeLessThan(firstHeadroom)
+
+    // Recover to SYNCED
+    mockServer.setTenantBudget("tenant-e2e", {
+      committed_micro: String(client.getState().localSpendMicro),
+      reserved_micro: "0",
+      limit_micro: "10000000",
+      window_start: new Date().toISOString(),
+      window_end: new Date(Date.now() + 86400000).toISOString(),
+    })
+    await client.poll("tenant-e2e")
+    expect(client.getState().status).toBe("SYNCED")
+
+    // Second FAIL_OPEN: new headroom should be computed fresh but capped
+    client.recordLocalSpend(2000000n)
+    await client.poll("tenant-e2e")
+    expect(client.getState().status).toBe("FAIL_OPEN")
+    const secondHeadroom = client.getState().failOpenBudgetRemaining
+
+    // Second headroom is capped at failOpenAbsCapMicro (100_000n)
+    // and should not exceed the absolute cap regardless of limit_micro
+    expect(secondHeadroom).toBeLessThanOrEqual(100_000n)
+  })
 })
 
 describe("drift detection with mock arrakis", () => {

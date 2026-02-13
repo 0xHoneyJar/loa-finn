@@ -113,7 +113,15 @@ export class JWKSStateMachine {
     return this.jwksFn
   }
 
-  /** Try to create a fresh JWKS function. Returns current if rate-limited or circuit-broken. */
+  /**
+   * Try to create a fresh JWKS function. Returns current if rate-limited or circuit-broken.
+   *
+   * Note (BB-063-018): The old RemoteJWKSet instance is replaced without explicit cleanup.
+   * This is safe because: (1) jose's RemoteJWKSet holds no persistent resources — it is
+   * a closure over a URL that fetches on demand, (2) the rate limiter prevents rapid
+   * replacement, and (3) any in-flight fetch from the old instance will complete but its
+   * result is simply discarded (not referenced by this.jwksFn anymore).
+   */
   refresh(): ReturnType<typeof createRemoteJWKSet> {
     const now = Date.now()
     if ((now - this.lastRefreshAttemptMs) < REFRESH_RATE_LIMIT_MS) {
@@ -162,6 +170,13 @@ export class JWKSStateMachine {
 }
 
 // --- Module-level JWKS state machine (singleton) ---
+//
+// Design constraint (BB-063-003): Single JWKS endpoint assumed. All endpoint
+// types (invoke, admin, s2s) share this singleton. If gateway and S2S keys
+// are ever served from different endpoints, refactor to per-endpoint machines.
+//
+// The singleton is safe in single-threaded JS (no mutex needed). The
+// ValidateJWTOptions.jwksMachine override exists for testing isolation.
 
 let globalJWKS: JWKSStateMachine | null = null
 

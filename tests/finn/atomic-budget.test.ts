@@ -44,6 +44,13 @@ function makeEntry(overrides: Partial<LedgerEntryV2> = {}): LedgerEntryV2 {
 /**
  * In-memory Redis mock that supports eval() for Lua script execution.
  * Simulates the atomic behavior of the Lua script.
+ *
+ * BB-PR63-F002: Atomicity limitation — this mock executes Lua script logic
+ * as sequential JavaScript, which is inherently atomic in single-threaded Node.
+ * Real Redis Lua scripts are atomic across concurrent clients at the server level.
+ * This mock cannot reproduce race conditions that would appear with multiple
+ * Redis clients executing EVAL concurrently. For true atomicity testing,
+ * use a real Redis instance with parallel client connections.
  */
 class MockRedisClient {
   private store = new Map<string, string>()

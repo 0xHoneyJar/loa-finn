@@ -493,10 +493,12 @@ export function firstCompleteStreaming(
   }
 
   // Link external abort signal to all controllers
+  // BB-063-013: Use named handler so generateStream() can remove it in finally block
+  const externalAbortHandler = () => {
+    controllers.forEach((ctrl) => ctrl.abort())
+  }
   if (options?.signal) {
-    options.signal.addEventListener("abort", () => {
-      controllers.forEach((ctrl) => ctrl.abort())
-    }, { once: true })
+    options.signal.addEventListener("abort", externalAbortHandler, { once: true })
   }
 
   // Timeout: abort all branches
@@ -600,6 +602,12 @@ export function firstCompleteStreaming(
       }
     } finally {
       clearTimeout(timeoutId)
+
+      // BB-063-013: Remove external abort listener to prevent memory leak
+      // when the signal outlives this ensemble run
+      if (options?.signal) {
+        options.signal.removeEventListener("abort", externalAbortHandler)
+      }
 
       // Ensure all controllers are aborted (losers)
       controllers.forEach((ctrl) => ctrl.abort())

@@ -146,6 +146,13 @@ describe("StreamCostTracker", () => {
 
   // --- Byte-estimated billing ---
 
+  // BB-PR63-F015: Byte-to-token estimation accuracy — the byte_estimated billing
+  // method uses `ceil(observedBytes / bytesPerToken)` which is a deliberate
+  // overcount. Accuracy depends on the model's actual tokenizer; the bytesPerToken
+  // values (4 for GPT, 3.5 for Claude) are empirical averages that tend to
+  // overestimate by 5-15% for English text and underestimate for CJK/emoji.
+  // This is acceptable because: (1) it's the fallback path when providers don't
+  // report usage, and (2) overcounting is safer than undercounting for billing.
   describe("byte_estimated billing", () => {
     it("estimates tokens from bytes when no usage event", async () => {
       const tracker = new StreamCostTracker(defaultOptions())
