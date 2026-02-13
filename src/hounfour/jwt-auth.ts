@@ -8,7 +8,7 @@ import type { Context, Next } from "hono"
 import type { FinnConfig } from "../config.js"
 import type { JtiReplayGuard } from "./jti-replay.js"
 import { deriveJtiTtl } from "./jti-replay.js"
-import type { PoolId } from "@0xhoneyjar/loa-hounfour"
+import type { PoolId, Tier } from "@0xhoneyjar/loa-hounfour"
 
 // --- Protocol Constants (matches loa-hounfour JTI_POLICY) ---
 
@@ -33,7 +33,7 @@ export interface JWTClaims {
   aud: string
   sub: string
   tenant_id: string
-  tier: "free" | "pro" | "enterprise"
+  tier: Tier
   nft_id?: string
   model_preferences?: Record<string, string>
   byok?: boolean

@@ -29,21 +29,25 @@ import {
 /** Result of pool enforcement on JWT claims — uses PoolId end-to-end */
 export type PoolEnforcementResult =
   | {
+      /** Enforcement passed — pools resolved from tier */
       ok: true
       resolvedPools: readonly PoolId[]
       requestedPool: PoolId | null
       mismatch: PoolMismatch | null
     }
   | {
+      /** Enforcement failed — pool_id invalid or unauthorized */
       ok: false
       error: string
       code: Extract<HounfourErrorCode, "POOL_ACCESS_DENIED" | "UNKNOWN_POOL">
+      details?: { pool_id?: string; tier?: string }
     }
 
 /** Describes a mismatch between JWT allowed_pools and tier-derived pools */
 export interface PoolMismatch {
   type: "subset" | "superset" | "invalid_entry"
   count: number
+  entries?: string[]
 }
 
 /** Configuration for pool enforcement behavior */
@@ -55,7 +59,7 @@ export interface PoolEnforcementConfig {
 /** WS enforcement result — discriminated, not bare null */
 export type WsEnforcementResult =
   | { ok: true; context: TenantContext }
-  | { ok: false; reason: "UNAUTHENTICATED" | "FORBIDDEN"; code?: HounfourErrorCode }
+  | { ok: false; reason: "UNAUTHENTICATED" | "FORBIDDEN"; code?: HounfourErrorCode; message?: string }
 
 // --- Pure Function: enforcePoolClaims (SDD §3.1.2) ---
 
@@ -74,8 +78,18 @@ export function enforcePoolClaims(
   claims: JWTClaims,
   config?: PoolEnforcementConfig,
 ): PoolEnforcementResult {
-  const tier = claims.tier as Tier
+  const tier = claims.tier
   const resolvedPools = getAccessiblePools(tier)
+
+  // Fail-closed: no pools resolved for tier (invariant violation)
+  if (resolvedPools.length === 0) {
+    return {
+      ok: false,
+      error: `Tier "${tier}" has no accessible pools`,
+      code: "POOL_ACCESS_DENIED",
+      details: { tier },
+    }
+  }
 
   // Validate pool_id if present
   let requestedPool: PoolId | null = null
@@ -85,6 +99,7 @@ export function enforcePoolClaims(
         ok: false,
         error: `Unknown pool ID: "${claims.pool_id}"`,
         code: "UNKNOWN_POOL",
+        details: { pool_id: claims.pool_id, tier },
       }
     }
     if (!tierHasAccess(tier, claims.pool_id)) {
@@ -92,6 +107,7 @@ export function enforcePoolClaims(
         ok: false,
         error: `Tier "${tier}" cannot access pool "${claims.pool_id}"`,
         code: "POOL_ACCESS_DENIED",
+        details: { pool_id: claims.pool_id, tier },
       }
     }
     requestedPool = claims.pool_id as PoolId
@@ -101,19 +117,20 @@ export function enforcePoolClaims(
   let mismatch: PoolMismatch | null = null
   if (claims.allowed_pools && claims.allowed_pools.length > 0) {
     const resolvedSet = new Set<string>(resolvedPools)
+    const claimedSet = new Set(claims.allowed_pools)
 
     // Check for invalid entries first (highest priority)
     const invalidEntries = claims.allowed_pools.filter((p) => !isValidPoolId(p))
     if (invalidEntries.length > 0) {
-      mismatch = { type: "invalid_entry", count: invalidEntries.length }
+      mismatch = { type: "invalid_entry", count: invalidEntries.length, entries: invalidEntries }
     } else {
       // Check for superset: entries in allowed_pools NOT in resolvedPools
       const supersetEntries = claims.allowed_pools.filter((p) => !resolvedSet.has(p))
       if (supersetEntries.length > 0) {
-        mismatch = { type: "superset", count: supersetEntries.length }
-      } else if (claims.allowed_pools.length < resolvedPools.length) {
-        // Subset: fewer pools claimed than tier allows
-        const diff = resolvedPools.length - claims.allowed_pools.length
+        mismatch = { type: "superset", count: supersetEntries.length, entries: supersetEntries }
+      } else if (claimedSet.size < resolvedPools.length) {
+        // Subset: fewer unique pools claimed than tier allows
+        const diff = resolvedPools.length - claimedSet.size
         mismatch = { type: "subset", count: diff }
       }
     }
@@ -124,6 +141,7 @@ export function enforcePoolClaims(
         ok: false,
         error: `Strict mode: allowed_pools claims more pools than tier "${tier}" permits`,
         code: "POOL_ACCESS_DENIED",
+        details: { tier },
       }
     }
   }
@@ -135,9 +153,10 @@ export function enforcePoolClaims(
 
 function hashPoolList(pools: string[]): string {
   const sorted = [...pools].sort()
-  return createHash("sha256").update(JSON.stringify(sorted)).digest("hex").slice(0, 16)
+  return createHash("sha256").update(sorted.join("|")).digest("hex").slice(0, 16)
 }
 
+// TODO: migrate to structured logger (pino) when adopted codebase-wide
 /** Log pool mismatch with graduated severity (NFR-4: minimal logging) */
 export function logPoolMismatch(
   claims: JWTClaims,
@@ -154,7 +173,7 @@ export function logPoolMismatch(
 
   if (config?.debugLogging) {
     entry.claimed_hash = hashPoolList(claims.allowed_pools ?? [])
-    entry.derived_hash = hashPoolList([...getAccessiblePools(claims.tier as Tier)])
+    entry.derived_hash = hashPoolList([...getAccessiblePools(claims.tier)])
   }
 
   const msg = JSON.stringify(entry)
@@ -173,8 +192,11 @@ export function logPoolMismatch(
 
 // --- Config Helper ---
 
-/** Extract PoolEnforcementConfig from FinnConfig (graceful defaults) */
-export function getPoolConfig(_config: FinnConfig): PoolEnforcementConfig {
+/**
+ * Pool enforcement config with graceful defaults.
+ * TODO: wire to FinnConfig.hounfour.poolEnforcement when config schema is extended.
+ */
+export function getPoolConfig(): PoolEnforcementConfig {
   return {
     strictMode: false,
     debugLogging: false,
@@ -209,20 +231,22 @@ export function hounfourAuth(
       return c.json(authResult.body, authResult.status)
     }
 
-    // 2. Pool enforcement
-    const enforcement = enforcePoolClaims(authResult.context.claims, getPoolConfig(config))
+    // 2. Pool enforcement (single config snapshot for both enforce + log)
+    const poolConfig = getPoolConfig()
+    const enforcement = enforcePoolClaims(authResult.context.claims, poolConfig)
     if (!enforcement.ok) {
       return c.json({ error: "Forbidden", code: enforcement.code }, 403)
     }
 
     // 3. Log mismatch
     if (enforcement.mismatch) {
-      logPoolMismatch(authResult.context.claims, enforcement.mismatch, getPoolConfig(config))
+      logPoolMismatch(authResult.context.claims, enforcement.mismatch, poolConfig)
     }
 
     // 4. Set enriched TenantContext
     const tenantContext: TenantContext = {
       ...authResult.context,
+      // Shallow copy: enforcement result is readonly, TenantContext consumers should not mutate
       resolvedPools: [...enforcement.resolvedPools],
       requestedPool: enforcement.requestedPool,
     }
@@ -250,7 +274,7 @@ export async function validateAndEnforceWsJWT(
 
   const result = enforcePoolClaims(ctx.claims, enforcementConfig)
   if (!result.ok) {
-    return { ok: false, reason: "FORBIDDEN", code: result.code }
+    return { ok: false, reason: "FORBIDDEN", code: result.code, message: "Forbidden" }
   }
 
   if (result.mismatch) {
@@ -261,6 +285,7 @@ export async function validateAndEnforceWsJWT(
     ok: true,
     context: {
       ...ctx,
+      // Shallow copy: enforcement result is readonly, TenantContext consumers should not mutate
       resolvedPools: [...result.resolvedPools],
       requestedPool: result.requestedPool,
     },
@@ -284,7 +309,7 @@ export function selectAuthorizedPool(
   tenantContext: TenantContext,
   taskType: string,
 ): PoolId {
-  const tier = tenantContext.claims.tier as Tier
+  const tier = tenantContext.claims.tier
   const poolId = resolvePool(tier, taskType, tenantContext.claims.model_preferences)
   assertValidPoolId(poolId)
 
@@ -295,9 +320,15 @@ export function selectAuthorizedPool(
       { poolId, requestedPool: tenantContext.requestedPool })
   }
 
+  // Invariant: resolvedPools must be populated (fail closed, not open)
+  if (tenantContext.resolvedPools.length === 0) {
+    throw new HounfourError("POOL_ACCESS_DENIED",
+      "No resolved pools for tenant (invariant violation)",
+      { tier })
+  }
+
   // Verify resolved pool is in resolvedPools (defense in depth)
-  if (tenantContext.resolvedPools.length > 0
-      && !tenantContext.resolvedPools.includes(poolId)) {
+  if (!tenantContext.resolvedPools.includes(poolId)) {
     throw new HounfourError("POOL_ACCESS_DENIED",
       `Pool "${poolId}" not in tenant's resolved pools`,
       { poolId, tier })

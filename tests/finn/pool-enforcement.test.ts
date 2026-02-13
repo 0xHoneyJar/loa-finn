@@ -1,7 +1,22 @@
 // tests/finn/pool-enforcement.test.ts — Pool Claim Enforcement Tests (SDD §4)
 // Sprint 51: ≥37 test cases covering confused deputy prevention.
+// Sprint 52: +11 tests from Bridgebuilder findings (logPoolMismatch, strict mode, empty pools).
+//
+// Table of Contents:
+//   §1:  enforcePoolClaims pure function (9 tests)
+//   §2:  pool_id validation (5 tests)
+//   §3:  allowed_pools mismatch (5 tests)
+//   §4:  hounfourAuth middleware (4 tests)
+//   §5:  validateAndEnforceWsJWT (4 tests)
+//   §6:  selectAuthorizedPool (5 tests)
+//   §7:  strict mode (4 tests)
+//   §8:  error code taxonomy (2 tests)
+//   §9:  equivalence golden test (1 test)
+//   §10: bypass prevention (2 tests)
+//   §11: logPoolMismatch behavior (4 tests)
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest"
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest"
+// Bypass prevention (source-level) imports
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { Hono } from "hono"
@@ -12,7 +27,9 @@ import {
   hounfourAuth,
   validateAndEnforceWsJWT,
   selectAuthorizedPool,
+  logPoolMismatch,
   type PoolEnforcementConfig,
+  type PoolMismatch,
 } from "../../src/hounfour/pool-enforcement.js"
 import {
   authenticateRequest,
@@ -91,7 +108,12 @@ function makeClaims(overrides?: Record<string, unknown>): JWTClaims {
   } as JWTClaims
 }
 
-/** Construct TenantContext for selectAuthorizedPool tests */
+/**
+ * Construct TenantContext for selectAuthorizedPool tests.
+ * NOTE: If overriding both `claims` and `resolvedPools`, the caller must ensure
+ * resolvedPools matches claims.tier. The helper does NOT auto-derive resolvedPools
+ * from overridden claims to allow testing invariant violations.
+ */
 function makeTenantCtx(overrides?: Partial<TenantContext>): TenantContext {
   const claims = makeClaims(overrides?.claims as Record<string, unknown> | undefined)
   return {
@@ -104,7 +126,10 @@ function makeTenantCtx(overrides?: Partial<TenantContext>): TenantContext {
   }
 }
 
-/** JWT claims for signing (include standard fields) */
+/**
+ * JWT claims for signing (include standard fields).
+ * Parallel structure to jwt-auth.test.ts validClaims() — keep in sync.
+ */
 function signableClaims(overrides?: Record<string, unknown>): Record<string, unknown> {
   return {
     iss: "arrakis",
@@ -120,7 +145,7 @@ function signableClaims(overrides?: Record<string, unknown>): Record<string, unk
 
 // --- Tests ---
 
-describe("Pool Enforcement (Sprint 51)", () => {
+describe("Pool Enforcement (Sprint 51+52)", () => {
   beforeAll(async () => {
     await startJWKSServer()
   })
@@ -134,7 +159,7 @@ describe("Pool Enforcement (Sprint 51)", () => {
   })
 
   // =========================================================================
-  // §1: enforcePoolClaims pure function (8 tests)
+  // §1: enforcePoolClaims pure function (9 tests)
   // =========================================================================
 
   describe("enforcePoolClaims", () => {
@@ -207,6 +232,16 @@ describe("Pool Enforcement (Sprint 51)", () => {
         expect(result.requestedPool).toBeNull()
       }
     })
+
+    it("error branch carries details for server-side diagnostics", () => {
+      const result = enforcePoolClaims(makeClaims({ tier: "free", pool_id: "reasoning" }))
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.details).toBeDefined()
+        expect(result.details?.pool_id).toBe("reasoning")
+        expect(result.details?.tier).toBe("free")
+      }
+    })
   })
 
   // =========================================================================
@@ -258,10 +293,11 @@ describe("Pool Enforcement (Sprint 51)", () => {
         requestedPool: "cheap" as PoolId,
       })
 
-      expect(() => selectAuthorizedPool(ctx, "chat")).toThrow(HounfourError)
       try {
         selectAuthorizedPool(ctx, "chat")
+        expect.unreachable("should have thrown")
       } catch (e) {
+        expect(e).toBeInstanceOf(HounfourError)
         expect((e as HounfourError).code).toBe("POOL_ACCESS_DENIED")
       }
     })
@@ -294,6 +330,7 @@ describe("Pool Enforcement (Sprint 51)", () => {
       if (result.ok) {
         expect(result.mismatch).not.toBeNull()
         expect(result.mismatch!.type).toBe("superset")
+        expect(result.mismatch!.entries).toContain("reasoning")
         expect([...result.resolvedPools]).toEqual([...getAccessiblePools("free")])
       }
     })
@@ -306,6 +343,7 @@ describe("Pool Enforcement (Sprint 51)", () => {
       if (result.ok) {
         expect(result.mismatch).not.toBeNull()
         expect(result.mismatch!.type).toBe("invalid_entry")
+        expect(result.mismatch!.entries).toContain("not-a-pool")
       }
     })
 
@@ -335,10 +373,11 @@ describe("Pool Enforcement (Sprint 51)", () => {
           requestedPool: enforcement.requestedPool,
         })
 
-        expect(() => selectAuthorizedPool(ctx, "chat")).toThrow(HounfourError)
         try {
           selectAuthorizedPool(ctx, "chat")
+          expect.unreachable("should have thrown")
         } catch (e) {
+          expect(e).toBeInstanceOf(HounfourError)
           expect((e as HounfourError).code).toBe("POOL_ACCESS_DENIED")
         }
       }
@@ -454,7 +493,7 @@ describe("Pool Enforcement (Sprint 51)", () => {
   })
 
   // =========================================================================
-  // §6: selectAuthorizedPool (4 tests)
+  // §6: selectAuthorizedPool (5 tests)
   // =========================================================================
 
   describe("selectAuthorizedPool", () => {
@@ -495,10 +534,11 @@ describe("Pool Enforcement (Sprint 51)", () => {
         requestedPool: "cheap" as PoolId, // Binds to cheap, but routing selects reasoning
       })
 
-      expect(() => selectAuthorizedPool(ctx, "chat")).toThrow(HounfourError)
       try {
         selectAuthorizedPool(ctx, "chat")
+        expect.unreachable("should have thrown")
       } catch (e) {
+        expect(e).toBeInstanceOf(HounfourError)
         expect((e as HounfourError).code).toBe("POOL_ACCESS_DENIED")
         expect((e as HounfourError).message).toContain("JWT binds to")
       }
@@ -526,18 +566,36 @@ describe("Pool Enforcement (Sprint 51)", () => {
         requestedPool: null,
       })
 
-      expect(() => selectAuthorizedPool(ctx, "chat")).toThrow(HounfourError)
       try {
         selectAuthorizedPool(ctx, "chat")
+        expect.unreachable("should have thrown")
       } catch (e) {
+        expect(e).toBeInstanceOf(HounfourError)
         expect((e as HounfourError).code).toBe("POOL_ACCESS_DENIED")
         expect((e as HounfourError).message).toContain("not in tenant's resolved pools")
+      }
+    })
+
+    it("empty resolvedPools → throws POOL_ACCESS_DENIED (invariant violation)", () => {
+      const ctx = makeTenantCtx({
+        claims: makeClaims({ tier: "pro" }),
+        resolvedPools: [] as PoolId[], // Empty — invariant violation
+        requestedPool: null,
+      })
+
+      try {
+        selectAuthorizedPool(ctx, "chat")
+        expect.unreachable("should have thrown")
+      } catch (e) {
+        expect(e).toBeInstanceOf(HounfourError)
+        expect((e as HounfourError).code).toBe("POOL_ACCESS_DENIED")
+        expect((e as HounfourError).message).toContain("No resolved pools")
       }
     })
   })
 
   // =========================================================================
-  // §7: strict mode (2 tests)
+  // §7: strict mode (4 tests)
   // =========================================================================
 
   describe("strict mode", () => {
@@ -561,6 +619,30 @@ describe("Pool Enforcement (Sprint 51)", () => {
       if (result.ok) {
         expect(result.mismatch).not.toBeNull()
         expect(result.mismatch!.type).toBe("superset")
+      }
+    })
+
+    it("strictMode: true + subset → ok (subset is informational only)", () => {
+      const result = enforcePoolClaims(
+        makeClaims({ tier: "pro", allowed_pools: ["cheap"] }),
+        { strictMode: true },
+      )
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.mismatch).not.toBeNull()
+        expect(result.mismatch!.type).toBe("subset")
+      }
+    })
+
+    it("strictMode: true + invalid_entry → ok with mismatch (invalid entries logged, not blocked)", () => {
+      const result = enforcePoolClaims(
+        makeClaims({ allowed_pools: ["not-a-pool"] }),
+        { strictMode: true },
+      )
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.mismatch).not.toBeNull()
+        expect(result.mismatch!.type).toBe("invalid_entry")
       }
     })
   })
@@ -664,6 +746,65 @@ describe("Pool Enforcement (Sprint 51)", () => {
         const importMatch = content.match(/import\s+\{[^}]*resolvePool[^}]*\}/)
         expect(importMatch).toBeNull()
       }
+    })
+  })
+
+  // =========================================================================
+  // §11: logPoolMismatch behavior (4 tests)
+  // =========================================================================
+
+  describe("logPoolMismatch", () => {
+    it("subset mismatch → console.info", () => {
+      const spy = vi.spyOn(console, "info").mockImplementation(() => {})
+      const claims = makeClaims({ tier: "pro", allowed_pools: ["cheap"] })
+      const mismatch: PoolMismatch = { type: "subset", count: 2 }
+
+      logPoolMismatch(claims, mismatch)
+
+      expect(spy).toHaveBeenCalledOnce()
+      expect(spy.mock.calls[0][0]).toBe("[pool-enforcement]")
+      spy.mockRestore()
+    })
+
+    it("superset mismatch → console.warn", () => {
+      const spy = vi.spyOn(console, "warn").mockImplementation(() => {})
+      const claims = makeClaims({ tier: "free", allowed_pools: ["reasoning"] })
+      const mismatch: PoolMismatch = { type: "superset", count: 1, entries: ["reasoning"] }
+
+      logPoolMismatch(claims, mismatch)
+
+      expect(spy).toHaveBeenCalledOnce()
+      expect(spy.mock.calls[0][0]).toBe("[pool-enforcement]")
+      spy.mockRestore()
+    })
+
+    it("invalid_entry mismatch → console.error", () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const claims = makeClaims({ allowed_pools: ["not-a-pool"] })
+      const mismatch: PoolMismatch = { type: "invalid_entry", count: 1, entries: ["not-a-pool"] }
+
+      logPoolMismatch(claims, mismatch)
+
+      expect(spy).toHaveBeenCalledOnce()
+      expect(spy.mock.calls[0][0]).toBe("[pool-enforcement]")
+      spy.mockRestore()
+    })
+
+    it("debugLogging: true → includes claimed_hash and derived_hash", () => {
+      const spy = vi.spyOn(console, "warn").mockImplementation(() => {})
+      const claims = makeClaims({ tier: "free", allowed_pools: ["reasoning"] })
+      const mismatch: PoolMismatch = { type: "superset", count: 1, entries: ["reasoning"] }
+
+      logPoolMismatch(claims, mismatch, { debugLogging: true })
+
+      expect(spy).toHaveBeenCalledOnce()
+      const logMsg = spy.mock.calls[0][1] as string
+      const parsed = JSON.parse(logMsg)
+      expect(parsed.claimed_hash).toBeDefined()
+      expect(parsed.derived_hash).toBeDefined()
+      expect(typeof parsed.claimed_hash).toBe("string")
+      expect(typeof parsed.derived_hash).toBe("string")
+      spy.mockRestore()
     })
   })
 })

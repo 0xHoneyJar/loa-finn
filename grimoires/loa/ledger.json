@@ -574,9 +574,17 @@
           "status": "completed",
           "tasks": 5,
           "notes": "Commit 46e93a8 — pool enforcement, composed auth, 40 tests. Review approved, audit passed."
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 52,
+          "label": "Bridgebuilder Findings: Code Quality & Test Hardening",
+          "status": "in_progress",
+          "tasks": 7,
+          "notes": "Bridgebuilder iter-1: 8 MEDIUM + 14 LOW findings. Score: 54."
         }
       ]
     }
   },
-  "next_global_sprint_id": 52
+  "next_global_sprint_id": 53
 }

@@ -78,7 +78,7 @@ export function createApp(config: FinnConfig, options: AppOptions) {
 
   // JWT auth for arrakis-originated requests (T-A.2)
   app.use("/api/v1/*", rateLimitMiddleware(config))
-  app.use("/api/v1/*", hounfourAuth(config))
+  app.use("/api/v1/*", hounfourAuth(config)) // endpointType defaults to 'invoke' for /api/v1/* routes
 
   // Bearer token auth for direct API access (existing behavior)
   // Skip /api/v1/* paths — already handled by JWT middleware above
