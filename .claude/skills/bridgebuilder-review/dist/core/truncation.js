@@ -131,13 +131,55 @@ export function matchesExcludePattern(filename, patterns) {
 /** Default Loa framework exclude patterns.
  * Use ** for recursive directory matching (BB-F4). */
 export const LOA_EXCLUDE_PATTERNS = [
+    // Core framework (existing)
     ".claude/**",
     "grimoires/**",
     ".beads/**",
     ".loa-version.json",
     ".loa.config.yaml",
     ".loa.config.yaml.example",
+    // State & runtime (Bug 1 — issue #309)
+    "evals/**",
+    ".run/**",
+    ".flatline/**",
+    // Docs & config (Bug 1 — issue #309)
+    "PROCESS.md",
+    "BUTTERFREEZONE.md",
+    "INSTALLATION.md",
+    "grimoires/**/NOTES.md",
 ];
+/**
+ * Load .reviewignore patterns from repo root and merge with LOA_EXCLUDE_PATTERNS.
+ * Returns combined patterns array. Graceful when file missing (returns LOA patterns only).
+ */
+export function loadReviewIgnore(repoRoot) {
+    const root = repoRoot ?? process.cwd();
+    const reviewignorePath = require("path").join(root, ".reviewignore");
+    const basePatterns = [...LOA_EXCLUDE_PATTERNS];
+    try {
+        const fs = require("fs");
+        if (!fs.existsSync(reviewignorePath)) {
+            return basePatterns;
+        }
+        const content = fs.readFileSync(reviewignorePath, "utf-8");
+        for (const rawLine of content.split("\n")) {
+            const line = rawLine.trim();
+            // Skip blank lines and comments
+            if (!line || line.startsWith("#"))
+                continue;
+            // Normalize directory patterns: "dir/" → "dir/**"
+            const pattern = line.endsWith("/") ? `${line}**` : line;
+            // Avoid duplicates
+            if (!basePatterns.includes(pattern)) {
+                basePatterns.push(pattern);
+            }
+        }
+    }
+    catch {
+        // Graceful: return base patterns on any error
+    }
+    return basePatterns;
+}
 /**
  * Detect if repo is Loa-mounted by reading .loa-version.json.
  * Resolves paths against repoRoot (git root), NOT cwd (SKP-001, IMP-004).
@@ -182,6 +224,21 @@ export function detectLoa(config) {
         return { isLoa: false, source: "file" };
     }
 }
+// --- Loa System Zone Detection (Bug 2 fix — issue #309) ---
+/** Paths that are definitively Loa framework system zones.
+ * Security pattern matches in these zones get demoted to tier2 (summary)
+ * instead of exception (full diff) to prevent framework file leakage. */
+const LOA_SYSTEM_ZONE_PREFIXES = [
+    ".claude/",
+    "grimoires/",
+    ".beads/",
+    "evals/",
+    ".run/",
+    ".flatline/",
+];
+export function isLoaSystemZone(filename) {
+    return LOA_SYSTEM_ZONE_PREFIXES.some(prefix => filename.startsWith(prefix));
+}
 // --- Two-Tier Loa Exclusion (Task 1.3 — SDD Section 3.2) ---
 /** Tier 1 extensions: content-excluded (stats only). */
 const TIER1_EXTENSIONS = new Set([
@@ -201,8 +258,12 @@ const TIER2_MIN_PATHS = [
     /(?:^|\/)k8s\//i,
 ];
 export function classifyLoaFile(filename) {
-    // Exception: SECURITY_PATTERNS match → full diff, never excluded
+    // Security pattern match: full diff for app code, but demoted to tier2
+    // for Loa system zone files (Bug 2 fix — issue #309)
     if (isHighRisk(filename)) {
+        if (isLoaSystemZone(filename)) {
+            return "tier2";
+        }
         return "exception";
     }
     const basename = filename.split("/").pop() ?? "";
@@ -632,6 +693,7 @@ function patchBytes(file) {
 export function truncateFiles(files, config) {
     const patterns = config.excludePatterns ?? [];
     // Step 0: Loa-aware filtering (prepended, not replacing user patterns)
+    // Load .reviewignore and merge with LOA_EXCLUDE_PATTERNS (#303)
     const loaDetection = detectLoa(config);
     let loaBanner;
     let loaStats;
@@ -639,7 +701,8 @@ export function truncateFiles(files, config) {
     const loaExcludedEntries = [];
     let afterLoa = files;
     if (loaDetection.isLoa) {
-        const tierResult = applyLoaTierExclusion(files, LOA_EXCLUDE_PATTERNS);
+        const effectivePatterns = loadReviewIgnore(config.repoRoot);
+        const tierResult = applyLoaTierExclusion(files, effectivePatterns);
         afterLoa = tierResult.passthrough;
         // Collect Loa excluded entries
         for (const entry of tierResult.tier1Excluded) {
