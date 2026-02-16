@@ -44,6 +44,7 @@ export interface JWTClaims {
   scope?: string  // S2S scope claim (e.g., "admin:jwks")
   pool_id?: string         // Optional: requested pool (validated by pool enforcement)
   allowed_pools?: string[] // Optional: gateway hint (never trusted, re-derived)
+  reservation_id?: string  // Billing reservation ID from arrakis (Phase 5)
 }
 
 export interface TenantContext {

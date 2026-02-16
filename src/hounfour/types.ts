@@ -97,6 +97,7 @@ export interface RequestMetadata {
   tenant_id: string                     // "local" for Phase 0-2
   nft_id: string                        // "" for Phase 0-3
   trace_id: string                      // UUID per request
+  reservation_id?: string               // billing reservation from arrakis JWT (Phase 5)
 }
 
 export interface CompletionResult {

@@ -315,6 +315,12 @@ export class HounfourRouter {
       : options
     const messages = this.buildMessages(prompt, effectiveOptions)
 
+    // Reservation ID from JWT claim (Phase 5 billing)
+    const reservationId = tenantContext.claims.reservation_id
+    if (!reservationId) {
+      console.warn(`[hounfour] missing reservation_id for tenant="${tenantId}" trace="${traceId}"`)
+    }
+
     const request: CompletionRequest = {
       messages,
       options: {
@@ -326,6 +332,7 @@ export class HounfourRouter {
         tenant_id: tenantId,
         nft_id: nftId,
         trace_id: traceId,
+        reservation_id: reservationId,
       },
     }
 

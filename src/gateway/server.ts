@@ -76,6 +76,13 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     return c.json(options.s2sSigner.getJWKS())
   })
 
+  // Strip internal reservation header unconditionally pre-auth (Phase 5 T2)
+  // Source of truth is the JWT claim signed by arrakis, not client headers
+  app.use("/api/v1/*", async (c, next) => {
+    c.req.raw.headers.delete("x-internal-reservation-id")
+    return next()
+  })
+
   // JWT auth for arrakis-originated requests (T-A.2)
   app.use("/api/v1/*", rateLimitMiddleware(config))
   app.use("/api/v1/*", hounfourAuth(config)) // endpointType defaults to 'invoke' for /api/v1/* routes
