@@ -66,8 +66,23 @@ const DLQ_GET_READY_LUA = `return redis.call("ZRANGEBYSCORE", KEYS[1], "-inf", A
 // Orphan repair: remove schedule entry for missing payload
 const DLQ_ORPHAN_REPAIR_LUA = `redis.call("ZREM", KEYS[1], ARGV[1])`
 
-// Peek at oldest member (lowest score)
-const DLQ_OLDEST_LUA = `return redis.call("ZRANGE", KEYS[1], 0, 0)`
+// Scan all members, find min created_at from payloads (DLQ bounded by batchLimit)
+const DLQ_OLDEST_CREATED_LUA = `
+local rids = redis.call("ZRANGE", KEYS[1], 0, -1)
+local oldest = nil
+for _, rid in ipairs(rids) do
+  local json = redis.call("GET", KEYS[2] .. rid)
+  if json then
+    local entry = cjson.decode(json)
+    if entry.created_at then
+      if oldest == nil or entry.created_at < oldest then
+        oldest = entry.created_at
+      end
+    end
+  end
+end
+return oldest
+`
 
 // --- Constants ---
 
@@ -164,12 +179,13 @@ export class RedisDLQStore implements DLQStore {
 
   async oldestEntryAgeMs(): Promise<number | null> {
     const client = this.redis.getClient()
-    const rids = await client.eval(DLQ_OLDEST_LUA, 1, this.scheduleKey) as string[]
-    if (!rids || rids.length === 0) return null
-    const json = await client.get(this.entryKey(rids[0]))
-    if (!json) return null
-    const entry = JSON.parse(json) as DLQEntry
-    return Date.now() - new Date(entry.created_at).getTime()
+    // Scans all DLQ payloads to find min created_at (DLQ bounded by batchLimit, typically <50)
+    const entryPrefix = this.redis.key("dlq", "entry", "")
+    const oldestCreatedAt = await client.eval(
+      DLQ_OLDEST_CREATED_LUA, 2, this.scheduleKey, entryPrefix
+    ) as string | null
+    if (!oldestCreatedAt) return null
+    return Date.now() - new Date(oldestCreatedAt).getTime()
   }
 
   /** Acquire claim lock for replay. Returns true if lock acquired. */

@@ -47,6 +47,8 @@ export function createApp(config: FinnConfig, options: AppOptions) {
   })
 
   // Health endpoint (no auth required)
+  // NOTE: dlq_store_type exposed intentionally for ops monitoring (Datadog, Grafana).
+  // This is not sensitive — it reveals "redis" vs "in-memory", not connection strings.
   app.get("/health", async (c) => {
     // Billing DLQ metrics — never throws
     let billing: Record<string, unknown> = {

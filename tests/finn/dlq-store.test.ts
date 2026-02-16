@@ -142,10 +142,20 @@ function createMockRedis(): {
         return ready
       }
 
-      // Simulate ZRANGE (oldest)
-      if (script.includes("ZRANGE")) {
-        const sorted = [...zset.entries()].sort((a, b) => a[1] - b[1])
-        return sorted.length > 0 ? [sorted[0][0]] : []
+      // Simulate DLQ_OLDEST_CREATED — scans all payloads, finds min created_at
+      if (script.includes("oldest") && script.includes("created_at")) {
+        const entryPrefix = args[numkeys - 1] as string  // KEYS[2] = entry prefix
+        let oldest: string | null = null
+        for (const rid of zset.keys()) {
+          const json = store.get(entryPrefix + rid)
+          if (json) {
+            const entry = JSON.parse(json)
+            if (entry.created_at && (oldest === null || entry.created_at < oldest)) {
+              oldest = entry.created_at
+            }
+          }
+        }
+        return oldest
       }
 
       // Simulate ZREM (orphan repair)
@@ -355,6 +365,30 @@ describe("RedisDLQStore", () => {
     expect(terminalJson).toBeDefined()
     const terminal = JSON.parse(terminalJson!)
     expect(terminal.reservation_id).toBe("res-001")
+  })
+
+  it("oldestEntryAgeMs scans all payloads by created_at, not ZSET order", async () => {
+    const oldCreated = new Date(Date.now() - 600_000).toISOString() // 10 min ago
+    const newCreated = new Date(Date.now() - 60_000).toISOString()  // 1 min ago
+
+    // Put older entry with LATER schedule (higher ZSET score)
+    await store.put(createEntry({
+      reservation_id: "res-old",
+      created_at: oldCreated,
+      next_attempt_at: new Date(Date.now() + 300_000).toISOString(), // future schedule
+    }))
+    // Put newer entry with EARLIER schedule (lower ZSET score)
+    await store.put(createEntry({
+      reservation_id: "res-new",
+      created_at: newCreated,
+      next_attempt_at: new Date(Date.now() - 60_000).toISOString(), // past schedule
+    }))
+
+    const age = await store.oldestEntryAgeMs()
+    expect(age).not.toBeNull()
+    // Should be ~600_000ms (10 min) — the OLDER entry by created_at, not the one first in ZSET
+    expect(age!).toBeGreaterThan(595_000)
+    expect(age!).toBeLessThan(605_000)
   })
 
   it("delete cleans all keys: payload, schedule, lock", async () => {
