@@ -33,6 +33,7 @@ import type {
   ProviderHealthSnapshot,
   BudgetSnapshot,
 } from "./types.js"
+import type { BillingFinalizeClient, FinalizeResult } from "./billing-finalize-client.js"
 
 // --- Router Options ---
 
@@ -45,6 +46,7 @@ export interface HounfourRouterOptions {
   rateLimiter?: ProviderRateLimiter     // Optional: per-provider RPM/TPM enforcement (T-16.3)
   poolRegistry?: PoolRegistry           // Optional: pool-based routing (T-C.1)
   byokProxy?: BYOKProxyClient           // Optional: BYOK proxy adapter (T-C.2)
+  billingFinalize?: BillingFinalizeClient // Optional: S2S billing finalize (Phase 5 T5)
   projectRoot?: string                  // For persona path resolution
   routingConfig?: Partial<RoutingConfig>
   toolCallConfig?: Partial<ToolCallLoopConfig>
@@ -116,6 +118,7 @@ export class HounfourRouter {
   private rateLimiter?: ProviderRateLimiter
   private poolRegistry?: PoolRegistry
   private byokProxy?: BYOKProxyClient
+  private billingFinalize?: BillingFinalizeClient
   private projectRoot: string
   private routingConfig: RoutingConfig
   private toolCallConfig: ToolCallLoopConfig
@@ -129,6 +132,7 @@ export class HounfourRouter {
     this.rateLimiter = options.rateLimiter
     this.poolRegistry = options.poolRegistry
     this.byokProxy = options.byokProxy
+    this.billingFinalize = options.billingFinalize
     this.projectRoot = options.projectRoot ?? process.cwd()
     this.routingConfig = {
       default_model: options.routingConfig?.default_model ?? "",
@@ -144,6 +148,11 @@ export class HounfourRouter {
       },
     }
     this.toolCallConfig = { ...DEFAULT_TOOL_CALL_CONFIG, ...options.toolCallConfig }
+  }
+
+  /** Attach billing finalize client post-construction (Phase 5 T5) */
+  setBillingFinalize(client: BillingFinalizeClient): void {
+    this.billingFinalize = client
   }
 
   /**
@@ -373,6 +382,7 @@ export class HounfourRouter {
 
     // Record cost with pool and tenant attribution
     const pricing = this.registry.getPricing(pool.provider, pool.model)
+    let recordCostSucceeded = false
     if (pricing) {
       await this.budget.recordCost(this.scopeMeta, result.usage, pricing, {
         trace_id: traceId,
@@ -384,6 +394,26 @@ export class HounfourRouter {
         pool_id: pool.id,
         latency_ms: result.metadata.latency_ms,
       })
+      recordCostSucceeded = true
+    }
+
+    // Billing finalize: only after recordCost succeeds, try/catch isolated (Phase 5 T5)
+    if (this.billingFinalize && reservationId && recordCostSucceeded && pricing) {
+      try {
+        // Convert USD float to micro-USD BigInt string
+        const costUsd = (result.usage.prompt_tokens * pricing.input_per_1m +
+          result.usage.completion_tokens * pricing.output_per_1m) / 1_000_000
+        const costMicro = BigInt(Math.round(costUsd * 1_000_000))
+        await this.billingFinalize.finalize({
+          reservation_id: reservationId,
+          tenant_id: tenantId,
+          actual_cost_micro: costMicro.toString(),
+          trace_id: traceId,
+        })
+      } catch {
+        // finalize() should never throw, but defensive isolation
+        console.error(`[hounfour] billing finalize unexpected throw: reservation_id=${reservationId}`)
+      }
     }
 
     return result
