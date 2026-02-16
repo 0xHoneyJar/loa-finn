@@ -161,6 +161,22 @@ async function main() {
     console.log("[finn] redis: disabled (set REDIS_URL to enable)")
   }
 
+  // 6d3. Initialize DLQ Store — mode set once at startup, never switches (PRD §5, SDD §3.1)
+  let dlqStore: import("./hounfour/dlq-store.js").DLQStore
+  let dlqAofVerified = false
+  if (redis?.isConnected()) {
+    const { RedisDLQStore } = await import("./hounfour/redis/dlq.js")
+    const redisDlq = new RedisDLQStore(redis)
+    const persistenceCheck = await redisDlq.validatePersistence()
+    dlqAofVerified = persistenceCheck.aofVerified
+    dlqStore = redisDlq
+    console.log(`[finn] dlq store: type=redis durable=true aof_verified=${persistenceCheck.aofVerified} checked=${persistenceCheck.checked}${persistenceCheck.reason ? ` reason="${persistenceCheck.reason}"` : ""}`)
+  } else {
+    const { InMemoryDLQStore } = await import("./hounfour/dlq-store.js")
+    dlqStore = new InMemoryDLQStore()
+    console.log("[finn] dlq store: type=in-memory durable=false (redis unavailable)")
+  }
+
   // 6e. Initialize Hounfour multi-model routing (SDD §4, T-15.9)
   let hounfour: import("./hounfour/router.js").HounfourRouter | undefined
   try {
@@ -297,6 +313,8 @@ async function main() {
         billingFinalizeClient = new BillingFinalizeClient({
           billingUrl,  // base URL — client appends /api/internal/finalize
           s2sSigner,
+          dlqStore,
+          aofVerified: dlqAofVerified,
         })
         billingFinalizeClient.startReplayTimer()
         hounfour.setBillingFinalize(billingFinalizeClient)
@@ -376,7 +394,7 @@ async function main() {
   }
 
   // 7. Create gateway (with executor for sandbox, pool for health stats)
-  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner })
+  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()

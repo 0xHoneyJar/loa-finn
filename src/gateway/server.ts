@@ -15,6 +15,7 @@ import type { ActivityFeed } from "../dashboard/activity-feed.js"
 import { createActivityHandler } from "../dashboard/activity-handler.js"
 import type { HounfourRouter } from "../hounfour/router.js"
 import type { S2SJwtSigner } from "../hounfour/s2s-jwt.js"
+import type { BillingFinalizeClient } from "../hounfour/billing-finalize-client.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
@@ -24,6 +25,8 @@ export interface AppOptions {
   hounfour?: HounfourRouter
   /** S2S JWT signer for JWKS endpoint (Phase 5 T-A.6) */
   s2sSigner?: S2SJwtSigner
+  /** Billing finalize client for health metrics (Sprint 2 T3) */
+  billingFinalizeClient?: BillingFinalizeClient
 }
 
 export function createApp(config: FinnConfig, options: AppOptions) {
@@ -44,9 +47,31 @@ export function createApp(config: FinnConfig, options: AppOptions) {
   })
 
   // Health endpoint (no auth required)
-  app.get("/health", (c) => {
+  app.get("/health", async (c) => {
+    // Billing DLQ metrics — never throws
+    let billing: Record<string, unknown> = {
+      dlq_size: null,
+      dlq_oldest_entry_age_ms: null,
+      dlq_store_type: "unknown",
+      dlq_durable: false,
+      dlq_aof_verified: false,
+    }
+    if (options?.billingFinalizeClient) {
+      try {
+        billing = {
+          dlq_size: await options.billingFinalizeClient.getDLQSize(),
+          dlq_oldest_entry_age_ms: await options.billingFinalizeClient.getDLQOldestAgeMs(),
+          dlq_store_type: options.billingFinalizeClient.isDurable() ? "redis" : "in-memory",
+          dlq_durable: options.billingFinalizeClient.isDurable(),
+          dlq_aof_verified: options.billingFinalizeClient.isAofVerified(),
+        }
+      } catch {
+        // Redis failure — return null/defaults, never throw
+      }
+    }
+
     if (options?.healthAggregator) {
-      return c.json(options.healthAggregator.check())
+      return c.json({ ...options.healthAggregator.check(), billing })
     }
     return c.json({
       status: "healthy",
@@ -55,6 +80,7 @@ export function createApp(config: FinnConfig, options: AppOptions) {
         agent: { status: "ok", model: config.model },
         sessions: { active: router.getActiveCount() },
       },
+      billing,
     })
   })
 
