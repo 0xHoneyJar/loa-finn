@@ -71,6 +71,11 @@ interface RawAgentBinding {
   temperature?: number
   persona?: string
   requires: AgentRequirements
+  knowledge?: {
+    enabled: boolean
+    sources: string[]
+    maxTokensBudgetRatio: number
+  }
 }
 
 interface RawRoutingConfig {
@@ -160,6 +165,7 @@ export class ProviderRegistry {
           temperature: rawBinding.temperature,
           persona: rawBinding.persona,
           requires: rawBinding.requires,
+          knowledge: rawBinding.knowledge,
         })
       }
     }

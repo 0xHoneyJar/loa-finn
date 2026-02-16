@@ -91,6 +91,13 @@ export interface FinnConfig {
     audience: string
   }
 
+  /** Oracle knowledge enrichment (Cycle 025 §3) */
+  oracle: {
+    enabled: boolean
+    sourcesConfigPath: string
+    minContextWindow: number
+  }
+
   /** JWT validation for arrakis-originated requests (Phase 5 §3.1) */
   jwt: {
     enabled: boolean
@@ -219,6 +226,12 @@ export function loadConfig(): FinnConfig {
       kid: process.env.FINN_S2S_KID ?? "loa-finn-v1",
       issuer: process.env.FINN_S2S_ISSUER ?? "loa-finn",
       audience: process.env.FINN_S2S_AUDIENCE ?? "arrakis",
+    },
+
+    oracle: {
+      enabled: process.env.FINN_ORACLE_ENABLED === "true",
+      sourcesConfigPath: process.env.FINN_ORACLE_SOURCES_CONFIG ?? "grimoires/oracle/sources.json",
+      minContextWindow: parseIntEnv("FINN_ORACLE_MIN_CONTEXT", "30000"),
     },
 
     jwt: {

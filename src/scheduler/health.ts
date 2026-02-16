@@ -62,6 +62,13 @@ export interface HealthStatus {
       providers?: Record<string, { healthy: boolean; models: Record<string, { healthy: boolean }> }>
       budget?: { spent_usd: number; limit_usd: number; percent_used: number }
     }
+    oracle?: {
+      status: string
+      healthy: boolean
+      sources_loaded: number
+      total_tokens: number
+      missing: string[]
+    }
   }
 }
 
@@ -80,6 +87,7 @@ export interface HealthDeps {
   getProviderHealth?: () => Record<string, { healthy: boolean; models: Record<string, { healthy: boolean }> }> | undefined
   getBudgetSnapshot?: () => { spent_usd: number; limit_usd: number; percent_used: number } | undefined
   getRedisHealth?: () => Promise<{ connected: boolean; latencyMs: number }>
+  getOracleHealth?: () => { healthy: boolean; sources_loaded: number; total_tokens: number; missing: string[] } | undefined
 }
 
 export class HealthAggregator {
@@ -149,6 +157,18 @@ export class HealthAggregator {
         status: "ok",
         providers: providerHealth,
         budget: budgetSnapshot,
+      }
+    }
+
+    // Optional: Oracle knowledge registry health
+    const oracleHealth = this.deps.getOracleHealth?.()
+    if (oracleHealth) {
+      checks.oracle = {
+        status: oracleHealth.healthy ? "ok" : "degraded",
+        healthy: oracleHealth.healthy,
+        sources_loaded: oracleHealth.sources_loaded,
+        total_tokens: oracleHealth.total_tokens,
+        missing: oracleHealth.missing,
       }
     }
 
