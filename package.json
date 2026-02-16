@@ -26,7 +26,7 @@
     "@mariozechner/pi-agent-core": "~0.52.6",
     "@mariozechner/pi-ai": "~0.52.10",
     "@mariozechner/pi-coding-agent": "~0.52.6",
-    "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#v1.1.0",
+    "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#e5b9f16c60a95f7940c96af3b11cf50065abe898",
     "@sinclair/typebox": "^0.34.48",
     "croner": "^10.0.1",
     "hono": "^4.11.9",
