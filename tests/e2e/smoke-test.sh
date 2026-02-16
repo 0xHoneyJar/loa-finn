@@ -28,10 +28,28 @@ cleanup() {
 trap cleanup EXIT
 
 # --- Helpers ---
+
+# Escape backslash, quotes, and control characters for safe JSON string embedding
+json_escape() {
+  awk '
+    BEGIN { ORS="" }
+    {
+      gsub(/\\/, "\\\\")
+      gsub(/"/, "\\\"")
+      gsub(/\t/, "\\t")
+      gsub(/\r/, "\\r")
+      if (NR > 1) printf "\\n"
+      printf "%s", $0
+    }
+  '
+}
+
 pass() {
   local name="$1"
   PASSED=$((PASSED + 1))
-  TESTS+=("{\"name\":\"$name\",\"status\":\"pass\"}")
+  local escaped_name
+  escaped_name=$(printf '%s' "$name" | json_escape)
+  TESTS+=("{\"name\":\"$escaped_name\",\"status\":\"pass\"}")
   echo "  PASS: $name"
 }
 
@@ -39,7 +57,10 @@ fail() {
   local name="$1"
   local detail="${2:-}"
   FAILED=$((FAILED + 1))
-  TESTS+=("{\"name\":\"$name\",\"status\":\"fail\",\"detail\":\"$detail\"}")
+  local escaped_name escaped_detail
+  escaped_name=$(printf '%s' "$name" | json_escape)
+  escaped_detail=$(printf '%s' "$detail" | json_escape)
+  TESTS+=("{\"name\":\"$escaped_name\",\"status\":\"fail\",\"detail\":\"$escaped_detail\"}")
   echo "  FAIL: $name${detail:+ — $detail}"
 }
 

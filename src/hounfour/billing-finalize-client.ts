@@ -57,7 +57,7 @@ export class BillingFinalizeClient {
   // WHY: Netflix Hystrix lesson — shared mutable state between circuit breakers
   // causes cascading failures. Instance isolation is the default. Module-level
   // singletons make testing fragile (global state leaks). See Finding #3 (PR #68).
-  // Future Redis integration (Sprint B) will use instance-scoped Redis key namespace.
+  // Future: DLQ persistence via Redis (DLQStore adapter). See Bridge review high-1.
   private readonly dlqEntries: Map<string, DLQEntry> = new Map()
   private readonly config: BillingFinalizeConfig
   private readonly timeoutMs: number

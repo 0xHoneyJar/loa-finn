@@ -21,8 +21,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate ARRAKIS_CHECKOUT_TOKEN
+        env:
+          TOKEN: ${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}
         run: |
-          if [[ -z "${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}" ]]; then
+          if [[ -z "$TOKEN" ]]; then
             echo "::error::ARRAKIS_CHECKOUT_TOKEN secret not configured. See repo Settings → Secrets. Required for cross-repo arrakis checkout."
             exit 1
           fi
