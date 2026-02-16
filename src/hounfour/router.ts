@@ -136,13 +136,18 @@ export function usdToMicroBigInt(usd: number): bigint {
 }
 
 /** Compute total cost in micro-USD using pure BigInt arithmetic.
- *  Zero float multiplication in the money path. */
+ *  Zero float multiplication in the money path.
+ *  Throws on negative token counts (validate at the boundary where
+ *  the constraint is semantically meaningful). */
 export function computeCostMicro(
   promptTokens: number,
   completionTokens: number,
   inputPricePerMillion: number,
   outputPricePerMillion: number,
 ): bigint {
+  if (promptTokens < 0 || completionTokens < 0) {
+    throw new Error(`invalid token count: prompt=${promptTokens}, completion=${completionTokens}`)
+  }
   const inputMicroPer1M = usdToMicroBigInt(inputPricePerMillion)
   const outputMicroPer1M = usdToMicroBigInt(outputPricePerMillion)
   return (

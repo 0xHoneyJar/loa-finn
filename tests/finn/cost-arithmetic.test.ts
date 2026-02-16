@@ -87,4 +87,12 @@ describe("computeCostMicro", () => {
     const cost = computeCostMicro(1_000_000, 0, 0.000001, 0)
     expect(cost).toBe(1n)
   })
+
+  it("throws on negative prompt tokens", () => {
+    expect(() => computeCostMicro(-1, 0, 3.0, 15.0)).toThrow("invalid token count")
+  })
+
+  it("throws on negative completion tokens", () => {
+    expect(() => computeCostMicro(0, -1, 3.0, 15.0)).toThrow("invalid token count")
+  })
 })
