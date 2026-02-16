@@ -1,5 +1,12 @@
 # A2A Sprint Index
 
+## Cycle-024: Production Deploy & Thinnest Product Surface
+
+| Sprint | Global ID | Status | Report |
+|--------|-----------|--------|--------|
+| Sprint 1: Endpoints + Infrastructure + Tests | 58 | COMPLETED | [reviewer.md](sprint-58/reviewer.md) / [engineer-feedback.md](sprint-58/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-58/auditor-sprint-feedback.md) |
+| Sprint 2: CI/CD + Production Readiness | 59 | COMPLETED | [reviewer.md](sprint-59/reviewer.md) / [engineer-feedback.md](sprint-59/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-59/auditor-sprint-feedback.md) |
+
 ## Cycle-019: Bridgebuilder V3 Migration
 
 | Sprint | Global ID | Status | Report |
