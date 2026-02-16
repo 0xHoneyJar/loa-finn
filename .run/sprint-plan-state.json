@@ -1,46 +1,34 @@
 {
-  "plan_id": "plan-20260215-c017phase2",
-  "branch": "feat/cycle-017-butterfreezone-excellence",
-  "state": "RUNNING",
+  "plan_id": "plan-20260216-c021finalize",
+  "branch": "feature/hounfour-phase5-implementation",
+  "state": "JACKED_OUT",
   "timestamps": {
-    "started": "2026-02-15T20:00:00Z",
-    "last_activity": "2026-02-15T20:30:00Z"
+    "started": "2026-02-16T17:30:00Z",
+    "last_activity": "2026-02-17T01:22:00Z"
   },
   "sprints": {
-    "total": 3,
+    "total": 1,
     "completed": 1,
-    "current": "sprint-6",
+    "current": "sprint-1",
     "list": [
       {
-        "id": "sprint-5",
+        "id": "sprint-1",
         "status": "completed",
         "cycles": 1,
-        "global_id": "sprint-110",
-        "files_changed": 6
-      },
-      {
-        "id": "sprint-6",
-        "status": "in_progress",
-        "cycles": 0,
-        "global_id": "sprint-111"
-      },
-      {
-        "id": "sprint-7",
-        "status": "pending",
-        "cycles": 0,
-        "global_id": "sprint-112"
+        "global_id": "sprint-53",
+        "files_changed": 10
       }
     ]
   },
   "options": {
-    "from": 5,
-    "to": 7,
+    "from": 1,
+    "to": 1,
     "max_cycles": 20,
     "timeout_hours": 8
   },
   "metrics": {
     "total_cycles": 1,
-    "total_files_changed": 6,
+    "total_files_changed": 10,
     "total_findings_fixed": 0
   }
 }

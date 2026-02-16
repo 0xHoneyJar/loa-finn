@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-020",
+  "current_cycle": "cycle-021",
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -560,11 +560,13 @@
     },
     "cycle-020": {
       "label": "Pool Claim Enforcement: Confused Deputy Prevention",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-13T14:00:00Z",
+      "archived": "2026-02-13T19:30:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-13-pool-claim-enforcement-complete",
       "prd": "grimoires/loa/prd-pool-claim-enforcement.md",
       "sdd": "grimoires/loa/sdd-pool-claim-enforcement.md",
-      "notes": "RFC #31 Phase 4 remaining work. Issue #53. PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 7 blocking issues resolved). Sprint plan: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved).",
+      "notes": "RFC #31 Phase 4 remaining work. Issue #53 CLOSED. PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 7 blocking issues resolved). Sprint plan: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). PR #65 merged. Bridge flatlined: 54→0 in 2 iterations. 24 findings fixed (22 Bridge + 2 GPT-5.2).",
       "sprint_plan": "grimoires/loa/sprint-pool-claim-enforcement.md",
       "sprints": [
         {
@@ -586,5 +588,25 @@
       ]
     }
   },
-  "next_global_sprint_id": 53
+    "cycle-021": {
+      "label": "S2S Billing Finalize Client + loa-hounfour v5.0.0 Upgrade",
+      "status": "active",
+      "started": "2026-02-16T14:05:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 4 blocking issues resolved). Sprint: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Issue #67.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 53,
+          "label": "S2S Billing Finalize Client + Protocol Upgrade",
+          "status": "completed",
+          "tasks": 6,
+          "notes": "T1-T6 complete. loa-hounfour v5.0.0, reservation_id JWT propagation, BillingFinalizeClient with DLQ, protocol handshake, router integration, 32 new tests."
+        }
+      ]
+    }
+  },
+  "next_global_sprint_id": 54
 }
