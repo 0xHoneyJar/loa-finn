@@ -18,7 +18,8 @@
     "test:upstream": "vitest run --config .claude/lib/persistence/vitest.config.ts",
     "bridgebuilder": "tsx src/bridgebuilder/entry.ts",
     "bridgebuilder:dry-run": "BRIDGEBUILDER_DRY_RUN=true tsx src/bridgebuilder/entry.ts",
-    "test:bridgebuilder": "tsx tests/finn/bridgebuilder-r2-context.test.ts && tsx tests/finn/bridgebuilder-launch.test.ts"
+    "test:bridgebuilder": "tsx tests/finn/bridgebuilder-r2-context.test.ts && tsx tests/finn/bridgebuilder-launch.test.ts",
+    "test:billing": "vitest run tests/finn/billing-finalize.test.ts tests/finn/protocol-handshake.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.985.0",
@@ -26,7 +27,7 @@
     "@mariozechner/pi-agent-core": "~0.52.6",
     "@mariozechner/pi-ai": "~0.52.10",
     "@mariozechner/pi-coding-agent": "~0.52.6",
-    "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#v1.1.0",
+    "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#e5b9f16c60a95f7940c96af3b11cf50065abe898",
     "@sinclair/typebox": "^0.34.48",
     "croner": "^10.0.1",
     "hono": "^4.11.9",

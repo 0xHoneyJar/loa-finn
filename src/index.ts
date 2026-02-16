@@ -253,6 +253,38 @@ async function main() {
     // Non-fatal — loa-finn works without hounfour (backward compatible per NFR-3)
   }
 
+  // 6e-bis. Initialize S2S Billing Finalize Client (Phase 5 T5)
+  let billingFinalizeClient: import("./hounfour/billing-finalize-client.js").BillingFinalizeClient | undefined
+  let s2sSigner: import("./hounfour/s2s-jwt.js").S2SJwtSigner | undefined
+  const billingUrl = process.env.ARRAKIS_BILLING_URL
+  if (billingUrl && hounfour) {
+    const s2sPrivateKey = process.env.FINN_S2S_PRIVATE_KEY
+    if (s2sPrivateKey) {
+      try {
+        const { S2SJwtSigner } = await import("./hounfour/s2s-jwt.js")
+        const { BillingFinalizeClient } = await import("./hounfour/billing-finalize-client.js")
+        s2sSigner = new S2SJwtSigner({
+          privateKeyPem: s2sPrivateKey,
+          kid: process.env.FINN_S2S_KID ?? "loa-finn-v1",
+          issuer: "loa-finn",
+          audience: "arrakis",
+        })
+        await s2sSigner.init()
+        billingFinalizeClient = new BillingFinalizeClient({
+          billingUrl,
+          s2sSigner,
+        })
+        billingFinalizeClient.startReplayTimer()
+        hounfour.setBillingFinalize(billingFinalizeClient)
+        console.log(`[finn] billing finalize client initialized: ${billingUrl}`)
+      } catch (err) {
+        console.error(`[finn] billing finalize init failed (non-fatal):`, (err as Error).message)
+      }
+    } else {
+      console.warn("[finn] ARRAKIS_BILLING_URL set but FINN_S2S_PRIVATE_KEY missing — billing finalize disabled")
+    }
+  }
+
   // 6f. Initialize Cheval sidecar + Orchestrator (Phase 3, T-1.3/T-1.4/T-1.5/T-1.7)
   let sidecarManager: import("./hounfour/sidecar-manager.js").SidecarManager | undefined
   let orchestrator: import("./hounfour/orchestrator.js").Orchestrator | undefined
@@ -320,7 +352,7 @@ async function main() {
   }
 
   // 7. Create gateway (with executor for sandbox, pool for health stats)
-  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour })
+  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()
@@ -425,6 +457,26 @@ async function main() {
     console.log(`[finn] identity reloaded: v${doc?.version}, checksum=${doc?.checksum.slice(0, 8)}`)
   })
   identityWatching = true
+
+  // 9b. Protocol version handshake — MUST run before server.listen() (Phase 5 T5)
+  // WHY: Kubernetes readiness probe pattern — validate external dependencies before
+  // accepting traffic. If protocol is incompatible, the server should never have been
+  // "ready." Fail-fast at boot prevents serving requests that will inevitably fail
+  // at the billing boundary. See Bridgebuilder Finding #8 PRAISE (PR #68).
+  if (billingUrl) {
+    try {
+      const { validateProtocolAtBoot } = await import("./hounfour/protocol-handshake.js")
+      await validateProtocolAtBoot({
+        arrakisBaseUrl: process.env.ARRAKIS_BASE_URL,
+        billingUrl,
+        env: process.env.NODE_ENV ?? "development",
+      })
+    } catch (err) {
+      // In production, validateProtocolAtBoot throws — propagate to halt boot
+      if (process.env.NODE_ENV === "production") throw err
+      console.error(`[finn] protocol handshake failed (non-fatal):`, (err as Error).message)
+    }
+  }
 
   // 10. Start HTTP server
   const bootDuration = Date.now() - bootStart

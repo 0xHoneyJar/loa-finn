@@ -33,6 +33,7 @@ import type {
   ProviderHealthSnapshot,
   BudgetSnapshot,
 } from "./types.js"
+import type { BillingFinalizeClient, FinalizeResult } from "./billing-finalize-client.js"
 
 // --- Router Options ---
 
@@ -45,6 +46,7 @@ export interface HounfourRouterOptions {
   rateLimiter?: ProviderRateLimiter     // Optional: per-provider RPM/TPM enforcement (T-16.3)
   poolRegistry?: PoolRegistry           // Optional: pool-based routing (T-C.1)
   byokProxy?: BYOKProxyClient           // Optional: BYOK proxy adapter (T-C.2)
+  billingFinalize?: BillingFinalizeClient // Optional: S2S billing finalize (Phase 5 T5)
   projectRoot?: string                  // For persona path resolution
   routingConfig?: Partial<RoutingConfig>
   toolCallConfig?: Partial<ToolCallLoopConfig>
@@ -105,6 +107,55 @@ export interface ToolExecutor {
   exec(tool: string, args: unknown): Promise<unknown>
 }
 
+// --- Cost Arithmetic (Bridgebuilder Finding #2, PR #68) ---
+//
+// WHY: Stripe's "integer cents" pattern — convert to smallest unit at the boundary,
+// never touch floats for monetary arithmetic. Pricing enters as a JS number from
+// config, but we convert to BigInt via string parsing (toFixed(6) + split). No float
+// multiplication touches money. Period.
+//
+// Dimensional units:
+//   pricing.input_per_1m  = USD per 1M tokens     (e.g., 3.0 = $3.00/1M tokens)
+//   priceMicroPer1M       = micro-USD per 1M tokens (e.g., 3_000_000n)
+//   costMicro             = micro-USD total         (e.g., 15_000n for 5K tokens at $3/1M)
+
+/** Convert a USD price (JS number) to micro-USD BigInt via string parsing.
+ *  toFixed(6) recovers the intended decimal from IEEE-754 representation,
+ *  then we parse integer+fractional parts without any float multiplication.
+ *  Micro-USD (6 decimal places) is our precision floor.
+ *  Throws on NaN/Infinity. Negative values are handled correctly. */
+export function usdToMicroBigInt(usd: number): bigint {
+  if (!Number.isFinite(usd)) {
+    throw new Error(`invalid USD value: ${usd}`)
+  }
+  const sign = usd < 0 ? -1n : 1n
+  const fixed = Math.abs(usd).toFixed(6)
+  const [intPart, decPart] = fixed.split(".")
+  const micro = BigInt(intPart) * 1_000_000n + BigInt(decPart)
+  return sign * micro
+}
+
+/** Compute total cost in micro-USD using pure BigInt arithmetic.
+ *  Zero float multiplication in the money path.
+ *  Throws on negative token counts (validate at the boundary where
+ *  the constraint is semantically meaningful). */
+export function computeCostMicro(
+  promptTokens: number,
+  completionTokens: number,
+  inputPricePerMillion: number,
+  outputPricePerMillion: number,
+): bigint {
+  if (promptTokens < 0 || completionTokens < 0) {
+    throw new Error(`invalid token count: prompt=${promptTokens}, completion=${completionTokens}`)
+  }
+  const inputMicroPer1M = usdToMicroBigInt(inputPricePerMillion)
+  const outputMicroPer1M = usdToMicroBigInt(outputPricePerMillion)
+  return (
+    BigInt(promptTokens) * inputMicroPer1M +
+    BigInt(completionTokens) * outputMicroPer1M
+  ) / 1_000_000n
+}
+
 // --- HounfourRouter ---
 
 export class HounfourRouter {
@@ -116,6 +167,7 @@ export class HounfourRouter {
   private rateLimiter?: ProviderRateLimiter
   private poolRegistry?: PoolRegistry
   private byokProxy?: BYOKProxyClient
+  private billingFinalize?: BillingFinalizeClient
   private projectRoot: string
   private routingConfig: RoutingConfig
   private toolCallConfig: ToolCallLoopConfig
@@ -129,6 +181,7 @@ export class HounfourRouter {
     this.rateLimiter = options.rateLimiter
     this.poolRegistry = options.poolRegistry
     this.byokProxy = options.byokProxy
+    this.billingFinalize = options.billingFinalize
     this.projectRoot = options.projectRoot ?? process.cwd()
     this.routingConfig = {
       default_model: options.routingConfig?.default_model ?? "",
@@ -144,6 +197,11 @@ export class HounfourRouter {
       },
     }
     this.toolCallConfig = { ...DEFAULT_TOOL_CALL_CONFIG, ...options.toolCallConfig }
+  }
+
+  /** Attach billing finalize client post-construction (Phase 5 T5) */
+  setBillingFinalize(client: BillingFinalizeClient): void {
+    this.billingFinalize = client
   }
 
   /**
@@ -315,6 +373,12 @@ export class HounfourRouter {
       : options
     const messages = this.buildMessages(prompt, effectiveOptions)
 
+    // Reservation ID from JWT claim (Phase 5 billing)
+    const reservationId = tenantContext.claims.reservation_id
+    if (!reservationId) {
+      console.warn(`[hounfour] missing reservation_id for tenant="${tenantId}" trace="${traceId}"`)
+    }
+
     const request: CompletionRequest = {
       messages,
       options: {
@@ -326,6 +390,7 @@ export class HounfourRouter {
         tenant_id: tenantId,
         nft_id: nftId,
         trace_id: traceId,
+        reservation_id: reservationId,
       },
     }
 
@@ -366,6 +431,7 @@ export class HounfourRouter {
 
     // Record cost with pool and tenant attribution
     const pricing = this.registry.getPricing(pool.provider, pool.model)
+    let recordCostSucceeded = false
     if (pricing) {
       await this.budget.recordCost(this.scopeMeta, result.usage, pricing, {
         trace_id: traceId,
@@ -377,6 +443,30 @@ export class HounfourRouter {
         pool_id: pool.id,
         latency_ms: result.metadata.latency_ms,
       })
+      recordCostSucceeded = true
+    }
+
+    // Billing finalize: only after recordCost succeeds, try/catch isolated (Phase 5 T5)
+    if (this.billingFinalize && reservationId && recordCostSucceeded && pricing) {
+      try {
+        // WHY: Stripe's "integer cents" pattern — convert to micro-USD at the boundary,
+        // never touch floats for monetary arithmetic. See Bridgebuilder Finding #2 (PR #68).
+        const costMicro = computeCostMicro(
+          result.usage.prompt_tokens,
+          result.usage.completion_tokens,
+          pricing.input_per_1m,
+          pricing.output_per_1m,
+        )
+        await this.billingFinalize.finalize({
+          reservation_id: reservationId,
+          tenant_id: tenantId,
+          actual_cost_micro: costMicro.toString(),
+          trace_id: traceId,
+        })
+      } catch {
+        // finalize() should never throw, but defensive isolation
+        console.error(`[hounfour] billing finalize unexpected throw: reservation_id=${reservationId}`)
+      }
     }
 
     return result
