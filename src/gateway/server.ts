@@ -76,8 +76,11 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     return c.json(options.s2sSigner.getJWKS())
   })
 
-  // Strip internal reservation header unconditionally pre-auth (Phase 5 T2)
-  // Source of truth is the JWT claim signed by arrakis, not client headers
+  // WHY: Zero-trust defense — strip x-internal-reservation-id before ANY processing.
+  // External clients could inject this header to spoof reservations. Even though JWT
+  // claims are the primary trust boundary, defense-in-depth means removing the attack
+  // surface entirely. Google BeyondCorp: "never trust the network."
+  // See Bridgebuilder Finding #4 PRAISE + Finding #9 (PR #68).
   app.use("/api/v1/*", async (c, next) => {
     c.req.raw.headers.delete("x-internal-reservation-id")
     return next()

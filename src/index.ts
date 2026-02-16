@@ -459,6 +459,10 @@ async function main() {
   identityWatching = true
 
   // 9b. Protocol version handshake — MUST run before server.listen() (Phase 5 T5)
+  // WHY: Kubernetes readiness probe pattern — validate external dependencies before
+  // accepting traffic. If protocol is incompatible, the server should never have been
+  // "ready." Fail-fast at boot prevents serving requests that will inevitably fail
+  // at the billing boundary. See Bridgebuilder Finding #8 PRAISE (PR #68).
   if (billingUrl) {
     try {
       const { validateProtocolAtBoot } = await import("./hounfour/protocol-handshake.js")

@@ -31,34 +31,34 @@ export interface DLQEntry {
 export interface BillingFinalizeConfig {
   billingUrl: string          // e.g. https://arrakis.example.com/api/internal/billing/finalize
   s2sSigner: S2SJwtSigner
-  timeoutMs?: number          // default: 300
+  timeoutMs?: number          // default: 1000
   maxRetries?: number         // default: 5
+  /** JWT subject mode: "service" (sub="loa-finn") or "tenant" (sub=tenant_id, legacy).
+   *  Default: "tenant" until arrakis compatibility confirmed.
+   *  See Bridgebuilder Finding #10 (PR #68). */
+  s2sSubjectMode?: "service" | "tenant"
 }
 
 // --- Constants ---
 
-const DEFAULT_TIMEOUT_MS = 300
+// WHY: Amazon p99.9 headroom — timeout should be 5-10x p50 or 2-3x p99.
+// PRD target: p50 <20ms, p99 <100ms. At 1000ms we get 10x p99 headroom,
+// catching p99.9 spikes without DLQ churn. See Bridgebuilder Finding #7 (PR #68).
+const DEFAULT_TIMEOUT_MS = 1000
 const MAX_RETRIES = 5
 const BACKOFF_SCHEDULE_MS = [60_000, 120_000, 240_000, 480_000, 600_000] // 1m, 2m, 4m, 8m, 10m
 
 // Terminal HTTP status codes — go straight to DLQ, no retry
 const TERMINAL_STATUSES = new Set([401, 404, 422])
 
-// --- DLQ Store (in-memory with JSONL fallback) ---
-
-const dlqEntries: Map<string, DLQEntry> = new Map()
-
-export function getDLQEntries(): ReadonlyMap<string, DLQEntry> {
-  return dlqEntries
-}
-
-export function getDLQSize(): number {
-  return dlqEntries.size
-}
-
 // --- Client ---
 
 export class BillingFinalizeClient {
+  // WHY: Netflix Hystrix lesson — shared mutable state between circuit breakers
+  // causes cascading failures. Instance isolation is the default. Module-level
+  // singletons make testing fragile (global state leaks). See Finding #3 (PR #68).
+  // Future Redis integration (Sprint B) will use instance-scoped Redis key namespace.
+  private readonly dlqEntries: Map<string, DLQEntry> = new Map()
   private readonly config: BillingFinalizeConfig
   private readonly timeoutMs: number
   private replayTimer: ReturnType<typeof setInterval> | null = null
@@ -66,6 +66,16 @@ export class BillingFinalizeClient {
   constructor(config: BillingFinalizeConfig) {
     this.config = config
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  }
+
+  /** Get read-only view of this instance's DLQ entries */
+  getDLQEntries(): ReadonlyMap<string, DLQEntry> {
+    return this.dlqEntries
+  }
+
+  /** Get count of entries in this instance's DLQ */
+  getDLQSize(): number {
+    return this.dlqEntries.size
   }
 
   /**
@@ -120,11 +130,11 @@ export class BillingFinalizeClient {
     let succeeded = 0
     let failed = 0
 
-    for (const [key, entry] of dlqEntries) {
+    for (const [key, entry] of this.dlqEntries) {
       if (new Date(entry.next_attempt_at).getTime() > now) continue
       if (entry.attempt_count >= (this.config.maxRetries ?? MAX_RETRIES)) {
         // Terminal — remove from DLQ (exhausted retries)
-        dlqEntries.delete(key)
+        this.dlqEntries.delete(key)
         console.error(`[billing-finalize] DLQ terminal drop: reservation_id=${entry.reservation_id} attempts=${entry.attempt_count}`)
         continue
       }
@@ -138,7 +148,7 @@ export class BillingFinalizeClient {
       })
 
       if (result.ok) {
-        dlqEntries.delete(key)
+        this.dlqEntries.delete(key)
         succeeded++
       } else {
         // Update attempt count and next_attempt_at
@@ -150,7 +160,7 @@ export class BillingFinalizeClient {
     }
 
     if (replayed > 0) {
-      console.log(`[billing-finalize] DLQ replay: replayed=${replayed} succeeded=${succeeded} failed=${failed} remaining=${dlqEntries.size}`)
+      console.log(`[billing-finalize] DLQ replay: replayed=${replayed} succeeded=${succeeded} failed=${failed} remaining=${this.dlqEntries.size}`)
     }
 
     return { replayed, succeeded, failed }
@@ -159,9 +169,14 @@ export class BillingFinalizeClient {
   // --- Private ---
 
   private async sendFinalize(req: FinalizeRequest): Promise<FinalizeResult> {
-    // Sign S2S JWT with sub/aud/iss claims
+    // WHY: Google Service Account convention — `sub` identifies the calling service,
+    // not the delegated tenant. `tenant_id` as a custom claim preserves the delegation
+    // chain for audit trails. Gated by s2sSubjectMode until arrakis compatibility
+    // confirmed. See Bridgebuilder Finding #10 (PR #68).
+    const sub = this.config.s2sSubjectMode === "service" ? "loa-finn" : req.tenant_id
     const token = await this.config.s2sSigner.signJWT({
-      sub: req.tenant_id,
+      sub,
+      tenant_id: req.tenant_id,
       purpose: "billing_finalize",
       reservation_id: req.reservation_id,
       trace_id: req.trace_id,
@@ -204,7 +219,9 @@ export class BillingFinalizeClient {
       return { ok: true, status: "finalized" }
     }
 
-    // 409 = idempotent success (already finalized)
+    // WHY: 409 Conflict means "already finalized" — the reservation was billed by a
+    // previous attempt (DLQ replay, duplicate request, or race). Treating 409 as
+    // idempotent success prevents infinite DLQ cycling. See Finding #9 (PR #68).
     if (response.status === 409) {
       return { ok: true, status: "idempotent" }
     }
@@ -220,7 +237,7 @@ export class BillingFinalizeClient {
   }
 
   private toDLQ(req: FinalizeRequest, reason: string, responseStatus: number | null): FinalizeResult {
-    const existing = dlqEntries.get(req.reservation_id)
+    const existing = this.dlqEntries.get(req.reservation_id)
     const attemptCount = existing ? existing.attempt_count + 1 : 1
     const backoffIndex = Math.min(attemptCount - 1, BACKOFF_SCHEDULE_MS.length - 1)
 
@@ -235,7 +252,7 @@ export class BillingFinalizeClient {
       next_attempt_at: new Date(Date.now() + BACKOFF_SCHEDULE_MS[backoffIndex]).toISOString(),
     }
 
-    dlqEntries.set(req.reservation_id, entry)
+    this.dlqEntries.set(req.reservation_id, entry)
     console.warn(`[billing-finalize] DLQ: reservation_id=${req.reservation_id} reason=${reason} attempt=${attemptCount}`)
 
     return { ok: false, status: "dlq", reason }

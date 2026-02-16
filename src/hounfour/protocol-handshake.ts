@@ -15,8 +15,14 @@ export interface HandshakeConfig {
   env: string
 }
 
+// WHY: Kubernetes health probes distinguish Ready/NotReady/Unknown — collapsing
+// success states loses observability. A startup dashboard showing "handshake: ok"
+// is meaningless if "ok" means "we didn't even try." See Finding #5 (PR #68).
+export type HandshakeStatus = "compatible" | "skipped" | "degraded" | "incompatible"
+
 export interface HandshakeResult {
-  ok: boolean
+  ok: boolean           // Always true when result is returned (dev); prod failures throw
+  status: HandshakeStatus
   remoteVersion?: string
   message: string
 }
@@ -40,7 +46,7 @@ export async function validateProtocolAtBoot(config: HandshakeConfig): Promise<H
       throw new Error("[protocol-handshake] FATAL: neither ARRAKIS_BASE_URL nor ARRAKIS_BILLING_URL configured")
     }
     console.warn("[protocol-handshake] no arrakis URL configured — skipping handshake (dev mode)")
-    return { ok: true, message: "skipped: no URL configured (dev)" }
+    return { ok: true, status: "skipped", message: "skipped: no URL configured (dev)" }
   }
 
   // Fetch health endpoint
@@ -57,7 +63,7 @@ export async function validateProtocolAtBoot(config: HandshakeConfig): Promise<H
       const msg = `health endpoint returned ${response.status}`
       if (isProd) throw new Error(`[protocol-handshake] FATAL: ${msg}`)
       console.warn(`[protocol-handshake] ${msg} — continuing (dev mode)`)
-      return { ok: true, message: `warn: ${msg}` }
+      return { ok: true, status: "degraded", message: `warn: ${msg}` }
     }
 
     healthData = await response.json() as Record<string, unknown>
@@ -67,7 +73,7 @@ export async function validateProtocolAtBoot(config: HandshakeConfig): Promise<H
     const msg = `arrakis unreachable: ${reason}`
     if (isProd) throw new Error(`[protocol-handshake] FATAL: ${msg}`)
     console.warn(`[protocol-handshake] ${msg} — continuing (dev mode)`)
-    return { ok: true, message: `warn: ${msg}` }
+    return { ok: true, status: "degraded", message: `warn: ${msg}` }
   }
 
   // Extract contract_version
@@ -76,7 +82,7 @@ export async function validateProtocolAtBoot(config: HandshakeConfig): Promise<H
     const msg = "arrakis health response missing contract_version — upgrade arrakis"
     if (isProd) throw new Error(`[protocol-handshake] FATAL: ${msg}`)
     console.warn(`[protocol-handshake] ${msg} — continuing (dev mode)`)
-    return { ok: true, message: `warn: ${msg}` }
+    return { ok: true, status: "degraded", message: `warn: ${msg}` }
   }
 
   // Validate compatibility using loa-hounfour
@@ -85,11 +91,11 @@ export async function validateProtocolAtBoot(config: HandshakeConfig): Promise<H
     const msg = `incompatible protocol: ${compat.error} (remote=${remoteVersion})`
     if (isProd) throw new Error(`[protocol-handshake] FATAL: ${msg}`)
     console.warn(`[protocol-handshake] ${msg} — continuing (dev mode)`)
-    return { ok: false, remoteVersion, message: msg }
+    return { ok: true, status: "incompatible", remoteVersion, message: msg }
   }
 
-  console.log(`[protocol-handshake] compatible: remote=${remoteVersion}`)
-  return { ok: true, remoteVersion, message: `compatible: remote=${remoteVersion}` }
+  console.log(`[protocol-handshake] status=compatible remote=${remoteVersion}`)
+  return { ok: true, status: "compatible", remoteVersion, message: `compatible: remote=${remoteVersion}` }
 }
 
 // --- Helpers ---

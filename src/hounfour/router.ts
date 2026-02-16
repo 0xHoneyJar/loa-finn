@@ -107,6 +107,50 @@ export interface ToolExecutor {
   exec(tool: string, args: unknown): Promise<unknown>
 }
 
+// --- Cost Arithmetic (Bridgebuilder Finding #2, PR #68) ---
+//
+// WHY: Stripe's "integer cents" pattern — convert to smallest unit at the boundary,
+// never touch floats for monetary arithmetic. Pricing enters as a JS number from
+// config, but we convert to BigInt via string parsing (toFixed(6) + split). No float
+// multiplication touches money. Period.
+//
+// Dimensional units:
+//   pricing.input_per_1m  = USD per 1M tokens     (e.g., 3.0 = $3.00/1M tokens)
+//   priceMicroPer1M       = micro-USD per 1M tokens (e.g., 3_000_000n)
+//   costMicro             = micro-USD total         (e.g., 15_000n for 5K tokens at $3/1M)
+
+/** Convert a USD price (JS number) to micro-USD BigInt via string parsing.
+ *  toFixed(6) recovers the intended decimal from IEEE-754 representation,
+ *  then we parse integer+fractional parts without any float multiplication.
+ *  Micro-USD (6 decimal places) is our precision floor.
+ *  Throws on NaN/Infinity. Negative values are handled correctly. */
+export function usdToMicroBigInt(usd: number): bigint {
+  if (!Number.isFinite(usd)) {
+    throw new Error(`invalid USD value: ${usd}`)
+  }
+  const sign = usd < 0 ? -1n : 1n
+  const fixed = Math.abs(usd).toFixed(6)
+  const [intPart, decPart] = fixed.split(".")
+  const micro = BigInt(intPart) * 1_000_000n + BigInt(decPart)
+  return sign * micro
+}
+
+/** Compute total cost in micro-USD using pure BigInt arithmetic.
+ *  Zero float multiplication in the money path. */
+export function computeCostMicro(
+  promptTokens: number,
+  completionTokens: number,
+  inputPricePerMillion: number,
+  outputPricePerMillion: number,
+): bigint {
+  const inputMicroPer1M = usdToMicroBigInt(inputPricePerMillion)
+  const outputMicroPer1M = usdToMicroBigInt(outputPricePerMillion)
+  return (
+    BigInt(promptTokens) * inputMicroPer1M +
+    BigInt(completionTokens) * outputMicroPer1M
+  ) / 1_000_000n
+}
+
 // --- HounfourRouter ---
 
 export class HounfourRouter {
@@ -400,10 +444,14 @@ export class HounfourRouter {
     // Billing finalize: only after recordCost succeeds, try/catch isolated (Phase 5 T5)
     if (this.billingFinalize && reservationId && recordCostSucceeded && pricing) {
       try {
-        // Convert USD float to micro-USD BigInt string
-        const costUsd = (result.usage.prompt_tokens * pricing.input_per_1m +
-          result.usage.completion_tokens * pricing.output_per_1m) / 1_000_000
-        const costMicro = BigInt(Math.round(costUsd * 1_000_000))
+        // WHY: Stripe's "integer cents" pattern — convert to micro-USD at the boundary,
+        // never touch floats for monetary arithmetic. See Bridgebuilder Finding #2 (PR #68).
+        const costMicro = computeCostMicro(
+          result.usage.prompt_tokens,
+          result.usage.completion_tokens,
+          pricing.input_per_1m,
+          pricing.output_per_1m,
+        )
         await this.billingFinalize.finalize({
           reservation_id: reservationId,
           tenant_id: tenantId,
