@@ -1,10 +1,15 @@
-# Product Requirements Document: loa-finn
+# PRD: Sprint B — E2E Smoke Test: Billing Wire Verification
 
-> **Version**: 1.0.0
-> **Date**: 2026-02-06
+> **Version**: 2.0.0
+> **Date**: 2026-02-17
 > **Author**: @janitooor
 > **Status**: Draft
-> **Grounding**: `grimoires/loa/context/research-minimal-pi.md`
+> **Cycle**: cycle-022
+> **Issue**: [#69](https://github.com/0xHoneyJar/loa-finn/issues/69)
+> **Command Center**: [#66](https://github.com/0xHoneyJar/loa-finn/issues/66)
+> **Predecessor**: cycle-021 (Sprint A — S2S Billing Finalize Client, PR #68, merged)
+> **Grounding**: Codebase exploration of loa-finn `src/hounfour/` and arrakis `tests/e2e/`, cross-repo protocol analysis
+> **GPT-5.2 Review**: Iteration 2 — 7 blocking issues from iteration 1 resolved
 
 ---
 
@@ -12,399 +17,424 @@
 
 ### The Problem
 
-Running a persistent Loa agent requires infrastructure that currently only exists in loa-beauvoir — a 16,000+ line integration of the full OpenClaw platform. This creates three problems:
+Sprint A delivered the S2S Billing Finalize Client (`src/hounfour/billing-finalize-client.ts`, 270 lines, 57 tests). But every test mocks the arrakis endpoint. **No test proves the wire actually works against a real arrakis instance.** Codebase grounding of both repos revealed **5 critical integration mismatches** that unit tests cannot detect:
 
-1. **Operational complexity**: OpenClaw includes WhatsApp, Telegram, Discord, Slack, Signal, iMessage, Teams, Matrix, companion apps, browser control, and canvas rendering. For a web-accessible Loa agent, 90% of this surface area is dead weight that increases attack surface, deployment size (~2.5GB), and cognitive load.
+```
+MISMATCH                          LOA-FINN (Sprint A)                    ARRAKIS (billing-routes.ts)
+═══════════════════════════════    ═══════════════════════════════════     ══════════════════════════════════
+1. JWT Algorithm                  ES256 (asymmetric keypair)             HS256 (symmetric shared secret)
+                                  src/hounfour/s2s-jwt.ts:35,57          BILLING_INTERNAL_JWT_SECRET env var
 
-2. **Integration fragility**: loa-beauvoir required three attempts (PRs #5, #9, core) to integrate Loa as the controlling identity — each approach fighting OpenClaw's lifecycle assumptions. Plugin sandboxing was too restrictive. Hook-based integration coupled to the host. Only direct core modification worked, but now Loa is surgically embedded in someone else's codebase.
+2. Field Naming                   snake_case                             camelCase
+                                  billing-finalize-client.ts:185-190     billing-routes.ts request body
+                                  reservation_id, actual_cost_micro      reservationId, actualCostMicro
 
-3. **Compound learning requires persistence**: The compound effect philosophy — where patterns discovered on Day N inform Day N+1's work — requires a runtime that is always available, crash-resilient, and capable of maintaining state across restarts and deployments. Without reliable persistence, the learning loop breaks.
+3. Identity Field                 tenant_id                              accountId
+                                  billing-finalize-client.ts:187         billing-routes.ts request body
 
-> **Source**: research-minimal-pi.md §1-2, compound-effect-philosophy.md, loa-beauvoir PRs #1-#20
+4. URL Path                       /api/internal/billing/finalize         /api/internal/finalize
+                                  billing-finalize-client.ts:32          billing-routes.ts route def
+
+5. Docker Config                  deploy/Dockerfile (76 lines)           Dockerfile (root) assumed
+                                  deploy/Dockerfile:1                    docker-compose.e2e.yml:73
+```
+
+These are **exactly** the kind of bugs E2E testing exists to catch. Sprint A's mocked tests give 100% pass rate but 0% wire-level confidence.
 
 ### Why Now
 
-- loa-beauvoir proved the concept works but revealed the cost of the "fork the cathedral" approach
-- Pi's SDK layer (`@mariozechner/pi-coding-agent`) provides the exact agent primitives needed without the OpenClaw overhead
-- The beads-first architecture (Loa v1.29.0) provides a universal state machine that loa-finn can build on from day one, rather than migrating to after 20 PRs
+- Sprint A merged (PR #68, 2026-02-16) — the finalize client exists but is untested against real arrakis
+- arrakis already has an E2E scaffold (`tests/e2e/docker-compose.e2e.yml`) with loa-finn defined as a service
+- This is the **sole remaining P0 blocker** between Sprint A and Shadow Deploy (first revenue)
+- The 5 mismatches will cause 100% failure rate in production if deployed without E2E verification
+
+> **Sources**: `src/hounfour/billing-finalize-client.ts:32,185-190`, `src/hounfour/s2s-jwt.ts:35,57`, arrakis `tests/e2e/docker-compose.e2e.yml:54,73,87-88`, arrakis `billing-routes.ts`
 
 ### Vision
 
-**A persistent Loa agent accessible via web, built from first principles with Pi's SDK layer, where consistency, reliability, and persistence are the foundation — not features added later.**
-
-The analogy: loa-finn is to loa-beauvoir what k3s is to Kubernetes. Same agent capabilities. ~1,400 lines of custom code vs 16,480+. ~500MB image vs ~2.5GB.
+**Prove the wire works.** After this sprint, a single `docker compose up` command runs a 4-service stack (redis, arrakis, loa-finn, contract-validator) and a smoke test that sends a real inference request through the full billing pipeline: reserve → infer → finalize → verify BillingEntry.
 
 ---
 
 ## 2. Goals & Success Metrics
 
-### Primary Goals
-
-| ID | Goal | Priority |
-|----|------|----------|
-| G-1 | Persistent Loa agent accessible via web browser | P0 |
-| G-2 | State survives process restarts and deployments | P0 |
-| G-3 | Compound learning cycle operational (learn → apply → verify) | P0 |
-| G-4 | Self-healing recovery without human intervention | P1 |
-| G-5 | Deployable to Cloudflare Workers (or similar) | P1 |
-| G-6 | Non-technical team members can access via web UI | P2 |
-| G-7 | Multi-tenant expansion (isolated accounts per user) | P2 (future) |
-
-### Success Metrics
-
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| Boot-to-ready time | <15s | Time from process start to first message capability |
-| Image size | <500MB | Docker image size |
-| Max data loss on crash | <30s | WAL sync interval |
-| Recovery time | <30s | Time from crash to full functionality |
-| Custom code lines | <2,000 | Total non-dependency TypeScript |
-| Uptime | 95% | Best-effort, fast recovery over redundancy |
-| Compound cycle completion | 100% | Every cycle extracts and applies learnings |
-
-### Non-Goals (Explicit)
-
-- Multi-channel messaging (WhatsApp, Telegram, Discord, etc.)
-- Companion apps (macOS, iOS, Android)
-- Browser control (CDP) or canvas rendering
-- Ed25519 manifest signing or PII redaction
-- Multi-agent session messaging
-- Horizontal scaling / multi-instance
-
-> **Source**: research-minimal-pi.md §7 "What We Don't Need"
+| ID | Goal | Priority | Metric |
+|----|------|----------|--------|
+| G-1 | Fix all 5 integration mismatches so finalize client can talk to real arrakis | P0 | `POST /api/internal/finalize` returns 200 with valid BillingEntry |
+| G-2 | Docker Compose stack boots all 4 services and passes health checks | P0 | All services healthy within 30s |
+| G-3 | E2E smoke test proves reserve→infer→finalize→verify pipeline with deterministic verification | P0 | Smoke test exits 0 in CI; BillingEntry verified via arrakis read endpoint |
+| G-4 | Existing 57 unit tests continue passing after mismatch fixes | P0 | CI green, 0 regressions |
+| G-5 | CI pipeline runs E2E on every PR to `main` | P1 | GitHub Actions workflow triggers on PR |
 
 ---
 
-## 3. User & Stakeholder Context
+## 3. Scope
 
-### Primary Persona: The Operator
+### In Scope
 
-**Name**: Jani (Operator / Admin)
-**Role**: Loa framework maintainer, deploys and manages the agent
-**Needs**: Deploy once, run forever. Agent maintains its own state, applies compound learnings, creates PRs autonomously. Minimal ops burden.
-**Pain points**: loa-beauvoir's complexity. Having to understand OpenClaw internals to debug agent issues.
+1. **Fix JWT algorithm mismatch**: Switch S2S signer to HS256 for billing finalize (arrakis uses symmetric shared secret)
+2. **Fix field naming mismatch**: Map snake_case → camelCase in finalize request body
+3. **Fix identity field mismatch**: Map `tenant_id` → `accountId` in finalize request body
+4. **Fix URL path mismatch**: Correct finalize endpoint from `/api/internal/billing/finalize` to `/api/internal/finalize`
+5. **Fix Docker config**: Ensure Dockerfile path and health check match compose expectations
+6. **E2E Docker Compose stack**: 4-service stack with HS256 shared secret wiring
+7. **E2E smoke test script**: Proves the full billing pipeline works with deterministic verification
+8. **CI integration**: GitHub Actions workflow for E2E tests
 
-### Secondary Persona: The Teammate
+### Out of Scope
 
-**Name**: Non-technical team member
-**Role**: Interacts with the Loa agent via web chat
-**Needs**: Open a URL, type a message, get a response. No setup, no authentication complexity.
-**Pain points**: Can't use CLI-based agents. Needs browser-accessible interface.
+- Production deployment / shadow mode (Sprint C)
+- arrakis-side code changes (we adapt loa-finn to match arrakis's existing contract)
+- JWKS bootstrap / ES256 key exchange (not needed for HS256; future work if ES256 billing is ever required)
+- Agent homepage or conversation engine (Phase 1)
+- Billing dashboard
+- DLQ replay E2E testing (unit tests sufficient)
+- GPU/vLLM services in E2E stack (mock inference is sufficient)
+- HS256 shared secret rotation mechanism (future work)
 
-### Future Persona: The Self-Hoster
+### Design Decision: Adapt loa-finn, Not arrakis
 
-**Name**: External developer
-**Role**: Deploys their own loa-finn instance
-**Needs**: `git clone`, configure API key, deploy. Clear docs, minimal configuration.
-**Timeline**: Post-v1, when multi-tenant is added.
-
-### Stakeholder Map
-
-| Stakeholder | Interest | Influence |
-|-------------|----------|-----------|
-| @janitooor | Primary maintainer, architect | High |
-| 0xHoneyJar team | End users via web UI | Medium |
-| Loa community | Self-hosting potential | Low (future) |
+arrakis's billing endpoint is already deployed and tested (`billing-routes.ts`, `requireInternalAuth` middleware, HS256 JWT validation). loa-finn adapts to match arrakis's existing wire contract rather than requiring arrakis changes. This is the correct direction because:
+- arrakis is the **billing system of record** — its contract is authoritative
+- Changing arrakis would require a separate PR cycle and deployment
+- The mismatches are in loa-finn's Sprint A code, which assumed a contract that doesn't match reality
 
 ---
 
 ## 4. Functional Requirements
 
-### FR-1: Agent Core (P0)
+### FR-1: Fix JWT Algorithm (ES256 → HS256 for Billing)
 
-The system MUST embed Pi's SDK to run a Loa-controlled coding agent.
+**Current state** (`src/hounfour/s2s-jwt.ts:35,57`):
+```typescript
+// Line 35: ES256 key import
+this.privateKey = await importPKCS8(this.config.privateKeyPem, "ES256")
+// Line 57: ES256 header
+.setProtectedHeader({ alg: "ES256", typ: "JWT", kid: this.config.kid })
+```
 
-| ID | Requirement | Acceptance Criteria |
-|----|-------------|-------------------|
-| FR-1.1 | Initialize Pi agent session via `createAgentSession()` | Agent boots and accepts a message |
-| FR-1.2 | Load Loa identity from BEAUVOIR.md as system prompt | System prompt contains Loa personality and directives |
-| FR-1.3 | Register Loa tools (read, write, edit, bash) + Pi builtins | All registered tools are callable by the agent |
-| FR-1.4 | Support streaming responses | Tokens stream to client as generated |
-| FR-1.5 | Handle context window exhaustion via auto-compaction | Agent continues working after compaction. Compaction invariants preserved: system prompt, tool policies, current task state, key learnings. Compaction report stored in WAL with before/after token counts and preserved context summary |
+**arrakis expects** (`docker-compose.e2e.yml:54`):
+```yaml
+BILLING_INTERNAL_JWT_SECRET=${BILLING_INTERNAL_JWT_SECRET:-e2e-s2s-jwt-secret-for-testing-only-32chr}
+```
+arrakis's `requireInternalAuth` middleware verifies HS256 JWTs using a symmetric shared secret. arrakis is HS256-only for this endpoint — it does not support ES256 verification for billing.
 
-> **Grounding**: research-minimal-pi.md §3 (Pi SDK), §4 (Minimal Architecture)
+**Solution**: Add HS256 signing mode to the S2S JWT signer with explicit, non-ambiguous algorithm selection:
 
-### FR-2: Gateway (P0)
+**Algorithm selection rules (strict precedence, enforced at startup):**
 
-The system MUST provide a web-accessible interface for interacting with the agent.
+| `FINN_S2S_JWT_ALG` | `FINN_S2S_JWT_SECRET` | `FINN_S2S_PRIVATE_KEY` | Result |
+|---------------------|----------------------|----------------------|--------|
+| `HS256` | set | any | HS256 (secret used, private key ignored) |
+| `ES256` | any | set | ES256 (private key used, secret ignored) |
+| not set | set | not set | HS256 (auto-detect) |
+| not set | not set | set | ES256 (auto-detect) |
+| not set | set | set | **Startup error** — ambiguous config, set `FINN_S2S_JWT_ALG` |
+| not set | not set | not set | **Startup error** — no signing key configured |
 
-| ID | Requirement | Acceptance Criteria |
-|----|-------------|-------------------|
-| FR-2.1 | HTTP server with `/health` endpoint | Returns 200 with status JSON |
-| FR-2.2 | WebSocket endpoint for streaming chat | Client connects, sends message, receives streaming response |
-| FR-2.3 | Session management (create, resume, list) | Sessions persist across page reloads |
-| FR-2.4 | Static WebChat UI served from gateway | Browser opens URL, renders chat interface |
-| FR-2.5 | REST API for non-streaming interactions | POST /api/message returns complete response |
-| FR-2.6 | Session concurrency control | Single-writer enforcement per session; one active WebSocket per session (new connection evicts old with reason code); message queueing with deterministic ordering guaranteed |
+**Critical safety constraint**: The signer MUST hardcode the algorithm in `setProtectedHeader()` based on config — it MUST NEVER read the algorithm from an incoming JWT header or any untrusted input. This prevents algorithm confusion attacks.
 
-### FR-3: Persistence (P0)
+**Secret naming in E2E**: The Docker Compose stack uses `BILLING_INTERNAL_JWT_SECRET` (arrakis's name). loa-finn's compose service maps this to `FINN_S2S_JWT_SECRET`:
+```yaml
+loa-finn-e2e:
+  environment:
+    FINN_S2S_JWT_SECRET: ${BILLING_INTERNAL_JWT_SECRET:-e2e-s2s-jwt-secret-for-testing-only-32chr}
+    FINN_S2S_JWT_ALG: HS256
+```
+This ensures both services use the same secret value while each reads its own env var name.
 
-The system MUST maintain state across process restarts and deployments.
+**Acceptance Criteria:**
+- [ ] S2S JWT signer supports HS256 via `FINN_S2S_JWT_SECRET` env var
+- [ ] Algorithm set from config only — never from JWT header or untrusted input
+- [ ] Startup error when both `FINN_S2S_JWT_SECRET` and `FINN_S2S_PRIVATE_KEY` set without explicit `FINN_S2S_JWT_ALG`
+- [ ] JWT claims unchanged: `{ sub: "loa-finn", aud: "arrakis-internal", iss: "loa-finn", exp: iat+300 }`
+- [ ] arrakis can validate the HS256 JWT with the shared secret
+- [ ] Existing ES256 tests still pass
+- [ ] New tests: HS256 sign + verify round-trip, algorithm selection logic, ambiguous config rejection, negative test (HS256 config rejects ES256 token and vice versa)
 
-| ID | Requirement | Acceptance Criteria |
-|----|-------------|-------------------|
-| FR-3.1 | Write-ahead log (WAL) for all state mutations | Every mutation logged before application |
-| FR-3.2 | WAL uses flock-based exclusive writes | No TOCTOU race conditions |
-| FR-3.3 | Object store sync every 30s (R2/S3) | Data replicates to warm storage |
-| FR-3.4 | Git sync every 1h | State committed for audit trail |
-| FR-3.5 | Recovery cascade on boot: Object Store → Git → Template with three recovery modes | **strict**: fail fast on WAL corruption (data integrity over availability). **degraded**: read-only mode when state is suspect (serve history, reject mutations). **clean**: template start when no recoverable state exists. Recovery mode selection and outcome logged prominently in WAL and exposed via `/health` |
-| FR-3.6 | Pi session files (JSONL) included in persistence | Conversation history survives restart |
+### FR-2: Fix Wire Contract (Field Naming + Identity + Complete Schema)
 
-> **Grounding**: research-minimal-pi.md §5 (Persistence-First Design), loa-beauvoir PRs #1, #5, #16
+**Current state** (`src/hounfour/billing-finalize-client.ts:185-190`):
+```typescript
+const body = JSON.stringify({
+  reservation_id: req.reservation_id,
+  tenant_id: req.tenant_id,
+  actual_cost_micro: req.actual_cost_micro,
+  trace_id: req.trace_id,
+})
+```
 
-### FR-4: Beads State Machine (P0)
+**arrakis finalize wire contract** (authoritative, from `billing-routes.ts`):
 
-The system MUST use beads (`br` CLI) as the universal state machine.
+#### Request: `POST /api/internal/finalize`
 
-| ID | Requirement | Acceptance Criteria |
-|----|-------------|-------------------|
-| FR-4.1 | All runtime state tracked via beads labels | No `.run/` JSON files for state |
-| FR-4.2 | Labels: `session:active`, `health:ok`, `sync:pending`, `circuit-breaker:{id}` | Labels queryable via `br list --label` |
-| FR-4.3 | Bead state transitions logged to WAL | State changes are recoverable |
-| FR-4.4 | Stale bead detection (24h) | Orphaned beads are flagged |
+| Field | Wire Name | Type | Required | loa-finn Source |
+|-------|-----------|------|----------|-----------------|
+| Reservation ID | `reservationId` | `string` | Yes | `req.reservation_id` |
+| Actual cost | `actualCostMicro` | `string` (BigInt) | Yes | `req.actual_cost_micro` |
+| Account ID | `accountId` | `string` | Optional | `req.tenant_id` (mapped) |
+| Identity anchor | `identity_anchor` | `string` | Optional | Not sent (future) |
+| Trace ID | `traceId` | `string` | Optional | `req.trace_id` |
 
-> **Grounding**: research-minimal-pi.md §5 (Beads as Universal State Machine), loa-beauvoir PRs #16-#17
+**Note on `identity_anchor`**: arrakis accepts this field in snake_case (not camelCase) — it's a legacy field name. loa-finn does not send it in Sprint B. If needed in future, it remains snake_case to match arrakis.
 
-### FR-5: Scheduler & Health (P1)
+#### Response: `200 OK`
 
-The system MUST self-monitor and self-heal.
+| Field | Wire Name | Type | Description |
+|-------|-----------|------|-------------|
+| Billing entry | `billing_entry` | `BillingEntry` | loa-hounfour wire format |
 
-| ID | Requirement | Acceptance Criteria |
-|----|-------------|-------------------|
-| FR-5.1 | Scheduler with configurable tasks | Tasks registered with interval and handler |
-| FR-5.2 | Circuit breakers on all scheduled tasks | 3 failures → 5min cooldown → half-open retry |
-| FR-5.3 | Health check aggregation | `/health` shows beads + WAL + sync + agent status |
-| FR-5.4 | R2 sync task (30s interval) | Warm backup maintained |
-| FR-5.5 | Git sync task (1h interval) | Cold backup maintained |
-| FR-5.6 | Stale bead detection task (24h interval) | Orphaned state flagged |
+**Note**: Verify response field naming against arrakis at implementation time — it may be `billingEntry` (camelCase) rather than `billing_entry` (snake_case). The smoke test schema validation will catch this.
 
-> **Grounding**: research-minimal-pi.md §4 (Component Inventory), loa-beauvoir PR #6
+#### Error Responses
 
-### FR-6: Compound Learning Integration (P0)
+| Status | Meaning | loa-finn Action |
+|--------|---------|-----------------|
+| 401 | Invalid/expired JWT | Log error, DLQ |
+| 404 | Reservation not found | Log error, DLQ |
+| 409 | Already finalized | Log warning (idempotent, no DLQ) |
+| 422 | Validation error (missing/invalid fields) | Log error, DLQ |
+| 500+ | Server error | Log error, DLQ, retry once |
 
-The system MUST support the compound learning cycle as a core capability.
+**Solution**: Transform the request body at the wire boundary:
 
-| ID | Requirement | Acceptance Criteria |
-|----|-------------|-------------------|
-| FR-6.1 | BEAUVOIR.md auto-reload on file change | Agent picks up identity changes without restart |
-| FR-6.2 | Grimoire state (`grimoires/loa/`) persisted through sync | NOTES.md, skills, learnings survive restart |
-| FR-6.3 | Trajectory logging to JSONL | All agent actions logged for batch retrospective |
-| FR-6.4 | Compound review trigger (end-of-cycle or scheduled) | `/compound` extracts learnings from trajectory |
-| FR-6.5 | Learnings applied to next session's context | Agent gets smarter each cycle |
-| FR-6.6 | Beads work queue for bounded sessions | Tasks decomposed into 30-min bounded units |
+```typescript
+const body = JSON.stringify({
+  reservationId: req.reservation_id,
+  actualCostMicro: req.actual_cost_micro,
+  accountId: req.tenant_id,  // identity field mapping
+  traceId: req.trace_id,
+})
+```
 
-> **Grounding**: compound-effect-philosophy.md, cycle-based-compounding.md, ryan-carson-pattern.md, loa-beauvoir PR #20
+Internal interfaces (`BillingFinalizeRequest`) remain snake_case to match loa-finn's conventions. The transformation happens at the wire boundary only. Unknown fields MUST NOT be sent — arrakis may reject unknown fields.
 
-### FR-7: Deployment (P1)
+**Acceptance Criteria:**
+- [ ] Finalize client sends exactly the fields in the wire contract table above (no extra, no missing required)
+- [ ] `accountId` mapped from internal `tenant_id` with inline comment
+- [ ] `identity_anchor` not sent (documented as future)
+- [ ] Internal interfaces remain snake_case (no ripple changes)
+- [ ] Unit tests verify exact wire format (JSON.parse the request body and assert field names/types)
+- [ ] Response parsing handles both `billing_entry` and `billingEntry` response field names (defensive)
+- [ ] 409 (already finalized) treated as success (idempotent), not enqueued to DLQ
 
-The system MUST be deployable to a web-accessible environment.
+### FR-3: Fix URL Path
 
-| ID | Requirement | Acceptance Criteria |
-|----|-------------|-------------------|
-| FR-7.1 | Dockerfile producing <500MB image | Image builds successfully under target |
-| FR-7.2 | Cloudflare Workers container config | `wrangler.jsonc` deploys successfully |
-| FR-7.3 | GitHub Actions CI/CD pipeline | Push to main triggers build + deploy |
-| FR-7.4 | Smoke test with automatic rollback | Failed deploy reverts to previous version |
-| FR-7.5 | Cron triggers for sync tasks | Cloudflare cron or internal scheduler handles periodic work |
-| FR-7.6 | Environment variable configuration | API keys, storage credentials via env vars |
+**Current state** (`billing-finalize-client.ts:32`):
+```typescript
+billingUrl: `${baseUrl}/api/internal/billing/finalize`
+```
 
-> **Grounding**: research-minimal-pi.md §6 (Deployment Strategy)
+**arrakis serves**: `POST /api/internal/finalize` (no `/billing/` segment, no query parameters)
 
-### FR-8: Authentication & Access Control (P0)
+**Solution**: Update the URL construction:
+```typescript
+billingUrl: `${baseUrl}/api/internal/finalize`
+```
 
-The system MUST enforce application-layer authentication on all interfaces. Single-tenant does not mean unauthenticated — the internet is multi-tenant by default.
+The `?format=loh` query parameter from Sprint A's PRD is removed — arrakis does not expect or use it.
 
-| ID | Requirement | Acceptance Criteria |
-|----|-------------|-------------------|
-| FR-8.1 | Shared secret/token authentication on all API endpoints | Unauthenticated requests receive 401; valid token grants access |
-| FR-8.2 | WebSocket connection authentication | WS upgrade rejected without valid token; mid-session token rotation supported |
-| FR-8.3 | CORS origin validation and CSRF protection | Only allowlisted origins accepted; state-changing requests require CSRF token |
-| FR-8.4 | Per-IP and per-session rate limiting | Excessive requests throttled (429); configurable limits per endpoint class |
-| FR-8.5 | Tool permission model | Bash denied by default in production; command allowlist enforced; tool invocations logged |
+**Acceptance Criteria:**
+- [ ] Finalize URL matches arrakis's actual route: `/api/internal/finalize`
+- [ ] No `?format=loh` query parameter
+- [ ] `ARRAKIS_BILLING_URL` env var continues to provide the base URL
+- [ ] Unit tests updated with correct URL
 
-> **Grounding**: Flatline Protocol consensus (scored 945-980 across all reviews). Single-tenant ≠ unauthenticated.
+### FR-4: Docker Compose E2E Stack
+
+**New file**: `tests/e2e/docker-compose.e2e.yml` in loa-finn repo
+
+**Services** (4 total):
+
+| Service | Internal Port | External Port | Health Check |
+|---------|--------------|---------------|--------------|
+| `redis-e2e` | 6379 | 6380 | `redis-cli ping` |
+| `arrakis-e2e` | 3000 | 3000 | `curl http://localhost:3000/v1/health` |
+| `loa-finn-e2e` | 3000 | 3001 | `curl http://localhost:3000/health` |
+| `contract-validator` | — | — | depends_on arrakis + loa-finn |
+
+**Port clarification**: loa-finn listens on port 3000 inside its container (matching `deploy/Dockerfile:74` health check). Docker Compose maps this to external port 3001 to avoid collision with arrakis on 3000. Health checks run inside the container and use the internal port (3000).
+
+**Build context**: loa-finn uses `build.dockerfile: deploy/Dockerfile` with `build.context: ../..` (project root).
+
+**Secret wiring**:
+```yaml
+# Single source of truth for shared secret
+x-jwt-secret: &jwt-secret
+  BILLING_INTERNAL_JWT_SECRET: ${BILLING_INTERNAL_JWT_SECRET:-e2e-s2s-jwt-secret-for-testing-only-32chr}
+
+services:
+  arrakis-e2e:
+    environment:
+      <<: *jwt-secret
+  loa-finn-e2e:
+    environment:
+      FINN_S2S_JWT_SECRET: ${BILLING_INTERNAL_JWT_SECRET:-e2e-s2s-jwt-secret-for-testing-only-32chr}
+      FINN_S2S_JWT_ALG: HS256
+      ARRAKIS_BILLING_URL: http://arrakis-e2e:3000
+```
+
+Both containers receive the same secret value. arrakis reads `BILLING_INTERNAL_JWT_SECRET`, loa-finn reads `FINN_S2S_JWT_SECRET`. The YAML anchor ensures the value is always identical.
+
+**Acceptance Criteria:**
+- [ ] `docker compose -f tests/e2e/docker-compose.e2e.yml up -d` boots all 4 services
+- [ ] All services pass health checks within 30 seconds
+- [ ] loa-finn service uses `deploy/Dockerfile` build context
+- [ ] loa-finn health check uses internal port 3000 (`curl http://localhost:3000/health`)
+- [ ] Both arrakis and loa-finn share the same JWT secret value (YAML anchor or env var)
+- [ ] Services can communicate over Docker network (`loa-finn-e2e` → `arrakis-e2e:3000`)
+- [ ] No JWKS volume mounts (not needed for HS256)
+
+### FR-5: E2E Smoke Test Script with Deterministic Verification
+
+**New file**: `tests/e2e/smoke-test.sh`
+
+**Test sequence**:
+1. Wait for all services healthy (poll health endpoints, 30s timeout)
+2. Send `POST /api/v1/chat/completions` to loa-finn-e2e:3001 with test payload including a unique `traceId`
+3. Verify response 200 from loa-finn
+4. **Verify BillingEntry was created**: Query arrakis's internal billing read endpoint (`GET /api/internal/billing/entries?traceId={traceId}`) or query Redis directly for the billing entry keyed by `reservationId`
+5. Validate BillingEntry fields: `reservationId` matches, `actualCostMicro` is valid non-negative integer string, `accountId` present
+6. Report pass/fail with structured JSON output
+
+**Verification mechanism**: The smoke test MUST NOT rely on log-grepping to verify finalize happened. It MUST use one of:
+- **Option A (preferred)**: arrakis internal read endpoint that returns BillingEntry by traceId or reservationId
+- **Option B**: Direct Redis query from the contract-validator container to verify the billing entry key exists
+- **Option C**: arrakis E2E mode exposes a test-only `/api/internal/test/billing-entries` endpoint
+
+The implementation will determine which option arrakis supports. If none exist, a minimal test endpoint must be added to arrakis's E2E config (documented as a Sprint B dependency).
+
+**Correlation**: The smoke test sets a unique `traceId` (UUID) in the request and verifies the same `traceId` appears in the created BillingEntry. This provides deterministic proof that the specific request produced the specific billing entry.
+
+**Acceptance Criteria:**
+- [ ] Smoke test script is executable and self-contained
+- [ ] Tests the full reserve → infer → finalize → verify pipeline
+- [ ] Verification is deterministic (reads BillingEntry by traceId/reservationId, not log-grep)
+- [ ] Exits 0 on success, non-zero on failure
+- [ ] Timeout handling (30s service wait, 10s per request, 60s total)
+- [ ] Structured JSON output for CI parsing: `{ "tests": [...], "passed": N, "failed": N }`
+- [ ] Correlation via unique traceId per test run
+
+### FR-6: CI Integration
+
+**New file**: `.github/workflows/e2e-smoke.yml`
+
+**Trigger**: PR to `main`, push to `main`
+
+**CI workspace layout** (explicit, required for cross-repo compose):
+```
+$GITHUB_WORKSPACE/
+├── loa-finn/          # actions/checkout (default)
+└── arrakis/           # actions/checkout (path: arrakis, repo: 0xHoneyJar/arrakis)
+```
+
+**Compose reference**: `docker compose -f loa-finn/tests/e2e/docker-compose.e2e.yml` with build contexts relative to the compose file location. The compose file uses `context: ../..` for loa-finn and `context: ../../arrakis` for arrakis (relative to compose file at `loa-finn/tests/e2e/`).
+
+**Steps**:
+1. Checkout loa-finn (default path)
+2. Checkout arrakis into `./arrakis` (using `actions/checkout` with `repository: 0xHoneyJar/arrakis`, `path: arrakis`)
+3. Build Docker images (with Docker layer caching via `docker/build-push-action`)
+4. Run E2E compose stack (`docker compose up -d`)
+5. Execute smoke test (`./loa-finn/tests/e2e/smoke-test.sh`)
+6. On failure: collect logs (`docker compose logs > logs.txt`), upload as artifact
+7. Tear down (`docker compose down -v`)
+
+**Acceptance Criteria:**
+- [ ] GitHub Actions workflow runs on PR and push to main
+- [ ] Checks out both loa-finn and arrakis repos with explicit paths
+- [ ] Build contexts reference correct relative paths from compose file
+- [ ] Collects and uploads logs as artifacts on failure
+- [ ] Passes within 5-minute timeout
+- [ ] Does not require external secrets for E2E (uses test-only values hardcoded in compose)
+- [ ] Works on clean GitHub Actions runner (no local path assumptions)
 
 ---
 
-## 5. Technical Requirements & Constraints
+## 5. Technical & Non-Functional Requirements
 
-### Technology Stack
+### NFR-1: No Breaking Changes to Existing APIs
 
-| Component | Choice | Rationale |
-|-----------|--------|-----------|
-| Runtime | Node.js 22+ | Pi SDK requirement |
-| Language | TypeScript (strict mode) | Pi SDK, type safety |
-| Package manager | pnpm | Workspace-aware, fast, disk-efficient |
-| Agent SDK | `@mariozechner/pi-coding-agent` v0.51.x | Minimal agent primitives |
-| HTTP framework | Hono | Lightweight, Cloudflare Workers native |
-| Deployment | Cloudflare Workers Containers | Proven in loa-beauvoir, R2 included |
-| State management | beads_rust (`br` CLI) | Loa v1.29.0 beads-first architecture |
-| Object storage | Cloudflare R2 (S3-compatible) | Free with Workers, persistence tier 2 |
+All mismatch fixes are internal to the finalize client wire format. No gateway routes, WebSocket protocols, or public API changes.
 
-### Non-Functional Requirements
+### NFR-2: JWT Algorithm Safety
 
-| ID | Category | Requirement | Target |
-|----|----------|-------------|--------|
-| NFR-1 | Performance | Boot-to-ready | <15s |
-| NFR-2 | Performance | Message response start (streaming) | <2s |
-| NFR-3 | Reliability | Max data loss on crash | <30s (WAL sync) |
-| NFR-4 | Reliability | Recovery time after crash | <30s |
-| NFR-5 | Reliability | Uptime | 95% (best-effort) |
-| NFR-6 | Size | Docker image | <500MB |
-| NFR-7 | Size | Custom code | <2,000 lines |
-| NFR-8 | Security | API key storage | Environment variables only, never in code |
-| NFR-9 | Security | No secrets in git | .env excluded, R2 credentials via Workers secrets |
-| NFR-10 | Operability | Single-command local dev | `pnpm dev` boots everything |
-| NFR-11 | Operability | Zero-config deployment | Push to main = deployed |
-| NFR-12 | Security | Tool execution sandboxing | Bash commands run in restricted workspace directory; filesystem scoped to project root; no env var access to secrets from tool context; egress controls limit network access to allowlisted hosts |
+- The signer MUST set algorithm from config, never from JWT header or untrusted input
+- Ambiguous config (both HS256 and ES256 keys without explicit `FINN_S2S_JWT_ALG`) is a startup error
+- Negative tests: HS256-configured signer rejects ES256 verification attempt and vice versa
+- arrakis billing is HS256-only — documented as constraint
 
-### Constraints
+### NFR-3: Test Isolation
 
-1. **Pi SDK compatibility**: Must use Pi's session format (JSONL with tree structure) without modification
-2. **Cloudflare Workers limits**: Container instances are single-process; no multi-threading
-3. **R2 eventual consistency**: Object store syncs may lag; WAL is source of truth
-4. **Single-tenant v1**: Authentication required (FR-8), but no user isolation (multi-tenant added in v1.1)
-5. **Cloudflare Workers container capabilities**: Must validate CF Workers container capabilities (durable volumes, flock behavior, binary exec, disk limits) before Sprint 3. Fly.io fallback if not validated.
+E2E tests use test-only JWT secrets and mock inference. No real API keys, no real GPU, no real billing charges. The E2E stack is fully self-contained. All secrets are hardcoded test values in the compose file.
+
+### NFR-4: CI Performance
+
+E2E stack should boot and complete smoke test within 3 minutes. Docker layer caching should be leveraged for repeated runs. Total workflow timeout: 5 minutes.
 
 ---
 
-## 6. Scope & Prioritization
+## 6. Environment Variables (New/Changed)
 
-### MVP (v1.0) — What Ships
+| Variable | Purpose | Default | Required |
+|----------|---------|---------|----------|
+| `FINN_S2S_JWT_SECRET` | HS256 shared secret for S2S billing auth | — | Yes (production) |
+| `FINN_S2S_JWT_ALG` | JWT algorithm (`HS256` or `ES256`) | Auto-detect | Required if both secret + private key are set |
+| `FINN_S2S_PRIVATE_KEY` | ES256 private key (existing, now optional if HS256 used) | — | No (if HS256) |
+| `ARRAKIS_BILLING_URL` | Base URL for arrakis billing API (existing) | — | Yes (production) |
 
-| Feature | Sprint | Priority |
-|---------|--------|----------|
-| Pi SDK agent with Loa identity | 1 | P0 |
-| WebChat gateway (HTTP + WS) | 2 | P0 |
-| Authentication & access control (FR-8) | 2 | P0 |
-| 3-tier persistence (WAL → R2 → Git) | 3 | P0 |
-| Beads state machine | 3 | P0 |
-| Scheduler + circuit breakers + health | 4 | P1 |
-| Compound learning integration | 4 | P0 |
-| Cloudflare Workers deployment | 5 | P1 |
-| Loa tool registration + BEAUVOIR.md reload | 6 | P0 |
-| Bounded work queue (30-min sessions) | 6 | P1 |
-
-### v1.1 — Follow-up Cycle
-
-| Feature | Description |
-|---------|-------------|
-| Multi-tenant | Isolated accounts per user, basic auth |
-| Messaging channels | Discord/Slack as gateway plugins |
-| Monitoring dashboard | Grafana/Prometheus or CF analytics |
-| Horizontal scaling | Multiple container instances |
-
-### Explicitly Out of Scope (v1.0)
-
-- WhatsApp, Telegram, Signal, iMessage, Teams, Matrix
-- Companion apps (macOS, iOS, Android)
-- Browser control (CDP), Canvas (A2UI)
-- Ed25519 manifest signing, PII redaction
-- Multi-agent session messaging
-- User isolation / multi-tenant (single-tenant with shared-secret auth in v1)
-
-> **Source**: research-minimal-pi.md §7 "What We Don't Need"
+**Algorithm selection (strict, non-ambiguous):**
+1. If `FINN_S2S_JWT_ALG` is set → use that algorithm, validate corresponding key exists
+2. If only `FINN_S2S_JWT_SECRET` is set → HS256
+3. If only `FINN_S2S_PRIVATE_KEY` is set → ES256
+4. If both set without `FINN_S2S_JWT_ALG` → **Startup error** (ambiguous)
+5. If neither set → **Startup error** (no signing key)
 
 ---
 
-## 7. Risks & Dependencies
-
-### Technical Risks
+## 7. Risks
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Pi SDK API instability | Medium | High | Pin to v0.51.x, vendor if needed |
-| Pi session format changes | Medium | Medium | Adapter layer wraps session access |
-| Cloudflare Workers container limits | Low | High | Fly.io fallback deployment target |
-| Context window exhaustion | High | Medium | Pi's built-in auto-compaction + Loa protocols |
-| Single point of failure (1 instance) | Medium | Medium | WAL + 30s sync = max 30s data loss |
-| Pi licensing changes | Low | High | MIT licensed, can vendor entire SDK |
-
-### External Dependencies
-
-| Dependency | Type | Risk Level |
-|------------|------|-----------|
-| `@mariozechner/pi-coding-agent` v0.51.x | npm package | Medium (pin version) |
-| `@mariozechner/pi-ai` v0.51.x | npm package | Medium (pin version) |
-| `@mariozechner/pi-agent-core` v0.51.x | npm package | Medium (pin version) |
-| Anthropic API (Claude) | External API | Low (mature, redundant) |
-| Cloudflare Workers + R2 | Infrastructure | Low (enterprise-grade) |
-| beads_rust (`br` CLI) | Binary tool | Low (vendorable, audited) |
-
-### Business Risks
-
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Scope creep toward full OpenClaw | Medium | High | PRD explicitly lists non-goals |
-| Team adoption friction | Low | Medium | WebChat UI reduces barrier |
-| Maintenance burden | Low | Low | ~1,400 lines custom code |
+| arrakis E2E scaffold is stale or broken | Medium | Medium | Verify against arrakis `main` before building; fall back to fresh compose if needed |
+| Additional field mismatches beyond the 5 discovered | Low | Medium | Smoke test will catch them; iterate within sprint |
+| Docker build failures (Python deps, node-gyp) | Low | Low | Use same base image as deploy/Dockerfile; cache layers |
+| arrakis response field naming differs from expected | Medium | High | Smoke test schema validation catches this; defensive parsing handles both cases |
+| No arrakis read endpoint for BillingEntry verification | Medium | High | Fall back to Redis query or add minimal E2E test endpoint; documented as potential Sprint B dependency |
+| Cross-repo checkout breaks in CI (private repo access) | Medium | Medium | Ensure GitHub Actions token has access to both repos; use PAT or deploy key if needed |
+| CI timeout on slow runners | Low | Low | 5-minute timeout; Docker layer caching |
 
 ---
 
-## 8. Implementation Roadmap
+## 8. Success Definition
 
-### Sprint Overview
-
-| Sprint | Name | Goal | Depends On |
-|--------|------|------|-----------|
-| 1 | Agent Core | Pi SDK boots, accepts message, returns response | — |
-| 2 | Gateway + Auth | WebChat accessible via browser with authentication (FR-8) | Sprint 1 |
-| 3 | Persistence | State survives restart | Sprint 1 |
-| 4 | Scheduler & Compound | Self-monitoring + compound learning cycle | Sprint 3 |
-| 5 | Deployment | Running on the internet | Sprint 2, 3 |
-| 6 | Loa Integration | Full agent capabilities + work queue | Sprint 4, 5 |
-
-### Sprint Dependency Graph
+After this sprint:
 
 ```
-Sprint 1 (Agent Core)
-├──► Sprint 2 (Gateway + Auth)
-│    └──► Sprint 5 (Deployment)
-└──► Sprint 3 (Persistence)
-     └──► Sprint 4 (Scheduler & Compound)
-          └──► Sprint 6 (Loa Integration)
+docker compose -f tests/e2e/docker-compose.e2e.yml up -d
+./tests/e2e/smoke-test.sh
+
+✓ All services healthy (redis, arrakis, loa-finn)
+✓ POST /api/v1/chat/completions → 200 (traceId: abc-123)
+✓ Finalize called → POST /api/internal/finalize → 200
+✓ BillingEntry retrieved by traceId abc-123
+✓ BillingEntry schema valid (reservationId, actualCostMicro, accountId)
+✓ Reserve → Infer → Finalize → Verify pipeline PROVEN
+
+SMOKE TEST PASSED — billing wire verified against real containers
 ```
 
-### Exit Criteria per Sprint
-
-| Sprint | Exit Criteria |
-|--------|--------------|
-| 1 | `node dist/smoke.js "Hello"` returns coherent Claude response via Pi SDK |
-| 2 | Browser opens URL, authenticates with shared secret, types message, sees streaming response. Unauthenticated requests rejected with 401. |
-| 3 | Kill process → restart → resume conversation where left off |
-| 4 | `/health` returns status. Circuit breakers trigger on failure. Compound review runs. |
-| 5 | Push to main → deployed → accessible via URL → survives rollback |
-| 6 | Loa agent accessible via web, runs autonomously, state persists, compound learning operational |
+This unblocks **Shadow Deploy** (Sprint C) — the next step on the P0 critical path to first revenue.
 
 ---
 
-## Appendix A: Decision Log
+## 9. Dependency on Sprint A
 
-| ID | Decision | Rationale | Date |
-|----|----------|-----------|------|
-| D-001 | Use Pi SDK, not fork OpenClaw | Minimal surface area, same agent primitives | 2026-02-06 |
-| D-002 | WebChat only, no messaging channels | Smallest useful surface; channels are additive | 2026-02-06 |
-| D-003 | Beads as universal state machine | Follow loa-beauvoir's trajectory (PRs 16-20) | 2026-02-06 |
-| D-004 | WAL → Object Store → Git persistence | Proven 3-tier pattern from loa-beauvoir | 2026-02-06 |
-| D-005 | Cloudflare Workers primary target | Leverage existing loa-beauvoir deployment knowledge | 2026-02-06 |
-| D-006 | TypeScript, pnpm, Node 22+ | Match Pi SDK runtime requirements | 2026-02-06 |
-| D-007 | No SOUL.md transformation | Direct BEAUVOIR.md → system prompt, skip indirection | 2026-02-06 |
-| D-008 | Circuit breakers on all scheduled tasks | Proven pattern from loa-beauvoir (PR #16) | 2026-02-06 |
-| D-009 | Single-tenant v1 with shared-secret auth, multi-tenant v1.1 | Ship fast with auth from day one; the internet is multi-tenant by default | 2026-02-06 |
-| D-010 | Compound learning as core, not addon | Persistence enables compounding; compounding justifies persistence | 2026-02-06 |
-| D-011 | Hono for HTTP framework | Lightweight, CF Workers native, 14KB | 2026-02-06 |
-| D-012 | Best-effort uptime (95%), fast recovery | Invest in recovery speed over redundancy | 2026-02-06 |
+This sprint directly modifies code delivered in Sprint A (cycle-021, PR #68):
 
-## Appendix B: Glossary
+| File | Sprint A Delivered | Sprint B Modifies |
+|------|-------------------|-------------------|
+| `src/hounfour/billing-finalize-client.ts` | 270 lines, DLQ, never-throw | Fix field names, URL path, identity field, wire contract |
+| `src/hounfour/s2s-jwt.ts` | 102 lines, ES256 signer | Add HS256 mode, algorithm selection, ambiguous config guard |
+| `src/index.ts` | Finalize client init | Update env var handling for HS256, algorithm selection |
 
-| Term | Definition |
-|------|-----------|
-| **Pi** | Mario Zechner's minimal agent toolkit (badlogic/pi-mono) |
-| **OpenClaw** | Full-featured AI assistant platform that embeds Pi |
-| **loa-beauvoir** | Previous Loa cloud deployment using full OpenClaw |
-| **loa-finn** | This project: minimal Loa agent runtime using Pi SDK only |
-| **BEAUVOIR.md** | Agent identity/personality definition file |
-| **WAL** | Write-ahead log for crash-safe state mutations |
-| **Beads** | Task/state tracking system via beads_rust (`br` CLI) |
-| **Compound learning** | Cross-session pattern extraction and application |
-| **Circuit breaker** | Fault tolerance pattern: failures → cooldown → half-open retry |
+Sprint A's unit tests (57 tests) will be updated to reflect the corrected wire format. The mocked arrakis responses in tests will match arrakis's actual contract.

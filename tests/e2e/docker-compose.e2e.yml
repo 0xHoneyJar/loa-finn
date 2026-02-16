@@ -1,0 +1,63 @@
+# tests/e2e/docker-compose.e2e.yml — E2E Smoke Test Stack (Sprint B T5)
+# 3 services: redis, arrakis, loa-finn — proves billing wire works end-to-end.
+#
+# Usage:
+#   docker compose -f tests/e2e/docker-compose.e2e.yml up -d --build
+#   ./tests/e2e/smoke-test.sh
+#   docker compose -f tests/e2e/docker-compose.e2e.yml down -v
+
+services:
+  redis-e2e:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  arrakis-e2e:
+    build:
+      context: ../../arrakis
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: test
+      REDIS_URL: redis://redis-e2e:6379
+      BILLING_INTERNAL_JWT_SECRET: e2e-s2s-jwt-secret-for-testing-only-32chr
+      PORT: "3000"
+    depends_on:
+      redis-e2e:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+
+  loa-finn-e2e:
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: test
+      FINN_S2S_JWT_SECRET: e2e-s2s-jwt-secret-for-testing-only-32chr
+      FINN_S2S_JWT_ALG: HS256
+      ARRAKIS_BILLING_URL: http://arrakis-e2e:3000
+      CHEVAL_MODE: mock
+      PORT: "3000"
+    depends_on:
+      redis-e2e:
+        condition: service_healthy
+      arrakis-e2e:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      start_period: 15s
+      retries: 5

@@ -253,35 +253,59 @@ async function main() {
     // Non-fatal — loa-finn works without hounfour (backward compatible per NFR-3)
   }
 
-  // 6e-bis. Initialize S2S Billing Finalize Client (Phase 5 T5)
+  // 6e-bis. Initialize S2S Billing Finalize Client (Phase 5 T5, Sprint B T3)
+  // Algorithm selection: FINN_S2S_JWT_ALG (explicit) > auto-detect from key material
   let billingFinalizeClient: import("./hounfour/billing-finalize-client.js").BillingFinalizeClient | undefined
   let s2sSigner: import("./hounfour/s2s-jwt.js").S2SJwtSigner | undefined
   const billingUrl = process.env.ARRAKIS_BILLING_URL
   if (billingUrl && hounfour) {
     const s2sPrivateKey = process.env.FINN_S2S_PRIVATE_KEY
-    if (s2sPrivateKey) {
-      try {
-        const { S2SJwtSigner } = await import("./hounfour/s2s-jwt.js")
-        const { BillingFinalizeClient } = await import("./hounfour/billing-finalize-client.js")
-        s2sSigner = new S2SJwtSigner({
-          privateKeyPem: s2sPrivateKey,
-          kid: process.env.FINN_S2S_KID ?? "loa-finn-v1",
-          issuer: "loa-finn",
-          audience: "arrakis",
-        })
+    const s2sJwtSecret = process.env.FINN_S2S_JWT_SECRET
+    const rawAlg = process.env.FINN_S2S_JWT_ALG
+    const explicitAlg = rawAlg === "ES256" || rawAlg === "HS256" ? rawAlg : undefined
+    if (rawAlg && !explicitAlg) {
+      throw new Error(`Invalid FINN_S2S_JWT_ALG="${rawAlg}" — must be "ES256" or "HS256"`)
+    }
+
+    try {
+      const { S2SJwtSigner } = await import("./hounfour/s2s-jwt.js")
+      const { BillingFinalizeClient } = await import("./hounfour/billing-finalize-client.js")
+      type S2SConfig = import("./hounfour/s2s-jwt.js").S2SConfig
+
+      let s2sConfig: S2SConfig | null = null
+
+      if (explicitAlg === "HS256") {
+        if (!s2sJwtSecret) throw new Error("FINN_S2S_JWT_ALG=HS256 requires FINN_S2S_JWT_SECRET")
+        s2sConfig = { alg: "HS256", secret: s2sJwtSecret, issuer: "loa-finn", audience: "arrakis" }
+      } else if (explicitAlg === "ES256") {
+        if (!s2sPrivateKey) throw new Error("FINN_S2S_JWT_ALG=ES256 requires FINN_S2S_PRIVATE_KEY")
+        s2sConfig = { alg: "ES256", privateKeyPem: s2sPrivateKey, kid: process.env.FINN_S2S_KID ?? "loa-finn-v1", issuer: "loa-finn", audience: "arrakis" }
+      } else if (s2sPrivateKey && s2sJwtSecret) {
+        // Ambiguity guard: both keys set without explicit alg → startup error
+        throw new Error("Both FINN_S2S_PRIVATE_KEY and FINN_S2S_JWT_SECRET set — set FINN_S2S_JWT_ALG to resolve ambiguity")
+      } else if (s2sJwtSecret) {
+        // Auto-detect HS256
+        s2sConfig = { alg: "HS256", secret: s2sJwtSecret, issuer: "loa-finn", audience: "arrakis" }
+      } else if (s2sPrivateKey) {
+        // Auto-detect ES256 (backward compatible)
+        s2sConfig = { alg: "ES256", privateKeyPem: s2sPrivateKey, kid: process.env.FINN_S2S_KID ?? "loa-finn-v1", issuer: "loa-finn", audience: "arrakis" }
+      }
+
+      if (s2sConfig) {
+        s2sSigner = new S2SJwtSigner(s2sConfig)
         await s2sSigner.init()
         billingFinalizeClient = new BillingFinalizeClient({
-          billingUrl,
+          billingUrl,  // base URL — client appends /api/internal/finalize
           s2sSigner,
         })
         billingFinalizeClient.startReplayTimer()
         hounfour.setBillingFinalize(billingFinalizeClient)
-        console.log(`[finn] billing finalize client initialized: ${billingUrl}`)
-      } catch (err) {
-        console.error(`[finn] billing finalize init failed (non-fatal):`, (err as Error).message)
+        console.log(`[finn] billing finalize client initialized: alg=${s2sConfig.alg} url=${billingUrl}`)
+      } else {
+        console.warn("[finn] ARRAKIS_BILLING_URL set but no S2S key material — billing finalize disabled")
       }
-    } else {
-      console.warn("[finn] ARRAKIS_BILLING_URL set but FINN_S2S_PRIVATE_KEY missing — billing finalize disabled")
+    } catch (err) {
+      console.error(`[finn] billing finalize init failed (non-fatal):`, (err as Error).message)
     }
   }
 

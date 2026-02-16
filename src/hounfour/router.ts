@@ -447,6 +447,7 @@ export class HounfourRouter {
     }
 
     // Billing finalize: only after recordCost succeeds, try/catch isolated (Phase 5 T5)
+    // Sprint B T4: capture result for response headers (x-billing-finalize-status)
     if (this.billingFinalize && reservationId && recordCostSucceeded && pricing) {
       try {
         // WHY: Stripe's "integer cents" pattern — convert to micro-USD at the boundary,
@@ -457,14 +458,19 @@ export class HounfourRouter {
           pricing.input_per_1m,
           pricing.output_per_1m,
         )
-        await this.billingFinalize.finalize({
+        const finalizeResult = await this.billingFinalize.finalize({
           reservation_id: reservationId,
           tenant_id: tenantId,
           actual_cost_micro: costMicro.toString(),
           trace_id: traceId,
         })
+        // Set billing metadata for response headers (Sprint B T4)
+        result.metadata.billing_finalize_status = finalizeResult.status
+        result.metadata.billing_trace_id = traceId
       } catch {
         // finalize() should never throw, but defensive isolation
+        result.metadata.billing_finalize_status = "dlq"
+        result.metadata.billing_trace_id = traceId
         console.error(`[hounfour] billing finalize unexpected throw: reservation_id=${reservationId}`)
       }
     }

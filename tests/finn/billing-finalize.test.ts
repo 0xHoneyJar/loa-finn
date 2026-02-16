@@ -57,7 +57,7 @@ function stopMockServer(): Promise<void> {
 
 function createClient(port: number, overrides?: Partial<BillingFinalizeConfig>): BillingFinalizeClient {
   return new BillingFinalizeClient({
-    billingUrl: `http://127.0.0.1:${port}/api/internal/billing/finalize`,
+    billingUrl: `http://127.0.0.1:${port}`,  // base URL — client appends /api/internal/finalize
     s2sSigner: createMockSigner(),
     timeoutMs: 2000,
     ...overrides,
@@ -229,7 +229,7 @@ describe("BillingFinalizeClient", () => {
     const result = await client.finalize(createTestRequest({ actual_cost_micro: largeCost }))
     expect(result.ok).toBe(true)
     const parsed = JSON.parse(receivedBody)
-    expect(parsed.actual_cost_micro).toBe(largeCost) // String preserved, no precision loss
+    expect(parsed.actualCostMicro).toBe(largeCost) // String preserved, no precision loss
   })
 
   // 13. DLQ replay success
@@ -438,7 +438,114 @@ describe("BillingFinalizeClient", () => {
     expect(clientB.getDLQEntries().has("res-A")).toBe(false)
   })
 
-  // 23. Fresh client starts with empty DLQ
+  // --- Sprint B T2: Wire Contract Tests ---
+
+  // 23. Wire body uses camelCase
+  it("wire body uses camelCase field names", async () => {
+    let receivedBody = ""
+    const port = await startMockServer((req, res) => {
+      let body = ""
+      req.on("data", (chunk: Buffer) => { body += chunk.toString() })
+      req.on("end", () => {
+        receivedBody = body
+        res.writeHead(200)
+        res.end()
+      })
+    })
+    const client = createClient(port)
+    await client.finalize(createTestRequest())
+    const parsed = JSON.parse(receivedBody)
+
+    // camelCase wire fields
+    expect(parsed.reservationId).toBe("res-test-001")
+    expect(parsed.actualCostMicro).toBe("1500000")
+    expect(parsed.traceId).toBe("trace-001")
+    // accountId mapped from tenant_id
+    expect(parsed.accountId).toBe("tenant-abc")
+
+    // NO snake_case fields in wire body
+    expect(parsed.reservation_id).toBeUndefined()
+    expect(parsed.tenant_id).toBeUndefined()
+    expect(parsed.actual_cost_micro).toBeUndefined()
+    expect(parsed.trace_id).toBeUndefined()
+  })
+
+  // 24. URL path is /api/internal/finalize
+  it("URL path is /api/internal/finalize", async () => {
+    let requestUrl = ""
+    const port = await startMockServer((req, res) => {
+      requestUrl = req.url ?? ""
+      let body = ""
+      req.on("data", (chunk: Buffer) => { body += chunk.toString() })
+      req.on("end", () => {
+        res.writeHead(200)
+        res.end()
+      })
+    })
+    const client = createClient(port)
+    await client.finalize(createTestRequest())
+    expect(requestUrl).toBe("/api/internal/finalize")
+  })
+
+  // 25. accountId present in wire body (mapped from tenant_id)
+  it("accountId mapped from tenant_id", async () => {
+    let receivedBody = ""
+    const port = await startMockServer((req, res) => {
+      let body = ""
+      req.on("data", (chunk: Buffer) => { body += chunk.toString() })
+      req.on("end", () => {
+        receivedBody = body
+        res.writeHead(200)
+        res.end()
+      })
+    })
+    const client = createClient(port)
+    await client.finalize(createTestRequest({ tenant_id: "my-tenant-xyz" }))
+    const parsed = JSON.parse(receivedBody)
+    expect(parsed.accountId).toBe("my-tenant-xyz")
+    expect(parsed.tenant_id).toBeUndefined()
+  })
+
+  // 26. No ?format=loh in URL
+  it("no query parameters in URL", async () => {
+    let requestUrl = ""
+    const port = await startMockServer((req, res) => {
+      requestUrl = req.url ?? ""
+      let body = ""
+      req.on("data", (chunk: Buffer) => { body += chunk.toString() })
+      req.on("end", () => {
+        res.writeHead(200)
+        res.end()
+      })
+    })
+    const client = createClient(port)
+    await client.finalize(createTestRequest())
+    expect(requestUrl).not.toContain("?")
+    expect(requestUrl).not.toContain("format=loh")
+  })
+
+  // 27. Trailing slash in base URL handled
+  it("handles trailing slash in base URL", async () => {
+    let requestUrl = ""
+    const port = await startMockServer((req, res) => {
+      requestUrl = req.url ?? ""
+      let body = ""
+      req.on("data", (chunk: Buffer) => { body += chunk.toString() })
+      req.on("end", () => {
+        res.writeHead(200)
+        res.end()
+      })
+    })
+    const client = new BillingFinalizeClient({
+      billingUrl: `http://127.0.0.1:${port}/`,  // trailing slash
+      s2sSigner: createMockSigner(),
+      timeoutMs: 2000,
+    })
+    await client.finalize(createTestRequest())
+    expect(requestUrl).toBe("/api/internal/finalize")  // no double slash
+  })
+
+  // 28. Fresh client starts with empty DLQ
   it("fresh client instance has empty DLQ", () => {
     const client = new BillingFinalizeClient({
       billingUrl: "http://127.0.0.1:1/finalize",

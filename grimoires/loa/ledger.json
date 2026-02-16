@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-021",
+  "current_cycle": "cycle-022",
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -231,7 +231,7 @@
       "archived": "2026-02-12T00:00:00Z",
       "prd": "grimoires/loa/prd-hounfour-phase5.md",
       "sdd": "grimoires/loa/sdd-hounfour-phase5.md",
-      "notes": "Superseded by cycle-018 which re-planned and executed all work. Sprints 22-24 never implemented — work covered by cycle-018 sprints 43-46.",
+      "notes": "Superseded by cycle-018 which re-planned and executed all work. Sprints 22-24 never implemented \u2014 work covered by cycle-018 sprints 43-46.",
       "sprints": [
         {
           "local_id": "sprint-A",
@@ -486,7 +486,7 @@
           "label": "Protocol Package & Foundation",
           "status": "completed",
           "tasks": 15,
-          "notes": "Commit 5bb3fad — protocol package, cheval adapter imports, budget golden vectors"
+          "notes": "Commit 5bb3fad \u2014 protocol package, cheval adapter imports, budget golden vectors"
         },
         {
           "local_id": "sprint-2",
@@ -494,7 +494,7 @@
           "label": "Integration Hardening",
           "status": "completed",
           "tasks": 11,
-          "notes": "Commit 8cbea71 — budget, JWT, reconciliation, E2E tests"
+          "notes": "Commit 8cbea71 \u2014 budget, JWT, reconciliation, E2E tests"
         },
         {
           "local_id": "sprint-3",
@@ -502,7 +502,7 @@
           "label": "NativeRuntime & Ensemble",
           "status": "completed",
           "tasks": 10,
-          "notes": "Commit 3f1ae92 — NativeRuntime adapter, ensemble orchestrator, routing matrix — 121 tests"
+          "notes": "Commit 3f1ae92 \u2014 NativeRuntime adapter, ensemble orchestrator, routing matrix \u2014 121 tests"
         },
         {
           "local_id": "sprint-4",
@@ -510,7 +510,7 @@
           "label": "NFT Routing & BYOK",
           "status": "completed",
           "tasks": 7,
-          "notes": "Commit 637c8c6 — review approved, audit passed, sprint-46 COMPLETED — 144 tests"
+          "notes": "Commit 637c8c6 \u2014 review approved, audit passed, sprint-46 COMPLETED \u2014 144 tests"
         },
         {
           "local_id": "sprint-extraction",
@@ -526,7 +526,7 @@
           "label": "BridgeBuilder Findings: Protocol Hardening",
           "status": "completed",
           "tasks": 8,
-          "notes": "loa-hounfour v1.1.0 — 7 BridgeBuilder findings implemented, 91 tests passing"
+          "notes": "loa-hounfour v1.1.0 \u2014 7 BridgeBuilder findings implemented, 91 tests passing"
         },
         {
           "local_id": "sprint-bb-consumer",
@@ -534,19 +534,19 @@
           "label": "BridgeBuilder Findings: Consumer Updates",
           "status": "completed",
           "tasks": 2,
-          "notes": "Commit 0e747a1 — pinned v1.1.0, fixed budget-migration test no-op"
+          "notes": "Commit 0e747a1 \u2014 pinned v1.1.0, fixed budget-migration test no-op"
         }
       ],
       "sprint_plan_extraction": "grimoires/loa/sprint-hounfour-extraction.md",
       "sprint_plan_bridgebuilder": "grimoires/loa/sprint-bridgebuilder-findings.md"
     },
     "cycle-019": {
-      "label": "Loa Update & Bridgebuilder Migration (v1.33.1 → v1.35.0)",
+      "label": "Loa Update & Bridgebuilder Migration (v1.33.1 \u2192 v1.35.0)",
       "status": "archived",
       "started": "2026-02-13T00:00:00Z",
       "archived": "2026-02-13T13:25:00Z",
       "archive_path": "grimoires/loa/archive/2026-02-13-bridgebuilder-v3-migration",
-      "notes": "Sprint-50 + 3-iteration Bridgebuilder review loop on PR #63. 35 findings → 0 unresolved HIGH/MEDIUM. 256 tests pass.",
+      "notes": "Sprint-50 + 3-iteration Bridgebuilder review loop on PR #63. 35 findings \u2192 0 unresolved HIGH/MEDIUM. 256 tests pass.",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -554,7 +554,7 @@
           "label": "Framework Update & Bridgebuilder Port Adaptation",
           "status": "completed",
           "tasks": 7,
-          "notes": "Bridgebuilder V3 migration — R2ContextStore SHA methods, upstream re-exports, dist rebuild — 40 tests"
+          "notes": "Bridgebuilder V3 migration \u2014 R2ContextStore SHA methods, upstream re-exports, dist rebuild \u2014 40 tests"
         }
       ]
     },
@@ -566,7 +566,7 @@
       "archive_path": "grimoires/loa/archive/2026-02-13-pool-claim-enforcement-complete",
       "prd": "grimoires/loa/prd-pool-claim-enforcement.md",
       "sdd": "grimoires/loa/sdd-pool-claim-enforcement.md",
-      "notes": "RFC #31 Phase 4 remaining work. Issue #53 CLOSED. PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 7 blocking issues resolved). Sprint plan: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). PR #65 merged. Bridge flatlined: 54→0 in 2 iterations. 24 findings fixed (22 Bridge + 2 GPT-5.2).",
+      "notes": "RFC #31 Phase 4 remaining work. Issue #53 CLOSED. PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 7 blocking issues resolved). Sprint plan: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). PR #65 merged. Bridge flatlined: 54\u21920 in 2 iterations. 24 findings fixed (22 Bridge + 2 GPT-5.2).",
       "sprint_plan": "grimoires/loa/sprint-pool-claim-enforcement.md",
       "sprints": [
         {
@@ -575,7 +575,7 @@
           "label": "Pool Enforcement Foundation & Integration",
           "status": "completed",
           "tasks": 5,
-          "notes": "Commit 46e93a8 — pool enforcement, composed auth, 40 tests. Review approved, audit passed."
+          "notes": "Commit 46e93a8 \u2014 pool enforcement, composed auth, 40 tests. Review approved, audit passed."
         },
         {
           "local_id": "sprint-2",
@@ -583,19 +583,20 @@
           "label": "Bridgebuilder Findings: Code Quality & Test Hardening",
           "status": "completed",
           "tasks": 7,
-          "notes": "Commit d82c352 — 22 findings fixed (8M+14L), GPT-5.2 APPROVED, 45 tests. Bridge flatlined: 54→0 in 2 iterations."
+          "notes": "Commit d82c352 \u2014 22 findings fixed (8M+14L), GPT-5.2 APPROVED, 45 tests. Bridge flatlined: 54\u21920 in 2 iterations."
         }
       ]
-    }
-  },
+    },
     "cycle-021": {
       "label": "S2S Billing Finalize Client + loa-hounfour v5.0.0 Upgrade",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-16T14:05:00Z",
+      "archived": "2026-02-16T23:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-16-s2s-billing-finalize-complete",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprint_plan": "grimoires/loa/sprint.md",
-      "notes": "PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 4 blocking issues resolved). Sprint: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Issue #67.",
+      "notes": "PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 4 blocking issues resolved). Sprint: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Sprint 2: GPT-5.2 auto-approved (iteration 3, 5/6 fixed, pricing schema documented as future). Run Bridge: 3 iterations, 0.98 convergence (FLATLINE). Bridgebuilder Capstone posted. PR #68. Issue #67.",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -604,9 +605,35 @@
           "status": "completed",
           "tasks": 6,
           "notes": "T1-T6 complete. loa-hounfour v5.0.0, reservation_id JWT propagation, BillingFinalizeClient with DLQ, protocol handshake, router integration, 32 new tests."
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 54,
+          "label": "Bridgebuilder Excellence \u2014 Billing Finalize Hardening",
+          "status": "completed",
+          "tasks": 7,
+          "notes": "All 10 Bridgebuilder findings addressed. 1 HIGH (float\u2192BigInt), 3 MEDIUM (DLQ isolation, handshake states, decision trail), 2 LOW (timeout, JWT identity). GPT-5.2 APPROVED. Bridge converged 0.92\u21920.98 (FLATLINE). 57 tests."
+        }
+      ]
+    },
+    "cycle-022": {
+      "label": "Sprint B: E2E Smoke Test \u2014 Billing Wire Verification",
+      "status": "active",
+      "started": "2026-02-17T03:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Issue #69. P0 critical path: proves the billing wire works against real containers. Fixes 5 integration mismatches discovered during codebase grounding (JWT algo, field naming, identity field, URL path, Docker config).",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 55,
+          "label": "Integration Fix + E2E Verification",
+          "status": "completed",
+          "tasks": 7
         }
       ]
     }
   },
-  "next_global_sprint_id": 54
+  "next_global_sprint_id": 56
 }

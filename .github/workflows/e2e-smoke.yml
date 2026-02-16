@@ -1,0 +1,73 @@
+# .github/workflows/e2e-smoke.yml — E2E Billing Wire Smoke Test (Sprint B T7)
+# Proves the billing finalize wire works against real arrakis containers.
+
+name: E2E Smoke Test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Skip for forked PRs — they can't access repo secrets
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork != true
+
+    steps:
+      - name: Checkout loa-finn
+        uses: actions/checkout@v4
+
+      - name: Validate ARRAKIS_CHECKOUT_TOKEN
+        run: |
+          if [[ -z "${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}" ]]; then
+            echo "::error::ARRAKIS_CHECKOUT_TOKEN secret not configured. See repo Settings → Secrets. Required for cross-repo arrakis checkout."
+            exit 1
+          fi
+
+      - name: Checkout arrakis
+        uses: actions/checkout@v4
+        with:
+          repository: 0xHoneyJar/arrakis
+          path: arrakis
+          token: ${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}
+
+      - name: Build and start E2E stack
+        run: docker compose -f tests/e2e/docker-compose.e2e.yml up -d --build
+
+      - name: Wait for services healthy
+        run: |
+          echo "Waiting for services..."
+          for i in $(seq 1 30); do
+            FINN_OK=$(curl -sf http://localhost:3001/health > /dev/null 2>&1 && echo "1" || echo "0")
+            ARRAKIS_OK=$(curl -sf http://localhost:3000/v1/health > /dev/null 2>&1 && echo "1" || echo "0")
+            if [[ "$FINN_OK" == "1" && "$ARRAKIS_OK" == "1" ]]; then
+              echo "All services healthy after $((i * 2))s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Services failed to become healthy within 60s"
+          docker compose -f tests/e2e/docker-compose.e2e.yml logs --no-color
+          exit 1
+
+      - name: Run smoke test
+        run: ./tests/e2e/smoke-test.sh
+
+      - name: Collect logs on failure
+        if: failure()
+        run: docker compose -f tests/e2e/docker-compose.e2e.yml logs --no-color > e2e-logs.txt
+
+      - name: Upload logs artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: e2e-logs.txt
+          retention-days: 7
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f tests/e2e/docker-compose.e2e.yml down -v
