@@ -4,6 +4,7 @@ import { describe, it, expect, afterEach } from "vitest"
 import { BillingFinalizeClient } from "../../src/hounfour/billing-finalize-client.js"
 import type { FinalizeRequest, BillingFinalizeConfig } from "../../src/hounfour/billing-finalize-client.js"
 import type { S2SJwtSigner } from "../../src/hounfour/s2s-jwt.js"
+import { InMemoryDLQStore } from "../../src/hounfour/dlq-store.js"
 import http from "node:http"
 
 // --- Test Helpers ---
@@ -59,6 +60,7 @@ function createClient(port: number, overrides?: Partial<BillingFinalizeConfig>):
   return new BillingFinalizeClient({
     billingUrl: `http://127.0.0.1:${port}`,  // base URL — client appends /api/internal/finalize
     s2sSigner: createMockSigner(),
+    dlqStore: new InMemoryDLQStore(),
     timeoutMs: 2000,
     ...overrides,
   })
@@ -106,7 +108,7 @@ describe("BillingFinalizeClient", () => {
     const result = await client.finalize(createTestRequest({ actual_cost_micro: "-500" }))
     expect(result.ok).toBe(false)
     expect(result.status).toBe("dlq")
-    expect(client.getDLQSize()).toBe(1)
+    expect(await client.getDLQSize()).toBe(1)
   })
 
   // 4. Schema invalid — non-numeric cost
@@ -131,7 +133,7 @@ describe("BillingFinalizeClient", () => {
     const result = await client.finalize(createTestRequest())
     expect(result.ok).toBe(false)
     expect(result.status).toBe("dlq")
-    const entry = client.getDLQEntries().get("res-test-001")
+    const entry = await client.getDLQStore().get("res-test-001")
     expect(entry?.reason).toBe("http_401")
   })
 
@@ -144,7 +146,7 @@ describe("BillingFinalizeClient", () => {
     const client = createClient(port)
     const result = await client.finalize(createTestRequest())
     expect(result.ok).toBe(false)
-    const entry = client.getDLQEntries().get("res-test-001")
+    const entry = await client.getDLQStore().get("res-test-001")
     expect(entry?.reason).toBe("http_404")
   })
 
@@ -157,7 +159,7 @@ describe("BillingFinalizeClient", () => {
     const client = createClient(port)
     const result = await client.finalize(createTestRequest())
     expect(result.ok).toBe(false)
-    const entry = client.getDLQEntries().get("res-test-001")
+    const entry = await client.getDLQStore().get("res-test-001")
     expect(entry?.reason).toBe("http_422")
   })
 
@@ -170,7 +172,7 @@ describe("BillingFinalizeClient", () => {
     const client = createClient(port)
     const result = await client.finalize(createTestRequest())
     expect(result.ok).toBe(false)
-    const entry = client.getDLQEntries().get("res-test-001")
+    const entry = await client.getDLQStore().get("res-test-001")
     expect(entry?.reason).toBe("http_500")
     expect(entry?.attempt_count).toBe(1)
   })
@@ -183,7 +185,7 @@ describe("BillingFinalizeClient", () => {
     const client = createClient(port, { timeoutMs: 100 })
     const result = await client.finalize(createTestRequest())
     expect(result.ok).toBe(false)
-    const entry = client.getDLQEntries().get("res-test-001")
+    const entry = await client.getDLQStore().get("res-test-001")
     expect(entry?.reason).toBe("timeout")
   })
 
@@ -192,11 +194,12 @@ describe("BillingFinalizeClient", () => {
     const client = new BillingFinalizeClient({
       billingUrl: "http://127.0.0.1:1/finalize",
       s2sSigner: createMockSigner(),
+      dlqStore: new InMemoryDLQStore(),
       timeoutMs: 2000,
     })
     const result = await client.finalize(createTestRequest())
     expect(result.ok).toBe(false)
-    const entry = client.getDLQEntries().get("res-test-001")
+    const entry = await client.getDLQStore().get("res-test-001")
     expect(entry?.reason).toContain("network_error")
   })
 
@@ -246,19 +249,19 @@ describe("BillingFinalizeClient", () => {
       }
     })
     const client = createClient(port)
+    const store = client.getDLQStore()
 
     // First call fails → DLQ
     await client.finalize(createTestRequest())
-    expect(client.getDLQSize()).toBe(1)
+    expect(await client.getDLQSize()).toBe(1)
 
-    // Force next_attempt_at to now
-    const entry = client.getDLQEntries().get("res-test-001")!
-    ;(entry as { next_attempt_at: string }).next_attempt_at = new Date(0).toISOString()
+    // Reschedule to past via incrementAttempt (also bumps attempt_count 1→2)
+    await store.incrementAttempt("res-test-001", new Date(0).toISOString(), 0)
 
     // Replay succeeds → removed from DLQ
     const result = await client.replayDeadLetters()
     expect(result.succeeded).toBe(1)
-    expect(client.getDLQSize()).toBe(0)
+    expect(await client.getDLQSize()).toBe(0)
   })
 
   // 14. DLQ replay 409 removes entry (idempotent)
@@ -275,16 +278,17 @@ describe("BillingFinalizeClient", () => {
       }
     })
     const client = createClient(port)
+    const store = client.getDLQStore()
 
     await client.finalize(createTestRequest())
-    expect(client.getDLQSize()).toBe(1)
+    expect(await client.getDLQSize()).toBe(1)
 
-    const entry = client.getDLQEntries().get("res-test-001")!
-    ;(entry as { next_attempt_at: string }).next_attempt_at = new Date(0).toISOString()
+    // Reschedule to past
+    await store.incrementAttempt("res-test-001", new Date(0).toISOString(), 0)
 
     const result = await client.replayDeadLetters()
     expect(result.succeeded).toBe(1)
-    expect(client.getDLQSize()).toBe(0)
+    expect(await client.getDLQSize()).toBe(0)
   })
 
   // 15. DLQ replay failure reschedules
@@ -294,16 +298,19 @@ describe("BillingFinalizeClient", () => {
       res.end()
     })
     const client = createClient(port)
+    const store = client.getDLQStore()
 
     await client.finalize(createTestRequest())
-    const entry = client.getDLQEntries().get("res-test-001")!
-    ;(entry as { next_attempt_at: string }).next_attempt_at = new Date(0).toISOString()
-    const oldAttempt = entry.attempt_count
+    // Reschedule to past (attempt_count 1→2)
+    await store.incrementAttempt("res-test-001", new Date(0).toISOString(), 0)
+    const entry = await store.get("res-test-001")
+    const oldAttempt = entry!.attempt_count
 
+    // Replay fails → incrementAttempt again (2→3)
     await client.replayDeadLetters()
-    const updated = client.getDLQEntries().get("res-test-001")!
-    expect(updated.attempt_count).toBe(oldAttempt + 1)
-    expect(new Date(updated.next_attempt_at).getTime()).toBeGreaterThan(Date.now())
+    const updated = await store.get("res-test-001")
+    expect(updated!.attempt_count).toBe(oldAttempt + 1)
+    expect(new Date(updated!.next_attempt_at).getTime()).toBeGreaterThan(Date.now())
   })
 
   // 16. Terminal drop — max retries exhausted
@@ -313,14 +320,14 @@ describe("BillingFinalizeClient", () => {
       res.end()
     })
     const client = createClient(port, { maxRetries: 2 })
+    const store = client.getDLQStore()
 
     await client.finalize(createTestRequest())
-    const entry = client.getDLQEntries().get("res-test-001")!
-    ;(entry as { attempt_count: number; next_attempt_at: string }).attempt_count = 2
-    ;(entry as { next_attempt_at: string }).next_attempt_at = new Date(0).toISOString()
+    // Bump attempt_count to 2 (= maxRetries) and reschedule to past
+    await store.incrementAttempt("res-test-001", new Date(0).toISOString(), 0)
 
     await client.replayDeadLetters()
-    expect(client.getDLQSize()).toBe(0) // Dropped
+    expect(await client.getDLQSize()).toBe(0) // Terminal drop
   })
 
   // 17. finalize internal throw returns {ok: false}
@@ -333,6 +340,7 @@ describe("BillingFinalizeClient", () => {
     const client = new BillingFinalizeClient({
       billingUrl: "http://127.0.0.1:1/finalize",
       s2sSigner: brokenSigner,
+      dlqStore: new InMemoryDLQStore(),
       timeoutMs: 1000,
     })
     const result = await client.finalize(createTestRequest())
@@ -358,6 +366,7 @@ describe("BillingFinalizeClient", () => {
     const client = new BillingFinalizeClient({
       billingUrl: `http://127.0.0.1:${port}/finalize`,
       s2sSigner: spySigner,
+      dlqStore: new InMemoryDLQStore(),
       timeoutMs: 2000,
     })
     await client.finalize(createTestRequest())
@@ -387,6 +396,7 @@ describe("BillingFinalizeClient", () => {
     const client = new BillingFinalizeClient({
       billingUrl: `http://127.0.0.1:${port}/finalize`,
       s2sSigner: spySigner,
+      dlqStore: new InMemoryDLQStore(),
       timeoutMs: 2000,
       s2sSubjectMode: "service",
     })
@@ -430,12 +440,12 @@ describe("BillingFinalizeClient", () => {
     await clientA.finalize(createTestRequest({ reservation_id: "res-A" }))
     await clientB.finalize(createTestRequest({ reservation_id: "res-B" }))
 
-    expect(clientA.getDLQSize()).toBe(1)
-    expect(clientB.getDLQSize()).toBe(1)
-    expect(clientA.getDLQEntries().has("res-A")).toBe(true)
-    expect(clientA.getDLQEntries().has("res-B")).toBe(false)
-    expect(clientB.getDLQEntries().has("res-B")).toBe(true)
-    expect(clientB.getDLQEntries().has("res-A")).toBe(false)
+    expect(await clientA.getDLQSize()).toBe(1)
+    expect(await clientB.getDLQSize()).toBe(1)
+    expect(await clientA.getDLQStore().get("res-A")).toBeDefined()
+    expect(await clientA.getDLQStore().get("res-B")).toBeNull()
+    expect(await clientB.getDLQStore().get("res-B")).toBeDefined()
+    expect(await clientB.getDLQStore().get("res-A")).toBeNull()
   })
 
   // --- Sprint B T2: Wire Contract Tests ---
@@ -539,6 +549,7 @@ describe("BillingFinalizeClient", () => {
     const client = new BillingFinalizeClient({
       billingUrl: `http://127.0.0.1:${port}/`,  // trailing slash
       s2sSigner: createMockSigner(),
+      dlqStore: new InMemoryDLQStore(),
       timeoutMs: 2000,
     })
     await client.finalize(createTestRequest())
@@ -546,13 +557,13 @@ describe("BillingFinalizeClient", () => {
   })
 
   // 28. Fresh client starts with empty DLQ
-  it("fresh client instance has empty DLQ", () => {
+  it("fresh client instance has empty DLQ", async () => {
     const client = new BillingFinalizeClient({
       billingUrl: "http://127.0.0.1:1/finalize",
       s2sSigner: createMockSigner(),
+      dlqStore: new InMemoryDLQStore(),
     })
-    expect(client.getDLQSize()).toBe(0)
-    expect(client.getDLQEntries().size).toBe(0)
+    expect(await client.getDLQSize()).toBe(0)
   })
 
   // 24. Default timeout is 1000ms (Sprint 2 T5)
@@ -567,11 +578,12 @@ describe("BillingFinalizeClient", () => {
     const client = new BillingFinalizeClient({
       billingUrl: `http://127.0.0.1:${port}/finalize`,
       s2sSigner: createMockSigner(),
+      dlqStore: new InMemoryDLQStore(),
       // No timeoutMs override — uses default 1000ms
     })
     const result = await client.finalize(createTestRequest())
     expect(result.ok).toBe(false)
-    const entry = client.getDLQEntries().get("res-test-001")
+    const entry = await client.getDLQStore().get("res-test-001")
     expect(entry?.reason).toBe("timeout")
   })
 

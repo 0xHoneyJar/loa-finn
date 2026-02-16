@@ -22,12 +22,12 @@
     "test:billing": "vitest run tests/finn/billing-finalize.test.ts tests/finn/protocol-handshake.test.ts"
   },
   "dependencies": {
+    "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#e5b9f16c60a95f7940c96af3b11cf50065abe898",
     "@aws-sdk/client-s3": "^3.985.0",
     "@hono/node-server": "^1.19.9",
     "@mariozechner/pi-agent-core": "~0.52.6",
     "@mariozechner/pi-ai": "~0.52.10",
     "@mariozechner/pi-coding-agent": "~0.52.6",
-    "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#e5b9f16c60a95f7940c96af3b11cf50065abe898",
     "@sinclair/typebox": "^0.34.48",
     "croner": "^10.0.1",
     "hono": "^4.11.9",
@@ -38,6 +38,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
+    "fast-check": "^4.5.3",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",
     "vitest": "^4.0.18"

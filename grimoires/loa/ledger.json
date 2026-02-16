@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-022",
+  "current_cycle": "cycle-023",
   "cycles": {
     "cycle-001": {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -618,12 +618,14 @@
     },
     "cycle-022": {
       "label": "Sprint B: E2E Smoke Test \u2014 Billing Wire Verification",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-17T03:00:00Z",
+      "archived": "2026-02-17T06:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-17-e2e-billing-wire-verification",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprint_plan": "grimoires/loa/sprint.md",
-      "notes": "Issue #69. P0 critical path: proves the billing wire works against real containers. Fixes 5 integration mismatches discovered during codebase grounding (JWT algo, field naming, identity field, URL path, Docker config).",
+      "notes": "Issue #69. PR #71 MERGED. P0 critical path: proves the billing wire works against real containers. Fixes 5 integration mismatches (JWT algo, field naming, identity field, URL path, Docker config). 52 tests (22 JWT + 30 billing). Bridge flatlined: 10→5 in 2 iterations. Bridgebuilder Deep Review posted across PR #71, Issues #66, #31, #24.",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -633,7 +635,32 @@
           "tasks": 7
         }
       ]
+    },
+    "cycle-023": {
+      "label": "Shadow Deploy Readiness: DLQ Persistence & Production Billing Settlement",
+      "status": "active",
+      "started": "2026-02-17T06:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "notes": "Last infrastructure P0 before product pivot. DLQ persistence (Ostrom Principle 7), billing invariants formalization, shadow deploy configuration. Synthesized from Bridgebuilder Deep Review findings (PR #71). PRD: GPT-5.2 APPROVED (iteration 2, 6 blocking issues resolved). SDD: GPT-5.2 APPROVED (iteration 2, 10 blocking issues resolved). Sprint: GPT-5.2 APPROVED (iteration 2, 4 blocking issues resolved).",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 56,
+          "label": "DLQStore Port Interface + Redis Adapter",
+          "status": "completed",
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 57,
+          "label": "BillingFinalizeClient Refactor + Integration",
+          "status": "completed",
+          "tasks": 5
+        }
+      ]
     }
   },
-  "next_global_sprint_id": 56
+  "next_global_sprint_id": 58
 }

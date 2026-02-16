@@ -3,6 +3,7 @@
 // finalize() NEVER throws — always returns FinalizeResult.
 
 import type { S2SJwtSigner } from "./s2s-jwt.js"
+import type { DLQStore } from "./dlq-store.js"
 
 // --- Types ---
 
@@ -26,17 +27,21 @@ export interface DLQEntry {
   response_status: number | null
   attempt_count: number
   next_attempt_at: string   // ISO-8601
+  created_at: string        // ISO-8601, set once on first enqueue, never updated
 }
 
 export interface BillingFinalizeConfig {
   billingUrl: string          // Base URL, e.g. https://arrakis.example.com — path appended in sendFinalize()
   s2sSigner: S2SJwtSigner
+  dlqStore: DLQStore          // DLQ persistence backend (InMemory or Redis)
   timeoutMs?: number          // default: 1000
   maxRetries?: number         // default: 5
   /** JWT subject mode: "service" (sub="loa-finn") or "tenant" (sub=tenant_id, legacy).
    *  Default: "tenant" until arrakis compatibility confirmed.
    *  See Bridgebuilder Finding #10 (PR #68). */
   s2sSubjectMode?: "service" | "tenant"
+  /** AOF check result from bootstrap validatePersistence(). Set once at startup. */
+  aofVerified?: boolean
 }
 
 // --- Constants ---
@@ -54,28 +59,44 @@ const TERMINAL_STATUSES = new Set([401, 404, 422])
 // --- Client ---
 
 export class BillingFinalizeClient {
-  // WHY: Netflix Hystrix lesson — shared mutable state between circuit breakers
-  // causes cascading failures. Instance isolation is the default. Module-level
-  // singletons make testing fragile (global state leaks). See Finding #3 (PR #68).
-  // Future: DLQ persistence via Redis (DLQStore adapter). See Bridge review high-1.
-  private readonly dlqEntries: Map<string, DLQEntry> = new Map()
+  private readonly dlqStore: DLQStore
   private readonly config: BillingFinalizeConfig
   private readonly timeoutMs: number
+  private readonly maxRetries: number
+  private readonly _aofVerified: boolean
   private replayTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(config: BillingFinalizeConfig) {
     this.config = config
+    this.dlqStore = config.dlqStore
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    this.maxRetries = config.maxRetries ?? MAX_RETRIES
+    this._aofVerified = config.aofVerified ?? false
   }
 
-  /** Get read-only view of this instance's DLQ entries */
-  getDLQEntries(): ReadonlyMap<string, DLQEntry> {
-    return this.dlqEntries
+  /** Get count of entries in the DLQ */
+  async getDLQSize(): Promise<number> {
+    return this.dlqStore.count()
   }
 
-  /** Get count of entries in this instance's DLQ */
-  getDLQSize(): number {
-    return this.dlqEntries.size
+  /** Get age in ms of oldest DLQ entry (by created_at). Returns null if empty. */
+  async getDLQOldestAgeMs(): Promise<number | null> {
+    return this.dlqStore.oldestEntryAgeMs()
+  }
+
+  /** Whether the DLQ store provides durable persistence */
+  isDurable(): boolean {
+    return this.dlqStore.durable
+  }
+
+  /** AOF verification result from bootstrap. */
+  isAofVerified(): boolean {
+    return this._aofVerified
+  }
+
+  /** Get the underlying DLQ store (for health endpoint / testing) */
+  getDLQStore(): DLQStore {
+    return this.dlqStore
   }
 
   /**
@@ -86,11 +107,11 @@ export class BillingFinalizeClient {
     try {
       // Validate cost is non-negative string BigInt
       if (!isValidCostMicro(req.actual_cost_micro)) {
-        return this.toDLQ(req, "invalid_cost: actual_cost_micro must be non-negative integer string", null)
+        return await this.toDLQ(req, "invalid_cost: actual_cost_micro must be non-negative integer string", null)
       }
 
       if (!req.reservation_id) {
-        return this.toDLQ(req, "missing_reservation_id", null)
+        return await this.toDLQ(req, "missing_reservation_id", null)
       }
 
       const result = await this.sendFinalize(req)
@@ -98,7 +119,7 @@ export class BillingFinalizeClient {
     } catch (err) {
       // finalize() NEVER throws
       const reason = err instanceof Error ? err.message : String(err)
-      return this.toDLQ(req, `internal_error: ${reason}`, null)
+      return await this.toDLQ(req, `internal_error: ${reason}`, null)
     }
   }
 
@@ -123,52 +144,91 @@ export class BillingFinalizeClient {
     }
   }
 
-  /** Replay all DLQ entries that are due */
-  async replayDeadLetters(): Promise<{ replayed: number; succeeded: number; failed: number }> {
-    const now = Date.now()
-    let replayed = 0
-    let succeeded = 0
-    let failed = 0
+  /**
+   * Replay DLQ entries that are due. NEVER throws (outer try/catch).
+   * Per-entry flow: terminal check → claim → try { finalize → delete/increment } finally { release }
+   */
+  async replayDeadLetters(): Promise<{ replayed: number; succeeded: number; failed: number; terminal: number }> {
+    try {
+      const candidates = await this.dlqStore.getReady(new Date())
+      let replayed = 0
+      let succeeded = 0
+      let failed = 0
+      let terminal = 0
 
-    for (const [key, entry] of this.dlqEntries) {
-      if (new Date(entry.next_attempt_at).getTime() > now) continue
-      if (entry.attempt_count >= (this.config.maxRetries ?? MAX_RETRIES)) {
-        // Terminal — remove from DLQ (exhausted retries)
-        this.dlqEntries.delete(key)
-        console.error(`[billing-finalize] DLQ terminal drop: reservation_id=${entry.reservation_id} attempts=${entry.attempt_count}`)
-        continue
+      for (const entry of candidates) {
+        const rid = entry.reservation_id
+
+        // Step 5: Terminal drop runs before claim — no lock needed
+        if (entry.attempt_count >= this.maxRetries) {
+          await this.dlqStore.terminalDrop(rid)
+          console.error(`[billing-finalize] DLQ terminal drop: rid=${rid} tenant_id=${entry.tenant_id} actual_cost_micro=${entry.actual_cost_micro} created_at=${entry.created_at} attempts=${entry.attempt_count}`)
+          terminal++
+          continue
+        }
+
+        // Step 2: Claim lock (SETNX) — if false, skip (another instance owns it)
+        const claimed = await this.dlqStore.claimForReplay(rid)
+        if (!claimed) continue
+
+        // Step 3: try/finally for leak-safe claim lifecycle
+        replayed++
+        try {
+          // Use sendHTTPFinalize (no DLQ side effects) — replay handles its own state
+          const result = await this.sendHTTPFinalize({
+            reservation_id: rid,
+            tenant_id: entry.tenant_id,
+            actual_cost_micro: entry.actual_cost_micro,
+            trace_id: entry.trace_id,
+          })
+
+          if (result.ok) {
+            await this.dlqStore.delete(rid)
+            succeeded++
+          } else {
+            const backoffIndex = Math.min(entry.attempt_count, BACKOFF_SCHEDULE_MS.length - 1)
+            const nextMs = Date.now() + BACKOFF_SCHEDULE_MS[backoffIndex]
+            const nextAt = new Date(nextMs).toISOString()
+            await this.dlqStore.incrementAttempt(rid, nextAt, nextMs)
+            failed++
+          }
+        } finally {
+          await this.dlqStore.releaseClaim(rid)
+        }
       }
 
-      replayed++
-      const result = await this.sendFinalize({
-        reservation_id: entry.reservation_id,
-        tenant_id: entry.tenant_id,
-        actual_cost_micro: entry.actual_cost_micro,
-        trace_id: entry.trace_id,
-      })
-
-      if (result.ok) {
-        this.dlqEntries.delete(key)
-        succeeded++
-      } else {
-        // Update attempt count and next_attempt_at
-        entry.attempt_count++
-        const backoffIndex = Math.min(entry.attempt_count - 1, BACKOFF_SCHEDULE_MS.length - 1)
-        entry.next_attempt_at = new Date(now + BACKOFF_SCHEDULE_MS[backoffIndex]).toISOString()
-        failed++
+      if (replayed > 0 || terminal > 0) {
+        console.log(`[billing-finalize] DLQ replay: replayed=${replayed} succeeded=${succeeded} failed=${failed} terminal=${terminal}`)
       }
-    }
 
-    if (replayed > 0) {
-      console.log(`[billing-finalize] DLQ replay: replayed=${replayed} succeeded=${succeeded} failed=${failed} remaining=${this.dlqEntries.size}`)
+      return { replayed, succeeded, failed, terminal }
+    } catch (err) {
+      // NEVER-throws contract: swallow error, return zero-state
+      console.error(`[billing-finalize] DLQ replay error (swallowed): ${err instanceof Error ? err.message : String(err)}`)
+      return { replayed: 0, succeeded: 0, failed: 0, terminal: 0 }
     }
-
-    return { replayed, succeeded, failed }
   }
 
   // --- Private ---
 
+  /**
+   * Send HTTP finalize and route failures to DLQ.
+   * Used by finalize() for initial attempts.
+   */
   private async sendFinalize(req: FinalizeRequest): Promise<FinalizeResult> {
+    const httpResult = await this.sendHTTPFinalize(req)
+    if (httpResult.ok) return httpResult
+    return await this.toDLQ(req, httpResult.reason, httpResult.responseStatus)
+  }
+
+  /**
+   * Raw HTTP call to arrakis. No DLQ side effects.
+   * Returns success result or failure reason for caller to handle.
+   */
+  private async sendHTTPFinalize(req: FinalizeRequest): Promise<
+    | { ok: true; status: "finalized" | "idempotent" }
+    | { ok: false; reason: string; responseStatus: number | null }
+  > {
     // WHY: Google Service Account convention — `sub` identifies the calling service,
     // not the delegated tenant. `tenant_id` as a custom claim preserves the delegation
     // chain for audit trails. Gated by s2sSubjectMode until arrakis compatibility
@@ -212,10 +272,10 @@ export class BillingFinalizeClient {
     } catch (err) {
       clearTimeout(timeout)
       if (err instanceof DOMException && err.name === "AbortError") {
-        return this.toDLQ(req, "timeout", null)
+        return { ok: false, reason: "timeout", responseStatus: null }
       }
       const reason = err instanceof Error ? err.message : String(err)
-      return this.toDLQ(req, `network_error: ${reason}`, null)
+      return { ok: false, reason: `network_error: ${reason}`, responseStatus: null }
     } finally {
       clearTimeout(timeout)
     }
@@ -232,21 +292,14 @@ export class BillingFinalizeClient {
       return { ok: true, status: "idempotent" }
     }
 
-    // Terminal errors — DLQ with reason, no retry
-    if (TERMINAL_STATUSES.has(response.status)) {
-      const reason = `http_${response.status}`
-      return this.toDLQ(req, reason, response.status)
-    }
-
-    // 5xx — retry via DLQ
-    return this.toDLQ(req, `http_${response.status}`, response.status)
+    // All other statuses — failure reason for caller
+    return { ok: false, reason: `http_${response.status}`, responseStatus: response.status }
   }
 
-  private toDLQ(req: FinalizeRequest, reason: string, responseStatus: number | null): FinalizeResult {
-    const existing = this.dlqEntries.get(req.reservation_id)
-    const attemptCount = existing ? existing.attempt_count + 1 : 1
-    const backoffIndex = Math.min(attemptCount - 1, BACKOFF_SCHEDULE_MS.length - 1)
-
+  private async toDLQ(req: FinalizeRequest, reason: string, responseStatus: number | null): Promise<FinalizeResult> {
+    // Atomic upsert via store.put() — no get-then-put.
+    // Store handles attempt_count increment for existing entries (DLQ_UPSERT Lua).
+    // created_at set once on first enqueue, preserved by upsert.
     const entry: DLQEntry = {
       reservation_id: req.reservation_id,
       tenant_id: req.tenant_id,
@@ -254,12 +307,13 @@ export class BillingFinalizeClient {
       trace_id: req.trace_id,
       reason,
       response_status: responseStatus,
-      attempt_count: attemptCount,
-      next_attempt_at: new Date(Date.now() + BACKOFF_SCHEDULE_MS[backoffIndex]).toISOString(),
+      attempt_count: 1,
+      next_attempt_at: new Date(Date.now() + BACKOFF_SCHEDULE_MS[0]).toISOString(),
+      created_at: new Date().toISOString(),
     }
 
-    this.dlqEntries.set(req.reservation_id, entry)
-    console.warn(`[billing-finalize] DLQ: reservation_id=${req.reservation_id} reason=${reason} attempt=${attemptCount}`)
+    await this.dlqStore.put(entry)
+    console.warn(`[billing-finalize] DLQ: reservation_id=${req.reservation_id} reason=${reason}`)
 
     return { ok: false, status: "dlq", reason }
   }
