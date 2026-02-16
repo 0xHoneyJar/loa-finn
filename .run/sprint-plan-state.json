@@ -1,29 +1,32 @@
 {
   "plan_id": "plan-20260216-cycle025-oracle",
   "branch": "feature/oracle-knowledge-interface",
-  "state": "RUNNING",
+  "state": "JACKED_OUT",
   "timestamps": {
     "started": "2026-02-16T15:00:00Z",
-    "last_activity": "2026-02-16T22:30:00Z"
+    "last_activity": "2026-02-16T23:45:00Z",
+    "completed": "2026-02-16T23:45:00Z"
   },
   "sprints": {
     "total": 2,
-    "completed": 1,
-    "current": "sprint-2",
+    "completed": 2,
+    "current": null,
     "list": [
       {
         "id": "sprint-1",
         "status": "completed",
         "cycles": 1,
         "global_id": "sprint-60",
-        "label": "Knowledge Engine Foundation"
+        "label": "Knowledge Engine Foundation",
+        "files_changed": 14
       },
       {
         "id": "sprint-2",
-        "status": "in_progress",
-        "cycles": 0,
+        "status": "completed",
+        "cycles": 1,
         "global_id": "sprint-61",
-        "label": "Knowledge Corpus & E2E Verification"
+        "label": "Knowledge Corpus & E2E Verification",
+        "files_changed": 22
       }
     ]
   },
@@ -34,8 +37,8 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 1,
-    "total_files_changed": 14,
+    "total_cycles": 2,
+    "total_files_changed": 36,
     "total_findings_fixed": 0
   }
 }
