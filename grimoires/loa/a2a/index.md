@@ -1,5 +1,12 @@
 # A2A Sprint Index
 
+## Cycle-025: The Oracle — Unified Knowledge Interface
+
+| Sprint | Global ID | Status | Report |
+|--------|-----------|--------|--------|
+| Sprint 1: Knowledge Engine Foundation | 60 | COMPLETED | [reviewer.md](sprint-60/reviewer.md) / [engineer-feedback.md](sprint-60/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-60/auditor-sprint-feedback.md) |
+| Sprint 2: Knowledge Corpus & E2E Verification | 61 | COMPLETED | [reviewer.md](sprint-61/reviewer.md) / [engineer-feedback.md](sprint-61/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-61/auditor-sprint-feedback.md) |
+
 ## Cycle-024: Production Deploy & Thinnest Product Surface
 
 | Sprint | Global ID | Status | Report |

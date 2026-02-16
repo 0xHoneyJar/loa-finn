@@ -711,8 +711,9 @@
           "local_id": "sprint-2",
           "global_id": 61,
           "label": "Knowledge Corpus & E2E Verification",
-          "status": "pending",
-          "tasks": 7
+          "status": "completed",
+          "tasks": 7,
+          "notes": "Commit ab0fd85 — 10 knowledge sources, oracle persona, sources.json, bootstrap integration, 35 new tests (11 E2E + 12 gold-set + 12 red-team). 107 total Oracle tests. Review: All good. Audit: APPROVED."
         }
       ]
     }
