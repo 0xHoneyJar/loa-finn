@@ -29,7 +29,7 @@ export interface DLQEntry {
 }
 
 export interface BillingFinalizeConfig {
-  billingUrl: string          // e.g. https://arrakis.example.com/api/internal/billing/finalize
+  billingUrl: string          // Base URL, e.g. https://arrakis.example.com — path appended in sendFinalize()
   s2sSigner: S2SJwtSigner
   timeoutMs?: number          // default: 1000
   maxRetries?: number         // default: 5
@@ -57,7 +57,7 @@ export class BillingFinalizeClient {
   // WHY: Netflix Hystrix lesson — shared mutable state between circuit breakers
   // causes cascading failures. Instance isolation is the default. Module-level
   // singletons make testing fragile (global state leaks). See Finding #3 (PR #68).
-  // Future Redis integration (Sprint B) will use instance-scoped Redis key namespace.
+  // Future: DLQ persistence via Redis (DLQStore adapter). See Bridge review high-1.
   private readonly dlqEntries: Map<string, DLQEntry> = new Map()
   private readonly config: BillingFinalizeConfig
   private readonly timeoutMs: number
@@ -182,19 +182,25 @@ export class BillingFinalizeClient {
       trace_id: req.trace_id,
     }, 300) // 5 minute TTL
 
+    // Wire contract: snake_case internal → camelCase at boundary.
+    // tenant_id → accountId (arrakis identity field mapping).
     const body = JSON.stringify({
-      reservation_id: req.reservation_id,
-      tenant_id: req.tenant_id,
-      actual_cost_micro: req.actual_cost_micro,
-      trace_id: req.trace_id,
+      reservationId: req.reservation_id,
+      accountId: req.tenant_id,       // arrakis expects accountId, mapped from tenant_id
+      actualCostMicro: req.actual_cost_micro,
+      traceId: req.trace_id,
     })
+
+    // Base URL + path (no /billing/ segment — arrakis uses /api/internal/finalize)
+    const base = this.config.billingUrl.replace(/\/+$/, "")
+    const finalizeUrl = `${base}/api/internal/finalize`
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
 
     let response: Response
     try {
-      response = await fetch(this.config.billingUrl, {
+      response = await fetch(finalizeUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

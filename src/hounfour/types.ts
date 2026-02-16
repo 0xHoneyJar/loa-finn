@@ -119,6 +119,10 @@ export interface ResultMetadata {
   provider_request_id?: string
   latency_ms: number
   trace_id: string
+  /** Billing finalize result — set when finalize was attempted (Sprint B T4) */
+  billing_finalize_status?: "finalized" | "idempotent" | "dlq"
+  /** Billing trace ID — echoes the trace_id used in finalize call */
+  billing_trace_id?: string
 }
 
 // --- Tool Call ---
