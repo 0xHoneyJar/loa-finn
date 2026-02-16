@@ -3,12 +3,13 @@
 // HTTP requests through pool selection, model routing, and billing finalization.
 
 import type { Context } from "hono"
+import type { ContentfulStatusCode } from "hono/utils/http-status"
 import type { HounfourRouter } from "../../hounfour/router.js"
 import type { TenantContext } from "../../hounfour/jwt-auth.js"
 import { HounfourError } from "../../hounfour/errors.js"
 
 /** Map HounfourError codes to HTTP status codes */
-function mapErrorToStatus(code: string): number {
+function mapErrorToStatus(code: string): ContentfulStatusCode {
   switch (code) {
     case "BUDGET_EXCEEDED": return 402
     case "BINDING_INVALID": return 400
