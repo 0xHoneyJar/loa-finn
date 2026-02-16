@@ -1,650 +1,750 @@
-# SDD: Sprint B — E2E Smoke Test: Billing Wire Verification
+# SDD: Shadow Deploy Readiness — DLQ Persistence & Production Billing Settlement
 
 > **Version**: 2.0.0
 > **Date**: 2026-02-17
 > **Author**: @janitooor
 > **Status**: Draft
-> **Cycle**: cycle-022
+> **Cycle**: cycle-023
 > **PRD**: `grimoires/loa/prd.md` (v2.0.0, GPT-5.2 APPROVED iteration 2)
-> **Grounding**: `src/hounfour/s2s-jwt.ts`, `src/hounfour/billing-finalize-client.ts`, `src/hounfour/protocol-handshake.ts`, `deploy/Dockerfile`, `docker-compose.yml`
-> **GPT-5.2 Review**: Iteration 2 — 6 blocking issues from iteration 1 resolved
+> **Grounding**: `src/hounfour/billing-finalize-client.ts`, `src/hounfour/redis/client.ts`, `src/hounfour/redis/atomic-budget.ts` (Lua pattern)
 
 ---
 
 ## 1. Executive Summary
 
-Sprint B fixes 5 integration mismatches between loa-finn and arrakis's billing finalize endpoint, then proves the fix works via a Docker Compose E2E smoke test. The changes are surgical — 3 files modified (`s2s-jwt.ts`, `billing-finalize-client.ts`, `index.ts`), 3 files created (compose, smoke test, CI workflow). No public API changes.
+This cycle replaces the in-memory DLQ (`Map<string, DLQEntry>`) in `billing-finalize-client.ts` with a `DLQStore` port interface backed by Redis. Three new files are created (`dlq-store.ts`, `redis/dlq.ts`, `billing-invariants.ts`), one file is refactored (`billing-finalize-client.ts`), and the health endpoint gains DLQ metrics. No new dependencies. No public API changes.
 
 ---
 
 ## 2. System Architecture
 
-### 2.1 High-Level Change Map
+### 2.1 Change Map
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ Sprint B Changes (3 files modified, 3 files created)       │
+│ cycle-023 Changes (3 new, 2 modified, 1 test file)         │
 ├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  NEW:                                                      │
+│  ┌─────────────────────────────────┐                       │
+│  │ src/hounfour/dlq-store.ts       │ DLQStore interface    │
+│  │   DLQStore (port)               │ + InMemoryDLQStore    │
+│  └─────────────────────────────────┘                       │
+│  ┌─────────────────────────────────┐                       │
+│  │ src/hounfour/redis/dlq.ts       │ RedisDLQStore adapter │
+│  │   Uses RedisStateBackend        │ + Lua scripts         │
+│  │   + claim lock + orphan repair  │                       │
+│  └─────────────────────────────────┘                       │
+│  ┌─────────────────────────────────┐                       │
+│  │ src/hounfour/billing-invariants │ Conservation props    │
+│  │   .ts                           │ + fast-check tests    │
+│  └─────────────────────────────────┘                       │
 │                                                            │
 │  MODIFIED:                                                 │
 │  ┌─────────────────────────────────┐                       │
-│  │ src/hounfour/s2s-jwt.ts         │ +HS256 signing mode   │
-│  │   S2SJwtSigner                  │ +algorithm selection  │
-│  │   S2SConfig → S2SConfig (union) │ +ambiguity guard     │
+│  │ billing-finalize-client.ts      │ Map → DLQStore        │
+│  │   constructor(config, store)    │ + async lifecycle     │
 │  └─────────────────────────────────┘                       │
 │  ┌─────────────────────────────────┐                       │
-│  │ billing-finalize-client.ts      │ +camelCase wire body  │
-│  │   sendFinalize()                │ +URL path fix         │
-│  │   BillingFinalizeConfig         │ +identity mapping     │
-│  └─────────────────────────────────┘                       │
-│  ┌─────────────────────────────────┐                       │
-│  │ src/index.ts                    │ +HS256 env var init   │
-│  │   S2S init block (L256-286)     │ +alg selection logic  │
+│  │ src/index.ts                    │ DLQStore bootstrap    │
+│  │   L131-162 Redis init block     │ + health wiring       │
 │  └─────────────────────────────────┘                       │
 │                                                            │
-│  CREATED:                                                  │
-│  ┌─────────────────────────────────┐                       │
-│  │ tests/e2e/docker-compose.e2e.yml│ 3-service E2E stack  │
-│  │ tests/e2e/smoke-test.sh         │ Wire verification    │
-│  │ .github/workflows/e2e-smoke.yml │ CI pipeline          │
-│  └─────────────────────────────────┘                       │
 └────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 E2E Stack Architecture
+### 2.2 Data Flow
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ Docker Compose E2E Stack (3 services)                           │
-│                                                                 │
-│  ┌──────────┐     ┌──────────────┐     ┌──────────────────┐    │
-│  │ redis-e2e│◄────│ arrakis-e2e  │◄────│ loa-finn-e2e     │    │
-│  │ :6379    │     │ :3000(→3000) │     │ :3000(→3001)     │    │
-│  └──────────┘     │              │     │                  │    │
-│                   │ HS256 verify │←────│ HS256 sign       │    │
-│                   │              │     │                  │    │
-│                   │ POST /api/   │     │ BillingFinalize  │    │
-│                   │ internal/    │     │ Client           │    │
-│                   │ finalize     │     │                  │    │
-│                   └──────┬───────┘     └──────────────────┘    │
-│                          │                                      │
-│ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │
-│            HOST          │                                      │
-│                   ┌──────┴───────┐                              │
-│                   │ smoke-test.sh│ ← runs on HOST               │
-│                   │ Uses:        │                              │
-│                   │  localhost:3000 (arrakis)                   │
-│                   │  localhost:3001 (loa-finn)                  │
-│                   │  localhost:6380 (redis)                     │
-│                   │ Verify:      │                              │
-│                   │ 1. Health    │                              │
-│                   │ 2. Infer     │                              │
-│                   │ 3. Verify    │                              │
-│                   └──────────────┘                              │
-│                                                                 │
-│ Shared: BILLING_INTERNAL_JWT_SECRET (HS256 symmetric)           │
-└─────────────────────────────────────────────────────────────────┘
-```
+finalize(req) ──→ sendFinalize() ──→ arrakis /api/internal/finalize
+                      │                    │
+                      │ failure            │ 200/409
+                      ▼                    ▼
+               DLQStore.put(entry)    return {ok: true}
+                      │
+         ┌────────────┼────────────┐
+         │            │            │
+    Redis OK    Redis FAIL    No Redis
+         │            │            │
+    Durable      Log ERROR    InMemory
+    (persist)   (manual       (non-durable)
+                 recovery)
 
-**Smoke test runs on the host** (not in a container), using `localhost` with mapped ports. This avoids needing a 4th container and simplifies debugging.
+replayDeadLetters() ──→ DLQStore.getReady(now)
+                              │
+                    ┌─────────┼──────────┐
+                    │         │          │
+              claim lock   orphan?    skip (locked)
+              (SETNX)     ZREM+warn
+                    │
+              sendFinalize()
+                    │
+              ┌─────┼─────┐
+              │           │
+           success      failure
+              │           │
+        store.delete   incr attempt
+                      (Lua atomic)
+```
 
 ---
 
 ## 3. Component Design
 
-### 3.1 S2S JWT Signer — HS256 Extension
+### 3.1 DLQStore Interface
 
-**File**: `src/hounfour/s2s-jwt.ts`
-**Current**: 102 lines, ES256-only via `jose` library
-
-#### 3.1.1 Config Type Changes
+**File**: `src/hounfour/dlq-store.ts`
 
 ```typescript
-// Current (Sprint A)
-export interface S2SConfig {
-  privateKeyPem: string
-  kid: string
-  issuer: string
-  audience: string
-}
+import type { DLQEntry } from "./billing-finalize-client.js"
 
-// Sprint B: Union config supporting both algorithms
-export interface S2SConfigBase {
-  kid: string
-  issuer: string
-  audience: string
+export interface DLQStore {
+  put(entry: DLQEntry): Promise<void>
+  get(reservationId: string): Promise<DLQEntry | null>
+  getReady(before: Date): Promise<DLQEntry[]>
+  delete(reservationId: string): Promise<void>
+  count(): Promise<number>
+  oldestEntryAgeMs(): Promise<number | null>
+  /** Whether the store provides durable persistence */
+  readonly durable: boolean
 }
-
-export interface S2SConfigES256 extends S2SConfigBase {
-  alg: "ES256"
-  privateKeyPem: string
-}
-
-export interface S2SConfigHS256 extends S2SConfigBase {
-  alg: "HS256"
-  secret: string
-}
-
-export type S2SConfig = S2SConfigES256 | S2SConfigHS256
 ```
 
-#### 3.1.2 Init Changes
-
-The `init()` method branches on `config.alg`:
-
-- **ES256**: Import PKCS8 key (existing logic, lines 34-49). Derives public JWK for JWKS endpoint.
-- **HS256**: Create `Uint8Array` key from secret string using `new TextEncoder().encode(config.secret)`. No public JWK (symmetric).
+**InMemoryDLQStore** (same file):
 
 ```typescript
-private signingKey: Uint8Array | null = null  // NEW: for HS256
+export class InMemoryDLQStore implements DLQStore {
+  private readonly entries: Map<string, DLQEntry> = new Map()
+  readonly durable = false
+  private readonly batchLimit: number
 
-async init(): Promise<void> {
-  if (this.config.alg === "ES256") {
-    // Existing ES256 init (lines 34-49)
-    this.privateKey = await importPKCS8(this.config.privateKeyPem, "ES256")
-    // ... derive public JWK (unchanged)
-  } else {
-    // HS256: encode secret as Uint8Array for jose
-    this.signingKey = new TextEncoder().encode(this.config.secret)
-    // No public JWK for symmetric keys
-    this.publicJWK = null
+  constructor(options?: { batchLimit?: number }) {
+    this.batchLimit = options?.batchLimit ?? 50
+  }
+
+  async put(entry: DLQEntry): Promise<void> {
+    const existing = this.entries.get(entry.reservation_id)
+    if (existing) {
+      // Atomic upsert: increment attempt, preserve created_at
+      existing.attempt_count += 1
+      existing.next_attempt_at = entry.next_attempt_at
+      existing.reason = entry.reason
+      existing.response_status = entry.response_status
+    } else {
+      this.entries.set(entry.reservation_id, entry)
+    }
+  }
+
+  async get(reservationId: string): Promise<DLQEntry | null> {
+    return this.entries.get(reservationId) ?? null
+  }
+
+  async getReady(before: Date): Promise<DLQEntry[]> {
+    const cutoff = before.getTime()
+    return [...this.entries.values()]
+      .filter(e => new Date(e.next_attempt_at).getTime() <= cutoff)
+      .slice(0, this.batchLimit)
+  }
+
+  async delete(reservationId: string): Promise<void> {
+    this.entries.delete(reservationId)
+  }
+
+  async count(): Promise<number> {
+    return this.entries.size
+  }
+
+  async oldestEntryAgeMs(): Promise<number | null> {
+    if (this.entries.size === 0) return null
+    let oldestCreated = Infinity
+    for (const e of this.entries.values()) {
+      const created = new Date(e.created_at).getTime()
+      oldestCreated = Math.min(oldestCreated, created)
+    }
+    return oldestCreated === Infinity ? null : Date.now() - oldestCreated
   }
 }
 ```
 
-#### 3.1.3 Sign Changes
+> **DLQEntry type change**: `DLQEntry` gains a `created_at: string` field (ISO timestamp set once on first enqueue, never updated). This is the authoritative timestamp for `oldestEntryAgeMs()` health metric computation. See §3.3 for the toDLQ() change.
 
-`signJWT()` uses the algorithm from config in `setProtectedHeader()`. The default TTL is 300s (5 minutes), matching PRD §NFR-2 and Sprint A's billing finalize usage.
+### 3.2 RedisDLQStore Adapter
+
+**File**: `src/hounfour/redis/dlq.ts`
+
+#### 3.2.1 Redis Schema
+
+| Structure | Key Pattern | Purpose |
+|-----------|-------------|---------|
+| Payload (string) | `finn:hounfour:dlq:entry:{rid}` | JSON-serialized DLQEntry |
+| Schedule (sorted set) | `finn:hounfour:dlq:schedule` | Member: `{rid}`, Score: `next_attempt_at` ms |
+| Claim lock (string) | `finn:hounfour:dlq:lock:{rid}` | SETNX with 60s TTL for replay exclusivity |
+| Terminal (string) | `finn:hounfour:dlq:terminal:{rid}` | JSON-serialized terminal drop record (TTL: 7 days) |
+
+**Canonical ZSET member**: Always `{rid}` (the reservation ID), never the full payload key. All Lua scripts and application code use `{rid}` as the sorted set member. The full payload key `finn:hounfour:dlq:entry:{rid}` is derived from the member at read time.
+
+**TTL calculation**: `(MAX_RETRIES × 600_000) + 3_600_000` = 5 × 10min + 1hr = ~4,600 seconds
+
+**getReady batch limit**: Default `50` entries per tick to bound work and prevent O(N) scans under load.
+
+#### 3.2.2 Lua Scripts
+
+**DLQ_UPSERT** — Atomic put-or-increment (payload + schedule), fixes non-atomic toDLQ():
+```lua
+-- KEYS[1] = entry key, KEYS[2] = schedule key
+-- ARGV[1] = json (new entry), ARGV[2] = next_attempt_ms, ARGV[3] = ttl_seconds, ARGV[4] = rid
+local existing = redis.call("GET", KEYS[1])
+if existing then
+  local entry = cjson.decode(existing)
+  local incoming = cjson.decode(ARGV[1])
+  entry.attempt_count = entry.attempt_count + 1
+  entry.next_attempt_at = incoming.next_attempt_at
+  entry.reason = incoming.reason
+  entry.response_status = incoming.response_status
+  redis.call("SET", KEYS[1], cjson.encode(entry), "EX", ARGV[3])
+else
+  redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[3])
+end
+redis.call("ZADD", KEYS[2], ARGV[2], ARGV[4])
+return 1
+```
+
+**DLQ_DELETE** — Atomic removal (payload + schedule + lock):
+```lua
+-- KEYS[1] = entry key, KEYS[2] = schedule key, KEYS[3] = lock key
+-- ARGV[1] = rid (canonical ZSET member)
+redis.call("DEL", KEYS[1])
+redis.call("ZREM", KEYS[2], ARGV[1])
+redis.call("DEL", KEYS[3])
+return 1
+```
+
+**DLQ_INCREMENT_ATTEMPT** — Atomic attempt count + schedule score update:
+```lua
+-- KEYS[1] = entry key, KEYS[2] = schedule key
+-- ARGV[1] = new next_attempt_at ISO string, ARGV[2] = ttl_seconds
+-- ARGV[3] = next_attempt_ms (numeric score), ARGV[4] = rid
+local json = redis.call("GET", KEYS[1])
+if not json then return nil end
+local entry = cjson.decode(json)
+entry.attempt_count = entry.attempt_count + 1
+entry.next_attempt_at = ARGV[1]
+local updated = cjson.encode(entry)
+redis.call("SET", KEYS[1], updated, "EX", ARGV[2])
+redis.call("ZADD", KEYS[2], ARGV[3], ARGV[4])
+return entry.attempt_count
+```
+
+**DLQ_TERMINAL_DROP** — Move to terminal keyspace with audit trail:
+```lua
+-- KEYS[1] = entry key, KEYS[2] = schedule key, KEYS[3] = lock key, KEYS[4] = terminal key
+-- ARGV[1] = rid, ARGV[2] = terminal_ttl_seconds (7 days = 604800)
+local json = redis.call("GET", KEYS[1])
+if json then
+  redis.call("SET", KEYS[4], json, "EX", ARGV[2])
+end
+redis.call("DEL", KEYS[1])
+redis.call("ZREM", KEYS[2], ARGV[1])
+redis.call("DEL", KEYS[3])
+return json and 1 or 0
+```
+
+#### 3.2.3 Class Design
 
 ```typescript
-async signJWT(claims: Record<string, unknown>, expiresInSeconds = 300): Promise<string> {
-  if (this.config.alg === "ES256" && !this.privateKey) throw new Error("S2SJwtSigner not initialized")
-  if (this.config.alg === "HS256" && !this.signingKey) throw new Error("S2SJwtSigner not initialized")
+import type { RedisStateBackend } from "./client.js"
+import type { DLQStore } from "../dlq-store.js"
+import type { DLQEntry } from "../billing-finalize-client.js"
 
-  const key = this.config.alg === "ES256" ? this.privateKey! : this.signingKey!
+const TERMINAL_TTL_SECONDS = 604_800 // 7 days
 
-  // For HS256 billing tokens: omit kid (arrakis verifies via shared secret, not JWKS lookup)
-  const header: Record<string, string> = { alg: this.config.alg, typ: "JWT" }
-  if (this.config.alg === "ES256") {
-    header.kid = this.config.kid  // Only ES256 tokens include kid (for JWKS resolution)
+export class RedisDLQStore implements DLQStore {
+  readonly durable = true
+  private readonly redis: RedisStateBackend
+  private readonly scheduleKey: string
+  private readonly ttlSeconds: number
+  private readonly batchLimit: number
+
+  constructor(redis: RedisStateBackend, options?: { maxRetries?: number; batchLimit?: number }) {
+    this.redis = redis
+    this.scheduleKey = redis.key("dlq", "schedule")
+    const maxRetries = options?.maxRetries ?? 5
+    this.ttlSeconds = Math.ceil((maxRetries * 600_000 + 3_600_000) / 1000)
+    this.batchLimit = options?.batchLimit ?? 50
   }
 
-  return new SignJWT(claims)
-    .setProtectedHeader(header)
-    .setIssuer(this.config.issuer)
-    .setAudience(this.config.audience)
-    .setIssuedAt()
-    .setExpirationTime(`${expiresInSeconds}s`)
-    .sign(key)
+  private entryKey(rid: string): string {
+    return this.redis.key("dlq", "entry", rid)
+  }
+
+  private lockKey(rid: string): string {
+    return this.redis.key("dlq", "lock", rid)
+  }
+
+  private terminalKey(rid: string): string {
+    return this.redis.key("dlq", "terminal", rid)
+  }
+
+  async put(entry: DLQEntry): Promise<void> {
+    const client = this.redis.getClient()
+    const json = JSON.stringify(entry)
+    const nextMs = new Date(entry.next_attempt_at).getTime()
+    await client.eval(DLQ_UPSERT_LUA, 2,
+      this.entryKey(entry.reservation_id), this.scheduleKey,
+      json, nextMs, this.ttlSeconds, entry.reservation_id
+    )
+  }
+
+  async get(reservationId: string): Promise<DLQEntry | null> {
+    const client = this.redis.getClient()
+    const json = await client.get(this.entryKey(reservationId))
+    return json ? JSON.parse(json) as DLQEntry : null
+  }
+
+  async getReady(before: Date): Promise<DLQEntry[]> {
+    const client = this.redis.getClient()
+    const cutoffMs = before.getTime()
+    // Bounded ZRANGEBYSCORE via Lua — returns rids (not full keys)
+    const rids = await client.eval(
+      `return redis.call("ZRANGEBYSCORE", KEYS[1], "-inf", ARGV[1], "LIMIT", 0, ARGV[2])`,
+      1, this.scheduleKey, cutoffMs, this.batchLimit
+    ) as string[]
+
+    const entries: DLQEntry[] = []
+    for (const rid of rids) {
+      const json = await client.get(this.entryKey(rid))
+      if (json) {
+        entries.push(JSON.parse(json) as DLQEntry)
+      } else {
+        // Orphan repair: schedule member exists but payload is missing (TTL expired)
+        await client.eval(
+          `redis.call("ZREM", KEYS[1], ARGV[1])`,
+          1, this.scheduleKey, rid
+        )
+        console.warn(`[billing-finalize] DLQ orphan repair: removed schedule entry for missing payload rid=${rid}`)
+      }
+    }
+    return entries
+  }
+
+  async delete(reservationId: string): Promise<void> {
+    const client = this.redis.getClient()
+    await client.eval(DLQ_DELETE_LUA, 3,
+      this.entryKey(reservationId), this.scheduleKey, this.lockKey(reservationId),
+      reservationId
+    )
+  }
+
+  async count(): Promise<number> {
+    const client = this.redis.getClient()
+    return client.zcard(this.scheduleKey)
+  }
+
+  async oldestEntryAgeMs(): Promise<number | null> {
+    const client = this.redis.getClient()
+    // Peek at lowest-scored member, fetch its created_at from payload
+    const rids = await client.eval(
+      `return redis.call("ZRANGE", KEYS[1], 0, 0)`,
+      1, this.scheduleKey
+    ) as string[]
+    if (!rids || rids.length === 0) return null
+    const json = await client.get(this.entryKey(rids[0]))
+    if (!json) return null
+    const entry = JSON.parse(json) as DLQEntry
+    return Date.now() - new Date(entry.created_at).getTime()
+  }
+
+  /** Acquire claim lock for replay. Returns true if lock acquired. */
+  async claimForReplay(reservationId: string): Promise<boolean> {
+    const client = this.redis.getClient()
+    const result = await client.set(this.lockKey(reservationId), "1", "NX", "EX", 60)
+    return result === "OK"
+  }
+
+  /** Release claim lock after replay attempt. */
+  async releaseClaim(reservationId: string): Promise<void> {
+    const client = this.redis.getClient()
+    await client.del(this.lockKey(reservationId))
+  }
+
+  /** Atomically increment attempt count, update next_attempt_at, and reschedule in ZSET. */
+  async incrementAttempt(reservationId: string, nextAttemptAt: string, nextAttemptMs: number): Promise<number | null> {
+    const client = this.redis.getClient()
+    const result = await client.eval(DLQ_INCREMENT_ATTEMPT_LUA, 2,
+      this.entryKey(reservationId), this.scheduleKey,
+      nextAttemptAt, this.ttlSeconds, nextAttemptMs, reservationId
+    )
+    return result as number | null
+  }
+
+  /** Move entry to terminal keyspace for audit trail, clean all active keys. */
+  async terminalDrop(reservationId: string): Promise<void> {
+    const client = this.redis.getClient()
+    await client.eval(DLQ_TERMINAL_DROP_LUA, 4,
+      this.entryKey(reservationId), this.scheduleKey,
+      this.lockKey(reservationId), this.terminalKey(reservationId),
+      reservationId, TERMINAL_TTL_SECONDS
+    )
+  }
+
+  /** Validate Redis persistence config at startup. Returns true if AOF is enabled. */
+  async validatePersistence(): Promise<boolean> {
+    try {
+      const client = this.redis.getClient()
+      const info = await client.eval(
+        `return redis.call("CONFIG", "GET", "appendonly")`,
+        0
+      ) as string[]
+      return info && info.length >= 2 && info[1] === "yes"
+    } catch {
+      // CONFIG may be disabled in managed Redis — log warning, don't block
+      console.warn("[billing-finalize] Could not verify Redis AOF config (CONFIG command may be restricted)")
+      return true // Assume managed Redis has persistence
+    }
+  }
 }
 ```
 
-**Critical design decisions:**
-- `alg` is hardcoded from `this.config.alg`, never from external/untrusted input
-- `kid` is **omitted for HS256 tokens** — arrakis's `requireInternalAuth` middleware verifies HS256 via `BILLING_INTERNAL_JWT_SECRET` env var, not via JWKS/kid resolution. Including `kid` in HS256 tokens would be misleading (no JWKS to resolve against)
-- Default TTL changed from 60s to 300s to match PRD requirement. The billing finalize client was already passing 300 explicitly; this makes the default consistent
-
-#### 3.1.4 JWKS/JWS Behavior by Algorithm
-
-| Method | ES256 | HS256 |
-|--------|-------|-------|
-| `signJWT()` | Sign with EC private key (includes kid) | Sign with shared secret (no kid) |
-| `signJWS()` | Sign payload (usage reports) | Throw Error — JWS not used for HS256 |
-| `signPayload()` | Convenience wrapper | Throw Error — delegates to `signJWS()` |
-| `getPublicJWK()` | Return EC public JWK | Throw Error — no public key for symmetric |
-| `getJWKS()` | Return `{ keys: [jwk] }` | Return `{ keys: [] }` — empty, no symmetric key exposure |
-| `isReady` | `privateKey !== null` | `signingKey !== null` |
-
-**Rationale for kid omission** (grounded in arrakis code): arrakis's `requireInternalAuth` middleware (`src/middleware/internal-auth.ts`) calls `jwt.verify(token, process.env.BILLING_INTERNAL_JWT_SECRET, { algorithms: ["HS256"] })` — it passes the shared secret directly to `jsonwebtoken.verify()`, which performs HS256 HMAC verification without any JWKS/kid resolution. The `kid` header is ignored by this code path. Including kid in HS256 tokens would be harmless but misleading.
-
-**E2E contract enforcement**: The smoke test includes a specific assertion that HS256 tokens without `kid` are accepted by arrakis. If arrakis's auth path changes to JWKS-based, the E2E test will fail immediately, surfacing the contract break before production. This is the enforceable contract.
-
-#### 3.1.5 Backward Compatibility
-
-The existing `S2SConfig` interface changes from a flat interface to a discriminated union. The single production caller (`src/index.ts:266-271`) is updated in §3.3. The `kid` field remains in the config for both modes (used as metadata/logging) but is only included in JWT headers for ES256.
-
-### 3.2 Billing Finalize Client — Wire Contract Fix
+### 3.3 BillingFinalizeClient Refactor
 
 **File**: `src/hounfour/billing-finalize-client.ts`
-**Current**: 270 lines
 
-#### 3.2.1 URL Path Fix
+#### Changes:
 
-Change `BillingFinalizeConfig.billingUrl` semantics from "full endpoint URL" to "base URL":
-
+1. **Constructor** — accepts `DLQStore` via config:
 ```typescript
-// Config interface — billingUrl is now base URL
 export interface BillingFinalizeConfig {
-  billingUrl: string    // e.g. "http://arrakis:3000" (base URL, not full path)
+  billingUrl: string
   s2sSigner: S2SJwtSigner
-  // ... rest unchanged
+  dlqStore: DLQStore              // NEW: replaces internal Map
+  timeoutMs?: number
+  maxRetries?: number
+  s2sSubjectMode?: "service" | "tenant"
 }
 ```
 
-In `sendFinalize()` (line 197):
+2. **Remove** `private readonly dlqEntries: Map<string, DLQEntry>` (line 61)
 
+3. **toDLQ()** — becomes async, calls `store.put()` with atomic upsert semantics:
 ```typescript
-// Before: fetch(this.config.billingUrl, { ... })
-// After:
-const url = `${this.config.billingUrl}/api/internal/finalize`
-response = await fetch(url, { ... })
-```
+private async toDLQ(req: FinalizeRequest, reason: string, responseStatus: number | null): Promise<FinalizeResult> {
+  // attempt_count=1 for new entries; DLQ_UPSERT Lua atomically increments if entry exists
+  const entry: DLQEntry = {
+    reservation_id: req.reservation_id,
+    tenant_id: req.tenant_id,
+    actual_cost_micro: req.actual_cost_micro,
+    trace_id: req.trace_id,
+    reason,
+    response_status: responseStatus,
+    attempt_count: 1,
+    created_at: new Date().toISOString(),
+    next_attempt_at: new Date(Date.now() + BACKOFF_SCHEDULE_MS[0]).toISOString(),
+  }
 
-#### 3.2.2 Request Body Transformation
-
-In `sendFinalize()` (lines 185-190):
-
-```typescript
-// Before (Sprint A — snake_case):
-const body = JSON.stringify({
-  reservation_id: req.reservation_id,
-  tenant_id: req.tenant_id,
-  actual_cost_micro: req.actual_cost_micro,
-  trace_id: req.trace_id,
-})
-
-// After (Sprint B — camelCase, arrakis wire contract):
-const body = JSON.stringify({
-  reservationId: req.reservation_id,
-  actualCostMicro: req.actual_cost_micro,
-  accountId: req.tenant_id,        // identity field mapping: tenant_id → accountId
-  traceId: req.trace_id,
-})
-```
-
-**No changes to internal interfaces**: `FinalizeRequest`, `DLQEntry`, and all callers continue using snake_case. The camelCase transformation happens only at the HTTP wire boundary.
-
-#### 3.2.3 Response Handling Enhancement
-
-Add defensive response field parsing (line 218-220):
-
-```typescript
-if (response.status === 200) {
   try {
-    const data = await response.json() as Record<string, unknown>
-    // Defensive: accept both snake_case and camelCase response field
-    const billingEntry = data.billing_entry ?? data.billingEntry ?? null
-    if (billingEntry) {
-      console.log(`[billing-finalize] ok: reservation_id=${req.reservation_id} trace_id=${req.trace_id}`)
-    }
-  } catch {
-    // Response parsing failure is non-fatal — 200 means finalize succeeded
+    // store.put() is atomic: Redis uses DLQ_UPSERT Lua (increment if exists, create if not)
+    // InMemory uses map-level upsert. No get-then-put race.
+    await this.store.put(entry)
+    console.warn(`[billing-finalize] DLQ: reservation_id=${req.reservation_id} reason=${reason} store=${this.store.durable ? "redis" : "memory"}`)
+  } catch (storeErr) {
+    // DLQStore failure — log full entry for manual recovery
+    console.error(`[billing-finalize] DLQ STORE FAILURE: ${(storeErr as Error).message}`)
+    console.error(`[billing-finalize] DLQ entry (manual recovery): ${JSON.stringify(entry)}`)
   }
-  return { ok: true, status: "finalized" }
+
+  return { ok: false, status: "dlq", reason }
 }
 ```
 
-### 3.3 Index.ts — S2S Init Block Update
+> **Atomicity note**: The previous get-then-put pattern for attempt counting was non-atomic and could lose increments under concurrent finalize() calls. The new design delegates increment responsibility to the store: `DLQ_UPSERT` Lua reads existing entry, increments `attempt_count`, and updates `next_attempt_at` in a single atomic operation. `created_at` is set once on first enqueue and preserved across updates.
 
-**File**: `src/index.ts`, lines 256-286
+4. **replayDeadLetters()** — uses `store.getReady()` + claim lock with try/finally + NEVER-throws:
+```typescript
+async replayDeadLetters(): Promise<{ replayed: number; succeeded: number; failed: number; terminal: number }> {
+  // Outer try/catch: NEVER-throws contract — Redis errors must not bubble
+  try {
+    const now = new Date()
+    const maxRetries = this.config.maxRetries ?? MAX_RETRIES
+    let replayed = 0, succeeded = 0, failed = 0, terminal = 0
+    const isRedis = this.store instanceof RedisDLQStore
 
-#### 3.3.1 Algorithm Selection Logic
+    const readyEntries = await this.store.getReady(now)
+    for (const entry of readyEntries) {
+      // Terminal drop: exhausted retries → move to terminal keyspace with audit trail
+      if (entry.attempt_count >= maxRetries) {
+        if (isRedis) {
+          await (this.store as RedisDLQStore).terminalDrop(entry.reservation_id)
+        } else {
+          await this.store.delete(entry.reservation_id)
+        }
+        console.error(`[billing-finalize] DLQ terminal drop: reservation_id=${entry.reservation_id} tenant=${entry.tenant_id} cost=${entry.actual_cost_micro} attempts=${entry.attempt_count} created=${entry.created_at}`)
+        terminal++
+        continue
+      }
 
-Replace the current `FINN_S2S_PRIVATE_KEY`-only check with dual-mode selection:
+      // Claim lock (RedisDLQStore) — skip if another instance owns it
+      if (isRedis) {
+        const claimed = await (this.store as RedisDLQStore).claimForReplay(entry.reservation_id)
+        if (!claimed) continue
+      }
+
+      // try/finally: ALWAYS release claim lock, even if sendFinalize or store ops throw
+      try {
+        replayed++
+        const result = await this.sendFinalize({
+          reservation_id: entry.reservation_id,
+          tenant_id: entry.tenant_id,
+          actual_cost_micro: entry.actual_cost_micro,
+          trace_id: entry.trace_id,
+        })
+
+        if (result.ok) {
+          await this.store.delete(entry.reservation_id) // delete also removes lock via Lua
+          succeeded++
+        } else {
+          // Increment attempt + reschedule atomically
+          if (isRedis) {
+            const backoffIndex = Math.min(entry.attempt_count, BACKOFF_SCHEDULE_MS.length - 1)
+            const nextAt = new Date(Date.now() + BACKOFF_SCHEDULE_MS[backoffIndex]).toISOString()
+            const nextMs = Date.now() + BACKOFF_SCHEDULE_MS[backoffIndex]
+            await (this.store as RedisDLQStore).incrementAttempt(entry.reservation_id, nextAt, nextMs)
+          }
+          failed++
+        }
+      } finally {
+        // Release claim lock regardless of outcome (success path: delete already removed it;
+        // releaseClaim on a non-existent key is a no-op DEL, safe to call unconditionally)
+        if (isRedis) {
+          await (this.store as RedisDLQStore).releaseClaim(entry.reservation_id)
+        }
+      }
+    }
+
+    if (replayed > 0 || terminal > 0) {
+      console.log(`[billing-finalize] DLQ replay: replayed=${replayed} succeeded=${succeeded} failed=${failed} terminal=${terminal} remaining=${await this.store.count()}`)
+    }
+    return { replayed, succeeded, failed, terminal }
+  } catch (err) {
+    // NEVER-throws: swallow store/Redis errors, log for ops, return zero-state
+    console.error(`[billing-finalize] DLQ replay error (swallowed): ${(err as Error).message}`)
+    return { replayed: 0, succeeded: 0, failed: 0, terminal: 0 }
+  }
+}
+```
+
+> **Claim lock lifecycle**: The `finally` block ensures claim locks are always released, preventing leaked locks that could delay settlement for up to 60s per item. On the success path, `store.delete()` already removes the lock via `DLQ_DELETE` Lua, so the subsequent `releaseClaim()` is a harmless no-op DEL.
+>
+> **Terminal drop audit trail**: In durable mode, terminal drops are moved to `finn:hounfour:dlq:terminal:{rid}` via `DLQ_TERMINAL_DROP` Lua (7-day TTL), preserving the full entry for reconciliation. The structured error log includes `tenant_id`, `actual_cost_micro`, `created_at`, and `attempt_count` for operational alerting.
+>
+> **NEVER-throws contract**: The outer try/catch ensures that transient Redis outages during replay do not crash the process or violate the billing client's runtime safety guarantee.
+
+5. **getDLQSize()** — now async:
+```typescript
+async getDLQSize(): Promise<number> {
+  return this.store.count()
+}
+```
+
+6. **Remove** `getDLQEntries()` (was leaking internal state)
+
+### 3.4 Bootstrap Integration
+
+**File**: `src/index.ts` — After Redis init block (L131-162):
 
 ```typescript
-// Sprint B: Algorithm selection with ambiguity guard
-const s2sSecret = process.env.FINN_S2S_JWT_SECRET
-const s2sPrivateKey = process.env.FINN_S2S_PRIVATE_KEY
-const s2sAlgOverride = process.env.FINN_S2S_JWT_ALG
+// 6d3. Initialize DLQ store for billing settlement persistence
+const { InMemoryDLQStore } = await import("./hounfour/dlq-store.js")
+let dlqStore: import("./hounfour/dlq-store.js").DLQStore
 
-let s2sConfig: import("./hounfour/s2s-jwt.js").S2SConfig | undefined
+if (redis?.isConnected()) {
+  const { RedisDLQStore } = await import("./hounfour/redis/dlq.js")
+  const redisDlq = new RedisDLQStore(redis)
 
-if (s2sAlgOverride) {
-  // Explicit algorithm — validate corresponding key material
-  if (s2sAlgOverride !== "HS256" && s2sAlgOverride !== "ES256") {
-    throw new Error(`[finn] FINN_S2S_JWT_ALG must be "HS256" or "ES256", got "${s2sAlgOverride}"`)
+  // AOF persistence validation (PRD NFR-2: shadow deploy requires AOF)
+  const aofEnabled = await redisDlq.validatePersistence()
+  if (!aofEnabled) {
+    console.warn(`[finn] billing DLQ: Redis AOF not verified — durable mode active but shadow deploy NOT ready`)
   }
-  if (s2sAlgOverride === "HS256") {
-    if (!s2sSecret) throw new Error("[finn] FINN_S2S_JWT_ALG=HS256 but FINN_S2S_JWT_SECRET is not set")
-    s2sConfig = {
-      alg: "HS256",
-      secret: s2sSecret,
-      kid: process.env.FINN_S2S_KID ?? "loa-finn-v1",
-      issuer: "loa-finn",
-      audience: "arrakis",
+
+  dlqStore = redisDlq
+  console.log(`[finn] billing DLQ: redis-backed (durable, aof=${aofEnabled ? "verified" : "unverified"})`)
+} else {
+  dlqStore = new InMemoryDLQStore()
+  console.log(`[finn] billing DLQ: in-memory (non-durable)`)
+}
+```
+
+Then pass `dlqStore` to `BillingFinalizeClient` constructor when creating the billing client.
+
+> **AOF validation**: At startup, `validatePersistence()` checks Redis `appendonly` config. If AOF is not enabled, a warning is logged but durable mode still activates (Redis may be managed with different persistence). The health endpoint reports `dlq_aof_verified` for operational monitoring. Shadow deploy readiness requires AOF verification to pass.
+
+### 3.5 Health Endpoint Integration
+
+**File**: `src/gateway/server.ts` — Extend health response:
+
+```typescript
+app.get("/health", async (c) => {
+  const base = options?.healthAggregator
+    ? options.healthAggregator.check()
+    : {
+        status: "healthy",
+        uptime: process.uptime(),
+        checks: {
+          agent: { status: "ok", model: config.model },
+          sessions: { active: router.getActiveCount() },
+        },
+      }
+
+  // Add billing DLQ metrics if available (wrapped in try/catch: health must never throw)
+  if (options?.billingClient) {
+    try {
+      const client = options.billingClient
+      const dlqSize = await client.getDLQSize()
+      const dlqOldest = await client.getDLQOldestAgeMs()
+      base.billing = {
+        dlq_size: dlqSize,
+        dlq_oldest_entry_age_ms: dlqOldest,
+        dlq_store_type: client.isDurable() ? "redis" : "memory",
+        dlq_durable: client.isDurable(),
+        dlq_aof_verified: client.isAofVerified(),
+      }
+    } catch {
+      base.billing = { dlq_size: null, dlq_store_type: "unknown", dlq_durable: false }
+    }
+  }
+
+  return c.json(base)
+})
+```
+
+### 3.6 Billing Invariants
+
+**File**: `src/hounfour/billing-invariants.ts`
+
+Contains the 5 conservation invariants as documented constants and helper functions for property-based testing:
+
+```typescript
+export const BILLING_INVARIANTS = {
+  INV_1_COMPLETENESS: "Every finalize() returns one of: finalized, idempotent, dlq",
+  INV_2_PERSISTENCE_DURABLE: "In durable mode, outcome=dlq implies entry persisted in DLQStore",
+  INV_2D_PERSISTENCE_DEGRADED: "In degraded mode, outcome=dlq implies entry in memory + ERROR log",
+  INV_3_IDEMPOTENCY: "Duplicate finalize for same reservation_id returns idempotent (via 409)",
+  INV_4_COST_IMMUTABILITY: "actual_cost_micro is never modified after initial computation",
+  INV_5_BOUNDED_RETRY: "Every DLQ entry replayed at most maxRetries times with backoff",
+} as const
+
+/** Assert INV-1: outcome is always one of the three valid states */
+export function assertCompleteness(result: FinalizeResult): void {
+  if (result.ok) {
+    if (result.status !== "finalized" && result.status !== "idempotent") {
+      throw new Error(`INV-1 violated: ok=true but status=${result.status}`)
     }
   } else {
-    if (!s2sPrivateKey) throw new Error("[finn] FINN_S2S_JWT_ALG=ES256 but FINN_S2S_PRIVATE_KEY is not set")
-    s2sConfig = {
-      alg: "ES256",
-      privateKeyPem: s2sPrivateKey,
-      kid: process.env.FINN_S2S_KID ?? "loa-finn-v1",
-      issuer: "loa-finn",
-      audience: "arrakis",
+    if (result.status !== "dlq") {
+      throw new Error(`INV-1 violated: ok=false but status=${result.status}`)
     }
   }
-} else if (s2sSecret && s2sPrivateKey) {
-  throw new Error("[finn] Both FINN_S2S_JWT_SECRET and FINN_S2S_PRIVATE_KEY set — set FINN_S2S_JWT_ALG to disambiguate")
-} else if (s2sSecret) {
-  // Auto-detect HS256
-  s2sConfig = {
-    alg: "HS256",
-    secret: s2sSecret,
-    kid: process.env.FINN_S2S_KID ?? "loa-finn-v1",
-    issuer: "loa-finn",
-    audience: "arrakis",
-  }
-} else if (s2sPrivateKey) {
-  // Auto-detect ES256 (backward compatible with Sprint A)
-  s2sConfig = {
-    alg: "ES256",
-    privateKeyPem: s2sPrivateKey,
-    kid: process.env.FINN_S2S_KID ?? "loa-finn-v1",
-    issuer: "loa-finn",
-    audience: "arrakis",
-  }
-} else if (billingUrl) {
-  console.warn("[finn] ARRAKIS_BILLING_URL set but no S2S signing key — billing finalize disabled")
 }
 ```
 
-#### 3.3.2 BillingUrl Semantic Change
+---
 
-```typescript
-// Sprint A: billingUrl was the full endpoint URL
-// Sprint B: billingUrl is the base URL; client appends /api/internal/finalize
-billingFinalizeClient = new BillingFinalizeClient({
-  billingUrl,      // e.g., "http://arrakis:3000"
-  s2sSigner,
-})
-```
+## 4. Testing Strategy
 
-### 3.4 Docker Compose E2E Stack
+### 4.1 Existing Tests (Must Pass)
 
-**File**: `tests/e2e/docker-compose.e2e.yml`
+- `tests/finn/billing-finalize.test.ts` — 28 tests adapted to use `InMemoryDLQStore`
+- `tests/e2e/smoke-test.sh` — 52 E2E tests unchanged
 
-#### 3.4.1 Services
+### 4.2 New Tests
 
-| Service | Image/Build | Internal Port | Host Port | Health Check | Depends On |
-|---------|-------------|--------------|-----------|--------------|------------|
-| `redis-e2e` | `redis:7-alpine` | 6379 | 6380 | `redis-cli ping` | — |
-| `arrakis-e2e` | Build from `../../arrakis` | 3000 | 3000 | `node -e "fetch('http://localhost:3000/v1/health')..."` | redis-e2e (healthy) |
-| `loa-finn-e2e` | Build from `../..`, `deploy/Dockerfile` | 3000 | 3001 | `node -e "fetch('http://localhost:3000/health')..."` | redis-e2e (healthy), arrakis-e2e (healthy) |
+**File**: `tests/finn/dlq-store.test.ts` (~14 tests)
 
-**Health check commands**: Both arrakis and loa-finn use `node -e "fetch(...).then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"`. This works because:
-- Both images are Node 22-based (Node 22 has built-in `fetch`)
-- The existing `deploy/Dockerfile:74` already uses this exact pattern
-- `node` is guaranteed to exist in both containers
+| Test | What It Verifies |
+|------|-----------------|
+| InMemoryDLQStore put/get/delete | Basic CRUD |
+| InMemoryDLQStore put upsert increments attempt | Atomic upsert semantics |
+| InMemoryDLQStore getReady filters by time | Schedule filtering |
+| InMemoryDLQStore getReady respects batch limit | Bounded batch (default 50) |
+| InMemoryDLQStore count/oldest uses created_at | Health metrics correctness |
+| RedisDLQStore put/get round-trip | Redis persistence |
+| RedisDLQStore put upsert is atomic (Lua) | DLQ_UPSERT atomicity |
+| RedisDLQStore getReady with schedule + LIMIT | Bounded sorted set range query |
+| RedisDLQStore ZSET member is rid not full key | Canonical member consistency |
+| RedisDLQStore orphan repair | Missing payload → ZREM by rid |
+| RedisDLQStore claim lock + release in finally | SETNX exclusivity + leak prevention |
+| RedisDLQStore incrementAttempt updates ZSET score | Schedule score tracks backoff |
+| RedisDLQStore terminalDrop moves to terminal keyspace | Audit trail preservation |
+| RedisDLQStore delete cleans all keys | Payload + schedule + lock removed |
 
-**Port mapping**:
-- Health checks run **inside the container** using `localhost:3000` (internal port)
-- The smoke test runs **on the host** using `localhost:3001` (loa-finn) and `localhost:3000` (arrakis)
+**File**: `tests/finn/billing-invariants.test.ts` (~6 tests)
 
-#### 3.4.2 Secret Wiring
+| Test | What It Verifies |
+|------|-----------------|
+| INV-1: random requests → always valid outcome | fast-check, 100 scenarios |
+| INV-3: duplicate reservation_id → idempotent | fast-check, 100 scenarios |
+| INV-5: replay exhausts retries → terminal drop | fast-check, 50 scenarios |
+| Store failure → finalize returns dlq, entry logged | DLQStore.put() throws |
+| replayDeadLetters NEVER throws on Redis error | Outer try/catch returns zero-state |
+| Terminal drop preserves audit record in terminal keyspace | DLQ_TERMINAL_DROP Lua |
 
-Both services read the same secret value via compose:
+**File**: `tests/finn/dlq-persistence.test.ts` (~4 tests)
 
-```yaml
-services:
-  arrakis-e2e:
-    environment:
-      BILLING_INTERNAL_JWT_SECRET: e2e-s2s-jwt-secret-for-testing-only-32chr
-
-  loa-finn-e2e:
-    environment:
-      FINN_S2S_JWT_SECRET: e2e-s2s-jwt-secret-for-testing-only-32chr
-      FINN_S2S_JWT_ALG: HS256
-      ARRAKIS_BILLING_URL: http://arrakis-e2e:3000
-```
-
-The same literal string value is hardcoded for both services. arrakis reads `BILLING_INTERNAL_JWT_SECRET`, loa-finn reads `FINN_S2S_JWT_SECRET`.
-
-#### 3.4.3 Build Contexts and CI Path Resolution
-
-The compose file lives at `tests/e2e/docker-compose.e2e.yml`. Docker Compose resolves build contexts **relative to the compose file location**.
-
-| Service | Build Context | Resolves To (CI) |
-|---------|--------------|-------------------|
-| `loa-finn-e2e` | `context: ../..` | `$GITHUB_WORKSPACE/` (loa-finn root) |
-| `arrakis-e2e` | `context: ../../arrakis` | `$GITHUB_WORKSPACE/arrakis/` |
-
-**CI workspace layout** (GitHub Actions):
-```
-$GITHUB_WORKSPACE/          ← loa-finn (default checkout)
-├── tests/e2e/
-│   ├── docker-compose.e2e.yml
-│   └── smoke-test.sh
-├── deploy/Dockerfile
-├── src/
-└── arrakis/                ← actions/checkout with path: arrakis
-    ├── Dockerfile
-    └── src/
-```
-
-**CI invocation**:
-```bash
-# Run from $GITHUB_WORKSPACE (loa-finn root)
-docker compose -f tests/e2e/docker-compose.e2e.yml up -d --build
-```
-
-Docker Compose resolves `../..` relative to `tests/e2e/` → `$GITHUB_WORKSPACE/`. Resolves `../../arrakis` → `$GITHUB_WORKSPACE/arrakis/`. Both paths exist in the CI workspace.
-
-### 3.5 E2E Smoke Test Script
-
-**File**: `tests/e2e/smoke-test.sh`
-
-#### 3.5.1 Test Sequence
-
-The smoke test runs **on the host** and communicates with services via mapped ports:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Host-accessible URLs (mapped ports)
-ARRAKIS_URL="${ARRAKIS_URL:-http://localhost:3000}"
-FINN_URL="${FINN_URL:-http://localhost:3001}"
-REDIS_URL="${REDIS_URL:-localhost}"
-REDIS_PORT="${REDIS_PORT:-6380}"
-
-TRACE_ID="e2e-$(date +%s)-$(head -c 8 /dev/urandom | xxd -p)"
-```
-
-| Step | Action | URL | Expected |
-|------|--------|-----|----------|
-| 1 | Health check arrakis | `GET $ARRAKIS_URL/v1/health` | 200 |
-| 2 | Health check loa-finn | `GET $FINN_URL/health` | 200 |
-| 3 | Send inference | `POST $FINN_URL/api/v1/chat/completions` | 200 |
-| 4 | Verify billing entry | See §3.5.2 | Entry exists |
-| 5 | Validate schema | Assert fields | All present |
-
-#### 3.5.2 Verification Strategy (Pinned — Response Header)
-
-**Mechanism**: loa-finn emits a deterministic response header `x-billing-finalize-status` on every inference response. The smoke test asserts this header value.
-
-**How it works:**
-
-1. After `sendFinalize()` completes in the router, the result (`finalized`, `idempotent`, or `dlq`) is attached to the response as a custom header:
-
-```typescript
-// In router.ts, after finalize call:
-res.setHeader("x-billing-finalize-status", finalizeResult.ok ? finalizeResult.status : "dlq")
-res.setHeader("x-billing-trace-id", req.trace_id)
-```
-
-2. The smoke test reads these headers from the inference response:
-
-```bash
-# Send inference request and capture response headers
-response=$(curl -sD /tmp/e2e-headers -X POST "$FINN_URL/api/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -H "x-trace-id: $TRACE_ID" \
-  -d '{"model":"mock","messages":[{"role":"user","content":"test"}]}')
-
-# Assert finalize succeeded
-finalize_status=$(grep -i "x-billing-finalize-status" /tmp/e2e-headers | tr -d '\r' | awk '{print $2}')
-assert_eq "$finalize_status" "finalized" "Billing finalize status"
-
-# Assert trace ID matches
-trace_echo=$(grep -i "x-billing-trace-id" /tmp/e2e-headers | tr -d '\r' | awk '{print $2}')
-assert_eq "$trace_echo" "$TRACE_ID" "Trace ID correlation"
-```
-
-**Why response header is the right mechanism:**
-- **Fully deterministic**: header is set from the finalize result, not from log parsing
-- **No arrakis introspection**: verification is entirely from loa-finn's perspective
-- **Proves the wire**: `finalized` status means arrakis returned HTTP 200 to the finalize call — the JWT was accepted, the request body was valid, the billing entry was created
-- **Correlation via traceId**: the same traceId sent in the request appears in the response, proving end-to-end tracing
-- **No scope creep**: no arrakis code changes, no Redis key pattern guessing
-
-**What this proves:**
-- loa-finn sent an HS256-signed request to arrakis
-- arrakis accepted the JWT (HS256 shared secret matched)
-- arrakis accepted the request body (camelCase fields, correct accountId)
-- arrakis returned 200 (billing entry created)
-- loa-finn received the 200 and set status to "finalized"
-
-**Secondary validation (non-blocking):** Additionally check arrakis container logs for the finalize receipt:
-
-```bash
-# Optional: verify arrakis also logged the finalize (defense-in-depth, not primary)
-docker compose -f tests/e2e/docker-compose.e2e.yml logs arrakis-e2e 2>&1 \
-  | grep -q "$TRACE_ID" && echo "PASS: arrakis logged traceId" || echo "WARN: arrakis log check inconclusive"
-```
-
-This secondary check is informational only — the primary assertion is the response header.
-
-### 3.6 CI Workflow
-
-**File**: `.github/workflows/e2e-smoke.yml`
-
-```yaml
-name: E2E Smoke Test
-on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
-
-jobs:
-  e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout loa-finn
-        uses: actions/checkout@v4
-
-      - name: Checkout arrakis
-        uses: actions/checkout@v4
-        with:
-          repository: 0xHoneyJar/arrakis
-          path: arrakis
-          token: ${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}
-
-      - name: Build and start E2E stack
-        run: docker compose -f tests/e2e/docker-compose.e2e.yml up -d --build
-
-      - name: Wait for services healthy
-        run: |
-          # Docker compose wait for health (built-in with depends_on: condition)
-          # Additional explicit wait for safety
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:3001/health && curl -sf http://localhost:3000/v1/health; then
-              echo "All services healthy"
-              break
-            fi
-            sleep 2
-          done
-
-      - name: Run smoke test
-        run: ./tests/e2e/smoke-test.sh
-
-      - name: Collect logs on failure
-        if: failure()
-        run: docker compose -f tests/e2e/docker-compose.e2e.yml logs --no-color > e2e-logs.txt
-
-      - name: Upload logs artifact
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-logs
-          path: e2e-logs.txt
-
-      - name: Teardown
-        if: always()
-        run: docker compose -f tests/e2e/docker-compose.e2e.yml down -v
-```
-
-**Workspace after checkout**:
-```
-$GITHUB_WORKSPACE/
-├── (loa-finn files — default checkout)
-├── tests/e2e/docker-compose.e2e.yml  (context: ../.. → $GITHUB_WORKSPACE)
-├── arrakis/                          (context: ../../arrakis → $GITHUB_WORKSPACE/arrakis)
-```
-
-All `docker compose` commands run from `$GITHUB_WORKSPACE` (loa-finn root). The `-f` flag points to the compose file; Docker resolves build contexts relative to the compose file location (`tests/e2e/`), so `../..` = `$GITHUB_WORKSPACE/` and `../../arrakis` = `$GITHUB_WORKSPACE/arrakis/`.
+| Test | What It Verifies |
+|------|-----------------|
+| Kill-restart recovery | Put entries → recreate client with same Redis → entries survive |
+| Arrakis 409 idempotency | E2E: finalize twice → second returns 409 (via Docker stack) |
+| AOF validation returns true when appendonly=yes | validatePersistence() startup check |
+| Health endpoint never throws on Redis failure | try/catch in health handler |
 
 ---
 
-## 4. Security Architecture
+## 5. File Summary
 
-### 4.1 JWT Algorithm Safety
+| File | Action | Lines (est.) |
+|------|--------|-------------|
+| `src/hounfour/dlq-store.ts` | NEW | ~90 |
+| `src/hounfour/redis/dlq.ts` | NEW | ~220 |
+| `src/hounfour/billing-invariants.ts` | NEW | ~60 |
+| `src/hounfour/billing-finalize-client.ts` | MODIFY | ~40 lines changed |
+| `src/index.ts` | MODIFY | ~20 lines added |
+| `src/gateway/server.ts` | MODIFY | ~15 lines added |
+| `tests/finn/dlq-store.test.ts` | NEW | ~300 |
+| `tests/finn/billing-invariants.test.ts` | NEW | ~180 |
+| `tests/finn/dlq-persistence.test.ts` | NEW | ~140 |
 
-| Threat | Mitigation |
-|--------|------------|
-| Algorithm confusion (alg: none) | `setProtectedHeader()` hardcodes alg from config — never reads from token |
-| Algorithm confusion (HS256 with public key) | Startup error when both keys set without explicit `FINN_S2S_JWT_ALG` |
-| kid-based JWKS confusion for HS256 | HS256 tokens omit `kid` header — arrakis verifies via shared secret, not JWKS |
-| Weak HS256 secret | E2E uses 32-char test secret; production secret length enforced by ops |
-| Token replay | 5-minute TTL (`exp: iat+300`) — default in `signJWT()` |
-
-### 4.2 arrakis HS256 Verification Contract (Grounded)
-
-arrakis's `requireInternalAuth` middleware (`src/middleware/internal-auth.ts`) for the billing finalize endpoint:
-- Reads `BILLING_INTERNAL_JWT_SECRET` from env at startup
-- Verifies JWT using `jsonwebtoken.verify(token, secret, { algorithms: ["HS256"] })`
-- Does **not** perform JWKS/kid-based key resolution — passes secret directly
-- Validates: `exp` (not expired), signature (HS256)
-- `kid` header is ignored (not used in the verification code path)
-
-**Enforced in E2E**: The smoke test asserts that HS256 tokens without `kid` are accepted by sending a real request through the billing wire. If arrakis's auth path changes to require JWKS/kid, the E2E test fails immediately with a non-`finalized` response header.
-
-### 4.3 E2E Secret Isolation
-
-All E2E secrets are hardcoded test values in the compose file. No production secrets needed. The test secret (`e2e-s2s-jwt-secret-for-testing-only-32chr`) is named to prevent accidental production use.
+**Total**: 3 new source files (~370 lines), 3 modified files (~75 lines changed), 3 new test files (~620 lines)
 
 ---
 
-## 5. Testing Strategy
+## 6. Dependencies
 
-### 5.1 Unit Test Updates
+**No new runtime dependencies.** fast-check for property-based tests (dev dependency, already available via vitest ecosystem or add as devDependency).
 
-| File | New Tests |
-|------|-----------|
-| `s2s-jwt.test.ts` | HS256 init + sign + verify round-trip; algorithm selection from config; ambiguous config rejection; negative: HS256-configured signer rejects ES256 token verification (and vice versa); kid omission for HS256; default TTL is 300s |
-| `billing-finalize-client.test.ts` | camelCase wire body assertion (JSON.parse request body); correct URL path `/api/internal/finalize`; accountId mapping from tenant_id; defensive response parsing (both `billing_entry` and `billingEntry`); no `?format=loh` query parameter |
-
-### 5.2 E2E Tests (smoke-test.sh)
-
-| Test | Assertion |
-|------|-----------|
-| Service health | arrakis (`localhost:3000/v1/health`) and loa-finn (`localhost:3001/health`) return 200 |
-| Inference | `POST localhost:3001/api/v1/chat/completions` returns 200 |
-| Finalize status | Response header `x-billing-finalize-status: finalized` (proves arrakis accepted HS256 JWT + camelCase body) |
-| Trace correlation | Response header `x-billing-trace-id` matches sent traceId |
-| HS256 contract | HS256 token without `kid` accepted by arrakis (implicit via finalize success) |
-
-### 5.3 Test Count Estimate
-
-Sprint A: 57 tests (updated for correct wire format)
-Sprint B new: ~12 unit + 4 E2E = ~16 new tests
-Total: ~73 tests
+**Existing dependencies used:**
+- `src/hounfour/redis/client.ts` — RedisStateBackend, RedisCommandClient
+- `jose` — unchanged (JWT signing)
+- `vitest` — test runner
 
 ---
 
-## 6. File Change Summary
+## 7. Migration & Rollback
 
-| File | Action | Est. Lines |
-|------|--------|-----------|
-| `src/hounfour/s2s-jwt.ts` | Modify | +45 |
-| `src/hounfour/billing-finalize-client.ts` | Modify | +10 |
-| `src/index.ts` | Modify | +30 |
-| `tests/e2e/docker-compose.e2e.yml` | Create | ~55 |
-| `tests/e2e/smoke-test.sh` | Create | ~80 |
-| `.github/workflows/e2e-smoke.yml` | Create | ~50 |
-| `src/hounfour/__tests__/s2s-jwt.test.ts` | Modify | +35 |
-| `src/hounfour/__tests__/billing-finalize-client.test.ts` | Modify | +15 |
+### Migration
+- Zero-downtime: old loa-finn instances use in-memory DLQ (no Redis keys exist)
+- New instances automatically create Redis keys on first `put()`
+- No schema migration needed — Redis keys are created on demand
 
-**Total**: ~320 new/changed lines
+### Rollback
+- Remove `REDIS_URL` env var → falls back to InMemoryDLQStore
+- Redis keys expire via TTL — no manual cleanup needed
+- Existing behavior is exactly preserved via InMemoryDLQStore
+
+---
+
+## 8. Security Considerations
+
+- DLQ entries contain `reservation_id`, `tenant_id`, `actual_cost_micro`, `trace_id` — no PII, no secrets
+- Redis keys namespaced under `finn:hounfour:dlq:*` — isolated from other components
+- Claim locks use short TTL (60s) to prevent permanent lock-out
+- No new network surfaces — Redis connection reuses existing `RedisStateBackend`
