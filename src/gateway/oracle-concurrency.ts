@@ -3,6 +3,15 @@
 
 import type { Context, Next } from "hono"
 
+/**
+ * Global in-memory concurrency limiter for Oracle requests per ECS task.
+ *
+ * LIMITATION (BB-025-003): This is a global semaphore, not per-identity.
+ * A single aggressive client can consume all slots, starving others.
+ * Acceptable for Phase 1 with single-replica ECS (desired_count=1).
+ * Phase 2: migrate to per-identity concurrency (Map<string, number>)
+ * when the JSONL ledger moves to a shared store and autoscaling is enabled.
+ */
 export class ConcurrencyLimiter {
   private active = 0
 

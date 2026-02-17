@@ -4,6 +4,7 @@
 // Authorization header is present (GPT-5.2 Fix #5).
 
 import { createHash } from "node:crypto"
+import { isIP } from "node:net"
 import type { Context, Next } from "hono"
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import type { TenantContext, JWTClaims } from "../hounfour/jwt-auth.js"
@@ -134,11 +135,7 @@ export function extractClientIp(c: Context, trustXff: boolean): string {
   return (c.env as Record<string, string> | undefined)?.remoteAddr ?? "unknown"
 }
 
-/** Validate IPv4 or IPv6 address format */
+/** Validate IPv4 or IPv6 address format using Node.js stdlib (BB-025-002 fix) */
 export function isValidIp(ip: string): boolean {
-  // IPv4: 1-3 digits separated by dots
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return true
-  // IPv6: hex digits and colons
-  if (/^[0-9a-fA-F:]+$/.test(ip) && ip.includes(":")) return true
-  return false
+  return isIP(ip) !== 0
 }

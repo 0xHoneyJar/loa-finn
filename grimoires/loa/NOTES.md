@@ -16,6 +16,12 @@
   - Compatibility test vector: `tests/finn/jwt-claim-compatibility.test.ts` (7 tests).
   - See arrakis contracts: `themes/sietch/src/packages/core/contracts/s2s-billing.ts`.
 
+- **Phase 2: Per-identity concurrency limiting** (BB-025-003, 2026-02-17)
+  - Current ConcurrencyLimiter is global semaphore (maxConcurrent=3 per ECS task).
+  - Single aggressive client can consume all slots, starving others.
+  - Blocked by single-replica ECS constraint (desired_count=1 due to local JSONL ledger).
+  - When ledger migrates to shared store → enable autoscaling → per-identity Map<string, number>.
+
 - **BLOCKER: Pricing config schema migration (future cycle).**
   - Pricing enters as JS `number` from JSON config (IEEE-754 by spec). `usdToMicroBigInt()` converts via `toFixed(6)` — deterministic per ECMAScript but depends on the float already being "close enough" to intended decimal.
   - Future hardening: migrate pricing config to `input_micro_per_1m: string` (string-serialized integer micro-USD) to eliminate all IEEE-754 dependence from the pricing boundary.

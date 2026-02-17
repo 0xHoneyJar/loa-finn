@@ -169,8 +169,9 @@ describe("OracleRateLimiter", () => {
 
     it("should reconcile actual cost on release (overestimate refund)", async () => {
       redis = createMockRedis({
-        eval: vi.fn().mockResolvedValue([1, 50]),
-        get: vi.fn().mockResolvedValue("50"),
+        eval: vi.fn()
+          .mockResolvedValueOnce([1, 50])  // RESERVE_COST_LUA
+          .mockResolvedValueOnce(30),       // RECONCILE_COST_LUA
       })
       limiter = new OracleRateLimiter(redis, DEFAULT_CONFIG)
 
@@ -178,9 +179,13 @@ describe("OracleRateLimiter", () => {
       // Actual cost was 30 (refund 20)
       await result.release(30)
 
-      expect(redis.incrby).toHaveBeenCalledWith(
-        expect.stringContaining("oracle:cost:"),
-        -20,
+      // Now uses atomic Lua for refund (BB-025-001 fix)
+      expect(redis.eval).toHaveBeenCalledTimes(2)
+      // Second eval call is the reconcile Lua with abs(delta) = 20
+      expect(redis.eval).toHaveBeenLastCalledWith(
+        expect.stringContaining("DECRBY"),
+        1, expect.stringContaining("oracle:cost:"),
+        20,
       )
     })
 
@@ -216,19 +221,22 @@ describe("OracleRateLimiter", () => {
 
     it("should clamp to prevent negative counters on reconciliation", async () => {
       redis = createMockRedis({
-        eval: vi.fn().mockResolvedValue([1, 50]),
-        get: vi.fn().mockResolvedValue("10"), // Only 10 in the counter
+        eval: vi.fn()
+          .mockResolvedValueOnce([1, 50])  // RESERVE_COST_LUA
+          .mockResolvedValueOnce(0),        // RECONCILE_COST_LUA (clamped)
       })
       limiter = new OracleRateLimiter(redis, DEFAULT_CONFIG)
 
       const result = await limiter.reserveCost(50)
-      // Release with actual cost of 0 → delta = -50, but counter only has 10
+      // Release with actual cost of 0 → delta = -50, Lua clamps internally
       await result.release(0)
 
-      // Should only decrement by 10 (not 50) to prevent negative
-      expect(redis.incrby).toHaveBeenCalledWith(
-        expect.stringContaining("oracle:cost:"),
-        -10,
+      // Atomic Lua handles clamping (BB-025-001 fix)
+      expect(redis.eval).toHaveBeenCalledTimes(2)
+      expect(redis.eval).toHaveBeenLastCalledWith(
+        expect.stringContaining("DECRBY"),
+        1, expect.stringContaining("oracle:cost:"),
+        50,
       )
     })
 
@@ -244,17 +252,21 @@ describe("OracleRateLimiter", () => {
 
     it("should release(0) on failure for full refund", async () => {
       redis = createMockRedis({
-        eval: vi.fn().mockResolvedValue([1, 50]),
-        get: vi.fn().mockResolvedValue("50"),
+        eval: vi.fn()
+          .mockResolvedValueOnce([1, 50])  // RESERVE_COST_LUA
+          .mockResolvedValueOnce(0),        // RECONCILE_COST_LUA (full refund)
       })
       limiter = new OracleRateLimiter(redis, DEFAULT_CONFIG)
 
       const result = await limiter.reserveCost(50)
       await result.release(0) // full refund
 
-      expect(redis.incrby).toHaveBeenCalledWith(
-        expect.stringContaining("oracle:cost:"),
-        -50,
+      // Atomic Lua for full refund (BB-025-001 fix)
+      expect(redis.eval).toHaveBeenCalledTimes(2)
+      expect(redis.eval).toHaveBeenLastCalledWith(
+        expect.stringContaining("DECRBY"),
+        1, expect.stringContaining("oracle:cost:"),
+        50,
       )
     })
   })

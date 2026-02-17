@@ -147,6 +147,22 @@ export class OracleRateLimiter {
   }
 
   /**
+   * Atomic cost reconciliation: safely adjust cost counter for refund (negative delta).
+   * Reads current value and decrements atomically, clamped to prevent negative counters.
+   * Fixes BB-025-001: replaces non-atomic GET → compute → INCRBY pattern.
+   */
+  private static readonly RECONCILE_COST_LUA = `
+    local costKey = KEYS[1]
+    local decrement = tonumber(ARGV[1])
+    local current = tonumber(redis.call('GET', costKey) or '0')
+    local safeDecrement = math.min(decrement, current)
+    if safeDecrement > 0 then
+      redis.call('DECRBY', costKey, safeDecrement)
+    end
+    return current - safeDecrement
+  `
+
+  /**
    * Atomic check-and-reserve: reserve estimated cost BEFORE invoking the model.
    * Deny if reservation would exceed the ceiling. Reconcile after.
    *
@@ -217,13 +233,12 @@ export class OracleRateLimiter {
             if (delta > 0) {
               await this.redis.incrby(costKey, delta)
             } else {
-              // Clamp to prevent negative counters: only decrement by at most the estimated amount
-              const currentRaw = await this.redis.get(costKey)
-              const current = parseInt(currentRaw ?? "0", 10)
-              const safeDecrement = Math.min(Math.abs(delta), current)
-              if (safeDecrement > 0) {
-                await this.redis.incrby(costKey, -safeDecrement)
-              }
+              // Atomic clamp-and-decrement via Lua (BB-025-001 fix)
+              await this.redis.eval(
+                OracleRateLimiter.RECONCILE_COST_LUA,
+                1, costKey,
+                Math.abs(delta),
+              )
             }
           } catch {
             // Best-effort reconciliation — Redis may be unavailable

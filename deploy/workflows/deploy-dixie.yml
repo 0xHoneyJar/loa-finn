@@ -82,16 +82,18 @@ jobs:
 
       - name: Sync to S3
         run: |
+          # HTML and JSON first with short cache (BB-025-005: prevents transient immutable headers)
+          aws s3 sync out/ s3://${{ env.S3_BUCKET }}/ \
+            --cache-control "public, max-age=300" \
+            --exclude "*" \
+            --include "*.html" \
+            --include "*.json"
+          # Everything else with immutable cache + cleanup
           aws s3 sync out/ s3://${{ env.S3_BUCKET }}/ \
             --delete \
             --cache-control "public, max-age=31536000, immutable" \
             --exclude "*.html" \
             --exclude "*.json"
-          # HTML and JSON files get shorter cache
-          aws s3 sync out/ s3://${{ env.S3_BUCKET }}/ \
-            --cache-control "public, max-age=300" \
-            --include "*.html" \
-            --include "*.json"
 
       - name: Invalidate CloudFront cache
         run: |

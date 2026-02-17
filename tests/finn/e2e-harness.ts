@@ -1,6 +1,7 @@
 // tests/finn/e2e-harness.ts — E2E Test Environment Harness (Sprint 5 Task 5.5)
 // Creates a full Oracle sub-app with mocked dependencies for integration testing.
 
+import { createHash } from "node:crypto"
 import { Hono } from "hono"
 import { vi } from "vitest"
 import { createOracleHandler, oracleCorsMiddleware } from "../../src/gateway/routes/oracle.js"
@@ -34,8 +35,7 @@ function createMockRedis(): MockRedisClient {
   const redis: MockRedisClient = {
     _store: store,
     _seedApiKey(key: string, owner: string) {
-      const crypto = require("node:crypto")
-      const hash = crypto.createHash("sha256").update(key).digest("hex")
+      const hash = createHash("sha256").update(key).digest("hex")
       store.set(`oracle:apikeys:${hash}`, {
         status: "active",
         owner,
