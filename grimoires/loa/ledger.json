@@ -714,9 +714,33 @@
           "status": "completed",
           "tasks": 7,
           "notes": "Commit ab0fd85 — 10 knowledge sources, oracle persona, sources.json, bootstrap integration, 35 new tests (11 E2E + 12 gold-set + 12 red-team). 107 total Oracle tests. Review: All good. Audit: APPROVED."
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 62,
+          "label": "Oracle Product API & Middleware",
+          "status": "completed",
+          "tasks": 8,
+          "notes": "Commit b2edebe — rate limiter (atomic Lua), auth (dk_ prefix, fail-closed), concurrency limiter, handler, CORS, server registration, health enrichment. 77 tests across 5 files."
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 63,
+          "label": "Infrastructure & Knowledge Sync",
+          "status": "completed",
+          "tasks": 9,
+          "notes": "Commit daeb02e — Terraform (backend, dnft-site module, oracle-site, OIDC, ElastiCache), Dockerfile CI-fetch, oracle-keys.sh, 10 new knowledge sources (20 total), gold-set 20/20 (100% pass rate). 29 files, 2974 insertions."
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 64,
+          "label": "Frontend & E2E Integration",
+          "status": "completed",
+          "tasks": 7,
+          "notes": "Commit f34f80b — E2E harness (mock Redis, mock router, IP/CORS helpers), 14 E2E integration tests, 11 XSS prevention tests (OWASP vectors), deploy-dixie workflow reference. 147 total Oracle tests."
         }
       ]
     }
   },
-  "next_global_sprint_id": 62
+  "next_global_sprint_id": 65
 }

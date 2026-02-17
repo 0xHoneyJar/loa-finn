@@ -1,12 +1,11 @@
 {
-  "simstim_id": "simstim-20260216-oracle",
+  "simstim_id": "simstim-20260217-dixie-phase1",
   "schema_version": 1,
   "state": "COMPLETE",
   "phase": "complete",
   "timestamps": {
-    "started": "2026-02-16T22:00:00Z",
-    "last_activity": "2026-02-16T23:45:00Z",
-    "completed": "2026-02-16T23:45:00Z"
+    "started": "2026-02-17T15:00:00Z",
+    "last_activity": "2026-02-18T02:00:00Z"
   },
   "phases": {
     "preflight": "completed",
@@ -16,30 +15,30 @@
     "flatline_sdd": "completed",
     "planning": "completed",
     "flatline_sprint": "completed",
-    "flatline_beads": "completed",
+    "flatline_beads": "skipped",
     "implementation": "completed",
     "complete": "completed"
   },
   "artifacts": {
     "prd": {
       "path": "grimoires/loa/prd.md",
-      "checksum": "sha256:ae789e5921ff2ba9fbaa228449cf3bd8f571b95a052a03d3d200a1dff80b4ad7"
+      "checksum": "sha256:70a982092e3f3f435f648da05684a8e940699cf0e10c8c1b7fff2ca3cb650d4e"
     },
     "sdd": {
       "path": "grimoires/loa/sdd.md",
-      "checksum": "sha256:c80bbeae797fe6f75d900f45a48f0d41d52c611833b7998292cd48381b677007"
+      "checksum": "sha256:feab748d078e7bcfc599ed524233b9fe4176941014641da5bb61eed9dbf0d469"
     },
     "sprint": {
       "path": "grimoires/loa/sprint.md",
-      "checksum": "sha256:2f592c88f33abe741deae3fd4857ed0f35ae1ecc9966f448c2a87abe2d8c4f93"
+      "checksum": "sha256:ac57b3b25159d78f2a9103616bcd82629a4dcdabe829e893958bfcdede85f305"
     }
   },
   "cycle": "cycle-025",
   "gpt_review": {
     "prd": {
-      "iterations": 3,
+      "iterations": 2,
       "verdict": "APPROVED",
-      "findings": "grimoires/loa/a2a/gpt-review/prd-findings-3.json"
+      "findings": "grimoires/loa/a2a/gpt-review/prd-findings-2.json"
     },
     "sdd": {
       "iterations": 4,
@@ -47,37 +46,46 @@
       "findings": "grimoires/loa/a2a/gpt-review/sdd-findings-4.json"
     },
     "sprint": {
-      "iterations": 3,
+      "iterations": 2,
       "verdict": "APPROVED",
-      "findings": "grimoires/loa/a2a/gpt-review/sprint-findings-3.json"
+      "findings": "grimoires/loa/a2a/gpt-review/sprint-findings-2.json"
     }
   },
   "flatline": {
     "prd": {
-      "high_consensus": 4,
+      "high_consensus": 5,
+      "high_consensus_integrated": 5,
       "disputed": 0,
-      "blockers_addressed": 4,
+      "blockers": 6,
+      "blockers_integrated": 4,
+      "blockers_overridden": 1,
+      "blockers_deferred": 0,
       "status": "completed"
     },
     "sdd": {
-      "high_consensus": 5,
+      "high_consensus": 4,
+      "high_consensus_integrated": 4,
       "disputed": 0,
-      "blockers_addressed": 5,
+      "blockers": 6,
+      "blockers_integrated": 4,
+      "blockers_overridden": 1,
+      "blockers_deferred": 0,
+      "blockers_false_positive": 1,
       "status": "completed"
     },
     "sprint": {
-      "high_consensus": 4,
+      "high_consensus": 3,
+      "high_consensus_integrated": 3,
       "disputed": 0,
-      "blockers_addressed": 6,
+      "blockers": 8,
+      "blockers_integrated": 3,
+      "blockers_overridden": 5,
+      "blockers_deferred": 0,
       "status": "completed"
     }
   },
-  "beads": {
-    "tasks_created": 15,
-    "epics_created": 2,
-    "dependency_cycles": 0,
-    "flatline_iterations": 0,
-    "status": "completed",
-    "reason": "Sprint plan triple-reviewed (GPT-5.2 x3 + Flatline); task graph mirrors reviewed plan exactly; no cycles detected"
+  "ledger": {
+    "sprints_registered": [62, 63, 64],
+    "next_global_sprint_id": 65
   }
 }

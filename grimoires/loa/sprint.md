@@ -1,28 +1,32 @@
 # Sprint Plan: The Oracle — Unified Knowledge Interface
 
-> **Version**: 1.2.0
-> **GPT-5.2 Review**: APPROVED (iteration 2, 7 blocking issues resolved)
-> **Flatline Protocol**: APPROVED (4 HIGH_CONSENSUS integrated, 6 BLOCKERs addressed)
-> **Date**: 2026-02-16
+> **Version**: 3.0.0
+> **GPT-5.2 Review**: APPROVED (iteration 2)
+> **Flatline Protocol**: APPROVED (3 HIGH_CONSENSUS integrated, 3 BLOCKERS integrated, 5 overridden)
+> **Date**: 2026-02-17
 > **Cycle**: cycle-025
-> **PRD**: `grimoires/loa/prd.md` (v2.0.0, GPT-5.2 APPROVED, Flatline APPROVED)
-> **SDD**: `grimoires/loa/sdd.md` (v2.0.0, GPT-5.2 APPROVED iteration 4, Flatline APPROVED)
+> **PRD**: `grimoires/loa/prd.md` (v3.0.0, GPT-5.2 APPROVED iteration 2, Flatline APPROVED)
+> **SDD**: `grimoires/loa/sdd.md` (v3.0.0, GPT-5.2 APPROVED iteration 4, Flatline APPROVED)
 > **Team**: 1 AI engineer (Loa agent)
 > **Sprint Duration**: ~2-3 hours each (autonomous execution via `/run sprint-plan`)
-> **Global Sprint IDs**: 60-61
+> **Global Sprint IDs**: 60-64
 
 ---
 
 ## Overview
 
-Two sprints to deliver the Oracle knowledge enrichment layer:
+Five sprints to deliver the complete Oracle product surface — from knowledge engine (Phase 0, DONE) through product API, infrastructure, and frontend (Phase 1):
 
-| Sprint | Label | Focus | Tasks | Estimated Lines |
-|--------|-------|-------|-------|-----------------|
-| Sprint 1 | Knowledge Engine Foundation | TypeScript engine (4 new files + 6 modified) + unit tests | 8 | ~1,200 |
-| Sprint 2 | Knowledge Corpus & E2E Verification | 12 content files + integration/gold-set/red-team tests | 7 | ~3,500 |
+| Sprint | Label | Focus | Tasks | Status |
+|--------|-------|-------|-------|--------|
+| Sprint 1 (60) | Knowledge Engine Foundation | TypeScript engine + unit tests | 8 | COMPLETED |
+| Sprint 2 (61) | Knowledge Corpus & E2E Verification | Content files + integration tests | 7 | COMPLETED |
+| Sprint 3 (62) | Oracle Product API & Middleware | Handler, rate limiter, auth, concurrency, CORS | 8 | Pending |
+| Sprint 4 (63) | Infrastructure & Knowledge Sync | Terraform state, dnft-site, ElastiCache, Dockerfile, API keys, extended corpus | 9 | Pending |
+| Sprint 5 (64) | Frontend & E2E Integration | Next.js frontend (loa-dixie), E2E harness + tests, XSS tests | 7 | Pending |
 
-**Total**: 15 tasks, ~4,700 lines of TypeScript + Markdown
+**Phase 0 Total** (Sprints 1-2): 15 tasks, ~4,700 lines — COMPLETED
+**Phase 1 Total** (Sprints 3-5): 24 tasks, ~3,700 lines — Pending
 
 ---
 
@@ -417,56 +421,568 @@ Two sprints to deliver the Oracle knowledge enrichment layer:
 
 ---
 
-## Sprint Summary
+---
 
-| Sprint | Tasks | New Files | Modified Files | Test Files | Total Lines |
-|--------|-------|-----------|----------------|------------|-------------|
-| 1 | 8 | 4 TS | 6 TS | 3 TS | ~1,200 |
-| 2 | 7 | 12 MD + 1 JSON | 0 | 3 TS | ~3,500 |
-| **Total** | **15** | **17** | **6** | **6** | **~4,700** |
+## Sprint 3: Oracle Product API & Middleware
 
-## Flatline Protocol Findings
+**Goal**: Build the complete product-facing Oracle API — handler, Redis-backed rate limiter (atomic Lua script), API key auth, concurrency limiter, CORS, server registration with middleware isolation, and full unit test coverage.
 
-> Flatline review completed with 4 HIGH_CONSENSUS auto-integrated and 6 BLOCKERs addressed.
+**Dependencies**: Sprint 2 complete (knowledge engine functional via `/api/v1/invoke`)
 
-### HIGH_CONSENSUS (auto-integrated)
+**Global Sprint ID**: 62
 
-| ID | Score | Finding | Integration |
-|----|-------|---------|-------------|
-| IMP-001 | 770 | Integration order for Task 1.8 | Added file modification sequence (types→registry→config→health→invoke→router) |
-| IMP-002 | 820 | Router integration tests underspecified | Added ≥5 test criteria to Task 1.8 |
-| IMP-005 | 825 | Fallback degradation algorithm undefined | Added binary mode degradation spec to Task 1.6 |
-| IMP-010 | 905 | Unresolved template placeholders | Verified: no placeholders remaining after GPT-5.2 fixes |
+### Task 3.1: Oracle Rate Limiter (`src/gateway/oracle-rate-limit.ts`)
 
-### BLOCKERs (addressed)
+**Description**: Redis-backed multi-tier rate limiter with atomic Lua script per SDD §3.2. Three tiers: per-identity, global cap, cost circuit breaker. Atomic check-and-reserve for cost ceiling.
 
-| ID | Score | Concern | Mitigation |
-|----|-------|---------|------------|
-| SKP-001 | 930 | Timeline unrealistic for ~4,700 LOC in 4-6 hours | Lines are AI-generated via `/run sprint-plan` autonomous execution — not human LOC. Sprint 2 is ~2,800 lines of Markdown content (knowledge sources), which is high-volume but low-complexity prose. Sprint 1 is ~1,200 lines of TypeScript with well-specified acceptance criteria. Autonomous agent has previously delivered comparable volumes (see cycle-020, cycle-024). |
-| SKP-002 | 860 | Token estimation heuristic (chars/4) may be inaccurate | Design decision: chars/4 is intentionally conservative (over-estimates). E2E tests in Task 2.6 validate against actual provider token counts. If drift exceeds 20%, a calibration constant can be tuned without architecture changes. The preflight context check (§3.5.5) provides a safety net regardless of estimation accuracy. |
-| SKP-003 | 900 | Advisory mode allows injection patterns in curated content | By design per SDD §3.2 — curated content under `grimoires/oracle/` is maintained by project authors, not arbitrary users. Advisory mode logs WARN (visible in health/monitoring) without blocking. Hard gate applies to all non-curated paths. Red-team tests (Task 2.7) explicitly verify both modes. |
-| SKP-004 | 740 | Frontmatter regex parsing fragility | Regex is minimal by design (no YAML parser dependency). Fail-open behavior (stale=false on parse error) ensures loader never blocks on malformed frontmatter. Task 1.3 includes explicit test for missing/unparseable frontmatter. Edge cases (Windows CRLF, BOM) can be normalized via `.trim()` before regex match. |
-| SKP-005 | 780 | Platform-specific security gate test gaps | Task 1.3 already specifies conditional skip (`describe.skip`) for symlink tests on unsupported platforms. CI runs on Linux (GitHub Actions ubuntu-latest) where symlinks are fully supported. The critical security gates (absolute path, path escape, mixed separator) are platform-independent and always run. |
-| SKP-007 | 760 | Router integration risk across 3 invoke paths | Added shared `applyKnowledgeEnrichment()` helper to Task 1.8 — single implementation called from all 3 invoke methods. Router integration tests (IMP-002) verify behavior is consistent across invoke paths. |
+**Files**: `src/gateway/oracle-rate-limit.ts` (NEW, ~200 lines)
+
+**Acceptance Criteria**:
+- [ ] `OracleRateLimiter` class with `check()` and `reserveCost()` methods
+- [ ] `RATE_LIMIT_LUA` Lua script: atomically checks cost ceiling, identity limit, global cap — only increments when ALL pass
+- [ ] `RESERVE_COST_LUA` Lua script: atomic check-and-reserve that denies if `(current + estimate) > ceiling`
+- [ ] TTL set on first INCR (86400s) for all counter keys
+- [ ] `check()` returns `{ allowed, remaining, retryAfter, reason }` with reason codes: COST_CEILING_EXCEEDED, IDENTITY_LIMIT_EXCEEDED, GLOBAL_CAP_EXCEEDED
+- [ ] `reserveCost(estimatedCostCents)` returns `{ allowed, release }` — uses config `costCeilingCents` internally; release function reconciles actual vs estimated cost
+- [ ] Reserve/release idempotency: request-scoped reservation ID prevents double-release; release is no-op if already released (Flatline SKP-003b)
+- [ ] Redis timeout handling: command timeout (2s) → fail-closed for cost reservation, fail-open with conservative in-memory limit (1 req/min) for rate limiting (Flatline IMP-001)
+- [ ] No negative counters: reconciliation clamps to 0 minimum; tests verify underflow prevention
+- [ ] `isHealthy()` ping check
+- [ ] `utcDateKey()` helper for daily key partitioning
+- [ ] Config interface: `OracleRateLimitConfig` with dailyCap, costCeilingCents, publicDailyLimit, authenticatedDailyLimit
+
+**Estimated Effort**: Large (~1.5 hours)
 
 ---
 
-## Risk Assessment
+### Task 3.2: Oracle Auth Middleware (`src/gateway/oracle-auth.ts`)
+
+**Description**: API key validation middleware per SDD §3.3. Two-tier auth: Bearer token → Redis lookup → authenticated tier, or no token → IP-based public tier. Fail-closed on Redis error when Authorization header present.
+
+**Files**: `src/gateway/oracle-auth.ts` (NEW, ~80 lines)
+
+**Acceptance Criteria**:
+- [ ] `oracleAuthMiddleware(redis)` factory returns Hono middleware
+- [ ] `extractClientIp()`: rightmost-untrusted-hop algorithm (TRUSTED_PROXY_COUNT=2), CloudFront-Viewer-Address preferred, TRUST_XFF gating
+- [ ] `isValidIp()`: IPv4/IPv6 format validation
+- [ ] Bearer token path: `dk_live_` or `dk_test_` prefix validation, SHA-256 hash, Redis HGETALL lookup
+- [ ] Active key → authenticated `OracleTenantContext` with `asTenant()` conforming to `TenantContext` interface
+- [ ] Revoked/unknown key → 401
+- [ ] Redis error with Authorization present → 503 (fail-closed, GPT-5.2 Fix #5)
+- [ ] Redis error without Authorization → fall through to public tier with conservative in-memory rate limit (Flatline IMP-001)
+- [ ] No token → public `OracleTenantContext` with IP-based identity
+- [ ] `OracleIdentity` and `OracleTenantContext` interfaces exported
+
+**Estimated Effort**: Medium (~1 hour)
+
+---
+
+### Task 3.3: Oracle Concurrency Limiter (`src/gateway/oracle-concurrency.ts`)
+
+**Description**: In-memory semaphore per SDD §3.4. Limits concurrent Oracle requests per ECS task to prevent resource starvation.
+
+**Files**: `src/gateway/oracle-concurrency.ts` (NEW, ~60 lines)
+
+**Acceptance Criteria**:
+- [ ] `ConcurrencyLimiter` class with configurable max (default 3)
+- [ ] `acquire()` → true if slot available, false if at capacity
+- [ ] `release()` → frees slot
+- [ ] `oracleConcurrencyMiddleware(limiter)` factory returns Hono middleware
+- [ ] When at capacity → 429 with `Retry-After: 5` header
+- [ ] Thread-safe for single-process Node.js (no race conditions with async)
+
+**Estimated Effort**: Small (~30 min)
+
+---
+
+### Task 3.4: Oracle Handler (`src/gateway/routes/oracle.ts`)
+
+**Description**: Product API handler per SDD §3.1. Request/response reshaping, cost reservation wiring, CORS middleware, API version header.
+
+**Files**: `src/gateway/routes/oracle.ts` (NEW, ~120 lines)
+
+**Acceptance Criteria**:
+- [ ] `createOracleHandler(router, rateLimiter)` factory function
+- [ ] Request validation: `question` required (string, 1-10000 chars), `context` optional (≤5000 chars)
+- [ ] Prompt construction: `question` + optional `context`
+- [ ] Cost reservation before invoke: `rateLimiter.reserveCost(config.oracle.estimatedCostCents)` — 503 if `!allowed` (ceiling from limiter config)
+- [ ] Delegate to `router.invokeForTenant("oracle", prompt, oracleTenant.asTenant(), "invoke")`
+- [ ] Reconcile actual cost after invoke; release(0) on error (full refund)
+- [ ] Response reshaping: `{ answer, sources[], metadata }` per PRD FR-2
+- [ ] API version header: `X-Oracle-API-Version: 2026-02-17`
+- [ ] Error mapping: BUDGET_EXCEEDED→402, ORACLE_MODEL_UNAVAILABLE→422, ORACLE_KNOWLEDGE_UNAVAILABLE→503, CONTEXT_OVERFLOW→413, RATE_LIMITED→429
+- [ ] `oracleCorsMiddleware(allowedOrigins)` factory: handles preflight OPTIONS, sets CORS headers
+- [ ] Request/response type interfaces: `OracleRequest`, `OracleResponse`
+
+**Estimated Effort**: Medium (~1 hour)
+
+---
+
+### Task 3.5: Config Extensions & Server Registration
+
+**Description**: Add Phase 1 config env vars and register Oracle sub-app with middleware isolation per SDD §3.5 + §3.6.
+
+**Files**:
+- `src/config.ts` (MODIFY, +20 lines) — Phase 1 env vars
+- `src/gateway/server.ts` (MODIFY, +25 lines) — Oracle sub-app registration
+
+**Acceptance Criteria**:
+- [ ] Config: `estimatedCostCents`, `trustXff`, `corsOrigins` added to `FinnConfig.oracle`
+- [ ] Config: `FINN_ORACLE_ESTIMATED_COST_CENTS`, `FINN_ORACLE_TRUST_XFF`, `FINN_ORACLE_CORS_ORIGINS` env vars
+- [ ] Server: Dedicated `Hono()` sub-app with middleware chain: CORS → auth → rate-limit → concurrency → handler
+- [ ] Server: `app.route("/api/v1/oracle", oracleApp)` registered BEFORE `/api/v1/*` wildcard
+- [ ] Server: `isOraclePath()` prefix check skip guard in wildcard middleware (defense-in-depth)
+- [ ] Server: `AppOptions` extended with `oracleRateLimiter` and `redisClient`
+- [ ] Existing routes unaffected (backward compatibility)
+
+**Estimated Effort**: Medium (~45 min)
+
+---
+
+### Task 3.6: Health Extensions
+
+**Description**: Extend health endpoint with Oracle Phase 1 fields per SDD §3.7.
+
+**Files**: `src/scheduler/health.ts` (MODIFY, +20 lines)
+
+**Acceptance Criteria**:
+- [ ] `oracle.rate_limiter_healthy: boolean` — Redis ping via rate limiter
+- [ ] `oracle.oracle_status: "healthy" | "degraded" | "unavailable"` — aggregated status
+- [ ] `oracle.daily_usage: { requests, cost_cents, ceiling_cents, ceiling_percent }` — current day counters from Redis with budget proximity (Flatline IMP-002)
+- [ ] `oracle.dixie_ref: string` — knowledge corpus version from config
+- [ ] `oracle.error_counts: { redis_timeouts, model_errors, rate_limited }` — rolling error counters for operational monitoring (Flatline IMP-002)
+- [ ] Oracle health does NOT affect overall health status (Oracle is additive, not critical path)
+- [ ] Health endpoint works when Oracle is disabled (omits oracle field)
+- [ ] Structured JSON logs for: rate limit events, cost ceiling proximity (>80%), Redis connection errors, model invocation latency >5s (Flatline IMP-002)
+
+**Estimated Effort**: Small (~30 min)
+
+---
+
+### Task 3.7: Unit Tests (Rate Limiter, Auth, Concurrency, Handler)
+
+**Description**: Comprehensive unit tests for all Oracle middleware components.
+
+**Files**:
+- `tests/finn/oracle-rate-limit.test.ts` (NEW, ~250 lines)
+- `tests/finn/oracle-auth.test.ts` (NEW, ~150 lines)
+- `tests/finn/oracle-concurrency.test.ts` (NEW, ~80 lines)
+- `tests/finn/oracle-api.test.ts` (NEW, ~200 lines)
+
+**Acceptance Criteria**:
+- [ ] Rate limiter: Lua script atomic check — identity allowed, global blocked, cost ceiling blocked
+- [ ] Rate limiter: TTL set on first request, counter increment only when all tiers pass
+- [ ] Rate limiter: `reserveCost` — allowed when under ceiling, denied when over, reconciliation adjusts counter
+- [ ] Auth: Valid API key → authenticated tier, revoked → 401, no token → public tier
+- [ ] Auth: Redis error with Authorization → 503 (fail-closed)
+- [ ] Auth: IP extraction — rightmost-untrusted-hop, CloudFront-Viewer-Address preference, TRUST_XFF=false fallback
+- [ ] Concurrency: acquire/release cycle, capacity enforcement, 429 at max
+- [ ] Handler: Valid request → response shape matches `OracleResponse`
+- [ ] Handler: Invalid request (missing question, too long) → 400
+- [ ] Handler: Cost ceiling exceeded → 503
+- [ ] Handler: CORS preflight → 204 with correct headers
+- [ ] ≥30 test cases total across all 4 files
+- [ ] All tests passing
+
+**Estimated Effort**: Large (~2 hours)
+
+---
+
+### Task 3.8: Middleware Isolation & IP Extraction Tests
+
+**Description**: Tests asserting middleware isolation (wildcard not invoked for Oracle) and IP extraction edge cases per SDD §6.3.
+
+**Files**:
+- `tests/finn/oracle-ip-extraction.test.ts` (NEW, ~100 lines)
+- Additional cases in `tests/finn/oracle-api.test.ts`
+
+**Acceptance Criteria**:
+- [ ] Test: Wildcard middleware (`rateLimitMiddleware`, `hounfourAuth`) NOT invoked for `/api/v1/oracle`
+- [ ] Test: Wildcard middleware NOT invoked for `/api/v1/oracle/` (trailing slash)
+- [ ] Test: Wildcard middleware IS invoked for `/api/v1/invoke` (other routes unaffected)
+- [ ] Test: IP extraction — spoofed XFF `"evil, real, cf, alb"` → extracts `real` (rightmost-untrusted-hop)
+- [ ] Test: IP extraction — CloudFront-Viewer-Address takes precedence over XFF
+- [ ] Test: IP extraction — invalid IP in XFF → falls back to remote address
+- [ ] Test: IP extraction — TRUST_XFF=false → always uses remote address
+- [ ] ≥10 test cases total
+- [ ] All tests passing
+
+**Estimated Effort**: Medium (~1 hour)
+
+---
+
+## Sprint 4: Infrastructure & Knowledge Sync
+
+**Goal**: Deploy infrastructure for the Oracle frontend, establish the knowledge sync pipeline from loa-dixie, create API key management tooling, and expand the knowledge corpus to 20+ sources.
+
+**Dependencies**: Sprint 3 complete (API functional), loa-dixie repository exists
+
+**Global Sprint ID**: 63
+
+### Task 4.0: Terraform State Backend (Flatline IMP-008)
+
+**Description**: Configure S3 + DynamoDB state backend for Terraform to prevent state corruption and enable CI applies.
+
+**Files**:
+- `deploy/terraform/backend.tf` (NEW, ~20 lines)
+
+**Acceptance Criteria**:
+- [ ] S3 backend with versioning enabled for state file
+- [ ] DynamoDB table for state locking (`terraform-locks`)
+- [ ] State isolation: workspace or per-environment state paths
+- [ ] `terraform init` succeeds with backend configuration
+- [ ] Backend bucket and lock table provisioned (bootstrap instructions documented)
+
+**Estimated Effort**: Small (~20 min)
+
+---
+
+### Task 4.1: Terraform dnft-site Module
+
+**Description**: Reusable Terraform module for S3 + CloudFront + Route53 static site hosting per SDD §8.1.
+
+**Files**:
+- `deploy/terraform/modules/dnft-site/main.tf` (NEW, ~200 lines)
+- `deploy/terraform/modules/dnft-site/variables.tf` (NEW, ~50 lines)
+- `deploy/terraform/modules/dnft-site/outputs.tf` (NEW, ~20 lines)
+
+**Acceptance Criteria**:
+- [ ] S3 bucket with account ID suffix for global uniqueness (GPT-5.2 Fix #6)
+- [ ] S3 bucket private, CloudFront OAI (Origin Access Identity) for access
+- [ ] CloudFront distribution with custom domain, HTTPS redirect
+- [ ] CloudFront response header policy: CSP, HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy
+- [ ] Route53 A + AAAA alias records pointing to CloudFront distribution (hosted zone ID `Z2FDTNDATAQYW2`)
+- [ ] CloudFront `aliases = ["${var.subdomain}.${var.domain}"]` configured
+- [ ] CloudFront `viewer_certificate` block with `acm_certificate_arn = var.certificate_arn` and `ssl_support_method = "sni-only"`
+- [ ] Module parameterized: `subdomain`, `zone_id`, `domain`, `environment`, `certificate_arn`
+- [ ] Outputs: `s3_bucket_name`, `s3_bucket_arn`, `cloudfront_distribution_id`, `cloudfront_domain_name`, `cloudfront_distribution_arn`
+- [ ] `terraform validate` passes
+
+**Estimated Effort**: Medium (~1 hour)
+
+---
+
+### Task 4.2: Oracle Site & Wildcard Certificate
+
+**Description**: Instantiate the dnft-site module for `oracle.arrakis.community` with wildcard ACM cert per SDD §8.2.
+
+**Files**:
+- `deploy/terraform/oracle-site.tf` (NEW, ~80 lines)
+
+**Acceptance Criteria**:
+- [ ] ACM wildcard cert `*.arrakis.community` in us-east-1 (explicit provider alias, GPT-5.2 Fix #7)
+- [ ] DNS validation for ACM cert
+- [ ] Module invocation: `module "oracle_site"` with subdomain="oracle"
+- [ ] Passes `terraform plan` without errors
+
+**Estimated Effort**: Small (~30 min)
+
+---
+
+### Task 4.3: OIDC for loa-dixie Deploys
+
+**Description**: GitHub Actions OIDC federation for loa-dixie to deploy to S3 per SDD §8.3.
+
+**Files**:
+- `deploy/terraform/dixie-oidc.tf` (NEW, ~60 lines)
+
+**Acceptance Criteria**:
+- [ ] IAM OIDC provider for GitHub Actions (if not already present)
+- [ ] IAM role `dixie-site-deploy` with trust policy for `0xHoneyJar/loa-dixie` repo
+- [ ] Least-privilege policy: `s3:ListBucket` on bucket ARN, `s3:PutObject`, `s3:DeleteObject`, `s3:GetObject` on bucket ARN/* + `cloudfront:CreateInvalidation` scoped to distribution ARN
+- [ ] References `module.oracle_site.s3_bucket_arn` and `module.oracle_site.cloudfront_distribution_arn` (GPT-5.2 Fix #8)
+- [ ] `data.aws_caller_identity.current` declared
+- [ ] Passes `terraform plan`
+
+**Estimated Effort**: Small (~30 min)
+
+---
+
+### Task 4.4: Dockerfile Knowledge Sync (CI-Fetch Pattern)
+
+**Description**: Update Dockerfile to copy loa-dixie knowledge from build context per SDD §7.1 and PRD FR-4.
+
+**Files**:
+- `deploy/Dockerfile` (MODIFY, +10 lines)
+
+**Acceptance Criteria**:
+- [ ] `COPY` from build context (not `ADD` from GitHub URL — no network during build)
+- [ ] CI pipeline fetches loa-dixie archive at pinned `DIXIE_REF` before Docker build
+- [ ] Knowledge sources available at `/app/grimoires/oracle-dixie/` inside container
+- [ ] `DIXIE_REF` build arg for provenance, defaults to `main` for dev
+- [ ] Docker image labels: `dixie.ref`, `dixie.commit`, `build.timestamp`
+- [ ] `docker build` succeeds with local mock knowledge directory
+
+**Estimated Effort**: Small (~30 min)
+
+---
+
+### Task 4.5: API Key Management Script
+
+**Description**: Bash script for API key lifecycle per SDD §3.8.
+
+**Files**: `scripts/oracle-keys.sh` (NEW, ~120 lines)
+
+**Acceptance Criteria**:
+- [ ] `generate` subcommand: creates `dk_live_` prefixed key, SHA-256 hashes, stores in Redis
+- [ ] `revoke` subcommand: sets key status to "revoked" in Redis
+- [ ] `list` subcommand: scans `oracle:apikeys:*` keys, displays status/owner
+- [ ] Requires `REDIS_URL` env var
+- [ ] Key format: `dk_live_` + 32 hex chars (crypto-random)
+- [ ] Redis hash fields: `status`, `owner`, `created_at`, `last_used_at`
+- [ ] Script is executable (`chmod +x`)
+
+**Estimated Effort**: Small (~30 min)
+
+---
+
+### Task 4.6: Extended Knowledge Corpus (10+ New Sources)
+
+**Description**: Expand knowledge corpus to 20+ sources covering all 7 abstraction levels per PRD FR-3. Sources created in loa-dixie/knowledge/sources/ (or grimoires/oracle/ for initial development).
+
+**Files**: 10+ new Markdown files in `grimoires/oracle/` (will migrate to loa-dixie)
+
+**Acceptance Criteria**:
+- [ ] 10+ new sources covering: code-reality-loa, architecture-decisions, product-vision, feature-matrix, sprint-patterns, onboarding-guide, naming-mythology, community-principles, pricing-model, tokenomics-overview
+- [ ] All 7 abstraction levels covered with ≥2 sources each
+- [ ] YAML frontmatter with provenance on all sources
+- [ ] All pass injection detection (5-gate loader)
+- [ ] Total corpus ≤200K tokens
+- [ ] Content grounded in actual codebase and project artifacts
+
+**Estimated Effort**: Large (~2 hours)
+
+---
+
+### Task 4.7: ElastiCache Redis Provisioning
+
+**Description**: Terraform resources for ElastiCache Redis Multi-AZ per SDD §6.2. Required by Sprint 3's rate limiter, auth lookup, and cost reservation.
+
+**Files**:
+- `deploy/terraform/oracle-redis.tf` (NEW, ~80 lines)
+
+**Acceptance Criteria**:
+- [ ] ElastiCache replication group with `automatic_failover_enabled = true` and `num_cache_clusters = 2`
+- [ ] Node type: `cache.t3.micro` (configurable via variable)
+- [ ] TLS in-transit encryption enabled (`transit_encryption_enabled = true`)
+- [ ] Security group: ingress from ECS task security group on port 6379 only
+- [ ] Subnet group using private subnets
+- [ ] Redis endpoint output wired to ECS task definition via env var or SSM parameter
+- [ ] `/health` shows `oracle.rate_limiter_healthy = true` when endpoint reachable
+- [ ] `terraform plan` passes
+
+**Estimated Effort**: Medium (~45 min)
+
+---
+
+### Task 4.8: Sources.json Update & Gold-Set Expansion
+
+**Description**: Update sources.json for 20+ sources and expand gold-set to 20 queries per PRD FR-3.
+
+**Files**:
+- `grimoires/oracle/sources.json` (MODIFY) — add 10+ new source entries
+- Gold-set test file (MODIFY) — expand to 20 queries
+
+**Acceptance Criteria**:
+- [ ] All 20+ sources declared in sources.json with correct metadata
+- [ ] Priority ordering updated across full corpus
+- [ ] Gold-set: 20 queries covering all 7 abstraction levels (≥2 each)
+- [ ] Gold-set: Each query specifies required_sources and forbidden_sources
+- [ ] Gold-set: ≥90% pass rate (≥18/20 queries)
+- [ ] Schema validation passes for updated sources.json
+
+**Estimated Effort**: Medium (~1 hour)
+
+---
+
+## Sprint 5: Frontend & E2E Integration
+
+**Goal**: Build the Oracle frontend (loa-dixie), deploy to S3+CloudFront, and run full end-to-end integration tests proving the complete stack works.
+
+**Dependencies**: Sprint 4 complete (infrastructure deployed, corpus expanded)
+
+**Global Sprint ID**: 64
+
+**Note**: Frontend code lives in loa-dixie repository. Sprint tasks here track the work and acceptance criteria.
+
+### Task 5.1: Next.js Frontend Application
+
+**Description**: Build the Oracle chat interface per SDD §9 and PRD FR-5. Static export deployed to S3.
+
+**Files** (in loa-dixie/site/):
+- `src/app/layout.tsx` (NEW, ~30 lines) — App layout, dark mode
+- `src/app/page.tsx` (NEW, ~100 lines) — Main chat page
+- `src/components/ChatInput.tsx` (NEW, ~60 lines) — Question input
+- `src/components/ChatMessage.tsx` (NEW, ~80 lines) — Sanitized markdown render
+- `src/components/SourceAttribution.tsx` (NEW, ~70 lines) — Source panel
+- `src/components/LevelSelector.tsx` (NEW, ~40 lines) — Abstraction level picker
+- `src/components/RateLimitBanner.tsx` (NEW, ~30 lines) — Rate limit messaging
+
+**Acceptance Criteria**:
+- [ ] Chat interface with text input and response display
+- [ ] Loading state while response generates (non-streaming)
+- [ ] Source attribution panel: collapsible, shows source IDs, tags, token counts
+- [ ] Abstraction level selector: Technical / Product / Cultural / All
+- [ ] Rate limit error (429) displayed as user-friendly banner
+- [ ] Mobile-responsive, dark mode default
+- [ ] No `dangerouslySetInnerHTML` anywhere
+- [ ] Static export (`next export`) produces S3-compatible output
+- [ ] Lighthouse performance score ≥90
+
+**Estimated Effort**: Large (~2 hours)
+
+---
+
+### Task 5.2: DOMPurify Markdown Sanitizer
+
+**Description**: Battle-tested HTML sanitization per SDD §9.4 (Flatline SKP-005). Replaces regex-based approach.
+
+**Files** (in loa-dixie/site/):
+- `src/lib/markdown-sanitizer.ts` (NEW, ~20 lines)
+
+**Acceptance Criteria**:
+- [ ] Uses DOMPurify with allowlisted tags (p, br, strong, em, code, pre, ul, ol, li, a, h1-h3, blockquote)
+- [ ] Allowlisted attrs: `href` only
+- [ ] Blocks `style`, `onerror`, `onclick`, data attributes
+- [ ] `javascript:` protocol blocked in hrefs
+- [ ] react-markdown configured with rehype-sanitize, rehype-raw disabled
+
+**Estimated Effort**: Small (~20 min)
+
+---
+
+### Task 5.3: Oracle API Client & CORS Integration
+
+**Description**: Frontend API client targeting `finn.arrakis.community` per SDD §9.3.
+
+**Files** (in loa-dixie/site/):
+- `src/lib/oracle-client.ts` (NEW, ~50 lines)
+
+**Acceptance Criteria**:
+- [ ] `askOracle(question, context?, level?)` async function
+- [ ] Calls `POST https://finn.arrakis.community/api/v1/oracle`
+- [ ] Handles 200 (success), 429 (rate limit with retry info), 503 (unavailable)
+- [ ] Authorization header passthrough when API key configured
+- [ ] CORS preflight succeeds from `oracle.arrakis.community`
+- [ ] No client-side secrets in source code; API key stored in sessionStorage (preferred, cleared on tab close) or in-memory (paste per session) — no localStorage (XSS amplification risk per Flatline SKP-003a), no httpOnly cookies (infeasible with static S3 hosting)
+
+**Estimated Effort**: Small (~30 min)
+
+---
+
+### Task 5.4: Frontend Deploy Pipeline
+
+**Description**: GitHub Actions workflow in loa-dixie for S3 deploy per SDD §8.3.
+
+**Files** (in loa-dixie):
+- `.github/workflows/deploy-site.yml` (NEW, ~60 lines)
+
+**Acceptance Criteria**:
+- [ ] Triggers on push to main (loa-dixie)
+- [ ] Builds Next.js static export
+- [ ] Uses OIDC federation to assume `dixie-site-deploy` role
+- [ ] Uploads to Oracle S3 bucket
+- [ ] Invalidates CloudFront cache
+- [ ] Workflow succeeds end-to-end
+
+**Estimated Effort**: Medium (~45 min)
+
+---
+
+### Task 5.5: E2E Test Environment & Harness
+
+**Description**: Define the E2E test environment for Phase 1 integration tests. Tests run against local docker-compose stack (Finn + Redis) with model mocks — no dependency on deployed CloudFront/S3.
+
+**Files**: `tests/finn/e2e-harness.ts` (NEW, ~60 lines)
+
+**Acceptance Criteria**:
+- [ ] Test harness module exports: `setupE2E()` → starts local Finn server with real Redis (docker-compose or testcontainers)
+- [ ] Environment variables defined: `FINN_BASE_URL` (local), `REDIS_URL` (local Redis), `FINN_ORACLE_CORS_ORIGINS=http://localhost:3000`
+- [ ] Test API key pre-seeded in Redis via harness setup
+- [ ] IP simulation: test helper injects `X-Forwarded-For` header with configurable `TRUSTED_PROXY_COUNT=0` for test mode
+- [ ] Teardown: Redis flushed, server stopped
+- [ ] `docker-compose.test.yml` or testcontainers config for Redis
+
+**Estimated Effort**: Medium (~45 min)
+
+---
+
+### Task 5.6: E2E Integration Tests (Full Stack)
+
+**Description**: End-to-end tests verifying the complete Oracle stack using the E2E harness from Task 5.5.
+
+**Files**: `tests/finn/oracle-e2e-phase1.test.ts` (NEW, ~150 lines)
+
+**Acceptance Criteria**:
+- [ ] Uses `setupE2E()` harness for test lifecycle
+- [ ] Test: `POST /api/v1/oracle` with valid question → 200 with `OracleResponse` shape
+- [ ] Test: Public tier rate limit enforced after 5 requests from same IP
+- [ ] Test: Authenticated tier with valid API key → higher rate limit
+- [ ] Test: Cost ceiling enforcement across concurrent requests
+- [ ] Test: CORS preflight from allowed origin → correct headers
+- [ ] Test: Middleware isolation — wildcard middleware not invoked for Oracle path
+- [ ] Test: Health endpoint reports oracle_status when Oracle enabled
+- [ ] Test: Backward compatibility — existing invoke endpoint unaffected
+- [ ] ≥10 test cases
+- [ ] All tests passing
+
+**Estimated Effort**: Medium (~1 hour)
+
+---
+
+### Task 5.7: XSS Prevention Tests (OWASP Vectors)
+
+**Description**: Comprehensive XSS tests per Flatline SKP-005 covering OWASP filter evasion cheat sheet.
+
+**Files**: `tests/finn/oracle-xss.test.ts` (NEW, ~60 lines)
+
+**Acceptance Criteria**:
+- [ ] Test: `<script>alert(1)</script>` stripped/sanitized
+- [ ] Test: `<img src=x onerror=alert(1)>` stripped
+- [ ] Test: Unclosed tags `<script>alert(1)` handled
+- [ ] Test: HTML entities `&#60;script&#62;` handled
+- [ ] Test: `[link](javascript:alert(1))` blocked in markdown links
+- [ ] Test: Malformed tags split across lines
+- [ ] Test: Event handlers in allowed tags (e.g., `<a onclick=alert(1)>`) stripped
+- [ ] ≥8 test cases
+- [ ] All tests passing
+
+**Estimated Effort**: Small (~30 min)
+
+---
+
+## Sprint Summary (Complete)
+
+| Sprint | Tasks | New Files | Modified Files | Test Files | Total Lines | Status |
+|--------|-------|-----------|----------------|------------|-------------|--------|
+| 1 (60) | 8 | 4 TS | 6 TS | 3 TS | ~1,200 | COMPLETED |
+| 2 (61) | 7 | 12 MD + 1 JSON | 0 | 3 TS | ~3,500 | COMPLETED |
+| 3 (62) | 8 | 4 TS + scripts | 2 TS | 5 TS | ~900 | Pending |
+| 4 (63) | 9 | 5 TF + 10 MD | 2 (Dockerfile, sources.json) | 0 | ~1,400 | Pending |
+| 5 (64) | 7 | 9 TSX/TS + 1 YML + harness | 0 | 3 TS | ~1,200 | Pending |
+| **Total** | **39** | **36+** | **10** | **14** | **~8,200** | |
+
+## Phase 1 Risk Assessment
 
 | Risk | Mitigation |
 |------|-----------|
-| Knowledge content accuracy | Grounded in actual codebase; code-reality files generated from source analysis |
-| Test suite size | Prioritize happy-path + security-critical; defer edge cases to follow-up |
-| Context window token estimation drift | Conservative heuristic (chars/4); validated against provider-reported tokens in e2e; preflight safety net (Flatline SKP-002) |
-| Existing tests broken by type changes | Type extensions are additive (optional fields only); no breaking changes |
-| Triple invoke path divergence | Shared `applyKnowledgeEnrichment()` helper ensures single implementation (Flatline SKP-007) |
+| Redis Lua script correctness | Unit tests with mock Redis + E2E with real Redis. Atomic semantics prevent partial state. |
+| XFF spoofing | Rightmost-untrusted-hop + CloudFront-Viewer-Address + network-level security group enforcement |
+| Cost ceiling overshoot | Atomic check-and-reserve Lua script guarantees no concurrent overshoot |
+| Middleware isolation failure | Sub-app + prefix check skip guard + explicit test assertion |
+| Frontend CORS issues | CORS middleware in sub-app + E2E test from cross-origin |
+| Terraform state conflicts | Module design isolates Oracle resources; plan/apply in CI |
+| loa-dixie repo dependency | CI-fetch pattern with pinned commit SHA; no runtime dependency |
 
-## Definition of Done
+## Definition of Done (Phase 1 Complete)
 
-- [ ] All 15 tasks complete with acceptance criteria met
-- [ ] All new tests passing
-- [ ] All existing tests passing unchanged (152 loa-finn + 110+ Hounfour)
-- [ ] Oracle responds to knowledge queries via `/api/v1/invoke`
-- [ ] `/health` endpoint reports Oracle readiness
-- [ ] No new npm dependencies
-- [ ] Knowledge enrichment opt-in per agent (existing agents unaffected)
+- [ ] All 39 tasks complete (15 Phase 0 + 24 Phase 1) with acceptance criteria met
+- [ ] All new tests passing (target: 200+ Oracle-specific tests)
+- [ ] All existing tests passing unchanged
+- [ ] `POST /api/v1/oracle` returns grounded answers with sources
+- [ ] Rate limiting enforced: 5/day public, 50/day authenticated, 200/day global, $20 cost ceiling
+- [ ] `oracle.arrakis.community` serves frontend and calls API
+- [ ] Terraform `plan` passes for all infrastructure
+- [ ] No XSS vulnerabilities (DOMPurify + OWASP test coverage)
+- [ ] API keys manageable via `scripts/oracle-keys.sh`
+- [ ] `/health` reports comprehensive Oracle status
