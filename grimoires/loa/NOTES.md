@@ -4,12 +4,23 @@
 
 ## Blockers
 
-- **BLOCKER: Verify arrakis `verifyS2SJWT()` sub claim validation before switching `s2sSubjectMode` default to `"service"`.**
-  - `billing-finalize-client.ts` currently defaults to `s2sSubjectMode: "tenant"` (legacy) to avoid breaking arrakis if it enforces `sub == tenant_id`.
-  - Before flipping to `"service"` mode: check arrakis PR #63 `verifyS2SJWT()` — does it validate the `sub` claim? What value does it expect?
-  - If arrakis accepts any `sub`: switch default to `"service"` and remove config flag.
-  - If arrakis enforces `sub == tenant_id`: coordinate arrakis-side change first, then flip.
-  - See Bridgebuilder Finding #10 (PR #68), Sprint 2 T4.
+- **RESOLVED: Full JWT Claim Compatibility** (Sprint 59 T4, 2026-02-16)
+  - Verified against arrakis PR #63 (0xHoneyJar/arrakis/pull/63, Cycles 025-028):
+    - `sub`: "loa-finn" (s2sSubjectMode="service"). Arrakis validates via `createInternalJwt` helper.
+    - `iss`: "loa-finn" — matches arrakis test expectations (billing-s2s.test.ts:28).
+    - `aud`: "arrakis" — matches arrakis test expectations (billing-s2s.test.ts:29).
+    - `kid`: Included in ES256 header ("loa-finn-v1"). Arrakis uses JWKS endpoint to resolve key.
+    - `iat`/`exp`: Both services use 30s clock skew, 300s default TTL.
+    - `jti`: NOT required by arrakis (not in s2sFinalizeRequestSchema or test helper).
+  - Wire format verified: `reservationId`, `actualCostMicro` (string), `accountId` (optional).
+  - Compatibility test vector: `tests/finn/jwt-claim-compatibility.test.ts` (7 tests).
+  - See arrakis contracts: `themes/sietch/src/packages/core/contracts/s2s-billing.ts`.
+
+- **Phase 2: Per-identity concurrency limiting** (BB-025-003, 2026-02-17)
+  - Current ConcurrencyLimiter is global semaphore (maxConcurrent=3 per ECS task).
+  - Single aggressive client can consume all slots, starving others.
+  - Blocked by single-replica ECS constraint (desired_count=1 due to local JSONL ledger).
+  - When ledger migrates to shared store → enable autoscaling → per-identity Map<string, number>.
 
 - **BLOCKER: Pricing config schema migration (future cycle).**
   - Pricing enters as JS `number` from JSON config (IEEE-754 by spec). `usdToMicroBigInt()` converts via `toFixed(6)` — deterministic per ECMAScript but depends on the float already being "close enough" to intended decimal.

@@ -62,6 +62,28 @@ export interface HealthStatus {
       providers?: Record<string, { healthy: boolean; models: Record<string, { healthy: boolean }> }>
       budget?: { spent_usd: number; limit_usd: number; percent_used: number }
     }
+    oracle?: {
+      status: string
+      healthy: boolean
+      sources_loaded: number
+      total_tokens: number
+      missing: string[]
+      // Phase 1 additions (SDD §3.7)
+      rate_limiter_healthy?: boolean
+      oracle_status?: "healthy" | "degraded" | "unavailable"
+      daily_usage?: {
+        requests: number
+        cost_cents: number
+        ceiling_cents: number
+        ceiling_percent: number
+      } | null
+      dixie_ref?: string
+      error_counts?: {
+        redis_timeouts: number
+        model_errors: number
+        rate_limited: number
+      }
+    }
   }
 }
 
@@ -80,6 +102,13 @@ export interface HealthDeps {
   getProviderHealth?: () => Record<string, { healthy: boolean; models: Record<string, { healthy: boolean }> }> | undefined
   getBudgetSnapshot?: () => { spent_usd: number; limit_usd: number; percent_used: number } | undefined
   getRedisHealth?: () => Promise<{ connected: boolean; latencyMs: number }>
+  getOracleHealth?: () => { healthy: boolean; sources_loaded: number; total_tokens: number; missing: string[] } | undefined
+  // Phase 1 additions (SDD §3.7)
+  getOracleRateLimiterHealth?: () => Promise<boolean>
+  getOracleDailyUsage?: () => Promise<{ globalCount: number; costCents: number } | null>
+  oracleDixieRef?: string
+  oracleCostCeilingCents?: number
+  oracleErrorCounts?: { redis_timeouts: number; model_errors: number; rate_limited: number }
 }
 
 export class HealthAggregator {
@@ -152,6 +181,21 @@ export class HealthAggregator {
       }
     }
 
+    // Optional: Oracle knowledge registry health
+    const oracleHealth = this.deps.getOracleHealth?.()
+    if (oracleHealth) {
+      checks.oracle = {
+        status: oracleHealth.healthy ? "ok" : "degraded",
+        healthy: oracleHealth.healthy,
+        sources_loaded: oracleHealth.sources_loaded,
+        total_tokens: oracleHealth.total_tokens,
+        missing: oracleHealth.missing,
+        // Phase 1 sync fields (SDD §3.7)
+        dixie_ref: this.deps.oracleDixieRef,
+        error_counts: this.deps.oracleErrorCounts,
+      }
+    }
+
     // Compute overall status
     let overall: HealthStatus["status"] = "healthy"
 
@@ -178,5 +222,53 @@ export class HealthAggregator {
       timestamp: Date.now(),
       checks,
     }
+  }
+
+  /** Async enrichment for Oracle Phase 1 fields (rate limiter health, daily usage) */
+  async enrichOracleHealth(health: HealthStatus): Promise<HealthStatus> {
+    if (!health.checks.oracle) return health
+
+    try {
+      const [rateLimiterHealthy, dailyUsage] = await Promise.all([
+        this.deps.getOracleRateLimiterHealth?.() ?? Promise.resolve(false),
+        this.deps.getOracleDailyUsage?.() ?? Promise.resolve(null),
+      ])
+
+      const costCeiling = this.deps.oracleCostCeilingCents ?? 2000
+      health.checks.oracle.rate_limiter_healthy = rateLimiterHealthy
+      health.checks.oracle.daily_usage = dailyUsage ? {
+        requests: dailyUsage.globalCount,
+        cost_cents: dailyUsage.costCents,
+        ceiling_cents: costCeiling,
+        ceiling_percent: costCeiling > 0 ? Math.round((dailyUsage.costCents / costCeiling) * 100) : 0,
+      } : null
+
+      // Compute oracle_status from combined signals
+      if (!rateLimiterHealthy) {
+        health.checks.oracle.oracle_status = "unavailable"
+      } else if (!health.checks.oracle.healthy) {
+        health.checks.oracle.oracle_status = "degraded"
+      } else {
+        health.checks.oracle.oracle_status = "healthy"
+      }
+
+      // Structured log for cost ceiling proximity (Flatline IMP-002)
+      if (dailyUsage && costCeiling > 0) {
+        const percent = (dailyUsage.costCents / costCeiling) * 100
+        if (percent > 80) {
+          console.warn(JSON.stringify({
+            level: "warn",
+            event: "oracle.cost_ceiling_proximity",
+            cost_cents: dailyUsage.costCents,
+            ceiling_cents: costCeiling,
+            percent: Math.round(percent),
+          }))
+        }
+      }
+    } catch {
+      // Best-effort enrichment — don't fail the health check
+    }
+
+    return health
   }
 }

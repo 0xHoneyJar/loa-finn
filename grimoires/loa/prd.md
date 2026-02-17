@@ -1,448 +1,623 @@
-# PRD: Shadow Deploy Readiness — DLQ Persistence & Production Billing Settlement
+# PRD: The Oracle — From Engine to Product (loa-dixie Phase 1)
 
-> **Version**: 2.0.0
-> **GPT-5.2 Review**: Iteration 2 — 6 blocking issues from iteration 1 resolved
+> **Version**: 3.0.0
 > **Date**: 2026-02-17
-> **Author**: @janitooor
+> **Author**: @janitooor + Bridgebuilder
 > **Status**: Draft
-> **Cycle**: cycle-023
+> **Cycle**: cycle-025 (extended)
+> **Predecessor**: PRD v2.0.0 — Oracle Knowledge Engine (Phase 0, IMPLEMENTED)
 > **Command Center**: [#66](https://github.com/0xHoneyJar/loa-finn/issues/66)
-> **Predecessor**: cycle-022 (Sprint B — E2E Billing Wire Verification, PR #71, merged)
-> **Bridgebuilder Deep Review**: [PR #71 Deep Review](https://github.com/0xHoneyJar/loa-finn/pull/71#issuecomment-3906586861)
-> **Grounding**: `src/hounfour/billing-finalize-client.ts` (276 lines), `src/hounfour/redis/` (8 files), 28 existing billing tests
+> **RFC**: [#74 — The Oracle](https://github.com/0xHoneyJar/loa-finn/issues/74) · [loa-dixie #1 — Genesis](https://github.com/0xHoneyJar/loa-dixie/issues/1)
+> **Cross-references**: [loa-finn PR #75](https://github.com/0xHoneyJar/loa-finn/pull/75) (Oracle engine, ready to merge) · [loa-dixie RFC](https://github.com/0xHoneyJar/loa-dixie/blob/main/docs/rfc.md) · [#31 Hounfour RFC](https://github.com/0xHoneyJar/loa-finn/issues/31) · [loa #247 Meeting Geometries](https://github.com/0xHoneyJar/loa/issues/247) · [arrakis #62 Billing](https://github.com/0xHoneyJar/arrakis/issues/62) · [loa-hounfour PR #2](https://github.com/0xHoneyJar/loa-hounfour/pull/2)
+> **Grounding**: `src/hounfour/knowledge-{enricher,loader,registry,types}.ts` (Phase 0 engine), `deploy/terraform/finn.tf` (ECS infra), loa-dixie `knowledge/` (10 curated sources, ~140KB), loa-dixie `docs/rfc.md` (phased roadmap)
+> **Naming**: McCoy Pauley's ROM construct — "The Dixie Flatline" — a recorded consciousness that carries accumulated expertise and can be consulted by anyone who needs understanding.
+
+---
+
+## 0. Phase 0 Recap (IMPLEMENTED — PRD v2.0.0)
+
+Phase 0 built the Oracle's **engine** inside loa-finn. This work is complete in PR #75 (107 tests, GPT-5.2 + Flatline approved, review + audit passed):
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| Knowledge Types | Done | `src/hounfour/knowledge-types.ts` (80 LOC) |
+| Knowledge Loader (5-gate security) | Done | `src/hounfour/knowledge-loader.ts` (141 LOC) |
+| Knowledge Registry (health checks) | Done | `src/hounfour/knowledge-registry.ts` (161 LOC) |
+| Knowledge Enricher (tag classifier + budget) | Done | `src/hounfour/knowledge-enricher.ts` (244 LOC) |
+| Router integration (3 invoke methods) | Done | `src/hounfour/router.ts` (modified) |
+| Type extensions (AgentBinding, ResultMetadata) | Done | `src/hounfour/types.ts` (modified) |
+| Config extensions (FINN_ORACLE_ENABLED) | Done | `src/config.ts` (modified) |
+| Health + error handling | Done | `src/gateway/routes/invoke.ts` (modified) |
+| Test suite (107 tests across 6 files) | Done | `tests/finn/knowledge-*.test.ts`, `oracle-*.test.ts` |
+| Knowledge corpus (10 curated sources, ~72K tokens) | Done | `grimoires/oracle/` |
+| Oracle persona | Done | `grimoires/oracle-persona.md` |
+
+**What Phase 0 proved**: The knowledge enrichment pipeline works. Tag-based classification is deterministic and testable. The trust boundary prevents injection. Budget enforcement is exact. The Oracle can answer questions at multiple abstraction levels with source attribution.
+
+**What Phase 0 lacks**: No one can reach it. The Oracle lives behind an API endpoint (`POST /api/v1/invoke { agent: "oracle" }`) with no frontend, no public URL, and no product surface. It's an engine with no vehicle.
 
 ---
 
 ## 1. Problem Statement
 
-### The Problem
+### The Phase 1 Problem
 
-PR #71 proved the billing wire works end-to-end (52 tests, 4-service Docker stack, HS256 contract verified). But the DLQ that holds unsettled billing obligations is **in-memory** — a `Map<string, DLQEntry>` at `billing-finalize-client.ts:61`. If loa-finn restarts during an active billing period, all unsettled obligations are silently lost.
+The Oracle engine is built. 600 lines of TypeScript, 107 tests, 10 curated knowledge sources covering 82K+ lines across 4 repositories. It works. It's approved. It's sitting in a PR.
 
-```typescript
-// Current: in-memory, lost on restart
-private readonly dlqEntries: Map<string, DLQEntry> = new Map()
-```
+But nobody can use it.
 
-This is the **sole remaining P0 infrastructure blocker** between the proven billing wire and shadow deployment.
+There is no website. No public endpoint. No way for an engineer, contributor, community member, or investor to type a question and get an answer. The engine exists; the product does not.
 
-### Why This Matters (Beyond the Technical)
+### Why Phase 1 Matters Beyond the Oracle
 
-The Bridgebuilder Deep Review reframed this gap through Elinor Ostrom's commons governance:
+The Oracle is the **first dNFT product** in the HoneyJar ecosystem. The infrastructure built for `oracle.arrakis.community` — subdomain routing, frontend hosting, API layer, knowledge sync — becomes the **template for every future finnNFT website**. When the next bear NFT or community agent needs its own web presence, the pattern already exists.
 
-> *"The DLQ holds unsettled economic obligations. In a community-governed capability market, these obligations aren't just technical artifacts — they're social promises. When a community member uses their BGT conviction to access an AI model, the community has collectively vouched for that access. The finalize call settles that vouching. If the settlement is lost, the social contract is silently violated."*
->
-> — Ostrom Principle 7: *Minimal recognition of rights to organize* requires that governance records be durable.
+This is not just "ship a chatbot." This is "build the platform by building the first product on it."
 
-The fix isn't "add Redis" — it's "design a persistence layer that treats unsettled obligations as sovereign records."
+### Vision (Extended)
 
-### Why Now
-
-- PR #71 merged — the billing wire is proven with 52 tests
-- The Redis infrastructure already exists — 8 files in `src/hounfour/redis/` with port-based architecture, graceful degradation, and Lua scripts
-- The Docker E2E stack already includes Redis (`tests/e2e/docker-compose.e2e.yml`)
-- Shadow deploy is the next milestone on the P0 critical path (Issue #66)
-- The conservation invariant in `finalize()` is implicit — needs formalization before production carries real money
-
-> **Sources**: `billing-finalize-client.ts:57-61` (DLQ comment + Map), `redis/client.ts` (port interface), Bridgebuilder Deep Review Part III §1
-
-### Vision
-
-**Make the billing settlement durable.** After this cycle, unsettled obligations survive process restart, conservation properties are formally stated, and the billing system is ready for shadow deployment where real (but reversible) money flows through the wire.
+**Phase 0 vision**: A unified knowledge interface that anyone can query at any level.
+**Phase 1 vision**: That interface, live at `oracle.arrakis.community`, accessible to anyone with a browser, with the infrastructure to serve every future dNFT the same way.
 
 ---
 
 ## 2. Goals & Success Metrics
 
-| ID | Goal | Priority | Metric |
-|----|------|----------|--------|
-| G-1 | DLQ entries survive process restart when Redis is configured and healthy | P0 | Kill loa-finn with entries in DLQ → restart → entries recovered and replayed |
-| G-2 | DLQ works without Redis (graceful degradation to in-memory, non-durable) | P0 | Start without REDIS_URL → in-memory DLQ, no crash, existing 28 tests pass |
-| G-3 | Conservation invariants formally stated with explicit durability mode semantics | P1 | `billing-invariants.ts` with property-based tests (fast-check, 100 scenarios) |
-| G-4 | DLQ visibility via health endpoint with durability mode indicator | P1 | `GET /health` includes `dlq.size`, `dlq.oldest_entry_age_ms`, and `dlq.durable` |
-| G-5 | Existing 52 E2E + 28 unit tests remain green | P0 | CI green, 0 regressions |
-| G-6 | Shadow deploy readiness requires Redis with AOF persistence for DLQ durability | P0 | Shadow deploy checklist includes Redis persistence verification |
+### Goals
+
+| # | Goal | Measurable Outcome |
+|---|------|--------------------|
+| G1 | Oracle live and publicly accessible | `oracle.arrakis.community` serves the chat interface |
+| G2 | Product-grade API | `/api/v1/oracle` endpoint with simpler DX than raw invoke |
+| G3 | Extended knowledge corpus | 20+ sources across all 7 abstraction levels |
+| G4 | Source attribution visible to users | Every response shows which sources informed the answer |
+| G5 | Reusable dNFT website infrastructure | Terraform module supports adding new subdomains with minimal config |
+| G6 | Knowledge single source of truth | loa-dixie repo is canonical; loa-finn consumes at build time |
+| G7 | Migration-ready hosting | S3+CloudFront now, clean path to Cloudflare Pages later |
+
+### Non-Goals (This Phase)
+
+| # | Non-Goal | Why Deferred |
+|---|----------|-------------|
+| NG1 | Vector embedding / semantic search | Phase 2 (Scholar); tag-based classification is sufficient for 20 sources |
+| NG2 | dNFT on-chain identity | Phase 4 (Citizen); requires smart contract work |
+| NG3 | x402 micropayments | Phase 5; requires arrakis x402 middleware integration |
+| NG4 | Session-based conversations | Future; API designed to support it without breaking changes |
+| NG5 | Custom domain (0xhoneyjar.xyz) | DNS not yet in Route 53; using arrakis.community for speed |
+| NG6 | Ceremony participation | Phase 3 (Participant); requires ceremony engine from loa#247 |
+
+### Success Metrics
+
+| Metric | Target | How Measured |
+|--------|--------|-------------|
+| Site loads and serves queries | 100% uptime during demo | CloudFront + health check |
+| Response includes source citations | Every response | API response metadata + UI display |
+| Gold-set accuracy (source selection) | ≥90% of 20 test queries pass (see §4 FR-3 gold-set contract) | Automated CI gold-set test suite |
+| Deterministic selection | Same query + same corpus + same config = identical source IDs and ordering | CI test: run same query twice, assert `sources[].id` ordering and `total_knowledge_tokens` are byte-identical |
+| Response latency (cached sources) | < 3s to first token | API metadata `knowledge_retrieval_ms` |
+| Knowledge corpus coverage | 20+ sources, all 7 levels | `sources.json` validation |
+| Subdomain reusability | Second subdomain deployable with <50 lines of Terraform | Terraform module interface |
 
 ---
 
-## 3. Scope
+## 3. User & Stakeholder Context
 
-### In Scope
+### Personas & Tiers
 
-1. **DLQStore interface** — Port pattern matching existing Redis architecture (`redis/client.ts`)
-2. **RedisDLQStore adapter** — Redis-backed implementation using existing `RedisStateBackend`
-3. **InMemoryDLQStore adapter** — For testing and graceful degradation (wraps existing Map behavior)
-4. **BillingFinalizeClient refactor** — Swap `Map` for `DLQStore`, add async lifecycle
-5. **Billing invariants file** — Formal conservation properties as testable assertions
-6. **Health endpoint DLQ metrics** — Surface DLQ size and staleness for monitoring
-7. **Shadow deploy documentation** — Environment variable guide for production operators
+| Persona | Example Question | Access Tier | Authentication |
+|---------|-----------------|-------------|---------------|
+| **Engineer** | "How does the billing settlement flow work?" | Developer | JWT or API key |
+| **Contributor** | "How do I add a new model adapter?" | Community | None (public) or NFT-gated |
+| **Product Manager** | "What's the Oracle's revenue model?" | Developer/Enterprise | JWT |
+| **Community Member** | "What can my bear NFT do?" | Public | None |
+| **Investor** | "How does the x402 payment flow work?" | Enterprise | JWT |
+| **Curious Observer** | "What is this project?" | Public | None |
 
-### Out of Scope
+### Tier Model (Phase 1 MVP)
 
-- Ensemble batch settlement (P1, cycle-025+: requires Hounfour pool system changes)
-- Event-sourced billing audit trail (P2: captured in Vision Registry from Bridgebuilder review)
-- x402 crypto payment path (P2: requires Coinbase integration)
-- Pricing schema migration to string micro-USD (future cycle, per NOTES.md blocker)
-- arrakis-side changes or `s2sSubjectMode` migration (Issue #70)
-- Production deployment / actual shadow traffic (this cycle proves readiness, not activation)
-- DLQ management API (create/delete entries) — visibility only in this cycle
+| Tier | Rate Limit | Auth | Sources |
+|------|-----------|------|---------|
+| **Public** | 5 questions/day | None (IP-based rate limit) | Full corpus |
+| **Authenticated** | 50 questions/day | Bearer token (opaque API key, manually issued) | Full corpus |
 
-### Design Decision: Port Pattern, Not Direct Redis
+The RFC defines Community (NFT-gated), Developer ($10/mo), and Enterprise (custom) tiers — these require arrakis billing integration and are deferred to Phase 4-5.
 
-Following the existing architecture in `src/hounfour/redis/`:
-- `RedisCommandClient` is a port interface (not ioredis directly)
-- Components like `circuit.ts`, `budget.ts`, `rate-limiter.ts` all use the port
-- The `DLQStore` interface follows the same pattern — testable, swappable, degradation-aware
+### Rate Limiting & Auth Specification (GPT-5.2 SKP-001)
 
-This means the DLQ adapter can be swapped to PostgreSQL, the loa-hounfour event store, or any other backend without touching `BillingFinalizeClient`.
+**Client identity derivation**: The request traverses CloudFront → ALB → ECS. The trusted client IP is extracted from the **last entry** in the `X-Forwarded-For` header as set by the ALB (which appends the true source IP). User-supplied `X-Forwarded-For` values are ignored — only the ALB-appended IP is used. Implementation: parse `X-Forwarded-For`, take the rightmost IP before the ALB's own address.
+
+**Authenticated token format**: Phase 1 uses **opaque API keys** (32-byte hex strings, e.g., `dk_live_a1b2c3...`). Keys are stored server-side as SHA-256 hashes in Redis (`oracle:apikeys:{hash} → { quota_remaining, tier, issued_at }`). No JWT complexity for Phase 1 — JWTs are deferred to arrakis billing integration (Phase 4-5).
+
+**Precedence rule**: If a valid `Authorization: Bearer dk_live_...` header is present and the key validates, apply the **authenticated tier quota** (50/day). Otherwise, fall back to **public tier quota** (5/day per IP). Both quotas are tracked in Redis with 24-hour TTL keys (`oracle:ratelimit:ip:{ip}:{date}` and `oracle:ratelimit:key:{hash}:{date}`).
+
+**Acceptance tests**: CI must include tests that (a) confirm spoofed `X-Forwarded-For` headers do not bypass the IP limiter, (b) confirm invalid/expired API keys fall back to IP-based limiting, (c) confirm the 6th request from the same IP within 24h returns HTTP 429.
+
+> **Flatline SKP-001 (Override)**: Skeptic flagged X-Forwarded-For as brittle. The ALB-appended IP extraction specified above is adequate for Phase 1 — CloudFront-Viewer-Address is a refinement for SDD. Rationale: the ALB is the only trusted proxy in the chain, and the rightmost-appended IP is the standard AWS pattern.
+
+**Global cost protection (Flatline SKP-002 + SKP-001b)**:
+- **Global daily budget**: Hard cap of 200 Oracle invocations/day across all sources (IPs + API keys combined). Tracked in Redis as `oracle:global:{date}` counter. When exceeded, all Oracle requests return HTTP 503 with `Retry-After: {seconds-until-midnight-UTC}`. Configurable via `FINN_ORACLE_DAILY_CAP` env var.
+- **Cost circuit breaker**: If cumulative daily model inference spend for Oracle queries exceeds `$20` (configurable via `FINN_ORACLE_COST_CEILING_CENTS=2000`), the Oracle auto-disables until midnight UTC. Tracked via existing billing metering. CloudWatch alarm fires immediately.
+- **Honest latency target**: Non-streaming Phase 1 targets **< 15s p95 time-to-complete-response** (not "first token"). Frontend displays a typing animation / progress indicator during the wait. Requests exceeding 30s are terminated with HTTP 504.
+
+**Minimal key lifecycle (Flatline SKP-006)**:
+- Admin CLI script: `scripts/oracle-keys.sh create|revoke|list`. Creates keys with prefix `dk_live_` (prod) or `dk_test_` (dev).
+- Key status in Redis: `oracle:apikeys:{hash} → { status: "active"|"revoked", owner, created_at, last_used_at }`.
+- Revocation is immediate (Redis delete of active status). Revoked keys return HTTP 401.
+- Audit: key creation and revocation events logged to CloudWatch (structured JSON). No rotation or scoped keys for Phase 1.
 
 ---
 
 ## 4. Functional Requirements
 
-### FR-1: DLQStore Interface
+### Phase 1 Scope Overview
 
-**The sovereignty layer** — treats unsettled obligations as durable records.
+```
+                    ┌────────────────────────────────────────┐
+                    │     oracle.arrakis.community (NEW)      │
+                    │     Next.js on S3 + CloudFront          │
+                    │     Chat UI + source attribution        │
+                    └──────────────┬─────────────────────────┘
+                                   │ HTTPS
+                                   ▼
+                    ┌────────────────────────────────────────┐
+                    │     /api/v1/oracle (NEW convenience)    │
+                    │     Thin wrapper over /invoke            │
+                    │     Rate limiting, CORS, simpler DX     │
+                    └──────────────┬─────────────────────────┘
+                                   │ internal
+                                   ▼
+                    ┌────────────────────────────────────────┐
+                    │     /api/v1/invoke { agent: "oracle" }  │
+                    │     (EXISTING — Phase 0, PR #75)        │
+                    │     Knowledge enrichment pipeline        │
+                    └──────────────┬─────────────────────────┘
+                                   │ reads at startup
+                                   ▼
+                    ┌────────────────────────────────────────┐
+                    │     Knowledge Corpus (loa-dixie)         │
+                    │     20+ sources, ~150K tokens            │
+                    │     Synced at Docker build time          │
+                    └────────────────────────────────────────┘
+```
 
+---
+
+### FR-1: Merge & Deploy Oracle Engine (Phase 0 → Production)
+
+Merge PR #75 into main and deploy loa-finn with `FINN_ORACLE_ENABLED=true`.
+
+**Prerequisite**: PR #75 is clean — 107 tests, review + audit passed, no merge conflicts, 10 commits ahead of main.
+
+**Acceptance Criteria**:
+- [ ] PR #75 merged to main
+- [ ] Docker image built with Oracle knowledge sources included
+- [ ] loa-finn deployed to ECS with `FINN_ORACLE_ENABLED=true`
+- [ ] `/health` reports `oracle_ready: true`
+- [ ] `POST /api/v1/invoke { agent: "oracle", prompt: "What is loa-finn?" }` returns a grounded response
+- [ ] Existing non-Oracle invoke requests are unaffected
+
+---
+
+### FR-2: Oracle Product API (`/api/v1/oracle`)
+
+A product-grade convenience endpoint that wraps the existing invoke infrastructure. This follows the **BFF (Backend for Frontend) pattern** — the same approach Netflix (Zuul), Spotify, and Stripe use to separate product-facing APIs from internal service APIs.
+
+**Why a separate endpoint (FAANG rationale)**:
+The internal `/api/v1/invoke` endpoint is a multi-agent routing API. Its request format (`{ agent, prompt, options }`) and response format (full invoke metadata) are designed for programmatic consumers. A product API should match the mental model of the product: "I have a question, give me an answer with sources."
+
+**Request format**:
 ```typescript
-// src/hounfour/dlq-store.ts
+POST /api/v1/oracle
+Content-Type: application/json
 
-export interface DLQStore {
-  /** Persist a DLQ entry. Upserts by reservation_id. */
-  put(entry: DLQEntry): Promise<void>
-
-  /** Get a single entry by reservation_id. */
-  get(reservationId: string): Promise<DLQEntry | null>
-
-  /** Get all entries due for replay (next_attempt_at <= now). */
-  getReady(before: Date): Promise<DLQEntry[]>
-
-  /** Remove an entry (successful finalize or terminal drop). */
-  delete(reservationId: string): Promise<void>
-
-  /** Count of all entries. */
-  count(): Promise<number>
-
-  /** Oldest entry age in milliseconds (for health monitoring). */
-  oldestEntryAgeMs(): Promise<number | null>
+{
+  "question": "How does the billing settlement flow work?",
+  "context"?: "I'm looking at the arrakis credit ledger",  // optional
+  "session_id"?: "abc-123"  // reserved for future use, ignored in Phase 1
 }
 ```
 
-**Acceptance Criteria:**
-- [ ] Interface exported from `src/hounfour/dlq-store.ts`
-- [ ] Both `RedisDLQStore` and `InMemoryDLQStore` implement it
-- [ ] `BillingFinalizeClient` constructor accepts `DLQStore` instead of using internal Map
-
-> **Source**: Bridgebuilder Deep Review Part III §1, DLQStore interface suggestion
-
-### FR-2: RedisDLQStore Adapter
-
-Uses the existing `RedisStateBackend` (port interface at `redis/client.ts`).
-
-**Redis Schema (precise):**
-
-Two Redis structures per DLQ entry, managed atomically:
-
-1. **Payload key**: `finn:hounfour:dlq:entry:{reservation_id}` — JSON-serialized `DLQEntry` string
-2. **Schedule sorted set**: `finn:hounfour:dlq:schedule` — member `{reservation_id}`, score `next_attempt_at` as Unix millis
-
-**Atomic operations (Lua scripts or MULTI/EXEC):**
-
-| Operation | Redis Commands | Atomicity |
-|-----------|---------------|-----------|
-| **put** | `SET entry:{rid} <json> EX <ttl>` + `ZADD schedule <next_ms> <rid>` | MULTI/EXEC |
-| **delete** | `DEL entry:{rid}` + `ZREM schedule <rid>` | MULTI/EXEC |
-| **getReady** | `ZRANGEBYSCORE schedule -inf <now_ms>` → for each: `GET entry:{rid}` | Pipeline |
-
-**TTL**: `(maxRetries × maxBackoffMs) + 3600000` (1 hour buffer). Prevents orphaned payload keys.
-
-**Orphan repair**: `getReady()` checks if payload exists for each schedule member. If missing, `ZREM` the orphan and log warning. This handles crash-between-set-and-zadd edge cases.
-
-**Replay claim lock** (prevents multi-instance duplicate replay):
-- Before replaying an entry, acquire `SETNX finn:hounfour:dlq:lock:{reservation_id}` with 60s TTL
-- If lock acquired: proceed with replay, update attempt count atomically (Lua: `GET entry → parse → increment attempt → SET entry`), release lock on completion
-- If lock not acquired: skip entry (another instance is replaying it)
-- On replay success: `delete(rid)` removes payload + schedule + lock
-- On replay failure: release lock, entry remains for next cycle
-
-**Failure semantics:**
-
-| Redis State | Behavior | Durability | Health Status |
-|-------------|----------|------------|---------------|
-| Connected | Read/write to Redis | **Durable** — survives finn restart | `dlq.durable: true` |
-| Disconnected | Fall back to in-memory buffer | **Non-durable** — lost on finn restart | `dlq.durable: false` |
-| Not configured | InMemoryDLQStore only | **Non-durable** — development mode | `dlq.durable: false` |
-
-**No reconnection merge.** When Redis reconnects after an outage, in-memory entries accumulated during the outage are NOT automatically merged to Redis. Instead:
-- The health endpoint reports `dlq.durable: false` during the outage
-- The in-memory buffer is best-effort only — entries may be lost if finn restarts during the outage
-- Shadow deploy readiness requires durable mode (G-6)
-- This is an honest design: we don't promise durability we can't guarantee
-
-> **Why no merge?** Multi-instance merge has race conditions (attempt counter skew, resurrecting terminal drops, conflicting writes). The correct fix for Redis outages is operational: use Redis Sentinel/Cluster for HA. The DLQ should not try to be smarter than the persistence layer.
-
-**Acceptance Criteria:**
-- [ ] Uses existing `RedisStateBackend` — no new Redis connections
-- [ ] Key namespace: `finn:hounfour:dlq:*` (payload + schedule + lock)
-- [ ] `getReady()` uses sorted set for O(log N) range queries with orphan repair
-- [ ] Replay uses SETNX claim lock to prevent multi-instance duplicate replay
-- [ ] Attempt count incremented atomically via Lua script
-- [ ] TTL on payload keys prevents orphaned entries
-- [ ] Graceful degradation to in-memory on Redis failure (non-durable, reported in health)
-- [ ] No reconnection merge (deliberate design choice)
-
-### FR-3: InMemoryDLQStore Adapter
-
-Wraps the existing `Map<string, DLQEntry>` behavior for:
-1. Testing (all 28 existing tests should work with minimal changes)
-2. Graceful degradation when Redis is unavailable
-3. Development without Redis
-
-**Acceptance Criteria:**
-- [ ] Implements `DLQStore` interface
-- [ ] Behavior identical to current Map-based DLQ
-- [ ] Used as default when no Redis is configured
-- [ ] All 28 existing billing-finalize tests pass with `InMemoryDLQStore`
-
-### FR-4: BillingFinalizeClient Refactor
-
-Replace the internal `Map<string, DLQEntry>` with the `DLQStore` interface.
-
-**Changes to `billing-finalize-client.ts`:**
-1. Constructor accepts `DLQStore` (required parameter)
-2. `toDLQ()` calls `await store.put(entry)` instead of `this.dlqEntries.set()`
-3. `replayDeadLetters()` calls `await store.getReady(now)` instead of iterating the Map
-4. `getDLQSize()` calls `await store.count()`
-5. `getDLQEntries()` removed (was leaking internal state) — replaced with `getDLQSize()` + health metrics
-
-**Critical constraint:** `finalize()` NEVER throws contract must be preserved. All `DLQStore` calls must be wrapped in try/catch. If `DLQStore.put()` fails, the entry is logged at ERROR level with full `DLQEntry` JSON for manual recovery — but `finalize()` still returns `{ ok: false, status: "dlq" }`. This is an honest degradation: the caller knows settlement failed, operators can recover from logs.
-
-**Acceptance Criteria:**
-- [ ] `finalize()` NEVER throws — contract preserved
-- [ ] `DLQStore.put()` failure logs full DLQEntry JSON at ERROR for manual recovery
-- [ ] `finalize()` returns `{ ok: false, status: "dlq" }` even when store.put() fails
-- [ ] 409 → idempotent mapping preserved
-- [ ] Terminal status codes still go straight to DLQ, no retry
-- [ ] Backoff schedule unchanged
-- [ ] All 28 existing tests adapted and passing
-- [ ] New test: kill process with DLQ entries → restart → entries recovered (Redis mode)
-- [ ] New test: DLQStore.put() throws → finalize returns dlq, entry logged
-
-### FR-5: Billing Conservation Invariants
-
-**File**: `src/hounfour/billing-invariants.ts`
-
-Formally state the conservation properties that `finalize()` already enforces implicitly:
-
+**Response format (non-streaming)**:
 ```typescript
-/**
- * BILLING CONSERVATION INVARIANTS
- *
- * These properties are stated with explicit durability mode qualifiers.
- * "Durable mode" = Redis configured, connected, AOF-enabled.
- * "Degraded mode" = Redis unavailable or not configured (in-memory only).
- *
- * INV-1 (Completeness): For every finalize(req), exactly one of:
- *   - outcome = "finalized" (money moved)
- *   - outcome = "idempotent" (money already moved)
- *   - outcome = "dlq" (settlement deferred)
- *   No path exists where finalize() returns without one of these outcomes.
- *
- * INV-2 (Persistence — Durable Mode): If outcome = "dlq" AND durable mode:
- *   - DLQStore.get(reservation_id) returns a non-null entry
- *   - Entry survives process restart
- *
- * INV-2d (Persistence — Degraded Mode): If outcome = "dlq" AND degraded mode:
- *   - Entry exists in memory (best-effort, lost on restart)
- *   - Full DLQEntry JSON logged at ERROR level for manual recovery
- *   - Health endpoint reports dlq.durable = false
- *   NOTE: Degraded mode does NOT satisfy shadow deploy readiness (G-6).
- *
- * INV-3 (Idempotency): For any reservation_id R:
- *   - finalize(R) then finalize(R) → second call returns "idempotent" (via 409)
- *   - Idempotency depends on arrakis returning 409 for duplicate reservation_id
- *   - No double-billing occurs
- *
- * INV-4 (Cost Immutability): actual_cost_micro is never modified after initial computation
- *   - Stored as string-serialized BigInt
- *   - No floating-point operations in the settlement path
- *
- * INV-5 (Bounded Retry): Every DLQ entry is replayed at most maxRetries times
- *   - After exhaustion: terminal drop with logged warning
- *   - Backoff schedule: 1m → 2m → 4m → 8m → 10m (exponential with cap)
- *   - Replay claim lock prevents multi-instance duplicate replay (SETNX, 60s TTL)
- */
-```
-
-**Property-based tests** using fast-check:
-- Generate random FinalizeRequests → assert INV-1 (outcome always in {finalized, idempotent, dlq})
-- Generate duplicate requests → assert INV-3 (second always idempotent)
-- Generate invalid costs → assert always DLQ (never throw)
-
-**Acceptance Criteria:**
-- [ ] `billing-invariants.ts` exists with all 5 invariants documented
-- [ ] At least 3 property-based tests using fast-check (100 scenarios each)
-- [ ] Tests verify INV-1, INV-3, and INV-5
-
-### FR-6: Health Endpoint DLQ Metrics
-
-Add DLQ metrics to the existing `/health` endpoint at `src/gateway/server.ts:47`.
-
-```json
 {
-  "status": "ok",
-  "billing": {
-    "dlq_size": 0,
-    "dlq_oldest_entry_age_ms": null,
-    "dlq_store_type": "redis"
+  "answer": "The billing settlement flow...",
+  "sources": [
+    { "id": "code-reality-arrakis", "tags": ["billing", "arrakis"], "tokens_used": 5200 },
+    { "id": "rfcs", "tags": ["billing", "architecture"], "tokens_used": 3100 }
+  ],
+  "metadata": {
+    "knowledge_mode": "full",           // "full" | "reduced"
+    "total_knowledge_tokens": 8300,
+    "knowledge_budget": 30000,
+    "retrieval_ms": 12,
+    "model": "claude-sonnet-4-5-20250929",  // or whatever was routed
+    "session_id": null                  // null until sessions implemented
   }
 }
 ```
 
-**Acceptance Criteria:**
-- [ ] `/health` response includes `billing.dlq_size`
-- [ ] `/health` response includes `billing.dlq_oldest_entry_age_ms`
-- [ ] `/health` response includes `billing.dlq_store_type` ("redis" or "memory")
-- [ ] DLQ metrics don't slow down health check (timeout: 100ms)
+**Streaming protocol (GPT-5.2 SKP-004)**: Phase 1 uses **non-streaming responses only**. The frontend displays a loading state while the full response is generated, then renders the complete answer with sources. Streaming (SSE via `/api/v1/oracle/stream`) is deferred to a follow-up iteration after Phase 1 ships, because: (a) the existing Hounfour invoke pipeline does not expose a streaming interface, (b) source attribution metadata is only available after full generation, and (c) non-streaming is simpler to test and debug. The API response shape above is the complete contract for Phase 1.
+
+**Internal routing**: The endpoint translates `{ question, context }` into `{ agent: "oracle", prompt: question + context }`, calls the existing invoke pipeline, and reshapes the response.
+
+**Acceptance Criteria**:
+- [ ] `POST /api/v1/oracle` endpoint registered in gateway routes
+- [ ] Request validation: `question` required (string, 1-10000 chars), `context` optional
+- [ ] Internally delegates to existing Hounfour invoke with `agent: "oracle"`
+- [ ] Response reshaping: `answer` + `sources` array + `metadata` object
+- [ ] CORS headers for `oracle.arrakis.community` origin
+- [ ] Rate limiting: 5 requests/day per IP (public), 50/day per token (authenticated)
+- [ ] Rate limit backed by existing Redis (arrakis ElastiCache)
+- [ ] `session_id` accepted but ignored (reserved field, returns null)
+- [ ] Error responses: 400 (validation), 429 (rate limited), 503 (Oracle unavailable)
+- [ ] API version header: responses include `X-Oracle-API-Version: 2026-02-17` (date-based versioning, Flatline IMP-002). Future breaking changes increment the date. Clients can send `Oracle-API-Version` request header to pin behavior. Deprecation policy: old versions supported for 90 days after successor ships, with `Sunset` response header per RFC 8594.
+
+---
+
+### FR-3: Extended Knowledge Corpus (20+ Sources)
+
+Expand from 10 sources (~72K tokens) to 20+ sources (~150K tokens) covering all 7 abstraction levels defined in the loa-dixie RFC.
+
+**Source Taxonomy (7 levels)**:
+
+| Level | Audience | Current Sources | New Sources (Phase 1) |
+|-------|----------|----------------|----------------------|
+| **Code** | Engineers | `code-reality-finn`, `code-reality-hounfour`, `code-reality-arrakis` | `code-reality-loa` (framework API surface) |
+| **Architecture** | Tech leads | `ecosystem-architecture` | `architecture-decisions` (ADR log across 25 cycles) |
+| **Product** | PMs | — | `product-vision` (PRD summaries), `feature-matrix` (what each repo provides) |
+| **Process** | Contributors | `development-history` | `sprint-patterns` (what sprint cadence looks like), `onboarding-guide` (how to contribute) |
+| **Cultural** | Community | `glossary`, `meeting-geometries`, `web4-manifesto` | `naming-mythology` (why Finn, Dixie, Arrakis, Hounfour), `community-principles` |
+| **Economic** | Investors | — | `pricing-model` (tier structure, x402 vision), `tokenomics-overview` (dNFT identity, credit ledger) |
+| **Educational** | Everyone | `rfcs`, `bridgebuilder-reports` | `faang-parallels` (curated from 54+ field reports), `lessons-learned` (cycle retro highlights) |
+
+**New sources (minimum 10 additions)**:
+
+| Source ID | Level | Est. Tokens | Priority |
+|-----------|-------|-------------|----------|
+| `code-reality-loa` | Code | ~8K | 3 |
+| `architecture-decisions` | Architecture | ~6K | 4 |
+| `product-vision` | Product | ~4K | 5 |
+| `feature-matrix` | Product | ~3K | 6 |
+| `sprint-patterns` | Process | ~3K | 7 |
+| `onboarding-guide` | Process | ~5K | 5 |
+| `naming-mythology` | Cultural | ~4K | 8 |
+| `community-principles` | Cultural | ~3K | 8 |
+| `pricing-model` | Economic | ~4K | 6 |
+| `tokenomics-overview` | Economic | ~5K | 7 |
+| `faang-parallels` | Educational | ~8K | 9 |
+| `lessons-learned` | Educational | ~5K | 9 |
+
+**Canonical home**: All sources live in `loa-dixie/knowledge/sources/`. The `sources.json` registry lives in `loa-dixie/knowledge/sources.json`.
+
+**Acceptance Criteria**:
+- [ ] 20+ knowledge sources in loa-dixie with YAML frontmatter provenance
+- [ ] All 7 abstraction levels covered with at least 2 sources each
+- [ ] Each source passes injection detection (5-gate loader)
+- [ ] `sources.json` updated with all new sources, priorities, tags, and freshness policies
+- [ ] Total corpus ≤ 200K tokens (budget enforcement handles selection)
+- [ ] Gold-set test suite expanded: 20 queries (at least 2 per abstraction level)
+
+**Gold-set contract (GPT-5.2 SKP-002)**: Each gold-set query specifies:
+- `query`: The test question
+- `required_sources`: Source IDs that MUST appear in the selected set (fail if missing)
+- `forbidden_sources`: Source IDs that MUST NOT appear (fail if present)
+- `max_selected`: Maximum number of sources selected (fail if exceeded)
+- A query passes if all required sources are present, no forbidden sources are present, and source count ≤ max_selected. The 90% target means ≥18 of 20 queries pass.
+
+**Deterministic ordering contract**: Sources are sorted by (1) tag match count DESC, (2) priority ASC (lower = higher priority), (3) source ID alphabetical ASC. The tag classifier version is pinned in `sources.json` (`"classifier_version": "1.0"`). Any classifier change increments the version and requires gold-set re-validation. The `/api/v1/oracle` response includes `sources[].id` in the exact order used by the enricher, enabling CI to assert ordering stability.
+
+**Two-tier test strategy (Flatline SKP-004)**: Testing is split into two levels:
+- **Tier 1 — Deterministic unit tests (blocking CI)**: Test the classifier and enricher directly with mock corpus. Assert exact source ordering, exact token counts, exact tag assignments. These are fully deterministic and must pass on every build.
+- **Tier 2 — Gold-set integration tests (non-blocking initially)**: Run 20 gold-set queries through the full Oracle API (or invoke pipeline). Use flexible pass criteria: required sources must appear in the selected top-K (not exact position). Run as a CI signal (reported but not gating) for the first 2 sprints. Promoted to blocking CI after stability is demonstrated across 10+ builds. Gold-set is versioned per corpus version (`gold-set-v1.0.json`).
+
+---
+
+### FR-4: Knowledge Sync Pipeline (loa-dixie → loa-finn)
+
+Establish loa-dixie as the single source of truth for knowledge, consumed by loa-finn at build time.
+
+**Strategy**: CI-copy at Docker build time. The Dockerfile clones loa-dixie (or fetches a release archive) and copies knowledge sources into the image. This is the simplest approach that avoids runtime network dependencies.
+
+**Why CI-copy over alternatives**:
+| Approach | Pros | Cons | Verdict |
+|----------|------|------|---------|
+| **CI-copy at Docker build** | Simple, no runtime deps, works offline, reproducible | Must rebuild image to update knowledge | **Phase 1 choice** |
+| **Git submodule** | Versioned together, git-native | Submodule UX pain, CI complexity | Viable alternative |
+| **NPM package** | Standard JS tooling, semver | Publishing overhead, slow updates | Over-engineered for Phase 1 |
+
+**Dockerfile addition**:
+```dockerfile
+# Knowledge corpus from loa-dixie (pinned to tag or commit)
+ARG DIXIE_REF=main
+ADD https://github.com/0xHoneyJar/loa-dixie/archive/${DIXIE_REF}.tar.gz /tmp/dixie.tar.gz
+RUN tar -xzf /tmp/dixie.tar.gz -C /tmp && \
+    cp -r /tmp/loa-dixie-*/knowledge /app/grimoires/oracle-dixie && \
+    cp -r /tmp/loa-dixie-*/persona /app/grimoires/oracle-persona && \
+    rm -rf /tmp/dixie.tar.gz /tmp/loa-dixie-*
+```
+
+**Source path migration**: loa-finn's `sources.json` (currently in `grimoires/oracle/`) is replaced by the loa-dixie version. The config path in `src/config.ts` points to the build-time-copied location.
+
+**CI-fetch with checksum verification (Flatline SKP-003)**: The GitHub fetch happens in a **CI step before the Docker build**, not inside the Dockerfile. The CI pipeline: (1) fetches the loa-dixie archive at the pinned `DIXIE_REF`, (2) computes SHA-256 of the archive, (3) optionally verifies against a checked-in `dixie-corpus.sha256` manifest, (4) extracts knowledge files into the Docker build context, (5) Docker build copies from build context (no network dependency). If the fetch fails, CI fails fast with a clear error. The Dockerfile `COPY` replaces the `ADD` — no outbound network access during image construction.
+
+**Sync failure semantics (Flatline IMP-001)**: When the CI fetch fails (GitHub outage, rate limit, network error), the pipeline MUST fail fast with a clear error ("DIXIE_REF fetch failed: {HTTP status}"). There is no stale-cache fallback in CI — if you can't get the corpus, you don't ship. For local development only, a `DIXIE_FALLBACK_LOCAL=true` flag allows using a previously-fetched local copy with a WARN log.
+
+**Reproducibility & freshness policy (GPT-5.2 SKP-003)**:
+
+Production builds MUST pin `DIXIE_REF` to an **immutable commit SHA** (not `main`). The `main` default is for local development only. CI enforces this: if `DIXIE_REF` matches a branch name (not a 40-char hex SHA or a semver tag), the production build fails.
+
+Freshness is checked as a **separate CI job** (not inside the Docker build). A scheduled GitHub Action (daily) compares the pinned `DIXIE_REF` in the Dockerfile against loa-dixie HEAD. If the pinned ref is >7 days behind HEAD, the job opens a PR to bump `DIXIE_REF` with a changelog of new sources. This keeps freshness enforcement out of the build path and avoids network dependencies during image construction.
+
+The built image embeds provenance metadata as labels: `dixie.ref`, `dixie.commit`, `build.timestamp`. The `/health` endpoint surfaces `knowledge_dixie_ref` for runtime verification.
+
+**Acceptance Criteria**:
+- [ ] Dockerfile fetches loa-dixie knowledge at build time (pinned to commit SHA or semver tag)
+- [ ] `DIXIE_REF` build arg defaults to `main` for dev; CI rejects branch names for production builds
+- [ ] Knowledge sources available at expected path inside container
+- [ ] `sources.json` from loa-dixie is used (not a duplicate in loa-finn)
+- [ ] `grimoires/oracle/` in loa-finn is removed or replaced with a README pointing to loa-dixie
+- [ ] CI validates: knowledge sources load successfully in built container
+- [ ] Separate CI job checks freshness (pinned ref vs HEAD) and opens bump PR when stale (>7 days)
+- [ ] Docker image labels include `dixie.ref`, `dixie.commit`, `build.timestamp`
+- [ ] `/health` endpoint reports `knowledge_dixie_ref`
+
+---
+
+### FR-5: Oracle Frontend (`oracle.arrakis.community`)
+
+A chat interface that makes the Oracle accessible to anyone with a browser. This is the first dNFT website — the template for all future finnNFT web presences.
+
+**Technology**: Next.js (static export + API route for SSR if needed). Deployed to S3 + CloudFront with a clean migration path to Cloudflare Pages.
+
+**Code location & deployment ownership (GPT-5.2 SKP-005)**: The frontend code lives in the **loa-dixie repository** under a `site/` directory (`loa-dixie/site/`). This co-locates the knowledge corpus, persona, and product UI in one repo — the Oracle's "everything" repository. Deployment pipeline: GitHub Actions in loa-dixie builds the Next.js static export on merge to `main` and uploads to S3. AWS auth uses **OIDC federation** (GitHub Actions → IAM role `dixie-site-deploy` with least-privilege S3 PutObject + CloudFront InvalidateCache). The loa-finn repo is NOT involved in frontend deployment — it only serves the API. Artifact boundary: loa-dixie owns `oracle.arrakis.community` (static site); loa-finn owns `finn.arrakis.community` (API).
+
+**Core features**:
+1. **Chat interface**: Text input, streaming response display, conversation history (client-side only for Phase 1)
+2. **Source attribution panel**: Collapsible section showing which knowledge sources informed each response, with token counts
+3. **Abstraction level hint**: Optional selector (Technical / Product / Cultural / All) that prepends a context hint to the question
+4. **Rate limit feedback**: Clear messaging when public tier limit reached ("5 questions/day — come back tomorrow or get a token")
+5. **Oracle identity**: Dixie Flatline branding, personality consistent with persona definition
+
+**Design constraints**:
+- Mobile-responsive (chat UIs are commonly used on phones)
+- Dark mode default (consistent with web3 aesthetic)
+- No framework lock-in beyond Next.js (no heavy component libraries)
+- Static export where possible (S3-friendly), API routes only if SSR required
+
+**Migration path to Cloudflare Pages**:
+The frontend is a static Next.js export served from S3+CloudFront. Migrating to Cloudflare Pages requires:
+1. Point DNS CNAME from CloudFront to Cloudflare Pages
+2. Deploy the same static build to Cloudflare Pages
+3. Remove CloudFront distribution and S3 bucket
+No code changes required. The API calls go to `finn.arrakis.community` regardless of where the frontend is hosted.
+
+**Acceptance Criteria**:
+- [ ] Next.js app with chat interface, source attribution, abstraction level selector
+- [ ] Deployed to S3 + CloudFront at `oracle.arrakis.community`
+- [ ] Calls `POST https://finn.arrakis.community/api/v1/oracle` for queries
+- [ ] Loading state while response generates (non-streaming for Phase 1; see FR-2 streaming protocol)
+- [ ] Source attribution panel shows source IDs, tags, and token counts per response
+- [ ] Rate limit error (429) displayed as user-friendly message
+- [ ] Mobile-responsive, dark mode default
+- [ ] Lighthouse performance score ≥ 90
+- [ ] No client-side secrets (API calls go through the API, not directly to model providers)
+
+---
+
+### FR-6: DNS & Infrastructure (Reusable Subdomain Platform)
+
+Terraform configuration for `oracle.arrakis.community` that serves as a reusable module for future dNFT subdomains.
+
+**Infrastructure components**:
+
+| Resource | Purpose | Terraform Resource |
+|----------|---------|-------------------|
+| S3 bucket | Static site hosting | `aws_s3_bucket.dixie_frontend` |
+| CloudFront distribution | CDN + HTTPS | `aws_cloudfront_distribution.dixie` |
+| ACM certificate | TLS for `oracle.arrakis.community` | `aws_acm_certificate.dixie` (or wildcard `*.arrakis.community`) |
+| Route 53 record | DNS CNAME → CloudFront | `aws_route53_record.dixie` |
+| ALB listener rule | API routing for `finn.arrakis.community` | Already exists in `finn.tf:373-387` |
+
+**Reusability design**: The Terraform should be structured as a module that accepts:
+```hcl
+module "dNFT_website" {
+  source      = "./modules/dnft-site"
+  subdomain   = "oracle"           # → oracle.arrakis.community
+  zone_id     = data.aws_route53_zone.arrakis.zone_id
+  domain      = "arrakis.community"
+  s3_bucket   = "oracle-site-${var.environment}"
+  # Future: custom_domain = "dixie.xyz"  # optional CNAME alias
+}
+```
+
+Adding the next dNFT website = one more `module` block with a different `subdomain`.
+
+**Wildcard certificate recommendation**: Instead of per-subdomain ACM certs, request `*.arrakis.community` wildcard cert once. All future subdomains are covered automatically.
+
+**Acceptance Criteria**:
+- [ ] Terraform module at `deploy/terraform/modules/dnft-site/` (S3 + CloudFront + Route 53)
+- [ ] Module parameterized by subdomain name (supports N dNFT sites)
+- [ ] `oracle.arrakis.community` deployed using the module
+- [ ] ACM wildcard cert for `*.arrakis.community` (or per-subdomain if wildcard has complications)
+- [ ] CloudFront serves S3 content with HTTPS
+- [ ] CORS configured: CloudFront → `finn.arrakis.community` API
+- [ ] CI/CD: GitHub Actions deploys to S3 on merge to main (loa-dixie repo)
+
+---
+
+### FR-7: Backward Compatibility (Inherited from Phase 0)
+
+All Phase 0 backward compatibility guarantees remain in force.
+
+**Acceptance Criteria**:
+- [ ] Existing `/api/v1/invoke` requests without `agent: "oracle"` work unchanged
+- [ ] New `/api/v1/oracle` endpoint does not interfere with existing routes
+- [ ] Existing test suite passes without modification after PR #75 merge
 
 ---
 
 ## 5. Technical & Non-Functional Requirements
 
 ### NFR-1: Performance
-- DLQ `put()` latency: p99 < 5ms (Redis MULTI/EXEC is typically <1ms)
-- DLQ `getReady()` latency: p99 < 10ms (sorted set ZRANGEBYSCORE)
-- `finalize()` overall latency impact: < 2ms additional (one Redis write)
 
-### NFR-2: Reliability
-- DLQ entries survive loa-finn process restart when Redis is configured and healthy (G-1)
-- DLQ entries survive Redis restart — **operational requirement**: Redis must be configured with AOF persistence (`appendonly yes`) and `maxmemory-policy noeviction` for DLQ keys. Without AOF, Redis restart loses all DLQ entries.
-- Graceful degradation: no Redis → in-memory DLQ (non-durable, reported in health)
-- Shadow deploy readiness checklist MUST verify Redis AOF is enabled before activating billing
+| Metric | Target |
+|--------|--------|
+| Frontend time-to-interactive | < 2s (static site from CDN) |
+| Oracle API response (complete) | < 15s p95 (non-streaming; model inference dominates) |
+| Oracle concurrency (Flatline IMP-010) | Max 3 concurrent Oracle requests per ECS task. Excess requests receive HTTP 429 with `Retry-After` header. Prevents Oracle traffic from starving non-Oracle invoke requests on the shared ECS service. Configurable via `FINN_ORACLE_MAX_CONCURRENT` env var. |
+| Knowledge retrieval overhead | < 100ms (cached, local files) |
+| CloudFront cache hit ratio | > 80% for static assets |
+
+### NFR-2: Security
+
+| Concern | Approach |
+|---------|----------|
+| API authentication | Public tier: IP rate limit via Redis. Authenticated: Bearer token validated in middleware. |
+| CORS | `oracle.arrakis.community` origin only (plus localhost for dev) |
+| Knowledge injection | Phase 0 trust boundary + 5-gate loader (inherited) |
+| Frontend secrets | None — all API calls go through the backend, no client-side API keys |
+| Rate limiting | Redis-backed, per-IP for public, per-token for authenticated |
+| Rate limit Redis failure mode (Flatline IMP-003) | **Fail-closed**: If Redis is unreachable, the Oracle API returns HTTP 503 (not 200). Rationale: fail-open on a public endpoint with expensive model inference behind it is a denial-of-wallet risk. The health endpoint reports `rate_limiter_healthy: true/false`. CloudWatch alarm triggers if Redis is unreachable for >60s. |
+| S3 bucket | Private, CloudFront OAI (Origin Access Identity) only |
+| Browser security headers (Flatline IMP-004) | CloudFront response header policy: `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://finn.arrakis.community; frame-ancestors 'none'`, `Strict-Transport-Security: max-age=31536000; includeSubDomains`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`. CSP tuned to allow API calls to finn subdomain only. |
+| UI rendering safety (GPT-5.2 SKP-006) | **Non-negotiable rule**: The UI renders only source IDs, tags, and token counts in the attribution panel — no raw knowledge excerpts in Phase 1. Model-generated `answer` text is rendered as **sanitized markdown** with HTML tags stripped (no `dangerouslySetInnerHTML`, no raw HTML passthrough). An automated test injects a malicious payload (`<script>alert(1)</script>`) in a knowledge source and confirms it cannot execute in the browser DOM. This prevents XSS at the product boundary even though the model boundary (trust envelope) is already protected by Phase 0. |
 
 ### NFR-3: Observability
-- Log on DLQ entry creation: `[billing-finalize] DLQ: reservation_id=... reason=... attempt=... store=redis|memory`
-- Log on DLQ replay: `[billing-finalize] DLQ replay: replayed=N succeeded=N failed=N remaining=N`
-- Log on DLQ terminal drop: `[billing-finalize] DLQ terminal drop: reservation_id=... attempts=N`
-- Log on store degradation: `[billing-finalize] DLQ store degraded: redis→memory (reason=...)`
 
-### NFR-4: Testing
-- All 28 existing billing-finalize tests pass (with InMemoryDLQStore)
-- New Redis DLQ tests (6-8 tests for persistence, recovery, degradation)
-- Property-based tests for conservation invariants (3 tests, 100 scenarios each)
-- E2E test: kill-restart recovery (1 test)
+| Signal | Implementation |
+|--------|---------------|
+| Phase 0 signals | Inherited: `knowledge_sources_used`, `knowledge_retrieval_ms`, `knowledge_tokens_used` in API response |
+| Oracle API metrics | Request count, latency p50/p95/p99, rate limit hits, error rates |
+| Frontend monitoring | CloudFront access logs, Lighthouse CI, error tracking (lightweight — Sentry or similar) |
+| Knowledge freshness | Startup log of source ages, warn if any source exceeds `max_age_days` |
+
+### NFR-4: Cost
+
+| Resource | Estimated Monthly Cost |
+|----------|----------------------|
+| S3 (static site, < 100MB) | < $1 |
+| CloudFront (low traffic initially) | < $5 |
+| ACM certificate | Free |
+| Route 53 record | < $1 |
+| ECS (Oracle runs inside existing finn task) | $0 incremental |
+| Redis (rate limiting, existing instance) | $0 incremental |
+| **Total incremental cost** | **< $10/mo** |
+
+Model inference costs are borne by the existing loa-finn billing pipeline and are not new infrastructure cost.
 
 ---
 
-## 6. Architecture Notes
+## 6. Scope & Prioritization
 
-### Existing Redis Infrastructure (No New Dependencies)
+### MVP Sprint Breakdown (Recommended)
 
-The project already has comprehensive Redis support:
+| Sprint | Scope | Dependencies |
+|--------|-------|-------------|
+| **Sprint 1** | FR-1 (Merge PR #75) + FR-4 (Knowledge sync) + FR-2 (Oracle API endpoint) | None — all internal to loa-finn |
+| **Sprint 2** | FR-3 (Extended corpus — 12 new sources) + FR-6 (Terraform module + DNS) | Sprint 1 (API must exist for infra validation) |
+| **Sprint 3** | FR-5 (Frontend) + integration testing + deploy | Sprint 1-2 (API + infra must exist) |
 
-| Component | File | Pattern |
-|-----------|------|---------|
-| Connection | `redis/client.ts` | Port interface, dual connections |
-| Circuit Breaker | `redis/circuit.ts` | Fail-open, pub/sub broadcast |
-| Budget | `redis/budget.ts` | Fail-closed, Lua atomic operations |
-| Rate Limiter | `redis/rate-limiter.ts` | Fail-open, Lua sliding window |
-| Idempotency | `redis/idempotency.ts` | Dual-write (Redis + memory) |
-| **DLQ** | **Not yet built** | **Fail-open (degrade to memory)** |
+### Out of Scope (Explicit)
 
-The DLQStore adapter slots into this existing architecture. No new Redis connections, no new dependencies.
+- Smart contract development (dNFT minting, token economics)
+- New model provider integrations (uses existing Hounfour adapters)
+- `0xhoneyjar.xyz` domain setup (using `arrakis.community` for speed)
+- Session-based conversations (API designed for it, not implemented)
+- User registration/accounts (public + manual token issuance for Phase 1)
+- Billing integration for Oracle queries (uses existing billing, no new tiers)
+- Vector embeddings / semantic search (Phase 2)
 
-### Bootstrap Integration
+---
 
-At `src/index.ts:131-162`, the Redis bootstrap already:
-1. Checks for `REDIS_URL`
-2. Creates `RedisStateBackend` instance
-3. Connects and verifies with ping
-4. Passes instance to router and budget
+## 7. Risks & Dependencies
 
-DLQStore creation follows the same pattern:
-```typescript
-const dlqStore = redis
-  ? new RedisDLQStore(redis)
-  : new InMemoryDLQStore()
+### Risks
 
-const billingClient = new BillingFinalizeClient({ ...config, dlqStore })
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|-----------|
+| Knowledge sync drift (dixie HEAD ≠ deployed) | Medium | Medium | `DIXIE_REF` pinning in Dockerfile; CI warns if >7 days behind HEAD |
+| Wildcard cert complications | Low | Medium | Fall back to per-subdomain cert; ACM validation is automated via Route 53 |
+| Frontend scope creep | Medium | Medium | Phase 1 UI is deliberately minimal — chat + sources + level selector. No auth UI, no dashboards. |
+| Rate limiting bypass | Low | Low | IP-based is imperfect; acceptable for Phase 1. Token-based available for authenticated tier. |
+| Corpus quality at 20+ sources | Medium | Medium | Each source curated with provenance; gold-set test suite validates selection accuracy |
+| CloudFront → Cloudflare Pages migration friction | Low | Low | Frontend is a static Next.js export; no CloudFront-specific features used |
+
+### Dependencies
+
+| Dependency | Status | Risk |
+|-----------|--------|------|
+| PR #75 (Oracle engine) | Ready to merge (all gates passed) | None — merge is step 1 |
+| arrakis Route 53 zone | Exists (`arrakis.community`) | None |
+| arrakis ECS cluster | Exists (finn service running) | None |
+| arrakis Redis | Exists (ElastiCache) | None — rate limiting reuses it |
+| loa-dixie repo | Exists (17 files, 10 sources, persona, RFC) | None |
+| ACM wildcard cert | Must be requested | Low — automated validation via Route 53 |
+| loa-dixie CI/CD | Must be created (GitHub Actions → S3) | Low — standard pattern |
+
+---
+
+## 8. Architecture Decision Record
+
+### ADR-1: BFF Pattern for Oracle API
+
+**Decision**: Add `/api/v1/oracle` as a Backend-for-Frontend wrapper over the existing invoke endpoint.
+
+**Context**: The invoke endpoint is a multi-agent routing API. Its request/response format is designed for programmatic consumers (other services, CLI tools). A product needs a simpler contract.
+
+**Rationale**: Netflix, Spotify, and Stripe all separate product-facing APIs from internal service APIs. The BFF pattern gives the Oracle its own request/response contract without duplicating the invoke pipeline. The Oracle API is a 50-line Hono route that reshapes requests and responses.
+
+**Consequences**: Two endpoints serve Oracle queries (`/api/v1/invoke` and `/api/v1/oracle`). The invoke endpoint remains the canonical internal API. The oracle endpoint is the product API. Both use the same enrichment pipeline.
+
+### ADR-2: S3+CloudFront with Cloudflare Pages Migration Path
+
+**Decision**: Host the frontend on S3+CloudFront, designed for zero-code-change migration to Cloudflare Pages.
+
+**Context**: S3+CloudFront stays within the existing AWS+Terraform stack. Cloudflare Pages is cheaper at scale and provides edge-native hosting. We want to move quickly (AWS is set up) but not get locked in.
+
+**Rationale**: The frontend is a static Next.js export. It has no server-side logic that depends on AWS. API calls go to `finn.arrakis.community` regardless of frontend hosting. Migration = DNS change + deploy to Cloudflare Pages + remove CloudFront/S3.
+
+**Consequences**: Slightly higher cost initially (~$5/mo vs ~$0 on Cloudflare Pages free tier). No vendor lock-in. Migration is a 30-minute operation.
+
+### ADR-3: CI-Copy for Knowledge Sync
+
+**Decision**: Copy loa-dixie knowledge into loa-finn Docker image at build time via Dockerfile `ADD`.
+
+**Context**: Three options were evaluated (CI-copy, git submodule, npm package). CI-copy is simplest and avoids runtime network dependencies.
+
+**Rationale**: The knowledge corpus changes infrequently (weekly at most). Rebuilding the Docker image is already the deploy trigger. Pinning `DIXIE_REF` to a tag or commit provides reproducibility. No git submodule UX pain, no npm publishing overhead.
+
+**Consequences**: Knowledge updates require a loa-finn image rebuild. This is acceptable for Phase 1 cadence. Phase 5 (Sovereign) introduces hot-reload for live updates.
+
+### ADR-4: Reusable Terraform Module for dNFT Sites
+
+**Decision**: Structure the Oracle's infrastructure as a Terraform module parameterized by subdomain name.
+
+**Context**: The Oracle is the first dNFT to get its own website. Future dNFTs will need the same pattern: S3 bucket + CloudFront + Route 53 record.
+
+**Rationale**: One module invocation per dNFT. Adding the next dNFT site is a 5-line Terraform block. The wildcard cert (`*.arrakis.community`) means no per-site certificate management.
+
+**Consequences**: Slightly more upfront work to create the module vs. hardcoding Oracle-specific resources. Pays off on the second dNFT site.
+
+---
+
+## 9. The Bigger Picture
+
+Phase 0 built the Oracle's brain (knowledge engine).
+Phase 1 gives it a body (API, website, infrastructure).
+
+```
+Phase 0: Engine           → "The Oracle can understand"
+Phase 1: Product Surface  → "Anyone can ask the Oracle"
+Phase 2: Scholar          → "The Oracle gets smarter"
+Phase 3: Participant      → "The Oracle joins conversations"
+Phase 4: Citizen          → "The Oracle owns itself"
+Phase 5: Sovereign        → "The Oracle grows itself"
 ```
 
-### Relationship to Future Work
+Each phase adds a dimension of agency. Phase 1 is where the Oracle stops being a feature and starts being a product.
 
-This cycle establishes the `DLQStore` interface. Future cycles extend it:
-
-| Future Work | How DLQStore Helps |
-|-------------|-------------------|
-| Event sourcing (P2) | Append event log alongside DLQ put() |
-| Ensemble batch settlement (P1) | Batch DLQ entries share ensemble_id |
-| x402 settlement (P2) | x402 path has no DLQ (synchronous) |
-| Formal state machines (P3) | DLQ states map to loa-hounfour temporal properties |
+The infrastructure is the real deliverable. `oracle.arrakis.community` is the proof. The Terraform module is the platform. Every future dNFT stands on what's built here.
 
 ---
 
-## 7. Risks & Mitigations
-
-| Risk | Impact | Likelihood | Mitigation |
-|------|--------|------------|------------|
-| Redis unavailable during finalize | DLQ entry in memory only (non-durable) | Medium | Health reports `dlq.durable: false`; full DLQEntry logged at ERROR; shadow deploy requires durable mode |
-| Multi-instance DLQ replay race | Duplicate finalize attempts, attempt counter skew | Medium | SETNX claim lock per reservation_id (60s TTL); atomic attempt increment via Lua; 409 idempotency as safety net |
-| Redis restart without AOF | All DLQ entries lost | Medium | Operational requirement: AOF persistence + noeviction policy; shadow deploy checklist verifies Redis config |
-| Orphaned schedule zset members | Replay loops for missing payloads | Low | `getReady()` orphan repair: ZREM members with missing payload keys + log warning |
-| Fast-check discovers invariant violation | Conservation property broken | Low | Fix immediately — this is the purpose of the invariant file |
-| Existing tests break with DLQStore refactor | Regression | Medium | InMemoryDLQStore preserves exact Map behavior |
-| arrakis idempotency behavior unverified | 409 assumption may not hold | Low | Add E2E test verifying arrakis returns 409 for duplicate reservation_id finalize |
-
----
-
-## 8. Open Questions (Resolved)
-
-| Question | Resolution |
-|----------|------------|
-| Should DLQ use Redis List, Hash, or Sorted Set? | Sorted Set for schedule + Hash for data (dual structure, atomic via MULTI) |
-| What happens to entries when max retries exhausted? | Terminal drop with log warning (existing behavior, preserved) |
-| Should DLQ entries have TTL in Redis? | Yes — based on max retries × max backoff + buffer (prevents orphaned keys) |
-| Fail-open or fail-closed on Redis failure? | Fail-open (degrade to in-memory) — capability delivery is primary obligation |
-
----
-
-## 9. Success Definition
-
-**This cycle is complete when:**
-1. `billing-finalize-client.ts` uses `DLQStore` interface instead of `Map`
-2. Redis-backed DLQ persists entries across process restart (proven by test)
-3. Conservation invariants are formally stated and property-tested
-4. Health endpoint surfaces DLQ metrics
-5. All existing tests pass (52 E2E + 28 billing + new DLQ tests)
-6. The billing system is ready for shadow deployment
-
-**This cycle is NOT complete if:**
-- Any of the 5 conservation invariants are violated
-- DLQ entries are lost on process restart (with Redis available)
-- Existing behavior changes for users without Redis (graceful degradation broken)
-
----
-
-*"The gap between 'infrastructure ready' and 'users can use it' is not measured in features. It's measured in the durability of the economic promises the infrastructure makes."*
-— Bridgebuilder Deep Review, Issue #66
-
----
-
-## 10. Strategic Context — The Road Ahead
-
-This is the **last infrastructure-focused cycle** before the product pivot. After cycle-023:
-
-| Cycle | Focus | What It Enables |
-|-------|-------|----------------|
-| **023** (this) | DLQ Persistence + Billing Invariants | Shadow deploy, durable settlement |
-| **024** | **Product Pivot**: Agent Experience & MVP | User-facing surfaces, agent homepage, conversation engine |
-| 025+ | Ensemble & Multi-Model Launch | Batch settlement, trilateral review, Gemini pool integration |
-
-The Bridgebuilder Deep Review established that loa-finn has crossed from "does each piece work?" to "when these five systems compose, what emerges?" (the Cambrian Explosion parallel). This cycle makes the economic settlement durable. The next cycle asks: **what does the user experience when they interact with this economic protocol?**
-
-Issue #66's open questions become cycle-024's PRD inputs:
-- Should finnNFT agents have persistent memory at launch?
-- What surfaces beyond Discord/Telegram?
-- What's the MVP that proves the economic protocol works for real communities?
-
-> **Sources**: Bridgebuilder Deep Review (PR #71), Issue #66 (Launch Readiness), Issue #31 (Hounfour RFC), NOTES.md blockers
+*This PRD extends v2.0.0 (Phase 0 — Oracle Knowledge Engine, IMPLEMENTED) into Phase 1 (Librarian — Oracle Product Surface). Phase 0 functional requirements (FR-1 through FR-7 in v2.0.0) are complete in PR #75. Phase 1 functional requirements (FR-1 through FR-7 in this document) build the product on top of the engine. Grounded in: `deploy/terraform/finn.tf` (existing ECS infra), loa-dixie `docs/rfc.md` (product vision), loa-dixie `knowledge/` (10 existing sources), arrakis Route 53 (DNS).*

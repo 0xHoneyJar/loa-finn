@@ -1550,8 +1550,8 @@ flatline_protocol:
     primary: "opus"
     # Secondary model (default: GPT-5.2)
     secondary: "gpt-5.2"
-    # Tertiary model (future, optional)
-    # tertiary: "gemini-2.0"
+    # Tertiary model
+    tertiary: "gemini-2.5-flash"
 
   # Consensus thresholds (0-1000 scale)
   thresholds:
@@ -1714,6 +1714,13 @@ ground_truth:
 # Upstream resolveConfig() picks this up at level 3 (YAML config) precedence.
 bridgebuilder:
   reviewMarker: finn-review
+
+# =============================================================================
+# Agent Teams (v1.39.0)
+# =============================================================================
+# Multi-session orchestration where a lead agent spawns teammates
+agent_teams:
+  enabled: true
 
 # =============================================================================
 # Run Bridge (v1.35.0)

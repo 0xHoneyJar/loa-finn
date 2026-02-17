@@ -50,6 +50,11 @@ COPY public/ ./public/
 COPY grimoires/ ./grimoires/
 COPY .beads/ ./.beads/
 
+# Oracle knowledge corpus from loa-dixie (CI-fetched, no network during build)
+# CI pipeline fetches loa-dixie archive at pinned DIXIE_REF before docker build
+COPY deploy/build-context/oracle-knowledge/ ./grimoires/oracle-dixie/
+COPY deploy/build-context/oracle-persona/ ./grimoires/oracle-persona/
+
 # Copy Hounfour adapters and schemas (T-16.8)
 COPY adapters/ ./adapters/
 COPY schemas/ ./schemas/
@@ -58,6 +63,13 @@ COPY schemas/ ./schemas/
 RUN mkdir -p /data/sessions /data/wal \
     && addgroup --system finn && adduser --system --ingroup finn finn \
     && chown -R finn:finn /data /app
+
+# Provenance build args
+ARG DIXIE_REF=main
+ARG BUILD_TIMESTAMP=unknown
+LABEL dixie.ref="${DIXIE_REF}"
+LABEL dixie.commit="${DIXIE_REF}"
+LABEL build.timestamp="${BUILD_TIMESTAMP}"
 
 ENV NODE_ENV=production
 ENV DATA_DIR=/data
@@ -71,6 +83,6 @@ USER finn
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+  CMD node -e "require('http').get('http://127.0.0.1:3000/health',r=>{r.statusCode===200?process.exit(0):process.exit(1)}).on('error',()=>process.exit(1))"
 
 CMD ["node", "dist/index.js"]

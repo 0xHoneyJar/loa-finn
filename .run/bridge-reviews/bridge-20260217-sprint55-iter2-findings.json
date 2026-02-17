@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "findings": [
+    {
+      "id": "high-1",
+      "title": "DLQ entries lost on process restart — no persistence layer (DEFERRED)",
+      "severity": "HIGH",
+      "category": "data-integrity",
+      "file": "src/hounfour/billing-finalize-client.ts:61",
+      "description": "Carried forward from iteration 1. The in-memory DLQ has no persistence. This is an architectural gap requiring its own planning cycle (DLQStore interface + Redis adapter). Not addressable within bridge fix sprints.",
+      "suggestion": "Defer to dedicated sprint. Track via issue or backlog item.",
+      "deferred": true,
+      "weight": 5
+    },
+    {
+      "id": "praise-4",
+      "severity": "PRAISE",
+      "title": "Clean json_escape() implementation with proper control character handling",
+      "category": "test-reliability",
+      "file": "tests/e2e/smoke-test.sh:31-43",
+      "description": "The awk-based json_escape() function correctly handles all JSON-sensitive characters: backslashes, quotes, tabs, carriage returns, and newlines (encoded as literal \\n, not space-replaced). Applied to both pass() and fail() functions for consistency. POSIX-portable.",
+      "suggestion": "No changes needed.",
+      "praise": true,
+      "teachable_moment": "A shared escape function applied uniformly is better than ad-hoc escaping at each call site. The awk approach avoids the sed pitfalls around newline handling.",
+      "weight": 0
+    },
+    {
+      "id": "praise-5",
+      "severity": "PRAISE",
+      "title": "GitHub Actions secret bound via env — textbook CI security hardening",
+      "category": "ci-security",
+      "file": ".github/workflows/e2e-smoke.yml:23-30",
+      "description": "The secret is now accessed through an environment variable binding, never interpolated into shell. This prevents shell metacharacter injection regardless of token format changes.",
+      "suggestion": "No changes needed.",
+      "praise": true,
+      "weight": 0
+    }
+  ],
+  "total": 3,
+  "by_severity": {
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "low": 0,
+    "vision": 0,
+    "praise": 2,
+    "speculation": 0
+  },
+  "severity_weighted_score": 5
+}

@@ -26,6 +26,9 @@ export type HounfourErrorCode =
   | "BYOK_PROXY_UNAVAILABLE"
   | "BUDGET_CIRCUIT_OPEN"
   | "JTI_REPLAY_DETECTED"
+  | "ORACLE_MODEL_UNAVAILABLE"
+  | "ORACLE_KNOWLEDGE_UNAVAILABLE"
+  | "KNOWLEDGE_INJECTION"
 
 /** Typed error for all Hounfour operations */
 export class HounfourError extends Error {

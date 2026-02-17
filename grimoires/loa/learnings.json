@@ -1,0 +1,645 @@
+{
+  "version": "1.0.0",
+  "learnings": [
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied on /data",
+      "solution": "Use sudo or check file permissions first",
+      "target": "openclaw",
+      "id": "80422840-1c17-48d0-883a-302a166eb203",
+      "created": "2026-02-16T00:58:25.205Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "pattern:retry",
+      "pattern": "API rate limited",
+      "solution": "Wait 5 seconds then retry with exponential backoff",
+      "target": "openclaw",
+      "id": "cedd505d-bf18-41f3-b477-87c65609258e",
+      "created": "2026-02-16T00:58:25.224Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "c3d0cab0-8b3f-4a50-a32d-74f02f95ad65",
+      "created": "2026-02-16T00:58:25.244Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "d05d2ba6-bcf0-423c-905d-f618135e77e9",
+      "created": "2026-02-16T00:58:26.183Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied on /data",
+      "solution": "Use sudo or check file permissions first",
+      "target": "openclaw",
+      "id": "860e7857-3793-42c2-b029-aa0e75996883",
+      "created": "2026-02-16T01:03:18.753Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "pattern:retry",
+      "pattern": "API rate limited",
+      "solution": "Wait 5 seconds then retry with exponential backoff",
+      "target": "openclaw",
+      "id": "6d29d1de-e012-4b95-856f-b38ded0b55f5",
+      "created": "2026-02-16T01:03:18.774Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "689cc8bb-14eb-4a47-a007-d0da6cd5e25c",
+      "created": "2026-02-16T01:03:18.796Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "e931439d-b6cc-4074-8398-1265cb0a7c11",
+      "created": "2026-02-16T01:03:18.800Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "38a01e48-b7b6-43d9-9e7c-6e467caec509",
+      "created": "2026-02-16T01:03:19.796Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "324c2513-b70c-43fd-931f-60974cfaf6ca",
+      "created": "2026-02-16T01:03:19.801Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied on /data",
+      "solution": "Use sudo or check file permissions first",
+      "target": "openclaw",
+      "id": "232af175-4792-46b5-9b04-8a0a6680ec12",
+      "created": "2026-02-16T01:07:39.992Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "pattern:retry",
+      "pattern": "API rate limited",
+      "solution": "Wait 5 seconds then retry with exponential backoff",
+      "target": "openclaw",
+      "id": "a8c6ef10-a3ef-4429-bc01-e889addfee32",
+      "created": "2026-02-16T01:07:40.012Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "3cd263e6-4bda-424e-b07b-8e2967d83ec2",
+      "created": "2026-02-16T01:07:40.030Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "9d6da8c4-06f3-4997-a54d-eba194bb7443",
+      "created": "2026-02-16T01:07:40.034Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "516b376a-6d11-4c05-a4d1-cf519d9b7ff7",
+      "created": "2026-02-16T01:07:40.038Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "8a28f143-80de-4a34-a14e-bc123ff82dda",
+      "created": "2026-02-16T01:07:40.993Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "5eb18474-f94d-4074-a6c7-b355a911ce4a",
+      "created": "2026-02-16T01:07:40.998Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "4f02a2df-b144-4a85-ae3b-db58518b4629",
+      "created": "2026-02-16T01:07:41.002Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied on /data",
+      "solution": "Use sudo or check file permissions first",
+      "target": "openclaw",
+      "id": "845319ce-ac3d-48e4-9cbd-d6fac34abe8a",
+      "created": "2026-02-16T01:14:12.305Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "pattern:retry",
+      "pattern": "API rate limited",
+      "solution": "Wait 5 seconds then retry with exponential backoff",
+      "target": "openclaw",
+      "id": "00491808-b380-4236-ae68-23eec48abc63",
+      "created": "2026-02-16T01:14:12.325Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "8c93de30-bb18-4093-834b-ae46af56b30d",
+      "created": "2026-02-16T01:14:12.344Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "a8f47f08-42b2-4cd5-906e-1e8ea061d192",
+      "created": "2026-02-16T01:14:12.347Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "95243cad-212b-4cf9-8505-589c6044d65c",
+      "created": "2026-02-16T01:14:12.351Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "afc9b223-9811-48d2-aff6-c7b661a48876",
+      "created": "2026-02-16T01:14:12.354Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "1c5e8345-8676-4b18-8876-15bbad7d8015",
+      "created": "2026-02-16T01:14:12.871Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "8155dcad-9192-4c09-8dde-d0974b64145f",
+      "created": "2026-02-16T01:14:12.875Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "d64e6f4d-a504-4aca-8fe9-43a296d3a51f",
+      "created": "2026-02-16T01:14:12.879Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "d1fdca5b-e238-47ff-a7a0-3e14f7a05a26",
+      "created": "2026-02-16T01:14:12.883Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied on /data",
+      "solution": "Use sudo or check file permissions first",
+      "target": "openclaw",
+      "id": "afa277b5-d724-4704-8fed-883544ecc866",
+      "created": "2026-02-16T01:18:01.819Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "pattern:retry",
+      "pattern": "API rate limited",
+      "solution": "Wait 5 seconds then retry with exponential backoff",
+      "target": "openclaw",
+      "id": "fd940422-1533-4038-850e-2f1c1dbfc489",
+      "created": "2026-02-16T01:18:01.839Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "4ccc4d36-b9ef-4c3a-a89d-902ad2cbd95f",
+      "created": "2026-02-16T01:18:01.856Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "f637fed9-63b0-4dfa-900f-07d5d5ab892c",
+      "created": "2026-02-16T01:18:01.860Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "eb2bf8c1-f699-4650-b116-1b89fef2696b",
+      "created": "2026-02-16T01:18:01.863Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "a2b5dd22-0b39-4e79-abf1-8d9a0577a172",
+      "created": "2026-02-16T01:18:01.866Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "19c73d8f-bec8-4e48-934e-23542b1842c5",
+      "created": "2026-02-16T01:18:01.870Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "87937c82-56ff-4a9d-8400-429ce8e24081",
+      "created": "2026-02-16T01:18:02.869Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "91a12135-4a88-4d48-b250-11e912d7741a",
+      "created": "2026-02-16T01:18:02.874Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "40e7d1f8-74a8-4799-8ae9-8fdb2aeee7ef",
+      "created": "2026-02-16T01:18:02.878Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "a89aa056-6876-4c48-ac22-6eca5c1b457c",
+      "created": "2026-02-16T01:18:02.882Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "68c0fafb-cbf2-437a-877c-2561bc05b16e",
+      "created": "2026-02-16T01:18:02.890Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    }
+  ]
+}

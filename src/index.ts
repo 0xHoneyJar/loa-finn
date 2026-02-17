@@ -35,6 +35,13 @@ async function main() {
   const config = loadConfig()
   console.log(`[finn] config loaded: model=${config.model}, port=${config.port}`)
 
+  // 1a. Initialize OTLP tracing (non-fatal, cycle-024 T4)
+  const { initTracing } = await import("./tracing/otlp.js")
+  await initTracing({
+    endpoint: process.env.OTLP_ENDPOINT,
+    environment: process.env.NODE_ENV ?? "development",
+  })
+
   // 1b. Validate upstream persistence framework (DD-1)
   validateUpstreamPersistence()
   console.log("[finn] upstream persistence validated")
@@ -248,15 +255,34 @@ async function main() {
             sprint_id: rawConfig.sprint_id ?? "sprint-0",
           }
 
+          // 6d-oracle. Oracle Knowledge Registry bootstrap (Cycle 025 §3)
+          let knowledgeRegistry: import("./hounfour/knowledge-registry.js").KnowledgeRegistry | undefined
+          if (config.oracle.enabled) {
+            try {
+              const { KnowledgeRegistry: KR, shouldRegisterOracle } = await import("./hounfour/knowledge-registry.js")
+              const kr = await KR.fromConfig(config.oracle.sourcesConfigPath, process.cwd())
+              if (shouldRegisterOracle(config.oracle.enabled, kr)) {
+                knowledgeRegistry = kr
+                const health = kr.isHealthy()
+                console.log(`[finn] oracle: registry loaded (${health.totalTokens} tokens, ${health.missing.length} missing)`)
+              } else {
+                console.warn("[finn] oracle: enabled but registry unhealthy — oracle disabled")
+              }
+            } catch (err) {
+              console.warn(`[finn] oracle: registry initialization failed — oracle disabled: ${(err as Error).message}`)
+            }
+          }
+
           hounfour = new HounfourRouter({
             registry, budget, health: healthProber, cheval: invoker,
             scopeMeta, rateLimiter,
             projectRoot: process.cwd(),
+            knowledgeRegistry,
           })
 
           // Validate all bindings at startup
           hounfour.validateBindings()
-          console.log(`[finn] hounfour initialized: ${Object.keys(rawConfig.providers).length} providers, ${Object.keys(rawConfig.agents ?? {}).length} agents`)
+          console.log(`[finn] hounfour initialized: ${Object.keys(rawConfig.providers).length} providers, ${Object.keys(rawConfig.agents ?? {}).length} agents${knowledgeRegistry ? ", oracle enabled" : ""}`)
         }
       } else {
         console.log("[finn] hounfour: no providers configured — skipped")
@@ -281,6 +307,14 @@ async function main() {
     const explicitAlg = rawAlg === "ES256" || rawAlg === "HS256" ? rawAlg : undefined
     if (rawAlg && !explicitAlg) {
       throw new Error(`Invalid FINN_S2S_JWT_ALG="${rawAlg}" — must be "ES256" or "HS256"`)
+    }
+    // T3: ES256-only enforcement in production — HS256 gated behind NODE_ENV !== "production"
+    const isProduction = (process.env.NODE_ENV ?? "").toLowerCase() === "production"
+    if (isProduction && explicitAlg === "HS256") {
+      throw new Error("FINN_S2S_JWT_ALG=HS256 is not permitted in production — use ES256")
+    }
+    if (isProduction && !s2sPrivateKey && s2sJwtSecret && !explicitAlg) {
+      throw new Error("HS256 auto-detection blocked in production — set FINN_S2S_JWT_ALG=ES256 and provide FINN_S2S_PRIVATE_KEY")
     }
 
     try {
@@ -394,7 +428,8 @@ async function main() {
   }
 
   // 7. Create gateway (with executor for sandbox, pool for health stats)
-  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient })
+  const ledgerPath = join(config.dataDir, "hounfour", "cost-ledger.jsonl")
+  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient, ledgerPath })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()

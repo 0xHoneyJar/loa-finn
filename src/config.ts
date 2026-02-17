@@ -91,6 +91,23 @@ export interface FinnConfig {
     audience: string
   }
 
+  /** Oracle knowledge enrichment (Cycle 025 §3) */
+  oracle: {
+    enabled: boolean
+    sourcesConfigPath: string
+    minContextWindow: number
+    // Phase 1 additions (SDD §3.5)
+    dailyCap: number
+    costCeilingCents: number
+    maxConcurrent: number
+    publicDailyLimit: number
+    authenticatedDailyLimit: number
+    estimatedCostCents: number
+    trustXff: boolean
+    corsOrigins: string[]
+    dixieRef: string
+  }
+
   /** JWT validation for arrakis-originated requests (Phase 5 §3.1) */
   jwt: {
     enabled: boolean
@@ -219,6 +236,22 @@ export function loadConfig(): FinnConfig {
       kid: process.env.FINN_S2S_KID ?? "loa-finn-v1",
       issuer: process.env.FINN_S2S_ISSUER ?? "loa-finn",
       audience: process.env.FINN_S2S_AUDIENCE ?? "arrakis",
+    },
+
+    oracle: {
+      enabled: process.env.FINN_ORACLE_ENABLED === "true",
+      sourcesConfigPath: process.env.FINN_ORACLE_SOURCES_CONFIG ?? "grimoires/oracle/sources.json",
+      minContextWindow: parseIntEnv("FINN_ORACLE_MIN_CONTEXT", "30000"),
+      // Phase 1 additions (SDD §3.5)
+      dailyCap: parseIntEnv("FINN_ORACLE_DAILY_CAP", "200"),
+      costCeilingCents: parseIntEnv("FINN_ORACLE_COST_CEILING_CENTS", "2000"),
+      maxConcurrent: parseIntEnv("FINN_ORACLE_MAX_CONCURRENT", "3"),
+      publicDailyLimit: parseIntEnv("FINN_ORACLE_PUBLIC_DAILY_LIMIT", "5"),
+      authenticatedDailyLimit: parseIntEnv("FINN_ORACLE_AUTH_DAILY_LIMIT", "50"),
+      estimatedCostCents: parseIntEnv("FINN_ORACLE_ESTIMATED_COST_CENTS", "50"),
+      trustXff: process.env.FINN_ORACLE_TRUST_XFF !== "false",
+      corsOrigins: (process.env.FINN_ORACLE_CORS_ORIGINS ?? "https://oracle.arrakis.community").split(","),
+      dixieRef: process.env.DIXIE_REF ?? "unknown",
     },
 
     jwt: {

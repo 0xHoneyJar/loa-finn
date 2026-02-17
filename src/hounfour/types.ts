@@ -60,12 +60,21 @@ export interface AgentBinding {
   temperature?: number
   persona?: string                      // Path to persona.md
   requires: AgentRequirements
+  knowledge?: KnowledgeConfig           // Oracle knowledge enrichment config
+}
+
+/** Per-agent knowledge configuration (re-exported from knowledge-types) */
+export interface KnowledgeConfig {
+  enabled: boolean
+  sources: string[]                     // Source IDs or ["*"] for all
+  maxTokensBudgetRatio: number          // Default 0.15
 }
 
 export interface AgentRequirements {
   native_runtime?: boolean
   tool_calling?: boolean | "optional"
   thinking_traces?: "required" | "optional" | false
+  min_context_window?: number            // Minimum context window for oracle enrichment
 }
 
 // --- Resolved Model ---
@@ -123,6 +132,20 @@ export interface ResultMetadata {
   billing_finalize_status?: "finalized" | "idempotent" | "dlq"
   /** Billing trace ID — echoes the trace_id used in finalize call */
   billing_trace_id?: string
+  /** Total cost in micro-USD (string-serialized BigInt) — set after cost recording */
+  cost_micro?: string
+  /** Oracle knowledge enrichment metadata — set when enrichment was applied */
+  knowledge?: EnrichmentMetadata
+}
+
+/** Metadata about the knowledge enrichment process (re-exported from knowledge-types) */
+export interface EnrichmentMetadata {
+  sources_used: string[]
+  tokens_used: number
+  budget: number
+  mode: "full" | "reduced" | "none"
+  tags_matched: string[]
+  classification: string[]
 }
 
 // --- Tool Call ---

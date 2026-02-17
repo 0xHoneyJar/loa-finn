@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "findings": [
+    {
+      "id": "high-1",
+      "title": "DLQ entries lost on process restart — no persistence layer",
+      "severity": "HIGH",
+      "category": "data-integrity",
+      "file": "src/hounfour/billing-finalize-client.ts:61",
+      "description": "The DLQ is an in-memory Map<string, DLQEntry>. If the process crashes, restarts, or deploys, all pending retry entries are silently lost. For a billing finalize system, this means failed charges that were queued for retry will never be retried — potential revenue leakage.",
+      "suggestion": "Add a persistence adapter interface (DLQStore) with an in-memory default and a Redis implementation. The BillingFinalizeClient constructor already accepts a config object — add an optional `dlqStore` field. Sprint B's docker-compose already includes Redis, making this a natural next step.",
+      "faang_parallel": "Stripe persists idempotency keys to their primary datastore before attempting the charge. Amazon SQS provides durable dead letter queues as a managed service. Both treat 'message survived crash' as a non-negotiable requirement for billing.",
+      "metaphor": "It's like a hospital keeping patient records only on a whiteboard — everything works perfectly until someone bumps the board.",
+      "teachable_moment": "In billing systems, durability of intent is more important than durability of result. If you know what you intended to charge, you can always retry. If you lose the intent, the money disappears silently.",
+      "weight": 5
+    },
+    {
+      "id": "medium-1",
+      "title": "GitHub Actions secret interpolated directly into shell command",
+      "severity": "MEDIUM",
+      "category": "ci-security",
+      "file": ".github/workflows/e2e-smoke.yml:25",
+      "description": "The expression `${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}` is interpolated directly into a `run:` shell block. GitHub Actions performs string substitution before the shell executes. If the secret contained shell metacharacters ($, `, \", newlines), the command could break or execute injected code. While GitHub PATs are currently alphanumeric, this pattern is fragile.",
+      "suggestion": "Bind the secret to an environment variable:\n```yaml\n- name: Validate ARRAKIS_CHECKOUT_TOKEN\n  env:\n    TOKEN: ${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}\n  run: |\n    if [[ -z \"$TOKEN\" ]]; then\n      echo \"::error::ARRAKIS_CHECKOUT_TOKEN not configured\"\n      exit 1\n    fi\n```",
+      "faang_parallel": "Google's Blaze CI never interpolates secrets into shell — they're always file-mounted or env-bound. GitHub's own security hardening guide recommends the same pattern.",
+      "teachable_moment": "Treat CI secret interpolation like SQL injection — always use parameterized access, never string interpolation.",
+      "weight": 2
+    },
+    {
+      "id": "medium-2",
+      "title": "Smoke test JSON report vulnerable to shell injection in failure details",
+      "severity": "MEDIUM",
+      "category": "test-reliability",
+      "file": "tests/e2e/smoke-test.sh:42-43",
+      "description": "The `fail()` function constructs JSON via string interpolation: `\"{\\\"detail\\\":\\\"$detail\\\"}\"`. If `$detail` contains double quotes, backslashes, or newlines (e.g., from curl error messages), the JSON output will be malformed. CI parsing of this JSON report will fail silently.",
+      "suggestion": "Use `jq` for safe JSON construction, or escape the detail string:\n```bash\nfail() {\n  local name=\"$1\"\n  local detail=\"${2:-}\"\n  # Escape for JSON\n  detail=$(echo \"$detail\" | sed 's/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g')\n  TESTS+=(\"{\\\"name\\\":\\\"$name\\\",\\\"status\\\":\\\"fail\\\",\\\"detail\\\":\\\"$detail\\\"}\")\n}\n```\nOr better: collect results in a temp file and use `jq` at report time.",
+      "teachable_moment": "Any time you construct structured data (JSON, XML, SQL) via string interpolation, you're one special character away from corruption. Use a proper serializer.",
+      "weight": 2
+    },
+    {
+      "id": "low-1",
+      "title": "Stale comment references 'Sprint B' Redis integration that wasn't delivered",
+      "severity": "LOW",
+      "category": "documentation",
+      "file": "src/hounfour/billing-finalize-client.ts:60",
+      "description": "Comment says 'Future Redis integration (Sprint B) will use instance-scoped Redis key namespace.' Sprint B delivered E2E testing infrastructure, not Redis DLQ persistence. The comment creates a false expectation that Redis is coming in this PR.",
+      "suggestion": "Update to: 'Future Redis integration will use instance-scoped Redis key namespace. See high-1 in Bridge review iter-1 for rationale.'",
+      "weight": 1
+    },
+    {
+      "id": "praise-1",
+      "severity": "PRAISE",
+      "title": "Discriminated union prevents JWT algorithm confusion at the type level",
+      "category": "security",
+      "file": "src/hounfour/s2s-jwt.ts:13-37",
+      "description": "The S2SConfig discriminated union (S2SConfigES256 | S2SConfigHS256) with literal 'alg' discriminant prevents the most dangerous class of JWT attacks — algorithm confusion — at compile time. An attacker cannot force alg:'none' or trick HS256 verification with a public key because the algorithm is baked into the type, not parsed from the token header.",
+      "suggestion": "No changes needed — this is exemplary.",
+      "praise": true,
+      "faang_parallel": "Auth0's JWT library suffered CVE-2015-9235 because the algorithm was read from the token header. This discriminated union approach eliminates that entire attack class.",
+      "teachable_moment": "The best security code is code that makes the vulnerability impossible to express, not code that catches it at runtime.",
+      "weight": 0
+    },
+    {
+      "id": "praise-2",
+      "severity": "PRAISE",
+      "title": "finalize() NEVER throws — mature error boundary contract",
+      "category": "resilience",
+      "file": "src/hounfour/billing-finalize-client.ts:85-103",
+      "description": "The finalize() method wraps ALL code paths in try/catch and always returns a FinalizeResult discriminated union. The caller (router.ts:449-476) also wraps the call in its own try/catch. This double-boundary pattern means billing failures can never crash an inference request — they degrade gracefully to DLQ status in a response header.",
+      "suggestion": "No changes needed — this is exemplary.",
+      "praise": true,
+      "faang_parallel": "Netflix's Hystrix circuit breaker popularized the 'never let a dependency failure cascade' principle. This pattern achieves the same isolation without the Hystrix complexity.",
+      "teachable_moment": "In billing systems, the worst outcome isn't 'charge failed' — it's 'charge failed AND the primary service crashed.' Isolation boundaries prevent the cascade.",
+      "weight": 0
+    },
+    {
+      "id": "praise-3",
+      "severity": "PRAISE",
+      "title": "409 Conflict → idempotent success prevents DLQ cycling",
+      "category": "distributed-systems",
+      "file": "src/hounfour/billing-finalize-client.ts:228-233",
+      "description": "Treating HTTP 409 as idempotent success (ok: true, status: 'idempotent') prevents the classic DLQ infinite-loop: request times out → DLQ retries → original request actually succeeded → retry gets 409 → DLQ retries again → infinite cycle. This single mapping breaks the loop.",
+      "suggestion": "No changes needed — this is exemplary.",
+      "praise": true,
+      "faang_parallel": "Stripe's idempotency key system returns the cached response for duplicate requests. The 409 → idempotent mapping achieves the same semantic from the client side.",
+      "teachable_moment": "In distributed systems, the question 'did it work?' and the question 'should I retry?' are different questions with different answers. 409 means 'it worked (someone else did it)' — that's success, not failure.",
+      "weight": 0
+    },
+    {
+      "id": "speculation-1",
+      "severity": "SPECULATION",
+      "title": "Event-sourced billing audit trail for forensic reconciliation",
+      "category": "architecture",
+      "file": "src/hounfour/billing-finalize-client.ts",
+      "description": "The current DLQ tracks final state (latest attempt count, latest reason). An event-sourced approach would capture every finalize attempt as an immutable event — timestamp, request, response status, decision (retry/terminal/success). This enables: (1) forensic reconciliation after incidents, (2) replay for testing, (3) billing dispute resolution with complete audit trail, (4) anomaly detection on finalize patterns.",
+      "suggestion": "Consider an append-only event log alongside the DLQ. Events: ATTEMPT, SUCCESS, IDEMPOTENT, DLQ_ENQUEUE, DLQ_REPLAY, DLQ_TERMINAL. Could start as JSONL file, graduate to proper event store.",
+      "speculation": true,
+      "teachable_moment": "In financial systems, knowing what happened is more valuable than knowing the current state. Events tell you the story; state tells you the ending.",
+      "weight": 0
+    }
+  ],
+  "total": 8,
+  "by_severity": {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 1,
+    "vision": 0,
+    "praise": 3,
+    "speculation": 1
+  },
+  "severity_weighted_score": 10
+}

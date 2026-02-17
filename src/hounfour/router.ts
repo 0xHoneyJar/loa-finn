@@ -32,8 +32,11 @@ import type {
   ScopeMeta,
   ProviderHealthSnapshot,
   BudgetSnapshot,
+  EnrichmentMetadata,
 } from "./types.js"
 import type { BillingFinalizeClient, FinalizeResult } from "./billing-finalize-client.js"
+import { enrichSystemPrompt } from "./knowledge-enricher.js"
+import type { KnowledgeRegistry } from "./knowledge-registry.js"
 
 // --- Router Options ---
 
@@ -47,6 +50,7 @@ export interface HounfourRouterOptions {
   poolRegistry?: PoolRegistry           // Optional: pool-based routing (T-C.1)
   byokProxy?: BYOKProxyClient           // Optional: BYOK proxy adapter (T-C.2)
   billingFinalize?: BillingFinalizeClient // Optional: S2S billing finalize (Phase 5 T5)
+  knowledgeRegistry?: KnowledgeRegistry  // Optional: Oracle knowledge sources (Cycle 025)
   projectRoot?: string                  // For persona path resolution
   routingConfig?: Partial<RoutingConfig>
   toolCallConfig?: Partial<ToolCallLoopConfig>
@@ -168,6 +172,7 @@ export class HounfourRouter {
   private poolRegistry?: PoolRegistry
   private byokProxy?: BYOKProxyClient
   private billingFinalize?: BillingFinalizeClient
+  private knowledgeRegistry?: KnowledgeRegistry
   private projectRoot: string
   private routingConfig: RoutingConfig
   private toolCallConfig: ToolCallLoopConfig
@@ -182,6 +187,7 @@ export class HounfourRouter {
     this.poolRegistry = options.poolRegistry
     this.byokProxy = options.byokProxy
     this.billingFinalize = options.billingFinalize
+    this.knowledgeRegistry = options.knowledgeRegistry
     this.projectRoot = options.projectRoot ?? process.cwd()
     this.routingConfig = {
       default_model: options.routingConfig?.default_model ?? "",
@@ -257,10 +263,18 @@ export class HounfourRouter {
       // downgrade path handled in resolveExecution
     }
 
-    // Load persona (if configured) and build messages
+    // Load persona (if configured)
     const persona = await loadPersona(binding, this.projectRoot)
-    const effectiveOptions = persona && !options?.systemPrompt
-      ? { ...options, systemPrompt: persona }
+
+    // Knowledge enrichment (Cycle 025) — between persona and buildMessages
+    const model = this.registry.getModel(resolved.model.provider, resolved.model.modelId)
+    const contextWindow = model?.limit.context ?? 128_000
+    const { systemPrompt: enrichedPrompt, knowledgeMeta } = this.applyKnowledgeEnrichment(
+      persona, prompt, binding, contextWindow,
+    )
+
+    const effectiveOptions = enrichedPrompt && !options?.systemPrompt
+      ? { ...options, systemPrompt: enrichedPrompt }
       : options
     const messages = this.buildMessages(prompt, effectiveOptions)
     const traceId = randomUUID()
@@ -293,6 +307,11 @@ export class HounfourRouter {
     // Create adapter and invoke
     const adapter = createModelAdapter(resolved.model, resolved.provider, this.cheval, this.health)
     const result = await adapter.complete(request)
+
+    // Attach knowledge metadata to result
+    if (knowledgeMeta) {
+      result.metadata.knowledge = knowledgeMeta
+    }
 
     // Record cost
     await this.budget.recordCost(this.scopeMeta, result.usage, pricing, {
@@ -366,10 +385,16 @@ export class HounfourRouter {
       })
     }
 
-    // Load persona and build messages
+    // Load persona and apply knowledge enrichment
     const persona = await loadPersona(binding, this.projectRoot)
-    const effectiveOptions = persona && !options?.systemPrompt
-      ? { ...options, systemPrompt: persona }
+    const tenantModel = this.registry.getModel(pool.provider, pool.model)
+    const tenantContextWindow = tenantModel?.limit.context ?? 128_000
+    const { systemPrompt: enrichedPrompt, knowledgeMeta } = this.applyKnowledgeEnrichment(
+      persona, prompt, binding, tenantContextWindow,
+    )
+
+    const effectiveOptions = enrichedPrompt && !options?.systemPrompt
+      ? { ...options, systemPrompt: enrichedPrompt }
       : options
     const messages = this.buildMessages(prompt, effectiveOptions)
 
@@ -429,6 +454,11 @@ export class HounfourRouter {
 
     const result = await adapter.complete(request)
 
+    // Attach knowledge metadata to result
+    if (knowledgeMeta) {
+      result.metadata.knowledge = knowledgeMeta
+    }
+
     // Record cost with pool and tenant attribution
     const pricing = this.registry.getPricing(pool.provider, pool.model)
     let recordCostSucceeded = false
@@ -444,24 +474,25 @@ export class HounfourRouter {
         latency_ms: result.metadata.latency_ms,
       })
       recordCostSucceeded = true
+
+      // Compute cost_micro for response metadata (SDD §3.1, cycle-024 T1)
+      const costMicro = computeCostMicro(
+        result.usage.prompt_tokens,
+        result.usage.completion_tokens,
+        pricing.input_per_1m,
+        pricing.output_per_1m,
+      )
+      result.metadata.cost_micro = costMicro.toString()
     }
 
     // Billing finalize: only after recordCost succeeds, try/catch isolated (Phase 5 T5)
     // Sprint B T4: capture result for response headers (x-billing-finalize-status)
     if (this.billingFinalize && reservationId && recordCostSucceeded && pricing) {
       try {
-        // WHY: Stripe's "integer cents" pattern — convert to micro-USD at the boundary,
-        // never touch floats for monetary arithmetic. See Bridgebuilder Finding #2 (PR #68).
-        const costMicro = computeCostMicro(
-          result.usage.prompt_tokens,
-          result.usage.completion_tokens,
-          pricing.input_per_1m,
-          pricing.output_per_1m,
-        )
         const finalizeResult = await this.billingFinalize.finalize({
           reservation_id: reservationId,
           tenant_id: tenantId,
-          actual_cost_micro: costMicro.toString(),
+          actual_cost_micro: result.metadata.cost_micro!,
           trace_id: traceId,
         })
         // Set billing metadata for response headers (Sprint B T4)
@@ -524,10 +555,14 @@ export class HounfourRouter {
         })
     }
 
-    // Load persona (if configured) and build messages
+    // Load persona and apply knowledge enrichment
     const persona = await loadPersona(binding, this.projectRoot)
-    const effectiveOptions = persona && !options?.systemPrompt
-      ? { ...options, systemPrompt: persona }
+    const { systemPrompt: enrichedPrompt, knowledgeMeta } = this.applyKnowledgeEnrichment(
+      persona, prompt, binding, contextLimit,
+    )
+
+    const effectiveOptions = enrichedPrompt && !options?.systemPrompt
+      ? { ...options, systemPrompt: enrichedPrompt }
       : options
 
     const traceId = randomUUID()
@@ -626,6 +661,9 @@ export class HounfourRouter {
 
       // No tool calls — return final content
       if (!result.tool_calls || result.tool_calls.length === 0) {
+        if (knowledgeMeta) {
+          result.metadata.knowledge = knowledgeMeta
+        }
         return result
       }
 
@@ -845,6 +883,46 @@ export class HounfourRouter {
 
     const effectiveProvider = this.registry.getProvider(effectiveModel.provider)!
     return { mode, model: effectiveModel, provider: effectiveProvider }
+  }
+
+  /**
+   * Shared knowledge enrichment helper (SKP-007).
+   * Called from invoke(), invokeForTenant(), and invokeWithTools() after persona
+   * load and before buildMessages. Returns enriched system prompt and metadata,
+   * or the original persona if enrichment is not applicable.
+   *
+   * Binary fallback degradation: full mode (≥100K) → reduced mode (core-only) → throw CONTEXT_OVERFLOW
+   */
+  private applyKnowledgeEnrichment(
+    persona: string | null,
+    prompt: string,
+    binding: AgentBinding,
+    contextWindow: number,
+  ): { systemPrompt: string | null; knowledgeMeta?: EnrichmentMetadata } {
+    if (!this.knowledgeRegistry || !binding.knowledge?.enabled) {
+      return { systemPrompt: persona }
+    }
+
+    try {
+      const result = enrichSystemPrompt(
+        persona,
+        prompt,
+        binding.knowledge,
+        this.knowledgeRegistry,
+        contextWindow,
+      )
+      return {
+        systemPrompt: result.enrichedPrompt,
+        knowledgeMeta: result.metadata,
+      }
+    } catch (err) {
+      if (err instanceof HounfourError && err.code === "ORACLE_MODEL_UNAVAILABLE") {
+        throw err // Hard floor violation — propagate
+      }
+      // Other enrichment errors: log and fall back to persona-only
+      console.warn(`[hounfour] Knowledge enrichment failed, falling back to persona-only: ${err instanceof Error ? err.message : err}`)
+      return { systemPrompt: persona }
+    }
   }
 
   private buildMessages(prompt: string, options?: InvokeOptions): CanonicalMessage[] {

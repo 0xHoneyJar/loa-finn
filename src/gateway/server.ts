@@ -16,6 +16,13 @@ import { createActivityHandler } from "../dashboard/activity-handler.js"
 import type { HounfourRouter } from "../hounfour/router.js"
 import type { S2SJwtSigner } from "../hounfour/s2s-jwt.js"
 import type { BillingFinalizeClient } from "../hounfour/billing-finalize-client.js"
+import { createInvokeHandler } from "./routes/invoke.js"
+import { createUsageHandler } from "./routes/usage.js"
+import { createOracleHandler, oracleCorsMiddleware } from "./routes/oracle.js"
+import { oracleAuthMiddleware } from "./oracle-auth.js"
+import { oracleRateLimitMiddleware, OracleRateLimiter } from "./oracle-rate-limit.js"
+import { oracleConcurrencyMiddleware, ConcurrencyLimiter } from "./oracle-concurrency.js"
+import type { RedisCommandClient } from "../hounfour/redis/client.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
@@ -27,6 +34,12 @@ export interface AppOptions {
   s2sSigner?: S2SJwtSigner
   /** Billing finalize client for health metrics (Sprint 2 T3) */
   billingFinalizeClient?: BillingFinalizeClient
+  /** Path to JSONL cost ledger for usage endpoint (cycle-024 T2) */
+  ledgerPath?: string
+  /** Oracle rate limiter (Phase 1) */
+  oracleRateLimiter?: OracleRateLimiter
+  /** Redis client for Oracle auth (Phase 1) */
+  redisClient?: RedisCommandClient
 }
 
 export function createApp(config: FinnConfig, options: AppOptions) {
@@ -73,7 +86,12 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     }
 
     if (options?.healthAggregator) {
-      return c.json({ ...options.healthAggregator.check(), billing })
+      let health = options.healthAggregator.check()
+      // Oracle Phase 1 async enrichment (rate limiter health, daily usage)
+      if (health.checks.oracle && options.oracleRateLimiter) {
+        health = await options.healthAggregator.enrichOracleHealth(health)
+      }
+      return c.json({ ...health, billing })
     }
     return c.json({
       status: "healthy",
@@ -104,19 +122,57 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     return c.json(options.s2sSigner.getJWKS())
   })
 
+  // Oracle product endpoint — dedicated sub-app with its own middleware chain.
+  // MUST be registered BEFORE the /api/v1/* wildcard middleware to prevent
+  // hounfourAuth and rateLimitMiddleware from executing on Oracle requests.
+  // Using app.route() guarantees middleware isolation (SDD §3.6, GPT-5.2 Fix #4).
+  if (options.hounfour && config.oracle.enabled && options.oracleRateLimiter && options.redisClient) {
+    const oracleApp = new Hono()
+    const concurrencyLimiter = new ConcurrencyLimiter(config.oracle.maxConcurrent)
+
+    oracleApp.use("*", oracleCorsMiddleware(config.oracle.corsOrigins))
+    oracleApp.use("*", oracleAuthMiddleware(options.redisClient, { trustXff: config.oracle.trustXff }))
+    oracleApp.use("*", oracleRateLimitMiddleware(options.oracleRateLimiter))
+    oracleApp.use("*", oracleConcurrencyMiddleware(concurrencyLimiter))
+    oracleApp.post("/", createOracleHandler(options.hounfour, options.oracleRateLimiter, config))
+    app.route("/api/v1/oracle", oracleApp)
+  }
+
+  // Skip guard for Oracle path — defense-in-depth against Hono routing edge cases
+  const isOraclePath = (path: string) =>
+    path === "/api/v1/oracle" || path.startsWith("/api/v1/oracle/")
+
   // WHY: Zero-trust defense — strip x-internal-reservation-id before ANY processing.
   // External clients could inject this header to spoof reservations. Even though JWT
   // claims are the primary trust boundary, defense-in-depth means removing the attack
   // surface entirely. Google BeyondCorp: "never trust the network."
   // See Bridgebuilder Finding #4 PRAISE + Finding #9 (PR #68).
   app.use("/api/v1/*", async (c, next) => {
+    if (isOraclePath(c.req.path)) return next()
     c.req.raw.headers.delete("x-internal-reservation-id")
     return next()
   })
 
   // JWT auth for arrakis-originated requests (T-A.2)
-  app.use("/api/v1/*", rateLimitMiddleware(config))
-  app.use("/api/v1/*", hounfourAuth(config)) // endpointType defaults to 'invoke' for /api/v1/* routes
+  // Skip Oracle path — handled by oracleApp's own middleware chain
+  app.use("/api/v1/*", async (c, next) => {
+    if (isOraclePath(c.req.path)) return next()
+    return rateLimitMiddleware(config)(c, next)
+  })
+  app.use("/api/v1/*", async (c, next) => {
+    if (isOraclePath(c.req.path)) return next()
+    return hounfourAuth(config)(c, next)
+  })
+
+  // Invoke endpoint — tenant-authenticated model routing (cycle-024 T1)
+  if (options.hounfour) {
+    app.post("/api/v1/invoke", createInvokeHandler(options.hounfour))
+  }
+
+  // Usage endpoint — tenant-isolated cost ledger query (cycle-024 T2)
+  if (options.ledgerPath) {
+    app.get("/api/v1/usage", createUsageHandler(options.ledgerPath))
+  }
 
   // Bearer token auth for direct API access (existing behavior)
   // Skip /api/v1/* paths — already handled by JWT middleware above
