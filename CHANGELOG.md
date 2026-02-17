@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.29.0] — 2026-02-18
+
 ### Breaking Changes
 
 - **Redis required for Hounfour** — Hounfour (the multi-model routing subsystem, new in this release) stores budget counters, circuit breaker state, rate limiter windows, and idempotency keys in Redis. Any deployment enabling Hounfour must provision a Redis 7+ instance. Set `REDIS_URL` in your environment. Redis is **not** required if you only use the base agent runtime without multi-model routing. (#39)
