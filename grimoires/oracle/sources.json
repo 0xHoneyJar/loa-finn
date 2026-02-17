@@ -22,7 +22,23 @@
     "billing": ["technical", "architectural"],
     "oracle": ["technical", "architectural"],
     "ensemble": ["technical"],
-    "byok": ["technical"]
+    "byok": ["technical"],
+    "finnNFT routing": ["technical", "architectural"],
+    "token gating": ["technical", "philosophical"],
+    "ostrom": ["philosophical"],
+    "adr": ["architectural"],
+    "rate limiting": ["technical", "architectural"],
+    "simstim": ["philosophical", "technical"],
+    "flatline": ["technical", "architectural"],
+    "grimoire": ["philosophical"],
+    "péristyle": ["architectural"],
+    "tier": ["technical", "architectural"],
+    "pool": ["technical"],
+    "pricing": ["architectural", "philosophical"],
+    "onboarding": ["technical"],
+    "sprint": ["architectural"],
+    "mythology": ["philosophical"],
+    "naming": ["philosophical"]
   },
   "sources": [
     {
@@ -134,6 +150,116 @@
       "maxTokens": 4000,
       "required": false,
       "max_age_days": 180
+    },
+    {
+      "id": "code-reality-loa",
+      "type": "local",
+      "path": "grimoires/oracle/code-reality-loa.md",
+      "format": "markdown",
+      "tags": ["technical", "architectural"],
+      "priority": 11,
+      "maxTokens": 5000,
+      "required": false,
+      "max_age_days": 30
+    },
+    {
+      "id": "architecture-decisions",
+      "type": "local",
+      "path": "grimoires/oracle/architecture-decisions.md",
+      "format": "markdown",
+      "tags": ["architectural", "technical"],
+      "priority": 12,
+      "maxTokens": 6000,
+      "required": false,
+      "max_age_days": 90
+    },
+    {
+      "id": "product-vision",
+      "type": "local",
+      "path": "grimoires/oracle/product-vision.md",
+      "format": "markdown",
+      "tags": ["philosophical", "architectural"],
+      "priority": 13,
+      "maxTokens": 4000,
+      "required": false,
+      "max_age_days": 180
+    },
+    {
+      "id": "feature-matrix",
+      "type": "local",
+      "path": "grimoires/oracle/feature-matrix.md",
+      "format": "markdown",
+      "tags": ["technical", "architectural"],
+      "priority": 14,
+      "maxTokens": 5000,
+      "required": false,
+      "max_age_days": 60
+    },
+    {
+      "id": "sprint-patterns",
+      "type": "local",
+      "path": "grimoires/oracle/sprint-patterns.md",
+      "format": "markdown",
+      "tags": ["architectural", "philosophical"],
+      "priority": 15,
+      "maxTokens": 4000,
+      "required": false,
+      "max_age_days": 90
+    },
+    {
+      "id": "onboarding-guide",
+      "type": "local",
+      "path": "grimoires/oracle/onboarding-guide.md",
+      "format": "markdown",
+      "tags": ["technical"],
+      "priority": 16,
+      "maxTokens": 4000,
+      "required": false,
+      "max_age_days": 60
+    },
+    {
+      "id": "naming-mythology",
+      "type": "local",
+      "path": "grimoires/oracle/naming-mythology.md",
+      "format": "markdown",
+      "tags": ["philosophical"],
+      "priority": 17,
+      "maxTokens": 3000,
+      "required": false,
+      "max_age_days": 180
+    },
+    {
+      "id": "community-principles",
+      "type": "local",
+      "path": "grimoires/oracle/community-principles.md",
+      "format": "markdown",
+      "tags": ["philosophical"],
+      "priority": 18,
+      "maxTokens": 4000,
+      "required": false,
+      "max_age_days": 180
+    },
+    {
+      "id": "pricing-model",
+      "type": "local",
+      "path": "grimoires/oracle/pricing-model.md",
+      "format": "markdown",
+      "tags": ["architectural", "philosophical"],
+      "priority": 19,
+      "maxTokens": 4000,
+      "required": false,
+      "max_age_days": 90
+    },
+    {
+      "id": "tokenomics-overview",
+      "type": "local",
+      "path": "grimoires/oracle/tokenomics-overview.md",
+      "format": "markdown",
+      "tags": ["philosophical", "architectural"],
+      "priority": 20,
+      "maxTokens": 4000,
+      "required": false,
+      "max_age_days": 90
     }
   ]
 }

@@ -4,192 +4,221 @@ source_repo: 0xHoneyJar/loa-finn
 provenance: cycle-025-sprint-61-task-2.5
 curator: bridgebuilder
 max_age_days: 90
-tags: ["architectural", "philosophical"]
 ---
 
-# Development History: 25 Cycles of loa-finn
+# Development History: loa-finn
 
-The loa-finn runtime was built across 25 development cycles, 61 sprints, and hundreds of tasks over 12 days in February 2026. This document narrates the arc of that development — from the first agent core through production deployment and, finally, the Oracle knowledge interface itself.
-
-Each cycle followed the Loa framework workflow: PRD, SDD, sprint plan, implementation, review, audit. Many cycles were shaped by Bridgebuilder autonomous code review, which introduced iterative feedback loops starting from cycle-004. The GPT-5.2 Flatline Protocol provided adversarial review for design documents starting from cycle-020.
+A narrative of 25 development cycles spanning 61 sprints, from the first line of agent code to a unified knowledge interface. This document is grounded in the Sprint Ledger (`grimoires/loa/ledger.json`).
 
 ---
 
 ## Phase 0: Foundation (Cycles 1-5)
 
-**Duration**: 2026-02-06 to 2026-02-08
-**Sprints**: 1-13 (13 sprints)
-**Theme**: Build the minimal viable agent runtime
-
 ### Cycle 1 — loa-finn MVP: Minimal Persistent Loa Agent
 
-The first cycle established the core architecture across 6 sprints: Agent Core (sprint-1), Gateway and Auth (sprint-2), Persistence (sprint-3), Scheduler and Compound (sprint-4), Deployment (sprint-5), and Loa Integration (sprint-6). This produced a functional Hono-based HTTP server with WAL-based persistence, JWT authentication, session management, and a basic agent invocation pipeline.
+**Started**: 2026-02-06 | **Sprints**: 6 (global 1-6) | **Tasks**: 46
 
-The gateway pattern (`src/gateway/server.ts`) and configuration model (`src/config.ts`) established in this cycle remained stable through all subsequent cycles.
+The first cycle established the core agent runtime. Six sprints covered the full vertical slice: Agent Core (sprint-1), Gateway and Auth (sprint-2), Persistence via WAL (sprint-3), Scheduler and Compound Actions (sprint-4), Deployment (sprint-5), and Loa Integration (sprint-6). The result was a minimal but functional persistent agent — able to receive requests via HTTP, maintain state across restarts, and schedule recurring work.
 
-### Cycle 2 — Upstream Loa Persistence Framework
+The architecture followed a Hono-based HTTP gateway backed by a Write-Ahead Log for persistence and a task scheduler using croner. This foundation has remained stable through all subsequent cycles.
 
-A single-sprint refactoring cycle (sprint-7, 12 tasks) that adopted the upstream Loa persistence framework. This replaced the initial custom persistence layer with a standardized approach, establishing the pattern of aligning with the parent Loa framework that would recur throughout the project.
+### Cycle 2 — Adopt Upstream Loa Persistence Framework
+
+**Started**: 2026-02-06 | **Sprints**: 1 (global 7) | **Tasks**: 12
+
+A refactoring cycle that migrated loa-finn's bespoke persistence to the upstream Loa framework's persistence model. This was the first instance of a pattern that would repeat: aligning loa-finn's internals with the framework it was built on, ensuring the agent runtime and the development methodology share infrastructure.
 
 ### Cycle 3 — Persistence Hardening and Tool Sandbox
 
-Two sprints (8-9) addressed upstream persistence hardening and tool execution sandboxing. Sprint-9 introduced the tool execution sandbox with timeout enforcement (30s default) — a constraint that persists in the production system today (`src/config.ts`).
+**Started**: 2026-02-06 | **Sprints**: 2 (global 8-9) | **Tasks**: 15
+
+Two-track hardening. Sprint-8 addressed upstream persistence edge cases — WAL corruption recovery, concurrent write guards, checkpoint reliability. Sprint-9 introduced the tool execution sandbox, providing timeout-bounded, non-blocking execution for agent tools. The 30-second default timeout remains a known limitation documented in BUTTERFREEZONE.
 
 ### Cycle 4 — Bridgebuilder: Autonomous PR Review Agent
 
-A milestone cycle. Sprint-10 (Hexagonal Foundation) and sprint-11 (Wiring, Integration, Deployment) produced the Bridgebuilder — the first autonomous PR review agent in the ecosystem. The Bridgebuilder uses hexagonal architecture with port/adapter patterns, enabling it to be swapped between different review contexts.
+**Started**: 2026-02-07 | **Sprints**: 2 (global 10-11) | **Tasks**: 18
 
-This was the first cycle where code reviewed itself, establishing the feedback loop that would shape all subsequent development. The Bridgebuilder persona (`grimoires/bridgebuilder/`) would evolve into a central figure in the ecosystem's quality culture.
+The first non-trivial agent persona. Bridgebuilder was built on a hexagonal architecture (Sprint-10: Hexagonal Foundation) with clean port/adapter boundaries, then wired into the GitHub API for autonomous pull request review (Sprint-11: Wiring + Integration + Deployment).
+
+This cycle was a milestone for two reasons: (1) it proved the agent runtime could host specialized personas with distinct voices and behaviors, and (2) it created the review agent that would go on to generate over 46 field reports across subsequent cycles, forming a major knowledge corpus for the Oracle.
 
 ### Cycle 5 — Worker Thread Sandbox: Non-Blocking Tool Execution
 
-Sprints 12-13 moved tool execution to worker threads for non-blocking operation. The Worker Pool Foundation (sprint-12) and System Integration (sprint-13) completed the sandbox architecture. This was the last "infrastructure foundation" cycle before multi-model work began.
+**Started**: 2026-02-08 | **Sprints**: 2 (global 12-13) | **Tasks**: 18
+
+Extracted tool execution into a worker pool (Sprint-12: Worker Pool Foundation) and integrated with the broader system (Sprint-13: System Integration). This separated the agent's reasoning loop from potentially long-running tool operations, preventing a single slow tool from blocking the entire agent.
 
 ---
 
 ## Phase 1: Multi-Model (Cycles 6-8)
 
-**Duration**: 2026-02-08 to 2026-02-09
-**Sprints**: 14-20 (7 sprints, plus the Arrakis mega-sprint of 44 tasks)
-**Theme**: Multi-model provider abstraction and distributed inference
-
 ### Cycle 6 — Hounfour Phases 0-2: Multi-Model Provider Abstraction
 
-Three sprints (14-16) laid the Hounfour foundation. Phase 0 (sprint-14) established `cheval.py`, configuration, and the cost ledger. Phase 1 (sprint-15) integrated the Flatline Protocol and budget enforcement. Phase 2 (sprint-16) added agent portability and health checks.
+**Started**: 2026-02-08 | **Sprints**: 3 (global 14-16) | **Tasks**: 29
 
-The name "Hounfour" (from Haitian Vodou — the temple where spirits are served) reflects the system's role as the space where multiple AI models are orchestrated. The "cheval" subprocess model (from the Vodou concept of a person "ridden" by a spirit) describes how agents mount different model providers.
+The beginning of Hounfour — named after the temple in Vodou tradition where the spirits are served. Three phases delivered in sequence:
+
+- **Phase 0** (Sprint-14): Foundation — `cheval.py` subprocess adapter, configuration system, cost ledger for budget tracking.
+- **Phase 1** (Sprint-15): Flatline Integration and Budget — multi-model adversarial review capability, budget enforcement with scope-level limits.
+- **Phase 2** (Sprint-16): Agent Portability and Health Checks — provider abstraction enabling agents to move between models without code changes, health probing for provider availability.
+
+The central idea: agents should not be coupled to a single model provider. The Hounfour router enables the same agent persona to be served by different models depending on availability, cost, and capability requirements.
 
 ### Cycle 7 — Hounfour Phase 3: Server Integration and Self-Hosted Inference
 
-Three sprints (17-19) tackled the server-side integration: Sidecar and Tool-Call Orchestrator (sprint-17), Streaming and Redis State (sprint-18), GPU Deployment and Ledger Export (sprint-19). This phase enabled self-hosted model inference alongside API-based providers.
+**Started**: 2026-02-09 | **Sprints**: 3 (global 17-19) | **Tasks**: 28
+
+Extended Hounfour to support self-hosted models:
+
+- **Sprint-17**: Sidecar and Tool-Call Orchestrator — enabling locally-hosted models to participate in the routing fabric.
+- **Sprint-18**: Streaming and Redis State — real-time streaming responses and shared state across instances.
+- **Sprint-19**: GPU Deployment and Ledger Export — infrastructure for deploying models on GPU instances with cost tracking.
 
 ### Cycle 8 — Hounfour Phase 4: Arrakis Distribution (Spice Gate)
 
-A massive cycle executed in the arrakis repository — 44 tasks consolidated into a single ledger entry (sprint-20). The "Spice Gate" (a Dune reference — the Arrakis distribution layer controls access to the "spice" of AI inference) implemented the agent gateway for the distribution infrastructure. PR arrakis#40.
+**Started**: 2026-02-09 | **Sprints**: 1 (global 20, covering 9 internal sprints) | **Tasks**: 44
+
+Executed in the arrakis repository (PR #40). The Arrakis gateway distributes agent capabilities over ECS infrastructure, handling token gating, billing settlement, and request routing. Named after the desert planet in Dune — the spice (model inference) must flow through controlled channels.
+
+This was the largest single cycle by task count (44 tasks across 9 internal sprints), consolidated as a single ledger entry because it was executed in a separate repository.
 
 ---
 
 ## Phase 2: Integration (Cycles 9-18)
 
-**Duration**: 2026-02-09 to 2026-02-13
-**Sprints**: 22-49 (28 sprints, many superseded and re-planned)
-**Theme**: Integration debt, ground truth, documentation, extraction
+### Cycle 9 — Hounfour Phase 5: Integration (Planned, Superseded)
 
-### Cycle 9 — Hounfour Phase 5 (Original, Superseded)
+**Started**: 2026-02-09 | **Status**: Superseded by Cycle 18
 
-The original Phase 5 plan (sprints 22-24) for integration debt, NativeRuntimeAdapter, and finnNFT routing was never implemented. The work was superseded by cycle-018, which re-planned and executed all Phase 5 work with a cleaner architecture after the ground truth and documentation cycles provided deeper understanding.
+The original Phase 5 plan covered integration debt (JWT, Pools, Budget, Abort, LRU), NativeRuntimeAdapter, and finnNFT routing. Sprints 22-24 were planned but never implemented. The scope was re-planned from scratch in Cycle 18 with deeper grounding in the actual codebase state.
 
-### Cycles 10-11 — Ground Truth
+### Cycles 10-11 — Ground Truth: Factual GTM Skill Pack
 
-Two cycles (sprints 25-28) built the Ground Truth verification infrastructure — a factual documentation pipeline that extracts claims from the codebase and validates them. Cycle-010 built the verification infrastructure and capability brief. Cycle-011, driven by Bridgebuilder PR review feedback from PR loa-finn#51, hardened the structural verification and added property testing.
+**Started**: 2026-02-10 | **Sprints**: 4 (global 25-28) | **Tasks**: 41
 
-### Cycle 12 — Bridgebuilder Review Hardening
+Two cycles establishing the Ground Truth verification infrastructure. Cycle 10 built the verification pipeline and capability brief draft (Sprint-25), then repair loop proof and architecture overview (Sprint-26). Cycle 11 hardened verification with property testing (Sprint-27) and added incremental pipeline capabilities (Sprint-28).
 
-Planned as 3 sprints (29-31) to address findings from Bridgebuilder's PR loa-finn#52 review. The sprints were superseded — work was implemented directly in PR loa-finn#54. This marked the beginning of a pattern where Bridgebuilder review findings drove entire cycles of improvement.
+Ground Truth ensures that factual claims in documentation and GTM materials are verifiable against the actual codebase — a system of epistemic integrity.
 
-### Cycle 13 — Documentation Rewrite (Superseded)
+### Cycle 12 — Bridgebuilder Review Hardening: PR #52 Findings
 
-Planned as 3 sprints (32-34) for a complete documentation rewrite. Never directly executed — instead, the work was absorbed into cycles 14-17 through iterative Bridgebuilder feedback loops, each cycle addressing findings from the previous review.
+**Started**: 2026-02-10 | **Status**: Superseded (work implemented directly in PR #54)
 
-### Cycles 14-17 — The Bridgebuilder Feedback Spiral
+Planned response to Bridgebuilder's review of PR #52. The planned sprints (Shell Pipeline Correctness, Test Infrastructure, Hounfour Security) were never started under this cycle — the work was executed directly.
 
-Four cycles driven entirely by Bridgebuilder review findings:
+### Cycles 13-17 — Documentation and Epistemic Infrastructure
 
-- **Cycle 14** (sprints 35-36): PR loa-finn#55 findings — schema evolution, content quality
-- **Cycle 15** (sprints 37-38): PR loa-finn#56 findings — DERIVED provenance class, citation auto-repair
-- **Cycle 16** (sprints 39-40, superseded): PR loa-finn#57 findings — epistemic infrastructure (absorbed into cycle-017)
-- **Cycle 17** (sprints 41-42): PR loa-finn#58 findings — parser hardening, provenance intelligence, routing preparation. GPT-5.2 APPROVED.
+**Started**: 2026-02-10 through 2026-02-11 | **Sprints**: 8 (global 32-42) | **Tasks**: 34 completed
 
-This sequence — where each Bridgebuilder review triggered a new improvement cycle — demonstrated the power of autonomous code review as a development driver. The Bridgebuilder was not just reviewing code; it was shaping the architecture.
+A five-cycle arc driven by iterative Bridgebuilder feedback loops:
+
+- **Cycle 13**: Documentation Rewrite planned (superseded — work executed via cycles 14-17).
+- **Cycle 14**: PR #55 Findings — Schema Evolution and Content Quality (sprints 35-36).
+- **Cycle 15**: PR #56 Findings — DERIVED provenance class, citation auto-repair, INFERRED subclassification (sprints 37-38).
+- **Cycle 16**: PR #57 Findings — Epistemic Infrastructure (superseded by cycle 17).
+- **Cycle 17**: PR #58 Findings — Parser Hardening and Documentation Discipline (sprints 41-42). GPT-5.2 approved.
+
+This arc established the provenance system — every claim about the codebase tracks whether it comes from code (CODE-FACTUAL), is derived from analysis (DERIVED), or is inferred (INFERRED). The Bridgebuilder's iterative feedback drove the quality bar higher with each cycle.
 
 ### Cycle 18 — Hounfour Phase 5: Protocol Extraction and Integration
 
-The definitive Phase 5 cycle. Seven sprints (43-49) across five threads:
+**Started**: 2026-02-12 | **Sprints**: 7 (global 43-49) | **Tasks**: 59
 
-1. **Protocol Package Extraction** (sprint-43): Created the `loa-hounfour` standalone package
-2. **Integration Hardening** (sprint-44): Budget, JWT, reconciliation, E2E tests
-3. **NativeRuntime and Ensemble** (sprint-45): NativeRuntime adapter, ensemble orchestrator, routing matrix — 121 tests
-4. **NFT Routing and BYOK** (sprint-46): finnNFT routing, BYOK proxy — 144 tests
-5. **loa-hounfour Extraction** (sprint-47): Published to 0xHoneyJar/loa-hounfour
-6. **Bridgebuilder Protocol Hardening** (sprint-48): 7 Bridgebuilder findings, loa-hounfour v1.1.0
-7. **Consumer Updates** (sprint-49): Pinned v1.1.0, fixed budget-migration test
+The largest integration cycle. Superseded Cycle 9 with a complete re-plan grounded in RFC #31 and Issue #60:
 
-The extraction of `packages/loa-hounfour/` into the standalone `0xHoneyJar/loa-hounfour` repository was a key architectural milestone — the protocol types that define how all adapters communicate became an independent, publishable package with 91+ tests.
+- **Sprint-43**: Protocol Package and Foundation — extracted `loa-hounfour` as a standalone package.
+- **Sprint-44**: Integration Hardening — budget, JWT, reconciliation, E2E tests.
+- **Sprint-45**: NativeRuntime and Ensemble — NativeRuntime adapter, ensemble orchestrator, routing matrix (121 tests).
+- **Sprint-46**: NFT Routing and BYOK — finnNFT per-agent routing, Bring Your Own Key proxy (144 tests).
+- **Sprint-47**: loa-hounfour Extraction and Publishing — extracted to `0xHoneyJar/loa-hounfour` repository.
+- **Sprints 48-49**: Bridgebuilder Findings — protocol hardening (loa-hounfour v1.1.0, 91 tests) and consumer updates.
+
+The extraction of `loa-hounfour` was a key architectural decision: the protocol types that define how models, pools, budgets, and billing interact became a shared package consumed by both loa-finn and arrakis.
 
 ---
 
 ## Phase 3: Production (Cycles 19-24)
 
-**Duration**: 2026-02-13 to 2026-02-17
-**Sprints**: 50-59 (10 sprints)
-**Theme**: Production hardening, billing settlement, deployment
-
 ### Cycle 19 — Loa Update and Bridgebuilder Migration
 
-Sprint-50 updated the Loa framework from v1.33.1 to v1.35.0 and migrated the Bridgebuilder to V3. Three iterations of Bridgebuilder review on PR loa-finn#63 resolved 35 findings to 0 unresolved HIGH/MEDIUM. 256 tests passing.
+**Started**: 2026-02-13 | **Sprints**: 1 (global 50) | **Tasks**: 7
+
+Framework update from v1.33.1 to v1.35.0 with Bridgebuilder V3 migration. The Bridgebuilder review loop on PR #63 produced 35 findings across 3 iterations, with all HIGH and MEDIUM findings resolved. 256 tests passing.
 
 ### Cycle 20 — Pool Claim Enforcement: Confused Deputy Prevention
 
-Sprints 51-52 implemented pool claim enforcement — preventing confused deputy attacks where one tenant's request could be routed through another tenant's model pool. Grounded in RFC loa-finn#31 Phase 4. PR loa-finn#65 merged. Bridge flatlined: 54 findings reduced to 0 in 2 iterations. This cycle introduced the pattern of citing Stripe's idempotency keys as an industry parallel.
+**Started**: 2026-02-13 | **Sprints**: 2 (global 51-52) | **Tasks**: 12
+
+RFC #31 Phase 4 remaining work. Pool claim enforcement prevents the confused deputy problem — ensuring that an authenticated request can only access model pools it has legitimate claims to, not pools belonging to other tenants.
+
+The Bridgebuilder review loop flatlined (converged from 54 findings to 0 in 2 iterations). 24 total findings fixed. This cycle closed Issue #53.
 
 ### Cycle 21 — S2S Billing Finalize Client
 
-Sprints 53-54 implemented the server-to-server billing finalize client with loa-hounfour v5.0.0 upgrade. Key architectural decisions: float-to-BigInt conversion for micro-USD billing (a Bridgebuilder HIGH finding), DLQ isolation for failed billing calls, reservation_id JWT propagation. Bridge converged from 0.92 to 0.98 (FLATLINE). PR loa-finn#68.
+**Started**: 2026-02-16 | **Sprints**: 2 (global 53-54) | **Tasks**: 13
+
+Server-to-server billing finalize client with loa-hounfour v5.0.0 upgrade. Key deliverables: reservation_id JWT propagation, BillingFinalizeClient with DLQ (dead letter queue), protocol handshake between loa-finn and arrakis.
+
+The Bridgebuilder review loop (PR #68) drove critical improvements: float-to-BigInt conversion for micro-USD billing (preventing floating-point arithmetic errors in financial computation), DLQ isolation, handshake state machine, and decision trail logging. Bridge converged at 0.98 (FLATLINE).
 
 ### Cycle 22 — E2E Smoke Test: Billing Wire Verification
 
-Sprint-55 proved the billing wire works against real containers. Fixed 5 integration mismatches discovered during E2E testing: JWT algorithm (RS256 vs ES256), field naming conventions, identity field propagation, URL path construction, Docker configuration. 52 tests. PR loa-finn#71 merged.
+**Started**: 2026-02-17 | **Sprints**: 1 (global 55) | **Tasks**: 7
+
+The critical path test: proving the billing wire works against real containers. Fixed 5 integration mismatches discovered in end-to-end testing (JWT algorithm, field naming conventions, identity field, URL path, Docker configuration). 52 tests. PR #71 merged.
 
 ### Cycle 23 — Shadow Deploy Readiness
 
-Sprints 56-57 prepared for shadow deployment. DLQ persistence (implementing Ostrom Principle 7 — graduated sanctions), billing invariant formalization, shadow deploy configuration. Synthesized from Bridgebuilder Deep Review findings. PR loa-finn#72 merged. Bridge flatlined: 4 findings to 0 in 2 iterations. 62 tests.
+**Started**: 2026-02-17 | **Sprints**: 2 (global 56-57) | **Tasks**: 10
+
+Last infrastructure work before the product pivot. DLQ persistence (implementing Ostrom's graduated sanctions principle), billing invariants formalization, shadow deploy configuration. The Bridgebuilder Deep Review produced three notable comments: the conservation invariant as social contract, the permission scape concept, and environment as design medium. PR #72 merged. 62 tests.
 
 ### Cycle 24 — Production Deploy and Thinnest Product Surface
 
-Sprints 58-59 deployed to production. Sprint-58 built endpoints, infrastructure, and tests (35 tests, GPT-5.2 APPROVED). Sprint-59 added CI/CD workflow, production smoke tests, ES256-only JWT enforcement, and Dockerfile health checks. 152 tests passing. The "thinnest product surface" principle — deploy only what is needed, nothing more — governed the production scope.
+**Started**: 2026-02-16 | **Sprints**: 2 (global 58-59) | **Tasks**: 13
+
+The deployment cycle. Sprint-58 delivered endpoints, infrastructure, and tests (35 tests). Sprint-59 delivered CI/CD workflow, production smoke tests, ES256-only enforcement, JWT claim compatibility audit, and Dockerfile health check (152 tests total).
+
+After this cycle, loa-finn was running in production with automated deployment, health monitoring, and security enforcement.
 
 ---
 
 ## Phase 4: Knowledge (Cycle 25)
 
-**Duration**: 2026-02-16 onwards
-**Sprints**: 60-61
-**Theme**: The Oracle — making the ecosystem understand itself
-
 ### Cycle 25 — The Oracle: Unified Knowledge Interface
 
-The current cycle. Sprint-60 (Knowledge Engine Foundation) built the TypeScript knowledge enrichment engine: types, loader (5 security gates), registry (schema validation), enricher (budget/trust boundary). 72 tests.
+**Started**: 2026-02-16 | **Status**: Active | **Sprints**: 2 (global 60-61) | **Tasks**: 15
 
-Sprint-61 (Knowledge Corpus and E2E Verification) creates the knowledge source files you are reading now, plus integration, gold-set evaluation, and red-team adversarial test suites.
+The convergence of everything built across 24 cycles into a knowledge system that can explain itself. Sprint-60 (Knowledge Engine Foundation) delivered the knowledge types, loader with 5-gate security, registry with schema validation, and enricher with budget and trust boundary enforcement (72 tests).
 
-The Oracle represents a convergence: it uses every system built across 24 prior cycles (Hounfour routing, billing, JWT auth, health checks) to deliver knowledge about those very systems. It is the ecosystem teaching itself to newcomers.
+Sprint-61 (Knowledge Corpus and E2E Verification) delivers the actual knowledge content: 10 curated sources spanning ecosystem architecture, code reality across 4 repositories, development history, RFCs, Bridgebuilder field reports, web4 manifesto, meeting geometries, and a glossary.
+
+The Oracle is the first agent persona to use the knowledge enrichment pipeline — proving that the infrastructure built for multi-model routing, billing settlement, and agent personas can serve not just task execution but understanding itself.
 
 ---
 
 ## Key Milestones
 
-| Milestone | Cycle | Sprint | Date |
-|-----------|-------|--------|------|
-| First agent invocation | 1 | 1 | 2026-02-06 |
-| First persistence layer | 1 | 3 | 2026-02-06 |
-| First Bridgebuilder review | 4 | 10-11 | 2026-02-07 |
-| Multi-model foundation (Hounfour Phase 0) | 6 | 14 | 2026-02-08 |
-| Arrakis distribution layer | 8 | 20 | 2026-02-09 |
-| Ground Truth verification | 10 | 25 | 2026-02-10 |
-| loa-hounfour extraction to standalone repo | 18 | 47 | 2026-02-12 |
-| Pool claim enforcement | 20 | 51 | 2026-02-13 |
-| Billing finalize with BigInt micro-USD | 21 | 53 | 2026-02-16 |
-| Production deployment | 24 | 58-59 | 2026-02-16 |
-| Oracle knowledge engine | 25 | 60 | 2026-02-16 |
+| Milestone | Cycle | Date | Significance |
+|-----------|-------|------|-------------|
+| First agent | 1 | 2026-02-06 | loa-finn MVP — persistent agent runtime |
+| First Bridgebuilder review | 4 | 2026-02-07 | Autonomous PR review agent, hexagonal architecture |
+| Hounfour multi-model routing | 6 | 2026-02-08 | Provider abstraction, budget enforcement |
+| Arrakis distribution | 8 | 2026-02-09 | ECS infrastructure, token gating, billing |
+| loa-hounfour extraction | 18 | 2026-02-12 | Protocol types as shared package |
+| Pool claim enforcement | 20 | 2026-02-13 | Confused deputy prevention, Stripe-parallel |
+| Billing wire E2E verified | 22 | 2026-02-17 | Production billing settlement proven |
+| Production deploy | 24 | 2026-02-16 | CI/CD, health monitoring, ES256 |
+| Oracle knowledge interface | 25 | 2026-02-16 | Unified knowledge system |
 
 ---
 
-## Patterns That Emerged
+## Statistics
 
-**Bridgebuilder-Driven Development**: Starting from cycle-012, entire development cycles were triggered by Bridgebuilder review findings. The autonomous reviewer became a de facto architect, identifying structural improvements that human developers had not considered.
-
-**Supersession as Learning**: Multiple cycles (9, 12, 13, 16) were planned but superseded — their work absorbed into later, better-informed cycles. This was not waste. Each planning exercise deepened understanding even when the plan was never executed.
-
-**The Flatline as Quality Gate**: From cycle-020 onward, the GPT-5.2 Flatline Protocol reviewed every PRD, SDD, and sprint plan. The pattern of "iteration N, M blocking issues resolved" shows the adversarial review consistently found real issues — typically 4-10 blocking findings per document.
-
-**Convergence Metrics**: Bridge review loops consistently show convergence patterns — starting with many findings (30-50) and reducing to 0 in 2-3 iterations. The "flatline" metaphor (from the medical monitor showing a flat line when the heart stops) signals kaironic completion: the work is done when the review has nothing left to say.
+- **25 cycles** spanning 12 days of development
+- **61 global sprints** (60 completed, 1 pending)
+- **~370 tasks** completed across all cycles
+- **4 repositories**: loa, loa-finn, loa-hounfour, arrakis
+- **Key test counts**: 1,097 (loa-hounfour), 152+ (loa-finn), 256 (post-migration)
+- **BridgeBuilder review iterations**: 46+ field reports in Issue #66
+- **Flatline Protocol reviews**: Multiple GPT-5.2 approvals across PRDs, SDDs, and sprint plans
