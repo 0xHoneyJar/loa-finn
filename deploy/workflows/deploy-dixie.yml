@@ -1,0 +1,110 @@
+# deploy/workflows/deploy-dixie.yml — loa-dixie S3 Deploy Pipeline (Sprint 5 Task 5.4)
+# Reference workflow for loa-dixie repository. Copy to loa-dixie/.github/workflows/
+#
+# Prerequisites (from Sprint 4):
+# - Terraform applied: oracle-site.tf (S3 bucket + CloudFront)
+# - Terraform applied: dixie-oidc.tf (IAM role for GitHub Actions)
+# - ACM certificate validated for *.arrakis.community
+
+name: Deploy Oracle Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/deploy-site.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+permissions:
+  id-token: write   # Required for OIDC federation
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: oracle-site-${{ secrets.AWS_ACCOUNT_ID }}
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+  FINN_API_URL: https://finn.arrakis.community
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: site
+
+      - name: Build static export
+        run: pnpm build
+        working-directory: site
+        env:
+          NEXT_PUBLIC_ORACLE_API_URL: ${{ env.FINN_API_URL }}/api/v1/oracle
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-build
+          path: site/out/
+          retention-days: 7
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: site-build
+          path: out/
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/dixie-site-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync out/ s3://${{ env.S3_BUCKET }}/ \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "*.html" \
+            --exclude "*.json"
+          # HTML and JSON files get shorter cache
+          aws s3 sync out/ s3://${{ env.S3_BUCKET }}/ \
+            --cache-control "public, max-age=300" \
+            --include "*.html" \
+            --include "*.json"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ env.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
+
+      - name: Verify deployment
+        run: |
+          sleep 10
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://oracle.arrakis.community)
+          if [ "$STATUS" != "200" ]; then
+            echo "Deployment verification failed: HTTP $STATUS"
+            exit 1
+          fi
+          echo "Deployment verified: HTTP $STATUS"
