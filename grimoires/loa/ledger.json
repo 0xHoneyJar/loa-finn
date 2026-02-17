@@ -2,8 +2,8 @@
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
   "current_cycle": "cycle-025",
-  "cycles": {
-    "cycle-001": {
+  "cycles": [
+    {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
       "status": "archived",
       "started": "2026-02-06T02:00:00Z",
@@ -55,7 +55,7 @@
         }
       ]
     },
-    "cycle-002": {
+    {
       "label": "Adopt Upstream Loa Persistence Framework",
       "status": "archived",
       "started": "2026-02-06T08:10:00Z",
@@ -72,7 +72,7 @@
         }
       ]
     },
-    "cycle-003": {
+    {
       "label": "Persistence Hardening & Tool Sandbox",
       "status": "archived",
       "started": "2026-02-06T23:00:00Z",
@@ -96,7 +96,7 @@
         }
       ]
     },
-    "cycle-004": {
+    {
       "label": "Bridgebuilder: Autonomous PR Review Agent",
       "status": "archived",
       "started": "2026-02-07T10:00:00Z",
@@ -120,7 +120,7 @@
         }
       ]
     },
-    "cycle-005": {
+    {
       "label": "Worker Thread Sandbox: Non-Blocking Tool Execution",
       "status": "archived",
       "started": "2026-02-08T00:00:00Z",
@@ -144,7 +144,7 @@
         }
       ]
     },
-    "cycle-006": {
+    {
       "label": "Hounfour Phases 0-2: Multi-Model Provider Abstraction",
       "status": "archived",
       "started": "2026-02-08T12:00:00Z",
@@ -175,7 +175,7 @@
         }
       ]
     },
-    "cycle-007": {
+    {
       "label": "Hounfour Phase 3: Server Integration & Self-Hosted Inference",
       "status": "archived",
       "started": "2026-02-09T00:00:00Z",
@@ -206,7 +206,7 @@
         }
       ]
     },
-    "cycle-008": {
+    {
       "label": "Hounfour Phase 4: Arrakis Distribution (Spice Gate)",
       "status": "archived",
       "started": "2026-02-09T02:00:00Z",
@@ -224,7 +224,7 @@
       ],
       "notes": "Executed in arrakis repo (PR #40). Consolidated as single ledger entry."
     },
-    "cycle-009": {
+    {
       "label": "Hounfour Phase 5: Integration & Multi-Model Orchestration",
       "status": "archived",
       "started": "2026-02-09T18:00:00Z",
@@ -256,7 +256,7 @@
         }
       ]
     },
-    "cycle-010": {
+    {
       "label": "Ground Truth: Factual GTM Skill Pack",
       "status": "archived",
       "started": "2026-02-10T10:30:00Z",
@@ -280,7 +280,7 @@
         }
       ]
     },
-    "cycle-011": {
+    {
       "label": "Ground Truth v2: Verification Hardening & Incremental Pipeline",
       "status": "archived",
       "started": "2026-02-10T10:45:00Z",
@@ -305,7 +305,7 @@
         }
       ]
     },
-    "cycle-013": {
+    {
       "label": "Documentation Rewrite: Complete loa-finn Docs",
       "status": "archived",
       "started": "2026-02-10T22:48:00Z",
@@ -337,7 +337,7 @@
         }
       ]
     },
-    "cycle-014": {
+    {
       "label": "BridgeBuilder PR #55 Feedback: Schema Evolution & Content Quality",
       "status": "archived",
       "started": "2026-02-11T16:00:00Z",
@@ -362,7 +362,7 @@
         }
       ]
     },
-    "cycle-015": {
+    {
       "label": "BridgeBuilder PR #56 Findings: Aim for the Stars",
       "status": "archived",
       "started": "2026-02-11T07:00:00Z",
@@ -387,7 +387,7 @@
         }
       ]
     },
-    "cycle-016": {
+    {
       "label": "BridgeBuilder PR #57 Findings: Epistemic Infrastructure",
       "status": "archived",
       "started": "2026-02-11T12:00:00Z",
@@ -412,7 +412,7 @@
         }
       ]
     },
-    "cycle-012": {
+    {
       "label": "Bridgebuilder Review Hardening: PR #52 Findings",
       "status": "archived",
       "started": "2026-02-10T22:00:00Z",
@@ -444,7 +444,7 @@
         }
       ]
     },
-    "cycle-017": {
+    {
       "label": "BridgeBuilder PR #58 Findings: Deepening the Epistemic Architecture",
       "status": "archived",
       "started": "2026-02-11T21:23:37Z",
@@ -469,7 +469,7 @@
         }
       ]
     },
-    "cycle-018": {
+    {
       "label": "Hounfour Phase 5: Protocol Extraction, Integration Hardening & Multi-Model Orchestration",
       "status": "archived",
       "started": "2026-02-12T00:00:00Z",
@@ -540,7 +540,7 @@
       "sprint_plan_extraction": "grimoires/loa/sprint-hounfour-extraction.md",
       "sprint_plan_bridgebuilder": "grimoires/loa/sprint-bridgebuilder-findings.md"
     },
-    "cycle-019": {
+    {
       "label": "Loa Update & Bridgebuilder Migration (v1.33.1 → v1.35.0)",
       "status": "archived",
       "started": "2026-02-13T00:00:00Z",
@@ -558,7 +558,7 @@
         }
       ]
     },
-    "cycle-020": {
+    {
       "label": "Pool Claim Enforcement: Confused Deputy Prevention",
       "status": "archived",
       "started": "2026-02-13T14:00:00Z",
@@ -587,7 +587,7 @@
         }
       ]
     },
-    "cycle-021": {
+    {
       "label": "S2S Billing Finalize Client + loa-hounfour v5.0.0 Upgrade",
       "status": "archived",
       "started": "2026-02-16T14:05:00Z",
@@ -616,7 +616,7 @@
         }
       ]
     },
-    "cycle-022": {
+    {
       "label": "Sprint B: E2E Smoke Test — Billing Wire Verification",
       "status": "archived",
       "started": "2026-02-17T03:00:00Z",
@@ -636,7 +636,7 @@
         }
       ]
     },
-    "cycle-023": {
+    {
       "label": "Shadow Deploy Readiness: DLQ Persistence & Production Billing Settlement",
       "status": "archived",
       "started": "2026-02-17T06:00:00Z",
@@ -663,7 +663,7 @@
         }
       ]
     },
-    "cycle-024": {
+    {
       "label": "Production Deploy & Thinnest Product Surface",
       "status": "archived",
       "started": "2026-02-16T08:22:50Z",
@@ -691,7 +691,7 @@
         }
       ]
     },
-    "cycle-025": {
+    {
       "label": "The Oracle — Unified Knowledge Interface",
       "status": "active",
       "started": "2026-02-16T22:00:00Z",
@@ -741,6 +741,6 @@
         }
       ]
     }
-  },
+  ],
   "next_global_sprint_id": 65
 }
