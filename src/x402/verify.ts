@@ -3,6 +3,7 @@
 // Parses X-Payment header, verifies EIP-3009 authorization.
 // Nonce replay protection via Redis + WAL.
 
+import { createHash } from "node:crypto"
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import type { X402Quote, PaymentProof, EIP3009Authorization } from "./types.js"
 import { X402Error } from "./types.js"
@@ -43,7 +44,7 @@ export class PaymentVerifier {
   constructor(deps: VerifyDeps) {
     this.redis = deps.redis
     this.treasuryAddress = deps.treasuryAddress
-    this.verifyEOA = deps.verifyEOASignature ?? (async () => true)
+    this.verifyEOA = deps.verifyEOASignature ?? (async () => false)
     this.verifyContract = deps.verifyContractSignature
     this.walAppend = deps.walAppend
   }
@@ -54,19 +55,6 @@ export class PaymentVerifier {
   async verify(proof: PaymentProof, quote: X402Quote): Promise<VerificationResult> {
     const auth = proof.authorization
     const paymentId = this.computePaymentId(auth, proof.chain_id)
-
-    // Check nonce replay (Redis cache first, WAL authoritative)
-    const existingKey = `x402:payment:${paymentId}`
-    const existing = await this.redis.get(existingKey)
-    if (existing) {
-      // Idempotent replay — return original receipt
-      return {
-        valid: true,
-        payment_id: paymentId,
-        authorization: auth,
-        idempotent_replay: true,
-      }
-    }
 
     // Verify recipient is treasury
     if (auth.to.toLowerCase() !== this.treasuryAddress.toLowerCase()) {
@@ -111,15 +99,27 @@ export class PaymentVerifier {
       )
     }
 
-    // Record nonce to prevent replay
+    // Atomic nonce replay protection via SETNX (fixes TOCTOU race)
+    // If the key already exists, this is an idempotent replay.
+    // If it does not exist, atomically set it with TTL.
+    const existingKey = `x402:payment:${paymentId}`
     const ttl = Math.max(auth.valid_before - now, 60) // At least 60s
-    await this.redis.set(existingKey, JSON.stringify({
+    const paymentData = JSON.stringify({
       quote_id: proof.quote_id,
       from: auth.from,
       amount: auth.value,
       timestamp: Date.now(),
-    }))
-    await this.redis.expire(existingKey, ttl)
+    })
+    const setResult = await this.redis.set(existingKey, paymentData, "EX", ttl, "NX")
+    if (setResult === null) {
+      // Key already existed — idempotent replay
+      return {
+        valid: true,
+        payment_id: paymentId,
+        authorization: auth,
+        idempotent_replay: true,
+      }
+    }
 
     // WAL authoritative record
     this.writeAudit("x402_payment", {
@@ -159,8 +159,8 @@ export class PaymentVerifier {
   }
 
   /**
-   * Compute canonical payment ID: keccak256(chainId, token, from, nonce, recipient, amount, validBefore)
-   * Simplified: hex hash of concatenated fields.
+   * Compute canonical payment ID: SHA-256(chainId:from:to:nonce:value:validBefore)
+   * Produces a cryptographically secure 256-bit hash to prevent collisions.
    */
   private computePaymentId(auth: EIP3009Authorization, chainId: number): string {
     const data = [
@@ -171,14 +171,8 @@ export class PaymentVerifier {
       auth.value,
       String(auth.valid_before),
     ].join(":")
-    // Simple hash for now — production would use keccak256
-    let hash = 0
-    for (let i = 0; i < data.length; i++) {
-      const char = data.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash // Convert to 32-bit integer
-    }
-    return `pay_${Math.abs(hash).toString(16).padStart(8, "0")}`
+    const sha256hex = createHash("sha256").update(data).digest("hex")
+    return `pid_${sha256hex}`
   }
 
   private writeAudit(operation: string, payload: Record<string, unknown>): void {

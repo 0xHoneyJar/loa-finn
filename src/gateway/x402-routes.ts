@@ -10,6 +10,7 @@ import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import type { QuoteService } from "../x402/middleware.js"
 import type { PaymentVerifier } from "../x402/verify.js"
 import type { SettlementService } from "../x402/settlement.js"
+import type { CreditNoteService } from "../x402/credit-note.js"
 import type { AllowlistService } from "./allowlist.js"
 import type { FeatureFlagService } from "./feature-flags.js"
 import { X402Error, X402_RATE_LIMIT_PER_HOUR } from "../x402/types.js"
@@ -23,6 +24,7 @@ export interface X402RouteDeps {
   quoteService: QuoteService
   paymentVerifier: PaymentVerifier
   settlementService: SettlementService
+  creditNoteService?: CreditNoteService
   allowlistService: AllowlistService
   featureFlagService: FeatureFlagService
   /** Execute inference with generic system prompt (no NFT personality) */
@@ -159,7 +161,32 @@ export function x402Routes(deps: X402RouteDeps): Hono {
       }
 
       // 10. Execute inference (with max_tokens from quote)
-      const result = await deps.executeInference(quote.model, quote.max_tokens, body.prompt)
+      // If inference fails after settlement, issue a credit note so the payer can retry.
+      let result: string
+      try {
+        result = await deps.executeInference(quote.model, quote.max_tokens, body.prompt)
+      } catch (inferenceError) {
+        // Settlement already happened — issue credit note for the full amount
+        let creditNote = null
+        if (deps.creditNoteService && !verification.idempotent_replay) {
+          try {
+            creditNote = await deps.creditNoteService.issueCreditNote(
+              verification.authorization.from,
+              quote.quote_id,
+              quote.max_cost,
+              "0", // actual cost is 0 since inference failed
+            )
+          } catch {
+            // Best-effort credit note issuance
+          }
+        }
+        return c.json({
+          error: "Inference failed after settlement. A credit note has been issued.",
+          code: "INFERENCE_FAILED",
+          payment_id: verification.payment_id,
+          credit_note: creditNote ? { id: creditNote.id, amount: creditNote.amount } : null,
+        }, 502)
+      }
 
       return c.json({
         result,

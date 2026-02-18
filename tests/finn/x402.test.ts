@@ -18,7 +18,15 @@ function createMockRedis(): RedisCommandClient {
   const store = new Map<string, string>()
   return {
     get: vi.fn(async (key: string) => store.get(key) ?? null),
-    set: vi.fn(async (key: string, value: string) => { store.set(key, value) }),
+    set: vi.fn(async (key: string, value: string, ...args: (string | number)[]) => {
+      // Support SET key value EX ttl NX
+      const hasNX = args.some(a => String(a).toUpperCase() === "NX")
+      if (hasNX && store.has(key)) {
+        return null // Key exists, NX prevents overwrite
+      }
+      store.set(key, value)
+      return "OK"
+    }),
     del: vi.fn(async (key: string) => { store.delete(key); return 1 }),
     incrby: vi.fn(async (key: string, val: number) => {
       const curr = parseInt(store.get(key) ?? "0", 10)

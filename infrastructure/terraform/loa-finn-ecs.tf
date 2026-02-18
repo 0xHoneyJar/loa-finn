@@ -263,9 +263,11 @@ resource "aws_ecs_service" "loa_finn" {
     assign_public_ip = false
   }
 
+  # Stop-before-start: prevent dual-writer window during rolling updates.
+  # Old task stops before new task starts (brief downtime during deploys).
   deployment_configuration {
-    maximum_percent         = 200
-    minimum_healthy_percent = 100
+    maximum_percent         = 100
+    minimum_healthy_percent = 0
   }
 
   deployment_circuit_breaker {

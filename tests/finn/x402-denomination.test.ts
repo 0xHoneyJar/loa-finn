@@ -18,11 +18,33 @@ function createMockRedis(): RedisCommandClient {
   const store = new Map<string, string>()
   return {
     get: vi.fn(async (key: string) => store.get(key) ?? null),
-    set: vi.fn(async (key: string, value: string) => { store.set(key, value) }),
+    set: vi.fn(async (key: string, value: string, ...args: (string | number)[]) => {
+      const hasNX = args.some(a => String(a).toUpperCase() === "NX")
+      if (hasNX && store.has(key)) {
+        return null
+      }
+      store.set(key, value)
+      return "OK"
+    }),
     del: vi.fn(async (key: string) => { store.delete(key); return 1 }),
     incrby: vi.fn(async () => 1),
     expire: vi.fn(async () => true),
-    eval: vi.fn(async () => null),
+    eval: vi.fn(async (_script: string, _numkeys: number, balanceKey: string, requiredAmount: string) => {
+      // Mock atomic Lua script for applyCreditNotes
+      const balanceStr = store.get(balanceKey as string)
+      if (!balanceStr) return ["0", "0"]
+      const balance = Number(balanceStr)
+      if (balance === 0) return ["0", "0"]
+      const required = Number(requiredAmount)
+      const creditUsed = Math.min(balance, required)
+      const remaining = balance - creditUsed
+      if (remaining > 0) {
+        store.set(balanceKey as string, String(remaining))
+      } else {
+        store.delete(balanceKey as string)
+      }
+      return [String(creditUsed), String(remaining)]
+    }),
     hgetall: vi.fn(async () => null),
   } as unknown as RedisCommandClient
 }

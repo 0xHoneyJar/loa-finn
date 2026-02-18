@@ -125,16 +125,47 @@ export class CreditNoteService {
 
   /**
    * Apply credit notes to reduce required payment amount.
+   * Uses an atomic Lua script to prevent double-spend via concurrent requests.
    * Returns the reduced amount and remaining credit balance.
    */
   async applyCreditNotes(
     walletAddress: string,
     requiredAmount: string,
   ): Promise<{ reducedAmount: string; creditUsed: string; remainingCredit: string }> {
-    const required = BigInt(requiredAmount)
-    const balance = BigInt(await this.getBalance(walletAddress))
+    const balanceKey = `${CREDIT_NOTE_PREFIX}${walletAddress.toLowerCase()}:balance`
 
-    if (balance === 0n) {
+    // Atomic Lua script: read balance, compute credit used, write new balance
+    // Returns [creditUsed, remainingCredit] as strings
+    const APPLY_CREDIT_LUA = `
+      local balance_str = redis.call('GET', KEYS[1])
+      if not balance_str then
+        return {'0', '0'}
+      end
+      local balance = tonumber(balance_str)
+      if balance == 0 then
+        return {'0', '0'}
+      end
+      local required = tonumber(ARGV[1])
+      local credit_used = math.min(balance, required)
+      local remaining = balance - credit_used
+      if remaining > 0 then
+        redis.call('SET', KEYS[1], tostring(math.floor(remaining)))
+        redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]))
+      else
+        redis.call('DEL', KEYS[1])
+      end
+      return {tostring(math.floor(credit_used)), tostring(math.floor(remaining))}
+    `
+
+    const result = await this.redis.eval(
+      APPLY_CREDIT_LUA,
+      1,
+      balanceKey,
+      requiredAmount,
+      CREDIT_NOTE_TTL,
+    ) as [string, string] | null
+
+    if (!result || (result[0] === "0" && result[1] === "0")) {
       return {
         reducedAmount: requiredAmount,
         creditUsed: "0",
@@ -142,16 +173,9 @@ export class CreditNoteService {
       }
     }
 
-    const creditUsed = balance > required ? required : balance
-    const reducedAmount = required - creditUsed
-    const remainingCredit = balance - creditUsed
-
-    // Update balance
-    const balanceKey = `${CREDIT_NOTE_PREFIX}${walletAddress.toLowerCase()}:balance`
-    await this.redis.set(balanceKey, remainingCredit.toString())
-    if (remainingCredit > 0n) {
-      await this.redis.expire(balanceKey, CREDIT_NOTE_TTL)
-    }
+    const creditUsed = BigInt(result[0])
+    const remainingCredit = BigInt(result[1])
+    const reducedAmount = BigInt(requiredAmount) - creditUsed
 
     return {
       reducedAmount: reducedAmount.toString(),
