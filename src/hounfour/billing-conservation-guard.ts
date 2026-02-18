@@ -85,6 +85,7 @@ export class BillingConservationGuard {
   private compiled = false
   private state: GuardState = "uninitialized"
   private bypassed = false
+  private recoveryStopped = false // BB-026-iter2-002: state-based recovery control
   private readonly deps: GuardDeps
   private readonly metrics: GuardMetrics
   private recoveryTimer: ReturnType<typeof setTimeout> | null = null
@@ -188,6 +189,7 @@ export class BillingConservationGuard {
   startRecoveryTimer(intervalMs: number = DEFAULT_RECOVERY_INTERVAL_MS): void {
     if (this.recoveryTimer) return
     if (this.state !== "degraded") return
+    if (this.recoveryStopped) return // BB-026-iter2-002: no retry after explicit stop
 
     let currentInterval = intervalMs
     const maxInterval = intervalMs * 10 // Cap at 10x base (e.g., 10 min if base is 60s)
@@ -231,6 +233,7 @@ export class BillingConservationGuard {
       clearTimeout(this.recoveryTimer)
       this.recoveryTimer = null
     }
+    this.recoveryStopped = true // BB-026-iter2-002: prevent re-start after explicit stop
   }
 
   // === INVARIANT CHECKS ===

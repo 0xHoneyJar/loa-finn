@@ -32,6 +32,12 @@ export class WireBoundaryError extends Error {
 const MICRO_USD_PATTERN = /^-?(?:0|[1-9][0-9]*)$/
 
 /**
+ * Maximum length for MicroUSD string values (BB-026-iter2-003: symmetric DoS bounds).
+ * Shared constant for consistent bounds across MicroUSD and CreditUnit parsers.
+ */
+export const MAX_MICRO_USD_LENGTH = 30
+
+/**
  * Parse a raw string into a MicroUSD branded type.
  *
  * Normalization (SDD §4.1, PRD MicroUSD normalization table):
@@ -117,7 +123,7 @@ export function parseMicroUSDLenient(raw: string): { value: MicroUSD; normalized
   }
 
   // Bounds check: reject absurdly long strings before BigInt conversion (DoS prevention)
-  if (trimmed.length > 30) {
+  if (trimmed.length > MAX_MICRO_USD_LENGTH) {
     throw new WireBoundaryError("micro_usd", raw, "value exceeds maximum length (lenient)")
   }
 

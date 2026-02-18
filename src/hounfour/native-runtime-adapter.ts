@@ -413,7 +413,7 @@ export class NativeRuntimeAdapter implements ModelPortBase, ModelPortStreaming {
       thinking: null,
       tool_calls: null,
       usage,
-      metadata: { model: this.config.model, latency_ms: 0, trace_id: "" },
+      metadata: { model: this.config.model, latency_ms: 0, trace_id: "native-runtime-untraced" },
     }
   }
 }

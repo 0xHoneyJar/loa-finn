@@ -21,6 +21,11 @@ import { calculateCost } from "./budget.js"
 import { StreamCostTracker, type StreamCostResult, type BillingMethod } from "./stream-cost.js"
 import type { MicroPricingEntry } from "./pricing.js"
 
+// --- Constants ---
+
+/** Named constant for untraced ensemble trace IDs (BB-026-iter2-004) */
+const ENSEMBLE_UNTRACED = "ensemble-untraced"
+
 // --- Types ---
 
 export type MergeStrategy = "first_complete" | "best_of_n" | "consensus"
@@ -884,7 +889,7 @@ export async function bestOfNStreaming(
         thinking: null,
         tool_calls: null,
         usage: successful[i].usage,
-        metadata: { model: successful[i].pool, latency_ms: 0, trace_id: "ensemble-untraced" },
+        metadata: { model: successful[i].pool, latency_ms: 0, trace_id: ENSEMBLE_UNTRACED },
       }
       const score = await scorer(completionResult)
       if (score > bestScore) {
@@ -899,7 +904,7 @@ export async function bestOfNStreaming(
       thinking: null,
       tool_calls: null,
       usage: best.usage,
-      metadata: { model: best.pool, latency_ms: 0, trace_id: "ensemble-untraced" },
+      metadata: { model: best.pool, latency_ms: 0, trace_id: ENSEMBLE_UNTRACED },
     }
 
     let totalCost = 0n
@@ -1032,7 +1037,7 @@ export async function consensusStreaming(
       thinking: null,
       tool_calls: null,
       usage: r.usage,
-      metadata: { model: r.pool, latency_ms: 0, trace_id: "ensemble-untraced" },
+      metadata: { model: r.pool, latency_ms: 0, trace_id: ENSEMBLE_UNTRACED },
     }))
 
     // Extract structured fields and run majority vote
@@ -1049,7 +1054,7 @@ export async function consensusStreaming(
         thinking: null,
         tool_calls: null,
         usage: aggregateUsage(successful.map((r) => r.usage)),
-        metadata: { model: `ensemble:consensus:${pools.join("+")}`, latency_ms: 0, trace_id: "ensemble-untraced" },
+        metadata: { model: `ensemble:consensus:${pools.join("+")}`, latency_ms: 0, trace_id: ENSEMBLE_UNTRACED },
       }
     } else {
       // Not enough structured data — fall back to first successful
