@@ -4,6 +4,7 @@ import { writeFile, appendFile, readFile, rename, mkdir, stat, readdir } from "n
 import { existsSync } from "node:fs"
 import { dirname, join, basename } from "node:path"
 import { HounfourError } from "./errors.js"
+import { parseMicroUSD } from "./wire-boundary.js"
 import type {
   ScopeMeta,
   UsageInfo,
@@ -109,12 +110,20 @@ export function microToString(micro: bigint): string {
   return micro.toString()
 }
 
-/** Parse string micro-USD from JSON wire format to BigInt */
+/** Parse string micro-USD from JSON wire format to BigInt.
+ *  Delegates to wire-boundary parseMicroUSD for canonical validation,
+ *  then enforces non-negative (budget context never has negative costs). */
 export function stringToMicro(s: string): bigint {
-  if (!/^[0-9]+$/.test(s)) {
+  try {
+    const value = parseMicroUSD(s)
+    if (value < 0n) {
+      throw new Error(`BUDGET_PARSE: invalid micro-USD string: "${s}"`)
+    }
+    return value
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("BUDGET_PARSE")) throw e
     throw new Error(`BUDGET_PARSE: invalid micro-USD string: "${s}"`)
   }
-  return BigInt(s)
 }
 
 // --- Scope Key Derivation ---

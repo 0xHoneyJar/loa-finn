@@ -18,8 +18,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import stringify from 'json-stable-stringify';
+import {
+  parseMicroUSD,
+  serializeMicroUSD,
+  parseAccountId,
+  serializeAccountId,
+  parsePoolId,
+} from '../../src/hounfour/wire-boundary.js';
 
-// Import schemas from current loa-hounfour (v5.0.0 / local)
+// Import schemas from current loa-hounfour (v7.0.0)
 import {
   JwtClaimsSchema,
   S2SJwtClaimsSchema,
@@ -314,5 +321,103 @@ describe('Golden Wire Fixtures — JWT Structural Verification', () => {
     const verify = crypto.createVerify('SHA256');
     verify.update(`${parts[0]}.${parts[1]}`);
     expect(verify.verify(pubKey, Buffer.from(parts[2], 'base64url'))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Branded Type Pipeline Verification (Sprint 2 Task 2.4)
+// ---------------------------------------------------------------------------
+
+describe('Golden Wire Fixtures — Branded Type Pipeline', () => {
+  describe('JWT Claims through parseAccountId', () => {
+    const fixture = loadFixture<Record<string, unknown>>('jwt-claims.fixture.json');
+
+    it('tenant_id parses as AccountId and round-trips', () => {
+      const tenantId = fixture.tenant_id as string;
+      const parsed = parseAccountId(tenantId);
+      const serialized = serializeAccountId(parsed);
+      expect(serialized).toBe(tenantId);
+    });
+
+    it('fixture tenant_id is already in canonical form', () => {
+      const tenantId = fixture.tenant_id as string;
+      // parseAccountId should not alter a canonical value
+      const parsed = parseAccountId(tenantId);
+      expect(String(parsed)).toBe(tenantId);
+    });
+  });
+
+  describe('Billing fixtures through parseMicroUSD', () => {
+    const streamFixtures = loadFixture<Record<string, Record<string, unknown>>>('stream-event.fixture.json');
+
+    it('stream_end.cost_micro parses as MicroUSD and round-trips', () => {
+      const costMicro = streamFixtures.stream_end.cost_micro as string;
+      const parsed = parseMicroUSD(costMicro);
+      const serialized = serializeMicroUSD(parsed);
+      expect(serialized).toBe(costMicro);
+    });
+
+    it('cost_micro value is non-negative', () => {
+      const costMicro = streamFixtures.stream_end.cost_micro as string;
+      const parsed = parseMicroUSD(costMicro);
+      expect(parsed >= 0n).toBe(true);
+    });
+  });
+
+  describe('Pool IDs through parsePoolId', () => {
+    const billingReq = loadFixture<Record<string, unknown>>('billing-request.fixture.json');
+    const billingRes = loadFixture<Record<string, unknown>>('billing-response.fixture.json');
+    const streamFixtures = loadFixture<Record<string, Record<string, unknown>>>('stream-event.fixture.json');
+
+    it('billing-request pool_id parses as PoolId', () => {
+      const poolId = billingReq.pool_id as string;
+      const parsed = parsePoolId(poolId);
+      expect(parsed).toBe(poolId);
+    });
+
+    it('billing-response pool_id parses as PoolId', () => {
+      const poolId = billingRes.pool_id as string;
+      const parsed = parsePoolId(poolId);
+      expect(parsed).toBe(poolId);
+    });
+
+    it('stream_start pool_id parses as PoolId', () => {
+      const poolId = streamFixtures.stream_start.pool_id as string;
+      const parsed = parsePoolId(poolId);
+      expect(parsed).toBe(poolId);
+    });
+  });
+
+  describe('Wire format stability (branded types are compile-time only)', () => {
+    it('JWT claims JSON unchanged after AccountId round-trip', () => {
+      const fixture = loadFixture<Record<string, unknown>>('jwt-claims.fixture.json');
+      const original = canonical(fixture);
+
+      // Round-trip tenant_id through branded type
+      const cloned = { ...fixture };
+      cloned.tenant_id = serializeAccountId(parseAccountId(fixture.tenant_id as string));
+
+      expect(canonical(cloned)).toBe(original);
+    });
+
+    it('billing-request JSON unchanged after PoolId round-trip', () => {
+      const fixture = loadFixture<Record<string, unknown>>('billing-request.fixture.json');
+      const original = canonical(fixture);
+
+      const cloned = { ...fixture };
+      cloned.pool_id = parsePoolId(fixture.pool_id as string);
+
+      expect(canonical(cloned)).toBe(original);
+    });
+
+    it('stream_end JSON unchanged after MicroUSD round-trip', () => {
+      const streamFixtures = loadFixture<Record<string, Record<string, unknown>>>('stream-event.fixture.json');
+      const original = canonical(streamFixtures.stream_end);
+
+      const cloned = { ...streamFixtures.stream_end };
+      cloned.cost_micro = serializeMicroUSD(parseMicroUSD(streamFixtures.stream_end.cost_micro as string));
+
+      expect(canonical(cloned)).toBe(original);
+    });
   });
 });

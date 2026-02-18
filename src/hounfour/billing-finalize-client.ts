@@ -4,6 +4,7 @@
 
 import type { S2SJwtSigner } from "./s2s-jwt.js"
 import type { DLQStore } from "./dlq-store.js"
+import { parseMicroUSD } from "./wire-boundary.js"
 
 // --- Types ---
 
@@ -105,8 +106,13 @@ export class BillingFinalizeClient {
    */
   async finalize(req: FinalizeRequest): Promise<FinalizeResult> {
     try {
-      // Validate cost is non-negative string BigInt
-      if (!isValidCostMicro(req.actual_cost_micro)) {
+      // Validate cost through wire-boundary parse (canonical format + non-negative)
+      try {
+        const cost = parseMicroUSD(req.actual_cost_micro)
+        if (cost < 0n) {
+          return await this.toDLQ(req, "invalid_cost: actual_cost_micro must be non-negative integer string", null)
+        }
+      } catch {
         return await this.toDLQ(req, "invalid_cost: actual_cost_micro must be non-negative integer string", null)
       }
 
@@ -319,11 +325,3 @@ export class BillingFinalizeClient {
   }
 }
 
-// --- Helpers ---
-
-function isValidCostMicro(value: string): boolean {
-  if (typeof value !== "string") return false
-  if (!/^[0-9]+$/.test(value)) return false
-  // Must be non-negative (no leading minus, pattern already ensures digits only)
-  return true
-}

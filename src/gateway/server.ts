@@ -16,6 +16,7 @@ import { createActivityHandler } from "../dashboard/activity-handler.js"
 import type { HounfourRouter } from "../hounfour/router.js"
 import type { S2SJwtSigner } from "../hounfour/s2s-jwt.js"
 import type { BillingFinalizeClient } from "../hounfour/billing-finalize-client.js"
+import type { BillingConservationGuard } from "../hounfour/billing-conservation-guard.js"
 import { createInvokeHandler } from "./routes/invoke.js"
 import { createUsageHandler } from "./routes/usage.js"
 import { createOracleHandler, oracleCorsMiddleware } from "./routes/oracle.js"
@@ -37,6 +38,8 @@ export interface AppOptions {
   billingFinalizeClient?: BillingFinalizeClient
   /** Path to JSONL cost ledger for usage endpoint (cycle-024 T2) */
   ledgerPath?: string
+  /** Billing conservation guard for billing endpoint gating (SDD §4.2) */
+  billingConservationGuard?: BillingConservationGuard
   /** Oracle rate limiter (Phase 1) */
   oracleRateLimiter?: OracleRateLimiter
   /** Redis client for Oracle auth (Phase 1) */
@@ -88,6 +91,12 @@ export function createApp(config: FinnConfig, options: AppOptions) {
 
     const protocol = getProtocolInfo()
 
+    // Billing evaluator guard health (SDD §4.2)
+    const billingEvaluator = options?.billingConservationGuard?.getHealth() ?? null
+    const readyForBilling = billingEvaluator
+      ? billingEvaluator.billing === "ready"
+      : true
+
     if (options?.healthAggregator) {
       let health = options.healthAggregator.check()
       // Oracle Phase 1 async enrichment (rate limiter health, daily usage)
@@ -102,9 +111,11 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       checks: {
         agent: { status: "ok", model: config.model },
         sessions: { active: router.getActiveCount() },
+        ...(billingEvaluator ? { billing_evaluator: billingEvaluator } : {}),
       },
       billing,
       protocol,
+      ready_for_billing: readyForBilling,
     })
   })
 
@@ -135,6 +146,18 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     const concurrencyLimiter = new ConcurrencyLimiter(config.oracle.maxConcurrent)
 
     oracleApp.use("*", oracleCorsMiddleware(config.oracle.corsOrigins))
+    // Billing guard — 503 when evaluator degraded (SDD §4.2)
+    if (options.billingConservationGuard) {
+      oracleApp.use("*", async (c, next) => {
+        if (!options.billingConservationGuard!.isBillingReady()) {
+          return c.json({
+            error: "BILLING_EVALUATOR_UNAVAILABLE",
+            retry_after_seconds: 30,
+          }, 503)
+        }
+        return next()
+      })
+    }
     oracleApp.use("*", oracleAuthMiddleware(options.redisClient, { trustXff: config.oracle.trustXff }))
     oracleApp.use("*", oracleRateLimitMiddleware(options.oracleRateLimiter))
     oracleApp.use("*", oracleConcurrencyMiddleware(concurrencyLimiter))
@@ -167,6 +190,20 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     if (isOraclePath(c.req.path)) return next()
     return hounfourAuth(config)(c, next)
   })
+
+  // Billing guard middleware — returns 503 when evaluator degraded (SDD §4.2)
+  // Applied to all billing entrypoints: /api/v1/invoke, /api/v1/oracle
+  if (options.billingConservationGuard) {
+    app.use("/api/v1/invoke", async (c, next) => {
+      if (!options.billingConservationGuard!.isBillingReady()) {
+        return c.json({
+          error: "BILLING_EVALUATOR_UNAVAILABLE",
+          retry_after_seconds: 30,
+        }, 503)
+      }
+      return next()
+    })
+  }
 
   // Invoke endpoint — tenant-authenticated model routing (cycle-024 T1)
   if (options.hounfour) {

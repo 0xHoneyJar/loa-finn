@@ -23,6 +23,7 @@ import {
   resolvePool,
   assertValidPoolId,
 } from "./tier-bridge.js"
+import { parsePoolId } from "./wire-boundary.js"
 
 // --- Types (SDD §3.1.1) ---
 
@@ -110,7 +111,7 @@ export function enforcePoolClaims(
         details: { pool_id: claims.pool_id, tier },
       }
     }
-    requestedPool = claims.pool_id as PoolId
+    requestedPool = parsePoolId(claims.pool_id)
   }
 
   // Detect allowed_pools mismatch (priority: invalid_entry > superset > subset)

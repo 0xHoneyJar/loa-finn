@@ -21,6 +21,7 @@
     "test:bridgebuilder": "tsx tests/finn/bridgebuilder-r2-context.test.ts && tsx tests/finn/bridgebuilder-launch.test.ts",
     "test:billing": "vitest run tests/finn/billing-finalize.test.ts tests/finn/protocol-handshake.test.ts",
     "test:gateway": "vitest run tests/finn/invoke-handler.test.ts tests/finn/usage-handler.test.ts tests/finn/invoke-billing-path.test.ts tests/finn/otlp-tracing.test.ts",
+    "test:microbench": "vitest run tests/finn/billing-microbench.test.ts",
     "postinstall": "bash scripts/patch-hounfour-dist.sh"
   },
   "dependencies": {

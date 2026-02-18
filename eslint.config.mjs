@@ -23,6 +23,28 @@ export default tseslint.config(
           },
         ],
       }],
+      'no-restricted-syntax': ['error',
+        {
+          selector: 'TSAsExpression[typeAnnotation.typeName.name="MicroUSD"]',
+          message: 'Type assertion "as MicroUSD" banned. Use parseMicroUSD() from wire-boundary.ts.',
+        },
+        {
+          selector: 'TSAsExpression[typeAnnotation.typeName.name="BasisPoints"]',
+          message: 'Type assertion "as BasisPoints" banned. Use parseBasisPoints() from wire-boundary.ts.',
+        },
+        {
+          selector: 'TSAsExpression[typeAnnotation.typeName.name="AccountId"]',
+          message: 'Type assertion "as AccountId" banned. Use parseAccountId() from wire-boundary.ts.',
+        },
+      ],
+    },
+  },
+  // Allow type assertions in wire-boundary.ts (sole branded type constructor)
+  // and test files (test fixtures need direct branded values).
+  {
+    files: ['src/hounfour/wire-boundary.ts', 'tests/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': 'off',
     },
   },
 );

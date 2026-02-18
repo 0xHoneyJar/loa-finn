@@ -295,6 +295,27 @@ async function main() {
     // Non-fatal — loa-finn works without hounfour (backward compatible per NFR-3)
   }
 
+  // 6e-guard. BillingConservationGuard — evaluator wrapper (SDD §4.2)
+  // Init after hounfour (needs constraint evaluator), before gateway (needs to gate billing routes).
+  // Pod always becomes READY — init() never throws, never crashes the process.
+  let billingGuard: import("./hounfour/billing-conservation-guard.js").BillingConservationGuard | undefined
+  if (hounfour) {
+    try {
+      const { BillingConservationGuard } = await import("./hounfour/billing-conservation-guard.js")
+      billingGuard = new BillingConservationGuard({
+        podId: process.env.POD_ID,
+        buildSha: process.env.BUILD_SHA,
+      })
+      await billingGuard.init()
+      billingGuard.startRecoveryTimer()
+      const guardHealth = billingGuard.getHealth()
+      console.log(`[finn] billing guard: state=${guardHealth.state}, compiled=${guardHealth.evaluator_compiled}, billing=${guardHealth.billing}`)
+    } catch (err) {
+      console.error(`[finn] billing guard init failed (non-fatal):`, (err as Error).message)
+      billingGuard = undefined
+    }
+  }
+
   // 6e-bis. Initialize S2S Billing Finalize Client (Phase 5 T5, Sprint B T3)
   // Algorithm selection: FINN_S2S_JWT_ALG (explicit) > auto-detect from key material
   let billingFinalizeClient: import("./hounfour/billing-finalize-client.js").BillingFinalizeClient | undefined
@@ -429,7 +450,7 @@ async function main() {
 
   // 7. Create gateway (with executor for sandbox, pool for health stats)
   const ledgerPath = join(config.dataDir, "hounfour", "cost-ledger.jsonl")
-  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient, ledgerPath })
+  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient, billingConservationGuard: billingGuard, ledgerPath })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()
@@ -452,6 +473,7 @@ async function main() {
     }),
     getLearningCounts: () => ({ total: 0, active: 0 }), // Updated async by health task
     getWorkerPoolStats: () => pool?.stats(),
+    getBillingGuardHealth: billingGuard ? () => billingGuard!.getHealth() : undefined,
     getProviderHealth: hounfour ? () => hounfour!.healthSnapshot().providers : undefined,
     getBudgetSnapshot: hounfour ? () => hounfour!.budgetSnapshot() : undefined,
     getRedisHealth: redis ? async () => redis!.ping() : undefined,
@@ -623,6 +645,9 @@ async function main() {
     // Close HTTP server first — stop accepting new connections before
     // killing the pool, so in-flight requests don't hit POOL_SHUTTING_DOWN (SD-014)
     server.close()
+
+    // Stop billing guard recovery timer
+    if (billingGuard) billingGuard.stopRecoveryTimer()
 
     // Shutdown sidecar (Phase 3)
     if (sidecarManager) {

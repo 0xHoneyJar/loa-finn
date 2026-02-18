@@ -9,6 +9,7 @@ import type { FinnConfig } from "../config.js"
 import type { JtiReplayGuard } from "./jti-replay.js"
 import { deriveJtiTtl } from "./jti-replay.js"
 import type { PoolId, Tier } from "@0xhoneyjar/loa-hounfour"
+import { parseAccountId, WireBoundaryError } from "./wire-boundary.js"
 
 // --- Protocol Constants (matches loa-hounfour JTI_POLICY) ---
 
@@ -292,6 +293,16 @@ function validateClaims(payload: Record<string, unknown>): JWTClaims {
 
   if (typeof payload.tenant_id !== "string" || !payload.tenant_id) {
     throw new Error("tenant_id must be a non-empty string")
+  }
+
+  // Validate tenant_id conforms to AccountId pattern (wire boundary enforcement)
+  try {
+    parseAccountId(payload.tenant_id as string)
+  } catch (e) {
+    if (e instanceof WireBoundaryError) {
+      throw new Error(`tenant_id format invalid: ${e.reason}`)
+    }
+    throw e
   }
 
   if (typeof payload.req_hash !== "string") {
