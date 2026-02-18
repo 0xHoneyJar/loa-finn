@@ -147,10 +147,9 @@ export class NativeRuntimeAdapter implements ModelPortBase, ModelPortStreaming {
   capabilities(): ModelCapabilities {
     return {
       streaming: this.config.streaming ?? true,
-      tools: true,
-      thinking: false,
-      maxContextTokens: this.config.maxContextTokens ?? 128_000,
-      maxOutputTokens: this.config.maxOutputTokens ?? 4_096,
+      tool_calling: true,
+      thinking_traces: false,
+      vision: false,
     }
   }
 
@@ -414,7 +413,7 @@ export class NativeRuntimeAdapter implements ModelPortBase, ModelPortStreaming {
       thinking: null,
       tool_calls: null,
       usage,
-      metadata: { model: this.config.model },
+      metadata: { model: this.config.model, latency_ms: 0, trace_id: "" },
     }
   }
 }

@@ -6,7 +6,7 @@
 //
 // Design: Stripe pattern — module-private brand helper, parse at ingress, serialize at egress.
 
-import type { MicroUSD, BasisPoints, AccountId } from "@0xhoneyjar/loa-hounfour"
+import type { BrandedMicroUSD as MicroUSD, BasisPoints, AccountId } from "@0xhoneyjar/loa-hounfour"
 import { type PoolId, POOL_IDS, isValidPoolId } from "@0xhoneyjar/loa-hounfour"
 
 // ---------------------------------------------------------------------------

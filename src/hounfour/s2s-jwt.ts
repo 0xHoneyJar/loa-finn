@@ -4,8 +4,7 @@
 // Supports ES256 (asymmetric) and HS256 (symmetric shared secret).
 
 import { importPKCS8, SignJWT, CompactSign } from "jose"
-import type { KeyLike } from "jose"
-import { createPublicKey, createPrivateKey } from "node:crypto"
+import { createPublicKey, createPrivateKey, type KeyObject } from "node:crypto"
 
 // --- Types ---
 
@@ -39,7 +38,7 @@ export type S2SConfig = S2SConfigES256 | S2SConfigHS256
 // --- S2S JWT Signer ---
 
 export class S2SJwtSigner {
-  private privateKey: KeyLike | null = null
+  private privateKey: CryptoKey | KeyObject | null = null
   private signingKey: Uint8Array | null = null
   private publicJWK: Record<string, unknown> | null = null
   private config: S2SConfig

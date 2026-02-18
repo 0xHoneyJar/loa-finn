@@ -576,7 +576,7 @@ export function jwksInvalidateHandler(auditLog?: (entry: JWKSAuditEntry) => void
       return c.json({ error: "Forbidden: admin:jwks scope required" }, 403)
     }
 
-    const body = await c.req.json<JWKSInvalidateRequest>().catch(() => ({}))
+    const body = await c.req.json<JWKSInvalidateRequest>().catch(() => ({} as Partial<JWKSInvalidateRequest>))
     const kid = body.kid ?? "all"
 
     const machine = getJWKSStateMachine()

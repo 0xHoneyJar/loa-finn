@@ -126,7 +126,7 @@ describe("capabilities and health check", () => {
     const adapter = makeAdapter("/bin/echo")
     const caps = adapter.capabilities()
     expect(caps.streaming).toBe(true)
-    expect(caps.tools).toBe(true)
+    expect(caps.tool_calling).toBe(true)
   })
 
   it("health check detects existing binary", async () => {
