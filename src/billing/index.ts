@@ -85,3 +85,29 @@ export type { ReserveResult } from "./reserve-lua.js"
 // Billing metrics
 export { ConsoleBillingMetrics, noopBillingMetrics } from "./metrics.js"
 export type { BillingMetrics } from "./metrics.js"
+
+// Pricing (Sprint 2 Task 2.2)
+export {
+  getModelPricing,
+  loadModelPricing,
+  resetModelPricingCache,
+  estimateReserveCost,
+  computeActualCost,
+  estimateReserveCostCU,
+  computeActualCostCU,
+  computeX402Quote,
+  freezeRates,
+  DEFAULT_CREDIT_UNITS_PER_USD,
+  DEFAULT_USD_USDC_RATE,
+  PricingError,
+} from "./pricing.js"
+export type { ModelPricing } from "./pricing.js"
+
+// Reconciliation (Sprint 2 Task 2.6)
+export { ReconciliationService } from "./reconciliation.js"
+export type {
+  ReconciliationDeps,
+  ReconciliationDivergence,
+  ReconciliationResult,
+  RoundingDriftReport,
+} from "./reconciliation.js"
