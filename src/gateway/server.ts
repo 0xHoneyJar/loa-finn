@@ -23,6 +23,7 @@ import { oracleAuthMiddleware } from "./oracle-auth.js"
 import { oracleRateLimitMiddleware, OracleRateLimiter } from "./oracle-rate-limit.js"
 import { oracleConcurrencyMiddleware, ConcurrencyLimiter } from "./oracle-concurrency.js"
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
+import { getProtocolInfo } from "../hounfour/protocol-handshake.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
@@ -85,13 +86,15 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       }
     }
 
+    const protocol = getProtocolInfo()
+
     if (options?.healthAggregator) {
       let health = options.healthAggregator.check()
       // Oracle Phase 1 async enrichment (rate limiter health, daily usage)
       if (health.checks.oracle && options.oracleRateLimiter) {
         health = await options.healthAggregator.enrichOracleHealth(health)
       }
-      return c.json({ ...health, billing })
+      return c.json({ ...health, billing, protocol })
     }
     return c.json({
       status: "healthy",
@@ -101,6 +104,7 @@ export function createApp(config: FinnConfig, options: AppOptions) {
         sessions: { active: router.getActiveCount() },
       },
       billing,
+      protocol,
     })
   })
 

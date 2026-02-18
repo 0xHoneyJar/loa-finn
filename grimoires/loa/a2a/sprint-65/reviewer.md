@@ -1,97 +1,106 @@
-# Sprint 2 (Global: sprint-65) — Implementation Report
+# Sprint 65 Implementation Report
 
-## Sprint Goal
-Default Adapters: Implement all 6 adapter types for the local one-shot use case. After this sprint, the skill can be invoked end-to-end locally.
+> **Sprint**: sprint-1 (global sprint-65, cycle-026)
+> **Title**: Foundation — Schema Audit, Dependency Bump, Wire Fixtures
+> **Date**: 2026-02-18
+> **Status**: IMPLEMENTATION COMPLETE
 
-## Task Summary
+## Summary
 
-| Task | Title | Status | GPT Review | Files |
-|------|-------|--------|------------|-------|
-| 2.1 | GitHubCLIAdapter | DONE | APPROVED (iter 3, auto) | adapters/github-cli.ts |
-| 2.2 | AnthropicAdapter | DONE | APPROVED (iter 2) | adapters/anthropic.ts |
-| 2.3 | PatternSanitizer | DONE | APPROVED (iter 2) | adapters/sanitizer.ts |
-| 2.4 | NodeHasher/ConsoleLogger/NoOpContextStore | DONE | Skipped (trivial) | 3 adapter files |
-| 2.5 | Adapter factory and barrel | DONE | Skipped (wiring) | adapters/index.ts |
-| 2.6 | Adapter unit tests | DONE | Skipped (tests) | 5 test files |
+All 9 tasks completed. loa-hounfour upgraded from v5.0.0 to v7.0.0 with zero wire-format breaking changes confirmed via 9-dimension schema audit. Protocol handshake updated with finn-specific compatibility window [4.0.0, 7.x]. 1535 tests passing, zero new failures.
 
-## Files Created
+## Task Completion
 
-### Adapters (`resources/adapters/`)
-- `github-cli.ts` — GitHubCLIAdapter implementing IGitProvider + IReviewPoster via `gh` CLI with `child_process.execFile`, endpoint allowlist (Layer 6), 30s timeout, `--paginate` on all list endpoints
-- `anthropic.ts` — AnthropicAdapter implementing ILLMProvider via native `fetch()` to Anthropic Messages API, AbortController timeout (120s), exponential backoff with retry-after precedence (numeric + HTTP-date), 3 retries max
-- `sanitizer.ts` — PatternSanitizer implementing IOutputSanitizer with 7 pattern categories (ghp_, ghs_, github_pat_, sk-ant-, sk-, AKIA, xox[bprs]-, BEGIN...END PRIVATE KEY) + Shannon entropy detection (>40 chars, >4.5 bits/char)
-- `node-hasher.ts` — NodeHasher implementing IHasher via `crypto.createHash('sha256')`, async wrapper per port contract
-- `console-logger.ts` — ConsoleLogger implementing ILogger with structured JSON output, secret redaction via DEFAULT_REDACT_PATTERNS, `console.error` for error level
-- `noop-context.ts` — NoOpContextStore implementing IContextStore with all no-ops (load→void, getLastHash→null, setLastHash→void, claimReview→true, finalizeReview→void)
-- `index.ts` — `createLocalAdapters(config, anthropicApiKey)` factory + barrel re-exports; GitHubCLIAdapter serves as both `git` and `poster` (dual-interface)
+| Task | Description | Status | Key Outcome |
+|------|-------------|--------|-------------|
+| 1.1 | Golden Wire Fixtures | CLOSED (bd-3o8f) | 29 fixture tests, ES256 keypair, canonical JSON verification |
+| 1.2 | Schema Audit Phase A | CLOSED (bd-3f7p) | 9-dimension audit: ALL schemas identical v5→v7, only CONTRACT_VERSION changed |
+| 1.3 | Delete Local Package + ESLint | CLOSED (bd-3lfq) | packages/loa-hounfour/ deleted, ESLint no-restricted-imports enforced |
+| 1.4 | Bump to v7.0.0 | CLOSED (bd-3nzo) | SHA-pinned to d091a3c0, lint-git-deps.sh rejects mutable tags |
+| 1.5 | Fix Compilation Errors | CLOSED (bd-341q) | Zero new errors from v7 bump (12 pre-existing unrelated type errors) |
+| 1.6 | Protocol Handshake Update | CLOSED (bd-3cva) | FINN_MIN_SUPPORTED=4.0.0, PeerFeatures.trustScopes, /health protocol info |
+| 1.7 | Interop Handshake Fixture | CLOSED (bd-d95j) | 13 interop tests, arrakis v4.6.0+v7.0.0 acceptance, source refs documented |
+| 1.8 | Post-Bump Wire Fixture Verification | CLOSED (bd-3gow) | 29/29 pass, only contract_version string updated in 3 fixtures |
+| 1.9 | Test Suite Verification | CLOSED (bd-2wat) | 1535 passing, 39 pre-existing failures, s2s-jwt 22/22 |
 
-### Tests (`resources/__tests__/`)
-- `sanitizer.test.ts` — 12 tests: all 7 pattern categories, high-entropy detection, >40 boundary, clean passthrough, multiple occurrences, custom patterns
-- `node-hasher.test.ts` — 5 tests: empty string vector, known vector ("hello"), consistency, different inputs, hex format validation
-- `console-logger.test.ts` — 6 tests: structured JSON output, data inclusion, GitHub PAT redaction, data value redaction, error level routing, all log levels
-- `github-cli.test.ts` — 9 tests: marker detection (exact match, different SHA, partial prefix), marker format, response mapping (PR, files, binary, reviews), endpoint allowlist (6 valid + 5 invalid)
-- `anthropic.test.ts` — 11 tests: request format, headers, response parsing (text content, token counts, missing content, missing usage), constructor validation, retry-after parsing (numeric, ceiling, invalid), backoff calculation
+## Files Changed
 
-## GPT Review Findings Resolved
+### New Files
+- `tests/finn/wire-fixtures.test.ts` — 29 golden wire fixture tests
+- `tests/finn/interop-handshake.test.ts` — 13 interop handshake tests
+- `tests/fixtures/wire/jwt-claims.fixture.json` — JWT claims fixture
+- `tests/fixtures/wire/billing-request.fixture.json` — Billing request fixture
+- `tests/fixtures/wire/billing-response.fixture.json` — Billing response fixture
+- `tests/fixtures/wire/stream-event.fixture.json` — Stream event fixtures
+- `tests/fixtures/keys/es256-test.key` — Test ES256 private key
+- `tests/fixtures/keys/es256-test.pub` — Test ES256 public key
+- `eslint.config.mjs` — ESLint flat config with no-restricted-imports
+- `scripts/lint-git-deps.sh` — CI lint: reject mutable git tag refs
+- `scripts/patch-hounfour-dist.sh` — Postinstall: rebuild stale v7.0.0 dist
+- `grimoires/loa/a2a/schema-audit-v5-v7.json` — 9-dimension schema audit artifact
 
-### github-cli.ts (3 issues fixed, 2 false positives)
-1. **No endpoint allowlist** → Added `ALLOWED_API_ENDPOINTS` regex array + `assertAllowedArgs()` guard called before every `gh` invocation. SDD Layer 6 requirement.
-2. **`--show-token` leaks token** → Changed `gh auth status --show-token` to `gh auth status` (without `--show-token`).
-3. **Preflight null safety** → Added optional chaining: `resources?.core?.remaining ?? 0` instead of unsafe casts.
-4. _(False positive)_ GPT flagged preflight 0-fallback as bug — correct design: 0 triggers "low remaining" warning per SDD.
-5. _(False positive)_ GPT flagged exact marker match as too strict — correct per SDD: exact `<!-- bridgebuilder-review: {headSha} -->` match is the spec.
+### Modified Files
+- `package.json` — v7.0.0 SHA pin, postinstall script, eslint devDeps
+- `tsconfig.json` — Removed local package path mapping
+- `src/hounfour/protocol-handshake.ts` — Complete rewrite for v7 compatibility
+- `src/gateway/server.ts` — Added protocol info to /health endpoint
+- `tests/finn/jwt-auth.test.ts` — Updated vector path to node_modules
+- `tests/finn/budget-micro.test.ts` — Updated vector path to node_modules
 
-### anthropic.ts (3 issues fixed)
-1. **Double delay on retry** → Original applied exponential backoff at loop start AND retry-after after 429. Fixed: `retryAfterMs` state variable — server retry-after takes precedence over exponential backoff.
-2. **Missing parseRetryAfter()** → Added helper supporting both numeric seconds and HTTP-date format, with ceiling cap at 60s.
-3. **HTTP-date format not supported** → Same fix as #2.
+### Deleted
+- `packages/loa-hounfour/` — Entire local package (1,158 LOC)
 
-### sanitizer.ts (3 issues fixed)
-1. **Private key header only** → Pattern only matched `-----BEGIN ... PRIVATE KEY-----`. Fixed to match full block: `-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----`.
-2. **Extra patterns missing global flag** → Added enforcement: `const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g"`.
-3. **High-entropy >=40 vs >40** → Spec says ">40 chars". Changed `HIGH_ENTROPY_MIN_LENGTH` from 40 to 41, regex from `{40,}` to `{41,}`.
+## Critical Findings
 
-## Self-Fixes (Pre-GPT)
+### 1. loa-hounfour v7.0.0 Stale Dist (BLOCKER — Mitigated)
 
-### github-cli.ts
-- **Dead `payload` variable** → Initial version had `const payload = JSON.stringify(...)` that was never used alongside conflicting `--input -` and `-f` flags. Removed payload and `--input -`, using only `--raw-field` and `-f` flags.
+The v7.0.0 tag (d091a3c0) was committed with a stale `dist/` build:
+- `CONTRACT_VERSION = '3.0.0'` (should be '7.0.0')
+- `MIN_SUPPORTED_VERSION = '2.4.0'` (should be '6.0.0')
+- `validators/billing.js` missing entirely
+- New modules (core, economy, governance) missing
+
+**Mitigation**: `scripts/patch-hounfour-dist.sh` postinstall script clones the exact commit, runs `tsc`, and copies the correct dist. This runs on every `npm install`.
+
+**Recommended fix**: Push a corrected tag to loa-hounfour with properly built dist, then update the SHA pin.
+
+### 2. Arrakis Already at v7.0.0
+
+Arrakis (commit 3b19224b) pins loa-hounfour to the same SHA (d091a3c0). The "v4.6.0 transition period" scenario is theoretical — both sides are already at v7.0.0. FINN_MIN_SUPPORTED=4.0.0 provides safety margin for any rollback.
+
+### 3. Wire Format 100% Compatible
+
+The 9-dimension schema audit confirmed ALL schemas imported by loa-finn are byte-for-byte identical between v5 and v7. The only changes are version constants and new modules not imported by loa-finn.
 
 ## Test Results
 
-```
-ℹ tests 43
-ℹ suites 14
-ℹ pass 43
-ℹ fail 0
-```
+| Suite | Passing | Failing | Notes |
+|-------|---------|---------|-------|
+| Wire Fixtures | 29 | 0 | Golden wire format verification |
+| Interop Handshake | 13 | 0 | Cross-version compatibility |
+| Protocol Handshake | 14 | 0 | All status paths + URL derivation |
+| Billing Finalize | 30 | 0 | DLQ, replay, timeout, isolation |
+| JWT Auth | 84 | 0 | Vector-driven JWT validation |
+| Budget Micro | 106 | 0 | MicroUSD arithmetic |
+| S2S JWT | 22 | 0 | Service-to-service JWT |
+| Gateway (invoke, usage, billing-path, tracing) | 35 | 0 | API handler tests |
+| **Full Suite** | **1535** | **39** | 39 pre-existing, 0 new |
 
-All 43 tests pass across 5 test files: PatternSanitizer (12), NodeHasher (5), ConsoleLogger (6), GitHubCLIAdapter (9), AnthropicAdapter (11).
+### Pre-existing Failures (39 total, unrelated to v7 migration)
 
-### Test Fix History
-- `anthropic.test.ts` text join mismatch: test data had extra `\n\n` prefix causing triple newline on join. Fixed test data and expected string.
+- `pool-registry-validation.test.ts` (7): Tests use invalid pool ID "a"
+- `req-hash.test.ts` (14): Auth middleware ordering (401 before 400)
+- `pool-registry.test.ts` (5): Same pool ID validation issue
+- `jwt-integration.test.ts` (5): Integration test setup issues
+- `finnNFT-e2e.test.ts` (4): NFT routing pre-existing
+- `ensemble-budget.test.ts` (2): Ensemble pre-existing
+- `dual-auth.test.ts` (1): Auth ordering
+- `jwt-roundtrip.test.ts` (1): Pre-existing
 
-## Architecture Compliance
+## Risks & Mitigations
 
-- **Hexagonal boundary**: All adapters depend only on port interfaces. No cross-adapter imports.
-- **Zero npm dependencies**: All adapters use only Node built-ins (`node:crypto`, `node:child_process`, native `fetch`).
-- **Token isolation**: GitHub tokens handled by `gh` CLI, never in adapter code. Anthropic key as `x-api-key` header only.
-- **Endpoint allowlist**: GitHubCLIAdapter enforces Layer 6 hardcoded regex allowlist — prevents unauthorized API calls.
-- **ESM conventions**: All imports use `.js` extensions for NodeNext resolution.
-- **No secrets**: No hardcoded tokens, keys, or credentials.
-- **Dual-interface pattern**: GitHubCLIAdapter implements both IGitProvider and IReviewPoster, wired as both `git` and `poster` in factory.
-
-## Known Deviations from SDD
-
-1. **GitHubCLIAdapter also implements IReviewPoster** — SDD describes them as separate adapters, but both use `gh` CLI so combining avoids duplicating the execFile wrapper. Factory exposes the same instance for both roles.
-2. **ConsoleLogger uses DEFAULT_REDACT_PATTERNS constant** instead of accepting patterns as constructor param — keeps the API simple; custom patterns can be added via subclass.
-3. **createLocalAdapters() takes explicit `anthropicApiKey` param** instead of reading from `process.env` internally — allows testing without env pollution.
-
-## Beads Task Status
-
-All 6 tasks closed:
-- bd-2bp (2.1 GitHubCLIAdapter)
-- bd-31m (2.2 AnthropicAdapter)
-- bd-3by (2.3 PatternSanitizer)
-- bd-2ru (2.4 NodeHasher/ConsoleLogger/NoOpContextStore)
-- bd-1dm (2.5 Adapter factory and barrel)
-- bd-1bg (2.6 Adapter unit tests)
+| Risk | Severity | Status | Mitigation |
+|------|----------|--------|------------|
+| Stale v7.0.0 dist | HIGH | MITIGATED | Postinstall rebuild script |
+| Wire capture gap | MEDIUM | ACCEPTED | No v4.6.0 captures available (arrakis already v7.0.0) |
+| 39 pre-existing test failures | LOW | DOCUMENTED | Separate concern, not migration-related |
