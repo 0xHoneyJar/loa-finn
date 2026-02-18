@@ -1227,6 +1227,7 @@ describe("degraded state recovery", () => {
     expect(guard.isBillingReady()).toBe(false)
 
     // Phase 2: Switch to fake timers for recovery
+    vi.spyOn(Math, "random").mockReturnValue(0.5) // Deterministic jitter for fake timers
     vi.useFakeTimers()
     guard.startRecoveryTimer(1000)
 
@@ -1235,10 +1236,11 @@ describe("degraded state recovery", () => {
     expect(guard.getHealth().state).toBe("degraded")
 
     // Fix evaluator — next tick should recover
+    // After first failure, interval doubles to 2000ms (exponential backoff)
     evaluatorOverride.fn = null // Back to real evaluator
     vi.spyOn(console, "log").mockImplementation(() => {})
 
-    vi.advanceTimersByTime(1000)
+    vi.advanceTimersByTime(2000)
     expect(guard.getHealth().state).toBe("ready")
     expect(guard.getHealth().evaluator_compiled).toBe(true)
     expect(guard.isBillingReady()).toBe(true)
@@ -1267,6 +1269,7 @@ describe("degraded state recovery", () => {
     expect(guard.getHealth().state).toBe("degraded")
 
     // Switch to fake timers for recovery
+    vi.spyOn(Math, "random").mockReturnValue(0.5) // Deterministic jitter for fake timers
     vi.useFakeTimers()
     guard.startRecoveryTimer(500)
 
@@ -1296,6 +1299,7 @@ describe("degraded state recovery", () => {
     expect(degradedResult.effective).toBe("fail")
 
     // Switch to fake timers for recovery
+    vi.spyOn(Math, "random").mockReturnValue(0.5) // Deterministic jitter for fake timers
     vi.useFakeTimers()
     guard.startRecoveryTimer(500)
 
@@ -1615,6 +1619,7 @@ describe("observability: compilation metrics (Task 2.10)", () => {
     expect(calls.circuitState).toEqual(["open"])
 
     // Switch to fake timers for recovery
+    vi.spyOn(Math, "random").mockReturnValue(0.5) // Deterministic jitter for fake timers
     vi.useFakeTimers()
     guard.startRecoveryTimer(500)
 

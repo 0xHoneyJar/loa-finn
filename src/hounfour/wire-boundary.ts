@@ -116,6 +116,11 @@ export function parseMicroUSDLenient(raw: string): { value: MicroUSD; normalized
     throw new WireBoundaryError("micro_usd", raw, "whitespace-only value (lenient)")
   }
 
+  // Bounds check: reject absurdly long strings before BigInt conversion (DoS prevention)
+  if (trimmed.length > 30) {
+    throw new WireBoundaryError("micro_usd", raw, "value exceeds maximum length (lenient)")
+  }
+
   // Try BigInt conversion after stripping plus sign
   const noPlusSign = trimmed.startsWith("+") ? trimmed.slice(1) : trimmed
   try {

@@ -56,7 +56,10 @@ const CONSTRAINT_EXPRESSIONS = {
   budget_conservation: "bigint_gte(limit, spent)",
   cost_non_negative: "bigint_gte(cost, zero)",
   reserve_within_allocation: "bigint_gte(allocation, reserve)",
-  micro_usd_format: "bigint_gte(value, value)",
+  // MicroUSD format is ad-hoc-only: constraint language lacks string pattern matching.
+  // Evaluator returns "bypassed" for this invariant; ad-hoc assertMicroUSDFormat() does real validation.
+  // The lattice still enforces fail-closed via the ad-hoc result.
+  micro_usd_format: null,
 } as const
 
 type InvariantId = keyof typeof CONSTRAINT_EXPRESSIONS
@@ -186,26 +189,38 @@ export class BillingConservationGuard {
     if (this.recoveryTimer) return
     if (this.state !== "degraded") return
 
-    this.recoveryTimer = setInterval(() => {
-      if (this.state !== "degraded") {
-        this.stopRecoveryTimer()
-        return
-      }
-      try {
-        this.compileConstraints()
-        this.compiled = true
-        this.state = "ready"
-        this.metrics.recordCircuitState("closed")
-        this.metrics.recordConstraintCount(Object.keys(CONSTRAINT_EXPRESSIONS).length)
-        this.writeAuditEntry("evaluator_recovery")
-        console.log("[billing-conservation-guard] Recovery: evaluator recompiled successfully, state=ready")
-        this.stopRecoveryTimer()
-      } catch (err) {
-        console.warn("[billing-conservation-guard] Recovery attempt failed:", err instanceof Error ? err.message : String(err))
-      }
-    }, intervalMs)
+    let currentInterval = intervalMs
+    const maxInterval = intervalMs * 10 // Cap at 10x base (e.g., 10 min if base is 60s)
 
-    if (this.recoveryTimer.unref) this.recoveryTimer.unref()
+    const scheduleNext = () => {
+      this.recoveryTimer = setTimeout(() => {
+        if (this.state !== "degraded") {
+          this.stopRecoveryTimer()
+          return
+        }
+        try {
+          this.compileConstraints()
+          this.compiled = true
+          this.state = "ready"
+          this.metrics.recordCircuitState("closed")
+          this.metrics.recordConstraintCount(Object.keys(CONSTRAINT_EXPRESSIONS).length)
+          this.writeAuditEntry("evaluator_recovery")
+          console.log("[billing-conservation-guard] Recovery: evaluator recompiled successfully, state=ready")
+          this.stopRecoveryTimer()
+        } catch (err) {
+          console.warn("[billing-conservation-guard] Recovery attempt failed:", err instanceof Error ? err.message : String(err))
+          // Exponential backoff with 25% jitter, capped at maxInterval
+          currentInterval = Math.min(currentInterval * 2, maxInterval)
+          scheduleNext()
+        }
+      }, currentInterval + Math.floor(currentInterval * 0.25 * (Math.random() - 0.5)))
+
+      if (this.recoveryTimer && (this.recoveryTimer as NodeJS.Timeout).unref) {
+        (this.recoveryTimer as NodeJS.Timeout).unref()
+      }
+    }
+
+    scheduleNext()
   }
 
   /**
@@ -213,7 +228,7 @@ export class BillingConservationGuard {
    */
   stopRecoveryTimer(): void {
     if (this.recoveryTimer) {
-      clearInterval(this.recoveryTimer)
+      clearTimeout(this.recoveryTimer)
       this.recoveryTimer = null
     }
   }
@@ -267,6 +282,9 @@ export class BillingConservationGuard {
    */
   private compileConstraints(): void {
     for (const [id, expr] of Object.entries(CONSTRAINT_EXPRESSIONS)) {
+      // Null expressions are ad-hoc only; skip evaluator compilation
+      if (expr === null) continue
+
       // Dry-run evaluation to verify expression compiles
       const result = evaluateConstraintDetailed(expr, { spent: "0", limit: "0", cost: "0", zero: "0", reserve: "0", allocation: "0", value: "0" })
       if (!result.valid) {
@@ -322,34 +340,44 @@ export class BillingConservationGuard {
     }
 
     // Run evaluator
-    let evaluatorResult: "pass" | "fail" | "error"
-    try {
-      const expression = CONSTRAINT_EXPRESSIONS[invariantId]
-      const evalResult: EvaluationResult = evaluateConstraintDetailed(expression, context)
+    let evaluatorResult: "pass" | "fail" | "error" | "bypassed"
+    const expression = CONSTRAINT_EXPRESSIONS[invariantId]
 
-      if (!evalResult.valid) {
+    if (expression === null) {
+      // Ad-hoc only constraint — evaluator bypassed for this invariant
+      evaluatorResult = "bypassed"
+    } else {
+      try {
+        const evalResult: EvaluationResult = evaluateConstraintDetailed(expression, context)
+
+        if (!evalResult.valid) {
+          evaluatorResult = "error"
+          console.error(`[billing-conservation-guard] ${invariantId}: evaluator error: ${evalResult.error}`)
+        } else {
+          evaluatorResult = evalResult.value ? "pass" : "fail"
+        }
+      } catch (err) {
+        // Evaluator runtime error → FAIL (not fallback)
         evaluatorResult = "error"
-        console.error(`[billing-conservation-guard] ${invariantId}: evaluator error: ${evalResult.error}`)
-      } else {
-        evaluatorResult = evalResult.value ? "pass" : "fail"
+        console.error(`[billing-conservation-guard] ${invariantId}: evaluator threw:`, err instanceof Error ? err.message : String(err))
       }
-    } catch (err) {
-      // Evaluator runtime error → FAIL (not fallback)
-      evaluatorResult = "error"
-      console.error(`[billing-conservation-guard] ${invariantId}: evaluator threw:`, err instanceof Error ? err.message : String(err))
     }
 
     // Record check duration
     this.metrics.recordCheckDuration(invariantId, performance.now() - checkStart)
 
     // Strict fail-closed lattice
+    // Bypassed evaluator: effective follows ad-hoc result only
+    // Active evaluator: both must pass (conjunction)
     const effective: "pass" | "fail" =
-      evaluatorResult === "pass" && adhocResult === "pass" ? "pass" : "fail"
+      evaluatorResult === "bypassed"
+        ? adhocResult
+        : evaluatorResult === "pass" && adhocResult === "pass"
+          ? "pass"
+          : "fail"
 
-    // Divergence monitoring: evaluator and ad-hoc disagree
-    const evalBool = evaluatorResult === "pass"
-    const adhocBool = adhocResult === "pass"
-    if (evalBool !== adhocBool && evaluatorResult !== "error") {
+    // Divergence monitoring: only when both evaluator and ad-hoc produce definitive results
+    if ((evaluatorResult === "pass" || evaluatorResult === "fail") && evaluatorResult !== adhocResult) {
       this.metrics.recordDivergence(invariantId, evaluatorResult, adhocResult)
       console.warn(`[billing-conservation-guard] DIVERGENCE: ${invariantId} evaluator=${evaluatorResult} adhoc=${adhocResult}`)
     }
