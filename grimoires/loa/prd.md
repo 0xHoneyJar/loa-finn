@@ -1,531 +1,391 @@
-# PRD: The Oracle — From Engine to Product (loa-dixie Phase 1)
+# PRD: Protocol Convergence — loa-hounfour v5.0.0 → v7.0.0
 
-> **Version**: 3.0.0
-> **Date**: 2026-02-17
-> **Author**: @janitooor + Bridgebuilder
+> **Version**: 1.1.0 (Flatline-integrated)
+> **Date**: 2026-02-18
+> **Author**: @janitooor + Claude Opus 4.6
 > **Status**: Draft
-> **Cycle**: cycle-025 (extended)
-> **Predecessor**: PRD v2.0.0 — Oracle Knowledge Engine (Phase 0, IMPLEMENTED)
+> **Cycle**: cycle-026
 > **Command Center**: [#66](https://github.com/0xHoneyJar/loa-finn/issues/66)
-> **RFC**: [#74 — The Oracle](https://github.com/0xHoneyJar/loa-finn/issues/74) · [loa-dixie #1 — Genesis](https://github.com/0xHoneyJar/loa-dixie/issues/1)
-> **Cross-references**: [loa-finn PR #75](https://github.com/0xHoneyJar/loa-finn/pull/75) (Oracle engine, ready to merge) · [loa-dixie RFC](https://github.com/0xHoneyJar/loa-dixie/blob/main/docs/rfc.md) · [#31 Hounfour RFC](https://github.com/0xHoneyJar/loa-finn/issues/31) · [loa #247 Meeting Geometries](https://github.com/0xHoneyJar/loa/issues/247) · [arrakis #62 Billing](https://github.com/0xHoneyJar/arrakis/issues/62) · [loa-hounfour PR #2](https://github.com/0xHoneyJar/loa-hounfour/pull/2)
-> **Grounding**: `src/hounfour/knowledge-{enricher,loader,registry,types}.ts` (Phase 0 engine), `deploy/terraform/finn.tf` (ECS infra), loa-dixie `knowledge/` (10 curated sources, ~140KB), loa-dixie `docs/rfc.md` (phased roadmap)
-> **Naming**: McCoy Pauley's ROM construct — "The Dixie Flatline" — a recorded consciousness that carries accumulated expertise and can be consulted by anyone who needs understanding.
-
----
-
-## 0. Phase 0 Recap (IMPLEMENTED — PRD v2.0.0)
-
-Phase 0 built the Oracle's **engine** inside loa-finn. This work is complete in PR #75 (107 tests, GPT-5.2 + Flatline approved, review + audit passed):
-
-| Component | Status | Location |
-|-----------|--------|----------|
-| Knowledge Types | Done | `src/hounfour/knowledge-types.ts` (80 LOC) |
-| Knowledge Loader (5-gate security) | Done | `src/hounfour/knowledge-loader.ts` (141 LOC) |
-| Knowledge Registry (health checks) | Done | `src/hounfour/knowledge-registry.ts` (161 LOC) |
-| Knowledge Enricher (tag classifier + budget) | Done | `src/hounfour/knowledge-enricher.ts` (244 LOC) |
-| Router integration (3 invoke methods) | Done | `src/hounfour/router.ts` (modified) |
-| Type extensions (AgentBinding, ResultMetadata) | Done | `src/hounfour/types.ts` (modified) |
-| Config extensions (FINN_ORACLE_ENABLED) | Done | `src/config.ts` (modified) |
-| Health + error handling | Done | `src/gateway/routes/invoke.ts` (modified) |
-| Test suite (107 tests across 6 files) | Done | `tests/finn/knowledge-*.test.ts`, `oracle-*.test.ts` |
-| Knowledge corpus (10 curated sources, ~72K tokens) | Done | `grimoires/oracle/` |
-| Oracle persona | Done | `grimoires/oracle-persona.md` |
-
-**What Phase 0 proved**: The knowledge enrichment pipeline works. Tag-based classification is deterministic and testable. The trust boundary prevents injection. Budget enforcement is exact. The Oracle can answer questions at multiple abstraction levels with source attribution.
-
-**What Phase 0 lacks**: No one can reach it. The Oracle lives behind an API endpoint (`POST /api/v1/invoke { agent: "oracle" }`) with no frontend, no public URL, and no product surface. It's an engine with no vehicle.
+> **Source**: [#66 Protocol Convergence Update](https://github.com/0xHoneyJar/loa-finn/issues/66#issuecomment-3914427997)
+> **Cross-references**: [loa-hounfour v7.0.0](https://github.com/0xHoneyJar/loa-hounfour/releases/tag/v7.0.0) · [loa-hounfour PR #14](https://github.com/0xHoneyJar/loa-hounfour/pull/14) · [MIGRATION.md](https://github.com/0xHoneyJar/loa-hounfour/blob/main/MIGRATION.md) · [Issue #13 (extraction tracker, CLOSED)](https://github.com/0xHoneyJar/loa-hounfour/issues/13)
+> **Grounding**: `src/hounfour/` (33 files), `packages/loa-hounfour/` (1,158 LOC, stale v1.0.0), `tests/finn/` (200 tests, 15 suites), `grimoires/oracle/` (20 knowledge sources)
+> **Predecessor**: cycle-025 "The Oracle" (v1.29.0, PR #75 merged), cycle-021 "S2S Billing" (v5.0.0 adoption, PR #68 merged)
 
 ---
 
 ## 1. Problem Statement
 
-### The Phase 1 Problem
+### The Protocol Gap
 
-The Oracle engine is built. 600 lines of TypeScript, 107 tests, 10 curated knowledge sources covering 82K+ lines across 4 repositories. It works. It's approved. It's sitting in a PR.
+loa-finn's shared protocol package (`@0xhoneyjar/loa-hounfour`) is pinned to a commit corresponding to **v5.0.0**. The canonical version is now **v7.0.0** — three major versions ahead, shipping 87+ schemas, 31 evaluator builtins, and 147 constraints across 40 constraint files.
 
-But nobody can use it.
+The gap creates three problems:
 
-There is no website. No public endpoint. No way for an engineer, contributor, community member, or investor to type a question and get an answer. The engine exists; the product does not.
+**Type safety erosion.** loa-finn uses local equivalents for types that now have canonical protocol definitions. `MicroUSD` is a string pattern in local code but a branded type in the protocol. `PoolId` is a union literal that could drift from the canonical vocabulary. Local and canonical types coexist with no guarantee of compatibility.
 
-### Why Phase 1 Matters Beyond the Oracle
+**Conservation blind spot.** The protocol now includes 14 conservation invariants with LTL formalization and a constraint evaluation system. loa-finn's billing pipeline (`billing-finalize-client.ts`, `cost-arithmetic.ts`, `budget.ts`) enforces invariants through ad-hoc checks rather than the canonical evaluator. If a billing invariant is added to the protocol, loa-finn won't know.
 
-The Oracle is the **first dNFT product** in the HoneyJar ecosystem. The infrastructure built for `oracle.arrakis.community` — subdomain routing, frontend hosting, API layer, knowledge sync — becomes the **template for every future finnNFT website**. When the next bear NFT or community agent needs its own web presence, the pattern already exists.
+**Knowledge staleness.** The Oracle (PR #75) has knowledge sources grounded in v5.x protocol reality. `code-reality-hounfour.md` describes a protocol that no longer exists. Users asking the Oracle about the protocol will get outdated answers.
 
-This is not just "ship a chatbot." This is "build the platform by building the first product on it."
+### What's Changed (v5.0.0 → v7.0.0)
 
-### Vision (Extended)
+| Version | Breaking Change | Impact on loa-finn |
+|---------|----------------|-------------------|
+| v5.5.0 | None (additive) | New: ConservationPropertyRegistry, branded types, AgentIdentity, JWT boundary spec |
+| v6.0.0 | `AgentIdentity.trust_level` → `trust_scopes` | **Low** — loa-finn doesn't use `AgentIdentity` directly. Uses JWT `Tier` (different concept). |
+| v7.0.0 | `RegistryBridge` gains required `transfer_protocol` | **None** — loa-finn doesn't use `RegistryBridge` yet. |
 
-**Phase 0 vision**: A unified knowledge interface that anyone can query at any level.
-**Phase 1 vision**: That interface, live at `oracle.arrakis.community`, accessible to anyone with a browser, with the infrastructure to serve every future dNFT the same way.
+**Key insight**: Neither breaking change affects existing loa-finn code *based on current import analysis* (11 files import from loa-hounfour; none use `AgentIdentity` or `RegistryBridge`). However, shared schemas used indirectly (validators, vocabularies, TypeBox defaults) may have changed in ways not visible from import analysis alone. **Sprint 1 must include an explicit schema audit** — diff every imported symbol and every runtime-validated schema between v5.0.0 and v7.0.0, verifying no new required fields appear on wire-format schemas. See FR-1 acceptance criteria.
+
+> Source: [MIGRATION.md](https://github.com/0xHoneyJar/loa-hounfour/blob/main/MIGRATION.md), [CHANGELOG.md](https://github.com/0xHoneyJar/loa-hounfour/blob/main/CHANGELOG.md), codebase exploration (11 files with hounfour imports)
 
 ---
 
 ## 2. Goals & Success Metrics
 
-### Goals
+### Business Objectives
 
-| # | Goal | Measurable Outcome |
-|---|------|--------------------|
-| G1 | Oracle live and publicly accessible | `oracle.arrakis.community` serves the chat interface |
-| G2 | Product-grade API | `/api/v1/oracle` endpoint with simpler DX than raw invoke |
-| G3 | Extended knowledge corpus | 20+ sources across all 7 abstraction levels |
-| G4 | Source attribution visible to users | Every response shows which sources informed the answer |
-| G5 | Reusable dNFT website infrastructure | Terraform module supports adding new subdomains with minimal config |
-| G6 | Knowledge single source of truth | loa-dixie repo is canonical; loa-finn consumes at build time |
-| G7 | Migration-ready hosting | S3+CloudFront now, clean path to Cloudflare Pages later |
+| Objective | Success Metric |
+|-----------|---------------|
+| Protocol convergence | loa-finn imports from `@0xhoneyjar/loa-hounfour` at v7.0.0 tag |
+| Type safety | Zero local type definitions that shadow canonical protocol types |
+| Conservation coverage | Billing invariants validated by canonical evaluator builtins |
+| Knowledge freshness | Oracle knowledge sources reflect v7.0.0 protocol reality |
+| Local package removal | `packages/loa-hounfour/` directory deleted, all imports from external package |
+| Test parity | 187+ tests passing (no regression from current baseline) |
 
-### Non-Goals (This Phase)
+### Non-Goals
 
-| # | Non-Goal | Why Deferred |
-|---|----------|-------------|
-| NG1 | Vector embedding / semantic search | Phase 2 (Scholar); tag-based classification is sufficient for 20 sources |
-| NG2 | dNFT on-chain identity | Phase 4 (Citizen); requires smart contract work |
-| NG3 | x402 micropayments | Phase 5; requires arrakis x402 middleware integration |
-| NG4 | Session-based conversations | Future; API designed to support it without breaking changes |
-| NG5 | Custom domain (0xhoneyjar.xyz) | DNS not yet in Route 53; using arrakis.community for speed |
-| NG6 | Ceremony participation | Phase 3 (Participant); requires ceremony engine from loa#247 |
-
-### Success Metrics
-
-| Metric | Target | How Measured |
-|--------|--------|-------------|
-| Site loads and serves queries | 100% uptime during demo | CloudFront + health check |
-| Response includes source citations | Every response | API response metadata + UI display |
-| Gold-set accuracy (source selection) | ≥90% of 20 test queries pass (see §4 FR-3 gold-set contract) | Automated CI gold-set test suite |
-| Deterministic selection | Same query + same corpus + same config = identical source IDs and ordering | CI test: run same query twice, assert `sources[].id` ordering and `total_knowledge_tokens` are byte-identical |
-| Response latency (cached sources) | < 3s to first token | API metadata `knowledge_retrieval_ms` |
-| Knowledge corpus coverage | 20+ sources, all 7 levels | `sources.json` validation |
-| Subdomain reusability | Second subdomain deployable with <50 lines of Terraform | Terraform module interface |
+- **Arrakis upgrade** — different repo, parallel work stream (Phase 3 in the convergence plan)
+- **Cross-system E2E** — requires both consumers at v7.0.0 (Phase 4, blocked on arrakis)
+- **npm publish** — loa-hounfour npm publishing is a separate concern; we use git tag pin
+- **New protocol features** — no new features built on v7.0.0 schemas (sagas, governance, etc.) — just adoption of existing canonical types and evaluator
 
 ---
 
 ## 3. User & Stakeholder Context
 
-### Personas & Tiers
+### Primary Stakeholders
 
-| Persona | Example Question | Access Tier | Authentication |
-|---------|-----------------|-------------|---------------|
-| **Engineer** | "How does the billing settlement flow work?" | Developer | JWT or API key |
-| **Contributor** | "How do I add a new model adapter?" | Community | None (public) or NFT-gated |
-| **Product Manager** | "What's the Oracle's revenue model?" | Developer/Enterprise | JWT |
-| **Community Member** | "What can my bear NFT do?" | Public | None |
-| **Investor** | "How does the x402 payment flow work?" | Enterprise | JWT |
-| **Curious Observer** | "What is this project?" | Public | None |
+| Stakeholder | Concern | Impact |
+|-------------|---------|--------|
+| **loa-finn developers** | Type safety, import clarity | All hounfour imports resolve to single canonical source |
+| **Oracle users** | Accurate protocol knowledge | Knowledge sources reflect current protocol reality |
+| **arrakis team** | Wire format compatibility | No wire format changes — JWT claims, stream events unchanged |
+| **loa-hounfour maintainers** | Consumer adoption feedback | First consumer at v7.0.0 provides validation |
 
-### Tier Model (Phase 1 MVP)
+### User Stories
 
-| Tier | Rate Limit | Auth | Sources |
-|------|-----------|------|---------|
-| **Public** | 5 questions/day | None (IP-based rate limit) | Full corpus |
-| **Authenticated** | 50 questions/day | Bearer token (opaque API key, manually issued) | Full corpus |
-
-The RFC defines Community (NFT-gated), Developer ($10/mo), and Enterprise (custom) tiers — these require arrakis billing integration and are deferred to Phase 4-5.
-
-### Rate Limiting & Auth Specification (GPT-5.2 SKP-001)
-
-**Client identity derivation**: The request traverses CloudFront → ALB → ECS. The trusted client IP is extracted from the **last entry** in the `X-Forwarded-For` header as set by the ALB (which appends the true source IP). User-supplied `X-Forwarded-For` values are ignored — only the ALB-appended IP is used. Implementation: parse `X-Forwarded-For`, take the rightmost IP before the ALB's own address.
-
-**Authenticated token format**: Phase 1 uses **opaque API keys** (32-byte hex strings, e.g., `dk_live_a1b2c3...`). Keys are stored server-side as SHA-256 hashes in Redis (`oracle:apikeys:{hash} → { quota_remaining, tier, issued_at }`). No JWT complexity for Phase 1 — JWTs are deferred to arrakis billing integration (Phase 4-5).
-
-**Precedence rule**: If a valid `Authorization: Bearer dk_live_...` header is present and the key validates, apply the **authenticated tier quota** (50/day). Otherwise, fall back to **public tier quota** (5/day per IP). Both quotas are tracked in Redis with 24-hour TTL keys (`oracle:ratelimit:ip:{ip}:{date}` and `oracle:ratelimit:key:{hash}:{date}`).
-
-**Acceptance tests**: CI must include tests that (a) confirm spoofed `X-Forwarded-For` headers do not bypass the IP limiter, (b) confirm invalid/expired API keys fall back to IP-based limiting, (c) confirm the 6th request from the same IP within 24h returns HTTP 429.
-
-> **Flatline SKP-001 (Override)**: Skeptic flagged X-Forwarded-For as brittle. The ALB-appended IP extraction specified above is adequate for Phase 1 — CloudFront-Viewer-Address is a refinement for SDD. Rationale: the ALB is the only trusted proxy in the chain, and the rightmost-appended IP is the standard AWS pattern.
-
-**Global cost protection (Flatline SKP-002 + SKP-001b)**:
-- **Global daily budget**: Hard cap of 200 Oracle invocations/day across all sources (IPs + API keys combined). Tracked in Redis as `oracle:global:{date}` counter. When exceeded, all Oracle requests return HTTP 503 with `Retry-After: {seconds-until-midnight-UTC}`. Configurable via `FINN_ORACLE_DAILY_CAP` env var.
-- **Cost circuit breaker**: If cumulative daily model inference spend for Oracle queries exceeds `$20` (configurable via `FINN_ORACLE_COST_CEILING_CENTS=2000`), the Oracle auto-disables until midnight UTC. Tracked via existing billing metering. CloudWatch alarm fires immediately.
-- **Honest latency target**: Non-streaming Phase 1 targets **< 15s p95 time-to-complete-response** (not "first token"). Frontend displays a typing animation / progress indicator during the wait. Requests exceeding 30s are terminated with HTTP 504.
-
-**Minimal key lifecycle (Flatline SKP-006)**:
-- Admin CLI script: `scripts/oracle-keys.sh create|revoke|list`. Creates keys with prefix `dk_live_` (prod) or `dk_test_` (dev).
-- Key status in Redis: `oracle:apikeys:{hash} → { status: "active"|"revoked", owner, created_at, last_used_at }`.
-- Revocation is immediate (Redis delete of active status). Revoked keys return HTTP 401.
-- Audit: key creation and revocation events logged to CloudWatch (structured JSON). No rotation or scoped keys for Phase 1.
+1. **As a developer**, I want all protocol types to come from one package, so I don't have to guess which `PoolId` definition to use.
+2. **As a developer**, I want billing invariants validated by the protocol's evaluator, so new conservation properties are automatically enforced.
+3. **As an Oracle user**, I want accurate answers about the protocol, so I can understand how the system works.
+4. **As a CI pipeline**, I want the protocol version to be verifiable, so I can detect drift automatically.
 
 ---
 
 ## 4. Functional Requirements
 
-### Phase 1 Scope Overview
-
-```
-                    ┌────────────────────────────────────────┐
-                    │     oracle.arrakis.community (NEW)      │
-                    │     Next.js on S3 + CloudFront          │
-                    │     Chat UI + source attribution        │
-                    └──────────────┬─────────────────────────┘
-                                   │ HTTPS
-                                   ▼
-                    ┌────────────────────────────────────────┐
-                    │     /api/v1/oracle (NEW convenience)    │
-                    │     Thin wrapper over /invoke            │
-                    │     Rate limiting, CORS, simpler DX     │
-                    └──────────────┬─────────────────────────┘
-                                   │ internal
-                                   ▼
-                    ┌────────────────────────────────────────┐
-                    │     /api/v1/invoke { agent: "oracle" }  │
-                    │     (EXISTING — Phase 0, PR #75)        │
-                    │     Knowledge enrichment pipeline        │
-                    └──────────────┬─────────────────────────┘
-                                   │ reads at startup
-                                   ▼
-                    ┌────────────────────────────────────────┐
-                    │     Knowledge Corpus (loa-dixie)         │
-                    │     20+ sources, ~150K tokens            │
-                    │     Synced at Docker build time          │
-                    └────────────────────────────────────────┘
-```
-
----
-
-### FR-1: Merge & Deploy Oracle Engine (Phase 0 → Production)
-
-Merge PR #75 into main and deploy loa-finn with `FINN_ORACLE_ENABLED=true`.
-
-**Prerequisite**: PR #75 is clean — 107 tests, review + audit passed, no merge conflicts, 10 commits ahead of main.
-
-**Acceptance Criteria**:
-- [ ] PR #75 merged to main
-- [ ] Docker image built with Oracle knowledge sources included
-- [ ] loa-finn deployed to ECS with `FINN_ORACLE_ENABLED=true`
-- [ ] `/health` reports `oracle_ready: true`
-- [ ] `POST /api/v1/invoke { agent: "oracle", prompt: "What is loa-finn?" }` returns a grounded response
-- [ ] Existing non-Oracle invoke requests are unaffected
-
----
-
-### FR-2: Oracle Product API (`/api/v1/oracle`)
-
-A product-grade convenience endpoint that wraps the existing invoke infrastructure. This follows the **BFF (Backend for Frontend) pattern** — the same approach Netflix (Zuul), Spotify, and Stripe use to separate product-facing APIs from internal service APIs.
-
-**Why a separate endpoint (FAANG rationale)**:
-The internal `/api/v1/invoke` endpoint is a multi-agent routing API. Its request format (`{ agent, prompt, options }`) and response format (full invoke metadata) are designed for programmatic consumers. A product API should match the mental model of the product: "I have a question, give me an answer with sources."
-
-**Request format**:
-```typescript
-POST /api/v1/oracle
-Content-Type: application/json
-
-{
-  "question": "How does the billing settlement flow work?",
-  "context"?: "I'm looking at the arrakis credit ledger",  // optional
-  "session_id"?: "abc-123"  // reserved for future use, ignored in Phase 1
-}
-```
-
-**Response format (non-streaming)**:
-```typescript
-{
-  "answer": "The billing settlement flow...",
-  "sources": [
-    { "id": "code-reality-arrakis", "tags": ["billing", "arrakis"], "tokens_used": 5200 },
-    { "id": "rfcs", "tags": ["billing", "architecture"], "tokens_used": 3100 }
-  ],
-  "metadata": {
-    "knowledge_mode": "full",           // "full" | "reduced"
-    "total_knowledge_tokens": 8300,
-    "knowledge_budget": 30000,
-    "retrieval_ms": 12,
-    "model": "claude-sonnet-4-5-20250929",  // or whatever was routed
-    "session_id": null                  // null until sessions implemented
-  }
-}
-```
-
-**Streaming protocol (GPT-5.2 SKP-004)**: Phase 1 uses **non-streaming responses only**. The frontend displays a loading state while the full response is generated, then renders the complete answer with sources. Streaming (SSE via `/api/v1/oracle/stream`) is deferred to a follow-up iteration after Phase 1 ships, because: (a) the existing Hounfour invoke pipeline does not expose a streaming interface, (b) source attribution metadata is only available after full generation, and (c) non-streaming is simpler to test and debug. The API response shape above is the complete contract for Phase 1.
-
-**Internal routing**: The endpoint translates `{ question, context }` into `{ agent: "oracle", prompt: question + context }`, calls the existing invoke pipeline, and reshapes the response.
-
-**Acceptance Criteria**:
-- [ ] `POST /api/v1/oracle` endpoint registered in gateway routes
-- [ ] Request validation: `question` required (string, 1-10000 chars), `context` optional
-- [ ] Internally delegates to existing Hounfour invoke with `agent: "oracle"`
-- [ ] Response reshaping: `answer` + `sources` array + `metadata` object
-- [ ] CORS headers for `oracle.arrakis.community` origin
-- [ ] Rate limiting: 5 requests/day per IP (public), 50/day per token (authenticated)
-- [ ] Rate limit backed by existing Redis (arrakis ElastiCache)
-- [ ] `session_id` accepted but ignored (reserved field, returns null)
-- [ ] Error responses: 400 (validation), 429 (rate limited), 503 (Oracle unavailable)
-- [ ] API version header: responses include `X-Oracle-API-Version: 2026-02-17` (date-based versioning, Flatline IMP-002). Future breaking changes increment the date. Clients can send `Oracle-API-Version` request header to pin behavior. Deprecation policy: old versions supported for 90 days after successor ships, with `Sunset` response header per RFC 8594.
+### FR-1: Version Bump & Dependency Cleanup
+
+**Remove local package (comprehensive gate):**
+- Delete `packages/loa-hounfour/` directory (1,158 LOC across 15 files)
+- Remove any workspace references in root `package.json` or `tsconfig.json`
+- Search for ALL references: workspace protocol entries, tsconfig `paths`, `file:` references, deep imports (`@0xhoneyjar/loa-hounfour/dist/...`), and any compiled JS containing `packages/loa-hounfour` strings
+- Verify `node -e "console.log(require.resolve('@0xhoneyjar/loa-hounfour/package.json'))"` resolves to `node_modules/`, not `packages/`
+
+**Bump external dependency:**
+- Change `package.json` from git commit pin to: `"@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#v7.0.0"`
+- Run `npm install` to update lockfile
+- Verify `tsc --noEmit` compiles cleanly
+
+**Schema audit gate (Sprint 1 prerequisite for FR-2/FR-3):**
+- Enumerate every symbol imported from `@0xhoneyjar/loa-hounfour` in loa-finn today
+- For each imported schema used in runtime validation (`JwtClaimsSchema`, `InvokeResponseSchema`, `StreamEventSchema`, `RoutingPolicySchema`, `CostBreakdownSchema`): diff v5.0.0 vs v7.0.0 field definitions
+- **TypeBox peer dependency alignment**: Verify loa-finn's TypeBox version is compatible with loa-hounfour v7.0.0's peer dependency. Mismatched TypeBox versions can cause silent schema validation differences.
+- Verify: no new **required** fields on any wire-format schema (JWT claims, stream events, invoke request/response)
+- Document any additive optional fields and their defaults
+
+**Comprehensive audit checklist** (each wire-format schema must be checked for ALL of these):
+
+| Dimension | What to Check | Failure Mode if Missed |
+|-----------|--------------|----------------------|
+| Required fields | New required fields added | Request rejection |
+| Optional fields + defaults | Changed defaults or new optionals with non-undefined defaults | Silent behavior change |
+| Patterns/regex | Tightened or changed string patterns | Validation rejection of previously valid values |
+| Enum/vocabulary members | Added, removed, or renamed members | Unhandled variants or rejected values |
+| `additionalProperties` | Changed from `true`/absent to `false` | Previously accepted extra fields rejected |
+| Nullable/union changes | Narrowed unions or removed `null` | Runtime type errors |
+| Numeric bounds | Changed min/max/multipleOf constraints | Value rejection |
+| Validator strictness | TypeBox `additionalProperties`, `$ref` resolution, default mode | Entire schema behavior change |
+| TypeBox version | Peer dependency compatibility | Subtle validation differences |
+
+**Audit artifact**: Produce a `schema-audit-v5-v7.json` with per-schema diff results, checked into `grimoires/loa/a2a/` as a sprint gate artifact.
+
+**Acceptance criteria:**
+- [ ] `packages/loa-hounfour/` directory does not exist
+- [ ] No path aliases, workspace refs, or deep imports reference the deleted local package
+- [ ] All imports from `@0xhoneyjar/loa-hounfour` resolve to v7.0.0 in `node_modules/`
+- [ ] `tsc --noEmit` passes with zero errors
+- [ ] Schema audit documents every wire-format schema diff (v5→v7) with "no new required fields" confirmation
+- [ ] Existing 187+ tests still pass
+
+### FR-2: Canonical Branded Type Adoption
+
+Replace local type equivalents with canonical branded types from loa-hounfour v5.5.0+:
+
+| Local Pattern | Canonical Type | Files Affected |
+|--------------|----------------|----------------|
+| `string` for micro-USD amounts | `MicroUSD` (branded string) | `src/hounfour/billing-finalize-client.ts`, `cost-arithmetic.ts`, `budget.ts` |
+| `number` for basis points | `BasisPoints` (branded number) | `src/hounfour/budget.ts`, pricing config |
+| `string` for account IDs | `AccountId` (branded string) | JWT auth, billing client |
+| Local `PoolId` union literal | Canonical `PoolId` from vocabulary | Already imported — verify canonical |
+
+**Wire format stability contract:**
+
+For each branded type used at any boundary (JWT claims, HTTP bodies, WS messages, stream events):
+
+| Branded Type | Wire Type | Canonical Format | Conversion Points |
+|-------------|-----------|-----------------|-------------------|
+| `MicroUSD` | `string` | `^[0-9]+$` (unsigned) or `^-?[0-9]+$` (signed, v4.0.0+) | Parse: `string → MicroUSD` at request boundary. Serialize: `MicroUSD → string` at response boundary. Internal: BigInt arithmetic. |
+| `BasisPoints` | `number` | Integer, 0–10000 | Parse: `number → BasisPoints` at config load. Internal only (not on wire). |
+| `AccountId` | `string` | `^[a-zA-Z0-9_-]+$` | Parse: `string → AccountId` at JWT validation. Serialize: `AccountId → string` at billing finalize. |
+| `PoolId` | `string` | Union literal from vocabulary | Already canonical — verify no vocabulary changes between v5 and v7. See drift contingency below. |
+
+**PoolId vocabulary drift contingency:**
+The `PoolId` union literal is the most heavily used type (31+ occurrences across 5 source files). If the vocabulary changed between v5 and v7:
+1. **Detection**: Schema audit (FR-1) must diff PoolId vocabulary members between v5 and v7
+2. **If unchanged**: No action needed — verify with vocabulary snapshot test
+3. **If members added**: Backward-compatible — existing code handles known members, new members fall through to default handling
+4. **If members removed or renamed**: Breaking — pin v5 vocabulary as an alias set, add backward-compatible parsing that maps old names to new, and flag for arrakis coordination
+
+**Golden wire fixtures (Sprint 1 pre-bump, Sprint 2 post-migration gate):**
+- Add JSON snapshot tests for: billing request body, billing response body, JWT claims payload, stream event envelope
+- These fixtures must remain byte-for-byte stable across the branded type migration
+- Any fixture change requires explicit justification and arrakis compatibility review
+
+**Fixture determinism requirements:**
+
+| Element | Rule | Rationale |
+|---------|------|-----------|
+| JWT signing key | Fixed ES256 test keypair committed to test fixtures | Deterministic signatures |
+| Timestamps (`iat`, `exp`) | Fixed epoch values (e.g., `1700000000`) | Reproducible across runs |
+| Nonce/JTI | Fixed test values (`test-jti-001`) | Deterministic token body |
+| JSON key order | Canonical key ordering (alphabetical or schema-defined) | Byte-for-byte comparison |
+| Whitespace | Compact JSON (`JSON.stringify` with no indent) | No formatting drift |
+| `req_hash` | Computed from fixed request body, verified end-to-end | Catches hash algorithm changes |
+
+**Normalization boundaries**: Byte-for-byte match required for JSON body payloads. JWT header/signature segments may vary only if signing key changes (which is gated). The fixture harness must replay signing and verification end-to-end, not just compare pre-signed tokens.
+
+**MicroUSD canonical normalization rules:**
+
+| Edge Case | Canonical Behavior | Example |
+|-----------|-------------------|---------|
+| Leading zeros | Strip — `"007"` → `"7"` | Normalizer rejects or strips |
+| Negative values | Allowed (signed, v4.0.0+) — `"-100"` is valid | Pattern: `^-?[1-9][0-9]*$\|^0$` |
+| Plus sign | Reject — `"+100"` is invalid | Parse boundary rejects |
+| Empty string | Reject — `""` is invalid | Validator rejects at boundary |
+| Zero representation | Canonical `"0"`, not `"-0"` or `"00"` | Normalizer maps `-0` → `0` |
+| Overflow | No upper bound in protocol (BigInt) | Application-level budget limits apply |
+
+Fixtures must include edge-case vectors for each rule above. Both validator (parse boundary) and serializer (response boundary) must enforce the same normalization.
+
+**Acceptance criteria:**
+- [ ] No local type aliases that shadow canonical protocol types
+- [ ] Type narrowing/validation uses canonical validators where available
+- [ ] All branded type conversions are explicit (no silent coercion)
+- [ ] Golden wire fixtures pass: billing request/response, JWT claims, stream events remain byte-for-byte stable
+- [ ] MicroUSD signed/unsigned pattern documented and consistent with arrakis expectations
+
+### FR-3: Conservation Evaluator Integration
 
----
-
-### FR-3: Extended Knowledge Corpus (20+ Sources)
-
-Expand from 10 sources (~72K tokens) to 20+ sources (~150K tokens) covering all 7 abstraction levels defined in the loa-dixie RFC.
-
-**Source Taxonomy (7 levels)**:
-
-| Level | Audience | Current Sources | New Sources (Phase 1) |
-|-------|----------|----------------|----------------------|
-| **Code** | Engineers | `code-reality-finn`, `code-reality-hounfour`, `code-reality-arrakis` | `code-reality-loa` (framework API surface) |
-| **Architecture** | Tech leads | `ecosystem-architecture` | `architecture-decisions` (ADR log across 25 cycles) |
-| **Product** | PMs | — | `product-vision` (PRD summaries), `feature-matrix` (what each repo provides) |
-| **Process** | Contributors | `development-history` | `sprint-patterns` (what sprint cadence looks like), `onboarding-guide` (how to contribute) |
-| **Cultural** | Community | `glossary`, `meeting-geometries`, `web4-manifesto` | `naming-mythology` (why Finn, Dixie, Arrakis, Hounfour), `community-principles` |
-| **Economic** | Investors | — | `pricing-model` (tier structure, x402 vision), `tokenomics-overview` (dNFT identity, credit ledger) |
-| **Educational** | Everyone | `rfcs`, `bridgebuilder-reports` | `faang-parallels` (curated from 54+ field reports), `lessons-learned` (cycle retro highlights) |
-
-**New sources (minimum 10 additions)**:
-
-| Source ID | Level | Est. Tokens | Priority |
-|-----------|-------|-------------|----------|
-| `code-reality-loa` | Code | ~8K | 3 |
-| `architecture-decisions` | Architecture | ~6K | 4 |
-| `product-vision` | Product | ~4K | 5 |
-| `feature-matrix` | Product | ~3K | 6 |
-| `sprint-patterns` | Process | ~3K | 7 |
-| `onboarding-guide` | Process | ~5K | 5 |
-| `naming-mythology` | Cultural | ~4K | 8 |
-| `community-principles` | Cultural | ~3K | 8 |
-| `pricing-model` | Economic | ~4K | 6 |
-| `tokenomics-overview` | Economic | ~5K | 7 |
-| `faang-parallels` | Educational | ~8K | 9 |
-| `lessons-learned` | Educational | ~5K | 9 |
-
-**Canonical home**: All sources live in `loa-dixie/knowledge/sources/`. The `sources.json` registry lives in `loa-dixie/knowledge/sources.json`.
-
-**Acceptance Criteria**:
-- [ ] 20+ knowledge sources in loa-dixie with YAML frontmatter provenance
-- [ ] All 7 abstraction levels covered with at least 2 sources each
-- [ ] Each source passes injection detection (5-gate loader)
-- [ ] `sources.json` updated with all new sources, priorities, tags, and freshness policies
-- [ ] Total corpus ≤ 200K tokens (budget enforcement handles selection)
-- [ ] Gold-set test suite expanded: 20 queries (at least 2 per abstraction level)
-
-**Gold-set contract (GPT-5.2 SKP-002)**: Each gold-set query specifies:
-- `query`: The test question
-- `required_sources`: Source IDs that MUST appear in the selected set (fail if missing)
-- `forbidden_sources`: Source IDs that MUST NOT appear (fail if present)
-- `max_selected`: Maximum number of sources selected (fail if exceeded)
-- A query passes if all required sources are present, no forbidden sources are present, and source count ≤ max_selected. The 90% target means ≥18 of 20 queries pass.
-
-**Deterministic ordering contract**: Sources are sorted by (1) tag match count DESC, (2) priority ASC (lower = higher priority), (3) source ID alphabetical ASC. The tag classifier version is pinned in `sources.json` (`"classifier_version": "1.0"`). Any classifier change increments the version and requires gold-set re-validation. The `/api/v1/oracle` response includes `sources[].id` in the exact order used by the enricher, enabling CI to assert ordering stability.
-
-**Two-tier test strategy (Flatline SKP-004)**: Testing is split into two levels:
-- **Tier 1 — Deterministic unit tests (blocking CI)**: Test the classifier and enricher directly with mock corpus. Assert exact source ordering, exact token counts, exact tag assignments. These are fully deterministic and must pass on every build.
-- **Tier 2 — Gold-set integration tests (non-blocking initially)**: Run 20 gold-set queries through the full Oracle API (or invoke pipeline). Use flexible pass criteria: required sources must appear in the selected top-K (not exact position). Run as a CI signal (reported but not gating) for the first 2 sprints. Promoted to blocking CI after stability is demonstrated across 10+ builds. Gold-set is versioned per corpus version (`gold-set-v1.0.json`).
-
----
-
-### FR-4: Knowledge Sync Pipeline (loa-dixie → loa-finn)
-
-Establish loa-dixie as the single source of truth for knowledge, consumed by loa-finn at build time.
-
-**Strategy**: CI-copy at Docker build time. The Dockerfile clones loa-dixie (or fetches a release archive) and copies knowledge sources into the image. This is the simplest approach that avoids runtime network dependencies.
-
-**Why CI-copy over alternatives**:
-| Approach | Pros | Cons | Verdict |
-|----------|------|------|---------|
-| **CI-copy at Docker build** | Simple, no runtime deps, works offline, reproducible | Must rebuild image to update knowledge | **Phase 1 choice** |
-| **Git submodule** | Versioned together, git-native | Submodule UX pain, CI complexity | Viable alternative |
-| **NPM package** | Standard JS tooling, semver | Publishing overhead, slow updates | Over-engineered for Phase 1 |
-
-**Dockerfile addition**:
-```dockerfile
-# Knowledge corpus from loa-dixie (pinned to tag or commit)
-ARG DIXIE_REF=main
-ADD https://github.com/0xHoneyJar/loa-dixie/archive/${DIXIE_REF}.tar.gz /tmp/dixie.tar.gz
-RUN tar -xzf /tmp/dixie.tar.gz -C /tmp && \
-    cp -r /tmp/loa-dixie-*/knowledge /app/grimoires/oracle-dixie && \
-    cp -r /tmp/loa-dixie-*/persona /app/grimoires/oracle-persona && \
-    rm -rf /tmp/dixie.tar.gz /tmp/loa-dixie-*
-```
-
-**Source path migration**: loa-finn's `sources.json` (currently in `grimoires/oracle/`) is replaced by the loa-dixie version. The config path in `src/config.ts` points to the build-time-copied location.
-
-**CI-fetch with checksum verification (Flatline SKP-003)**: The GitHub fetch happens in a **CI step before the Docker build**, not inside the Dockerfile. The CI pipeline: (1) fetches the loa-dixie archive at the pinned `DIXIE_REF`, (2) computes SHA-256 of the archive, (3) optionally verifies against a checked-in `dixie-corpus.sha256` manifest, (4) extracts knowledge files into the Docker build context, (5) Docker build copies from build context (no network dependency). If the fetch fails, CI fails fast with a clear error. The Dockerfile `COPY` replaces the `ADD` — no outbound network access during image construction.
-
-**Sync failure semantics (Flatline IMP-001)**: When the CI fetch fails (GitHub outage, rate limit, network error), the pipeline MUST fail fast with a clear error ("DIXIE_REF fetch failed: {HTTP status}"). There is no stale-cache fallback in CI — if you can't get the corpus, you don't ship. For local development only, a `DIXIE_FALLBACK_LOCAL=true` flag allows using a previously-fetched local copy with a WARN log.
-
-**Reproducibility & freshness policy (GPT-5.2 SKP-003)**:
-
-Production builds MUST pin `DIXIE_REF` to an **immutable commit SHA** (not `main`). The `main` default is for local development only. CI enforces this: if `DIXIE_REF` matches a branch name (not a 40-char hex SHA or a semver tag), the production build fails.
-
-Freshness is checked as a **separate CI job** (not inside the Docker build). A scheduled GitHub Action (daily) compares the pinned `DIXIE_REF` in the Dockerfile against loa-dixie HEAD. If the pinned ref is >7 days behind HEAD, the job opens a PR to bump `DIXIE_REF` with a changelog of new sources. This keeps freshness enforcement out of the build path and avoids network dependencies during image construction.
-
-The built image embeds provenance metadata as labels: `dixie.ref`, `dixie.commit`, `build.timestamp`. The `/health` endpoint surfaces `knowledge_dixie_ref` for runtime verification.
-
-**Acceptance Criteria**:
-- [ ] Dockerfile fetches loa-dixie knowledge at build time (pinned to commit SHA or semver tag)
-- [ ] `DIXIE_REF` build arg defaults to `main` for dev; CI rejects branch names for production builds
-- [ ] Knowledge sources available at expected path inside container
-- [ ] `sources.json` from loa-dixie is used (not a duplicate in loa-finn)
-- [ ] `grimoires/oracle/` in loa-finn is removed or replaced with a README pointing to loa-dixie
-- [ ] CI validates: knowledge sources load successfully in built container
-- [ ] Separate CI job checks freshness (pinned ref vs HEAD) and opens bump PR when stale (>7 days)
-- [ ] Docker image labels include `dixie.ref`, `dixie.commit`, `build.timestamp`
-- [ ] `/health` endpoint reports `knowledge_dixie_ref`
-
----
-
-### FR-5: Oracle Frontend (`oracle.arrakis.community`)
-
-A chat interface that makes the Oracle accessible to anyone with a browser. This is the first dNFT website — the template for all future finnNFT web presences.
-
-**Technology**: Next.js (static export + API route for SSR if needed). Deployed to S3 + CloudFront with a clean migration path to Cloudflare Pages.
-
-**Code location & deployment ownership (GPT-5.2 SKP-005)**: The frontend code lives in the **loa-dixie repository** under a `site/` directory (`loa-dixie/site/`). This co-locates the knowledge corpus, persona, and product UI in one repo — the Oracle's "everything" repository. Deployment pipeline: GitHub Actions in loa-dixie builds the Next.js static export on merge to `main` and uploads to S3. AWS auth uses **OIDC federation** (GitHub Actions → IAM role `dixie-site-deploy` with least-privilege S3 PutObject + CloudFront InvalidateCache). The loa-finn repo is NOT involved in frontend deployment — it only serves the API. Artifact boundary: loa-dixie owns `oracle.arrakis.community` (static site); loa-finn owns `finn.arrakis.community` (API).
-
-**Core features**:
-1. **Chat interface**: Text input, streaming response display, conversation history (client-side only for Phase 1)
-2. **Source attribution panel**: Collapsible section showing which knowledge sources informed each response, with token counts
-3. **Abstraction level hint**: Optional selector (Technical / Product / Cultural / All) that prepends a context hint to the question
-4. **Rate limit feedback**: Clear messaging when public tier limit reached ("5 questions/day — come back tomorrow or get a token")
-5. **Oracle identity**: Dixie Flatline branding, personality consistent with persona definition
-
-**Design constraints**:
-- Mobile-responsive (chat UIs are commonly used on phones)
-- Dark mode default (consistent with web3 aesthetic)
-- No framework lock-in beyond Next.js (no heavy component libraries)
-- Static export where possible (S3-friendly), API routes only if SSR required
-
-**Migration path to Cloudflare Pages**:
-The frontend is a static Next.js export served from S3+CloudFront. Migrating to Cloudflare Pages requires:
-1. Point DNS CNAME from CloudFront to Cloudflare Pages
-2. Deploy the same static build to Cloudflare Pages
-3. Remove CloudFront distribution and S3 bucket
-No code changes required. The API calls go to `finn.arrakis.community` regardless of where the frontend is hosted.
-
-**Acceptance Criteria**:
-- [ ] Next.js app with chat interface, source attribution, abstraction level selector
-- [ ] Deployed to S3 + CloudFront at `oracle.arrakis.community`
-- [ ] Calls `POST https://finn.arrakis.community/api/v1/oracle` for queries
-- [ ] Loading state while response generates (non-streaming for Phase 1; see FR-2 streaming protocol)
-- [ ] Source attribution panel shows source IDs, tags, and token counts per response
-- [ ] Rate limit error (429) displayed as user-friendly message
-- [ ] Mobile-responsive, dark mode default
-- [ ] Lighthouse performance score ≥ 90
-- [ ] No client-side secrets (API calls go through the API, not directly to model providers)
-
----
-
-### FR-6: DNS & Infrastructure (Reusable Subdomain Platform)
-
-Terraform configuration for `oracle.arrakis.community` that serves as a reusable module for future dNFT subdomains.
-
-**Infrastructure components**:
-
-| Resource | Purpose | Terraform Resource |
-|----------|---------|-------------------|
-| S3 bucket | Static site hosting | `aws_s3_bucket.dixie_frontend` |
-| CloudFront distribution | CDN + HTTPS | `aws_cloudfront_distribution.dixie` |
-| ACM certificate | TLS for `oracle.arrakis.community` | `aws_acm_certificate.dixie` (or wildcard `*.arrakis.community`) |
-| Route 53 record | DNS CNAME → CloudFront | `aws_route53_record.dixie` |
-| ALB listener rule | API routing for `finn.arrakis.community` | Already exists in `finn.tf:373-387` |
-
-**Reusability design**: The Terraform should be structured as a module that accepts:
-```hcl
-module "dNFT_website" {
-  source      = "./modules/dnft-site"
-  subdomain   = "oracle"           # → oracle.arrakis.community
-  zone_id     = data.aws_route53_zone.arrakis.zone_id
-  domain      = "arrakis.community"
-  s3_bucket   = "oracle-site-${var.environment}"
-  # Future: custom_domain = "dixie.xyz"  # optional CNAME alias
-}
-```
-
-Adding the next dNFT website = one more `module` block with a different `subdomain`.
-
-**Wildcard certificate recommendation**: Instead of per-subdomain ACM certs, request `*.arrakis.community` wildcard cert once. All future subdomains are covered automatically.
-
-**Acceptance Criteria**:
-- [ ] Terraform module at `deploy/terraform/modules/dnft-site/` (S3 + CloudFront + Route 53)
-- [ ] Module parameterized by subdomain name (supports N dNFT sites)
-- [ ] `oracle.arrakis.community` deployed using the module
-- [ ] ACM wildcard cert for `*.arrakis.community` (or per-subdomain if wildcard has complications)
-- [ ] CloudFront serves S3 content with HTTPS
-- [ ] CORS configured: CloudFront → `finn.arrakis.community` API
-- [ ] CI/CD: GitHub Actions deploys to S3 on merge to main (loa-dixie repo)
-
----
-
-### FR-7: Backward Compatibility (Inherited from Phase 0)
-
-All Phase 0 backward compatibility guarantees remain in force.
-
-**Acceptance Criteria**:
-- [ ] Existing `/api/v1/invoke` requests without `agent: "oracle"` work unchanged
-- [ ] New `/api/v1/oracle` endpoint does not interfere with existing routes
-- [ ] Existing test suite passes without modification after PR #75 merge
+Wire the canonical conservation evaluator for billing invariants:
+
+| Billing Invariant | Evaluator Builtin | Current Enforcement |
+|-------------------|-------------------|---------------------|
+| Budget conservation (spent ≤ limit) | `bigint_lte` | Ad-hoc check in `budget.ts` |
+| Cost non-negative | `bigint_gte` (vs 0) | Ad-hoc check in `cost-arithmetic.ts` |
+| Reserve ≤ allocation | `bigint_lte` | Ad-hoc check in `billing-finalize-client.ts` |
+| Micro-USD string format | `string_matches_pattern` | TypeBox schema validation |
+
+**Approach**: Import `EVALUATOR_BUILTIN_SPECS` and individual builtins from `@0xhoneyjar/loa-hounfour`. Create a `BillingConservationGuard` that wraps existing checks with evaluator-backed validation.
+
+**Evaluator lifecycle (performance contract):**
+1. **Startup**: Load and compile constraint registry once at process boot (`BillingConservationGuard.init()`)
+2. **Cache**: Compiled constraint ASTs stored in memory — no per-request parsing
+3. **Execute**: Only billing-relevant builtins invoked per request (4 builtins, not full 31-builtin suite)
+4. **Benchmark**: CI microbenchmark harness on representative payloads; build fails if p95 > 1ms per invariant
+
+**Fail-closed invariant classification:**
+
+| Invariant | Classification | On Failure |
+|-----------|---------------|------------|
+| Budget conservation (spent ≤ limit) | **HARD-FAIL** | Reject request, return 402 |
+| Cost non-negative | **HARD-FAIL** | Reject request, log alert |
+| Reserve ≤ allocation | **HARD-FAIL** | Reject finalize, return 409 |
+| Micro-USD string format | **HARD-FAIL** | Reject at validation boundary |
+
+All billing/ledger invariants are **fail-closed**. There is no fail-open mode for economic safety controls. If the evaluator itself fails to load at startup, the process must refuse to serve billing requests (circuit-open state).
+
+**Startup failure recovery model:**
+
+| Failure Mode | Behavior | Recovery |
+|-------------|----------|----------|
+| Constraint registry compilation fails | Process starts but billing endpoints return 503 (circuit-open) | Retry compilation with exponential backoff (3 attempts, 1s/2s/4s) |
+| Compilation succeeds after retry | Circuit closes, billing endpoints become available | Health check transitions to READY |
+| All retries exhausted | Process remains up, non-billing endpoints available, billing returns 503 | Alert fires, requires deploy fix or manual restart |
+| Runtime constraint evaluation throws | Individual request fails with HARD-FAIL | Log, alert, but do not circuit-open (isolated failure) |
+
+**Health endpoint integration**: `/health` returns `{ "billing": "ready" | "degraded" | "unavailable", "evaluator_compiled": true | false }`. Kubernetes readiness probe gates on `billing: "ready"` for billing-serving pods. Non-billing pods can serve without evaluator.
+
+**CI preflight gate**: Sprint 2 CI must include a step that compiles the evaluator constraint registry in the same Node version and container base image as production. This catches environment-sensitive compilation failures before deploy.
+
+**Emergency evaluator bypass** (break-glass only):
+- Environment variable `EVALUATOR_BYPASS=true` disables evaluator and falls back to existing ad-hoc checks
+- **NOT** a feature flag — requires deploy with explicit env override
+- When active: all billing requests logged with `{ "evaluator_bypassed": true }` for post-incident audit
+- Requires incident ticket reference in deploy notes
+- Ad-hoc checks (the pre-migration billing guards) must be preserved as fallback code paths, not deleted during evaluator integration
+
+**Acceptance criteria:**
+- [ ] Billing invariants enforced via canonical evaluator builtins
+- [ ] All billing invariants are fail-closed (no fail-open fallback)
+- [ ] Evaluator failures produce structured error with invariant ID
+- [ ] Evaluator compiled once at startup, cached — zero per-request compilation
+- [ ] Existing billing tests pass with evaluator wired in
+- [ ] CI microbenchmark: p95 evaluator overhead < 1ms per invariant on representative payloads
+
+### FR-4: Protocol Handshake Update
+
+Update `src/hounfour/protocol-handshake.ts` to handle v7.0.0:
+
+- Update `CONTRACT_VERSION` to `'7.0.0'`
+- **DO NOT** set `MIN_SUPPORTED_VERSION` to `'6.0.0'` — arrakis is at v4.6.0 and would be rejected. Set to `'4.0.0'` (or keep current value) until arrakis upgrades.
+- Verify `validateCompatibility()` from v7.0.0 package works with existing handshake flow
+- Handle the `trust_scopes` field in any protocol metadata exchange
+
+**Explicit interoperability contract:**
+
+| Field | Value | Who Validates | On Mismatch |
+|-------|-------|---------------|-------------|
+| `contract_version` (advertised by loa-finn) | `'7.0.0'` | Peer consumer (arrakis) | arrakis currently ignores — no rejection expected |
+| `min_supported_version` (enforced by loa-finn) | `'4.0.0'` | loa-finn on inbound | Reject with `CONTRACT_VERSION_MISMATCH` (400) |
+| arrakis contract version | `'4.6.0'` (vendored) | loa-finn via `validateCompatibility()` | Accept — within loa-finn's `min_supported` range |
+
+**Version negotiation behavior:**
+- loa-finn advertises v7.0.0 but accepts peers ≥ v4.0.0
+- When arrakis upgrades to v7.0.0, `min_supported` can be raised to v6.0.0
+- Feature detection: `trust_scopes` presence indicates v6.0.0+ peer; absence indicates v4.x/v5.x peer
+- **Interop test required**: loa-finn(v7) handshake against arrakis(v4.6.0) fixture must not reject
+
+**Handshake verification approach (two-tier):**
+1. **Synthetic fixture** (Sprint 1, required): Simulated arrakis v4.6.0 handshake request constructed from arrakis source code analysis. Document the exact arrakis code path and commit SHA that constructs/validates the handshake. Link to arrakis source in audit artifact.
+2. **Captured traffic replay** (Sprint 1, best-effort): If staging environment is available, capture a real arrakis→loa-finn handshake at current v5.0.0, then replay against v7.0.0 and diff. If staging unavailable, document as a risk and require manual verification before production deploy.
+
+**Arrakis behavioral evidence**: The synthetic fixture must reference the specific arrakis code (file + line + commit) that handles `contract_version`. If arrakis has no validation logic for this field, cite the absence as evidence. Do not assert "arrakis ignores X" without a code reference.
+
+**Acceptance criteria:**
+- [ ] Protocol handshake advertises v7.0.0
+- [ ] `MIN_SUPPORTED_VERSION` set to `'4.0.0'` — arrakis at v4.6.0 is within range
+- [ ] Interop fixture test: simulate arrakis v4.6.0 handshake, verify acceptance
+- [ ] Arrakis handshake behavior documented with source code reference (file:line:commit)
+- [ ] Captured traffic replay attempted; if unavailable, risk documented with manual verification gate
+- [ ] Feature detection for `trust_scopes` (present = v6.0.0+ peer, absent = v4.x/v5.x)
+- [ ] Health check includes protocol version in response
+
+### FR-5: Oracle Knowledge Corpus Update
+
+Update Oracle knowledge sources to reflect v7.0.0 reality:
+
+| Knowledge Source | Update Needed |
+|-----------------|---------------|
+| `code-reality-hounfour.md` | Complete rewrite — v5.x → v7.0.0 (87+ schemas, 31 builtins, constraint system) |
+| `architecture.md` | Update protocol layer description |
+| `capabilities.md` | Add conservation evaluator, branded types, liveness properties |
+
+**Acceptance criteria:**
+- [ ] Oracle gold-set questions about the protocol return v7.0.0-accurate answers
+- [ ] No knowledge source references v5.x-specific concepts without noting migration
+- [ ] Gold-set passes at 100% (20/20 baseline from cycle-025)
 
 ---
 
 ## 5. Technical & Non-Functional Requirements
 
-### NFR-1: Performance
+### NFR-1: Zero Wire Format Changes
 
-| Metric | Target |
-|--------|--------|
-| Frontend time-to-interactive | < 2s (static site from CDN) |
-| Oracle API response (complete) | < 15s p95 (non-streaming; model inference dominates) |
-| Oracle concurrency (Flatline IMP-010) | Max 3 concurrent Oracle requests per ECS task. Excess requests receive HTTP 429 with `Retry-After` header. Prevents Oracle traffic from starving non-Oracle invoke requests on the shared ECS service. Configurable via `FINN_ORACLE_MAX_CONCURRENT` env var. |
-| Knowledge retrieval overhead | < 100ms (cached, local files) |
-| CloudFront cache hit ratio | > 80% for static assets |
+The JWT claims schema, stream event schemas, and invoke request/response schemas must remain wire-compatible. Arrakis at v4.6.0 must continue to interoperate with loa-finn at v7.0.0.
 
-### NFR-2: Security
+**Verification (independent of pre-existing test failures):**
 
-| Concern | Approach |
-|---------|----------|
-| API authentication | Public tier: IP rate limit via Redis. Authenticated: Bearer token validated in middleware. |
-| CORS | `oracle.arrakis.community` origin only (plus localhost for dev) |
-| Knowledge injection | Phase 0 trust boundary + 5-gate loader (inherited) |
-| Frontend secrets | None — all API calls go through the backend, no client-side API keys |
-| Rate limiting | Redis-backed, per-IP for public, per-token for authenticated |
-| Rate limit Redis failure mode (Flatline IMP-003) | **Fail-closed**: If Redis is unreachable, the Oracle API returns HTTP 503 (not 200). Rationale: fail-open on a public endpoint with expensive model inference behind it is a denial-of-wallet risk. The health endpoint reports `rate_limiter_healthy: true/false`. CloudWatch alarm triggers if Redis is unreachable for >60s. |
-| S3 bucket | Private, CloudFront OAI (Origin Access Identity) only |
-| Browser security headers (Flatline IMP-004) | CloudFront response header policy: `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://finn.arrakis.community; frame-ancestors 'none'`, `Strict-Transport-Security: max-age=31536000; includeSubDomains`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`. CSP tuned to allow API calls to finn subdomain only. |
-| UI rendering safety (GPT-5.2 SKP-006) | **Non-negotiable rule**: The UI renders only source IDs, tags, and token counts in the attribution panel — no raw knowledge excerpts in Phase 1. Model-generated `answer` text is rendered as **sanitized markdown** with HTML tags stripped (no `dangerouslySetInnerHTML`, no raw HTML passthrough). An automated test injects a malicious payload (`<script>alert(1)</script>`) in a knowledge source and confirms it cannot execute in the browser DOM. This prevents XSS at the product boundary even though the model boundary (trust envelope) is already protected by Phase 0. |
+The pre-existing `s2s-jwt.test.ts` failures mean we cannot rely solely on current tests as the wire-compat canary. Verification requires:
 
-### NFR-3: Observability
+1. **New deterministic wire fixtures** (Sprint 1): Golden JSON snapshots for signed JWT vectors (ES256 + req_hash), representative billing request/response payloads, and stream event envelopes. These fixtures are created BEFORE the version bump and must pass AFTER.
+2. **Interop handshake fixture** (Sprint 1): Simulated arrakis v4.6.0 request → loa-finn v7.0.0 response cycle, asserting no rejection.
+3. **Existing passing tests** remain passing (187 baseline).
+4. **Pre-existing JWT test failure**: Either fix `s2s-jwt.test.ts` as part of Sprint 1 (preferred — it's a safety gate for this migration) or document why the failure is unrelated to wire format and create an independent JWT wire fixture that covers the same surface.
 
-| Signal | Implementation |
-|--------|---------------|
-| Phase 0 signals | Inherited: `knowledge_sources_used`, `knowledge_retrieval_ms`, `knowledge_tokens_used` in API response |
-| Oracle API metrics | Request count, latency p50/p95/p99, rate limit hits, error rates |
-| Frontend monitoring | CloudFront access logs, Lighthouse CI, error tracking (lightweight — Sentry or similar) |
-| Knowledge freshness | Startup log of source ages, warn if any source exceeds `max_age_days` |
+### NFR-2: Performance Budget
 
-### NFR-4: Cost
+Conservation evaluator integration must not add measurable latency:
+- Evaluator call overhead: < 1ms per invariant check
+- Total billing pipeline overhead: < 5ms per request (current: ~2ms)
 
-| Resource | Estimated Monthly Cost |
-|----------|----------------------|
-| S3 (static site, < 100MB) | < $1 |
-| CloudFront (low traffic initially) | < $5 |
-| ACM certificate | Free |
-| Route 53 record | < $1 |
-| ECS (Oracle runs inside existing finn task) | $0 incremental |
-| Redis (rate limiting, existing instance) | $0 incremental |
-| **Total incremental cost** | **< $10/mo** |
+### NFR-3: Import Path Cleanliness
 
-Model inference costs are borne by the existing loa-finn billing pipeline and are not new infrastructure cost.
+After migration, there must be exactly ONE source for protocol types:
+- `@0xhoneyjar/loa-hounfour` (root barrel) for most imports
+- `@0xhoneyjar/loa-hounfour/composition` for v7.0.0 composition types (if needed)
+- Zero imports from `packages/loa-hounfour/` (deleted)
+- Zero local type redefinitions that shadow canonical types
+
+### NFR-4: Test Baseline
+
+- Pre-migration: 200 tests, 187 passing, 13 pre-existing failures
+- Post-migration: ≥ 187 passing, zero new failures
+- Pre-existing failures in `reconciliation-e2e.test.ts`, `s2s-jwt.test.ts`, `usage-handler.test.ts` are separate concerns
+
+### NFR-5: Observability for Fail-Closed Components
+
+The conservation evaluator is fail-closed for all billing invariants (FR-3). This requires observability to ensure failures are diagnosable and don't silently block billing:
+
+| Signal | Metric | Alert Threshold | Dashboard |
+|--------|--------|----------------|-----------|
+| Evaluator compilation | `evaluator.compile.duration_ms` | > 500ms or failure | Startup health |
+| Invariant check latency | `evaluator.check.p95_ms` per invariant ID | > 1ms (NFR-2 budget) | Billing pipeline |
+| HARD-FAIL rate | `evaluator.hard_fail.count` by invariant ID | > 0 for new invariant failures | Billing alerts |
+| Circuit-open state | `evaluator.circuit.state` | Any transition to OPEN | PagerDuty |
+| Constraint registry size | `evaluator.registry.constraint_count` | Drift from expected count | Deployment |
+
+**Structured logging**: Every HARD-FAIL must emit a structured log with `{invariant_id, input_summary, expected, actual, timestamp}`. No PII in billing logs.
+
+**SLO**: Evaluator availability ≥ 99.9% (measured as % of requests where evaluator is compilated and responsive). Circuit-open state counts against this SLO.
 
 ---
 
 ## 6. Scope & Prioritization
 
-### MVP Sprint Breakdown (Recommended)
+### In Scope (This Cycle)
 
-| Sprint | Scope | Dependencies |
-|--------|-------|-------------|
-| **Sprint 1** | FR-1 (Merge PR #75) + FR-4 (Knowledge sync) + FR-2 (Oracle API endpoint) | None — all internal to loa-finn |
-| **Sprint 2** | FR-3 (Extended corpus — 12 new sources) + FR-6 (Terraform module + DNS) | Sprint 1 (API must exist for infra validation) |
-| **Sprint 3** | FR-5 (Frontend) + integration testing + deploy | Sprint 1-2 (API + infra must exist) |
+| Priority | Item | Effort |
+|----------|------|--------|
+| **P0** | FR-1: Version bump + local package removal | ~0.5 sprint |
+| **P0** | FR-4: Protocol handshake update | ~0.5 sprint |
+| **P1** | FR-2: Canonical branded type adoption | ~1 sprint |
+| **P1** | FR-3: Conservation evaluator integration | ~1 sprint |
+| **P2** | FR-5: Oracle knowledge corpus update | ~0.5 sprint |
 
-### Out of Scope (Explicit)
+**Total estimated: 3–4 sprints**
 
-- Smart contract development (dNFT minting, token economics)
-- New model provider integrations (uses existing Hounfour adapters)
-- `0xhoneyjar.xyz` domain setup (using `arrakis.community` for speed)
-- Session-based conversations (API designed for it, not implemented)
-- User registration/accounts (public + manual token issuance for Phase 1)
-- Billing integration for Oracle queries (uses existing billing, no new tiers)
-- Vector embeddings / semantic search (Phase 2)
+### Explicitly Out of Scope
+
+| Item | Why | Where It Lives |
+|------|-----|----------------|
+| npm publish of loa-hounfour | Different repo | loa-hounfour repo |
+| Arrakis upgrade to v7.0.0 | Different repo | arrakis repo, Phase 3 |
+| Cross-system E2E on v7.0.0 | Blocked on arrakis | Phase 4, future cycle |
+| Adoption of v7.0.0 composition schemas (sagas, governance, etc.) | Feature work, not convergence | Future cycle |
+| Adoption of `trust_scopes` in JWT flow | arrakis doesn't send it yet | Future cycle (after arrakis v7.0.0) |
+| Fixing pre-existing test failures (13 tests) | Separate concern | Bug triage |
 
 ---
 
@@ -534,90 +394,140 @@ Model inference costs are borne by the existing loa-finn billing pipeline and ar
 ### Risks
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|-----------|
-| Knowledge sync drift (dixie HEAD ≠ deployed) | Medium | Medium | `DIXIE_REF` pinning in Dockerfile; CI warns if >7 days behind HEAD |
-| Wildcard cert complications | Low | Medium | Fall back to per-subdomain cert; ACM validation is automated via Route 53 |
-| Frontend scope creep | Medium | Medium | Phase 1 UI is deliberately minimal — chat + sources + level selector. No auth UI, no dashboards. |
-| Rate limiting bypass | Low | Low | IP-based is imperfect; acceptable for Phase 1. Token-based available for authenticated tier. |
-| Corpus quality at 20+ sources | Medium | Medium | Each source curated with provenance; gold-set test suite validates selection accuracy |
-| CloudFront → Cloudflare Pages migration friction | Low | Low | Frontend is a static Next.js export; no CloudFront-specific features used |
+|------|-----------|--------|------------|
+| **v7.0.0 package has undocumented breaking changes** | Low | High | Schema audit gate in Sprint 1: diff every imported symbol v5→v7, verify no new required wire-format fields. `tsc --noEmit` as first compile check. |
+| **Local package removal breaks hidden imports** | Medium | Medium | Comprehensive search: workspace refs, tsconfig paths, `file:` protocol, deep imports, compiled JS strings. CI check that `require.resolve` points to `node_modules/`. |
+| **Conservation evaluator performance** | Low | Medium | Evaluator compiled once at startup, cached. CI microbenchmark harness on representative payloads — build fails if p95 > 1ms. All billing invariants are **fail-closed** (no fail-open). |
+| **Oracle knowledge regression** | Low | Low | Gold-set 20/20 must pass before merge |
+| **Wire format incompatibility with arrakis** | Low | High | Independent golden wire fixtures (JWT, billing, stream events) created BEFORE bump, verified AFTER. Interop handshake fixture for arrakis v4.6.0. Pre-existing `s2s-jwt.test.ts` failure to be fixed or independently covered in Sprint 1. |
 
 ### Dependencies
 
-| Dependency | Status | Risk |
-|-----------|--------|------|
-| PR #75 (Oracle engine) | Ready to merge (all gates passed) | None — merge is step 1 |
-| arrakis Route 53 zone | Exists (`arrakis.community`) | None |
-| arrakis ECS cluster | Exists (finn service running) | None |
-| arrakis Redis | Exists (ElastiCache) | None — rate limiting reuses it |
-| loa-dixie repo | Exists (17 files, 10 sources, persona, RFC) | None |
-| ACM wildcard cert | Must be requested | Low — automated validation via Route 53 |
-| loa-dixie CI/CD | Must be created (GitHub Actions → S3) | Low — standard pattern |
+| Dependency | Status | Blocking? |
+|-----------|--------|-----------|
+| loa-hounfour v7.0.0 tag | Published (2026-02-17) | No — ready |
+| loa-hounfour MIGRATION.md | Exists | No — ready |
+| arrakis upgrade | Not started | **Not blocking** — wire format unchanged |
+| npm publish | Not done | **Not blocking** — using git tag pin |
 
----
-
-## 8. Architecture Decision Record
-
-### ADR-1: BFF Pattern for Oracle API
-
-**Decision**: Add `/api/v1/oracle` as a Backend-for-Frontend wrapper over the existing invoke endpoint.
-
-**Context**: The invoke endpoint is a multi-agent routing API. Its request/response format is designed for programmatic consumers (other services, CLI tools). A product needs a simpler contract.
-
-**Rationale**: Netflix, Spotify, and Stripe all separate product-facing APIs from internal service APIs. The BFF pattern gives the Oracle its own request/response contract without duplicating the invoke pipeline. The Oracle API is a 50-line Hono route that reshapes requests and responses.
-
-**Consequences**: Two endpoints serve Oracle queries (`/api/v1/invoke` and `/api/v1/oracle`). The invoke endpoint remains the canonical internal API. The oracle endpoint is the product API. Both use the same enrichment pipeline.
-
-### ADR-2: S3+CloudFront with Cloudflare Pages Migration Path
-
-**Decision**: Host the frontend on S3+CloudFront, designed for zero-code-change migration to Cloudflare Pages.
-
-**Context**: S3+CloudFront stays within the existing AWS+Terraform stack. Cloudflare Pages is cheaper at scale and provides edge-native hosting. We want to move quickly (AWS is set up) but not get locked in.
-
-**Rationale**: The frontend is a static Next.js export. It has no server-side logic that depends on AWS. API calls go to `finn.arrakis.community` regardless of frontend hosting. Migration = DNS change + deploy to Cloudflare Pages + remove CloudFront/S3.
-
-**Consequences**: Slightly higher cost initially (~$5/mo vs ~$0 on Cloudflare Pages free tier). No vendor lock-in. Migration is a 30-minute operation.
-
-### ADR-3: CI-Copy for Knowledge Sync
-
-**Decision**: Copy loa-dixie knowledge into loa-finn Docker image at build time via Dockerfile `ADD`.
-
-**Context**: Three options were evaluated (CI-copy, git submodule, npm package). CI-copy is simplest and avoids runtime network dependencies.
-
-**Rationale**: The knowledge corpus changes infrequently (weekly at most). Rebuilding the Docker image is already the deploy trigger. Pinning `DIXIE_REF` to a tag or commit provides reproducibility. No git submodule UX pain, no npm publishing overhead.
-
-**Consequences**: Knowledge updates require a loa-finn image rebuild. This is acceptable for Phase 1 cadence. Phase 5 (Sovereign) introduces hot-reload for live updates.
-
-### ADR-4: Reusable Terraform Module for dNFT Sites
-
-**Decision**: Structure the Oracle's infrastructure as a Terraform module parameterized by subdomain name.
-
-**Context**: The Oracle is the first dNFT to get its own website. Future dNFTs will need the same pattern: S3 bucket + CloudFront + Route 53 record.
-
-**Rationale**: One module invocation per dNFT. Adding the next dNFT site is a 5-line Terraform block. The wildcard cert (`*.arrakis.community`) means no per-site certificate management.
-
-**Consequences**: Slightly more upfront work to create the module vs. hardcoding Oracle-specific resources. Pays off on the second dNFT site.
-
----
-
-## 9. The Bigger Picture
-
-Phase 0 built the Oracle's brain (knowledge engine).
-Phase 1 gives it a body (API, website, infrastructure).
+### Dependency Graph
 
 ```
-Phase 0: Engine           → "The Oracle can understand"
-Phase 1: Product Surface  → "Anyone can ask the Oracle"
-Phase 2: Scholar          → "The Oracle gets smarter"
-Phase 3: Participant      → "The Oracle joins conversations"
-Phase 4: Citizen          → "The Oracle owns itself"
-Phase 5: Sovereign        → "The Oracle grows itself"
+loa-hounfour v7.0.0 tag ──► FR-1: Version bump
+                               │
+                               ├──► FR-4: Protocol handshake
+                               │
+                               ├──► FR-2: Branded types (after bump compiles)
+                               │
+                               ├──► FR-3: Conservation evaluator (after types adopted)
+                               │
+                               └──► FR-5: Oracle KB (after code changes finalized)
 ```
-
-Each phase adds a dimension of agency. Phase 1 is where the Oracle stops being a feature and starts being a product.
-
-The infrastructure is the real deliverable. `oracle.arrakis.community` is the proof. The Terraform module is the platform. Every future dNFT stands on what's built here.
 
 ---
 
-*This PRD extends v2.0.0 (Phase 0 — Oracle Knowledge Engine, IMPLEMENTED) into Phase 1 (Librarian — Oracle Product Surface). Phase 0 functional requirements (FR-1 through FR-7 in v2.0.0) are complete in PR #75. Phase 1 functional requirements (FR-1 through FR-7 in this document) build the product on top of the engine. Grounded in: `deploy/terraform/finn.tf` (existing ECS infra), loa-dixie `docs/rfc.md` (product vision), loa-dixie `knowledge/` (10 existing sources), arrakis Route 53 (DNS).*
+## 8. Affected Files (Estimated)
+
+### Source Files (Modify)
+
+| File | Change Type | FR |
+|------|-----------|-----|
+| `package.json` | Bump dependency, remove workspace ref | FR-1 |
+| `tsconfig.json` | Remove packages/ path mapping (if any) | FR-1 |
+| `src/hounfour/protocol-handshake.ts` | Version + compatibility | FR-4 |
+| `src/hounfour/tier-bridge.ts` | Canonical PoolId, branded types | FR-2 |
+| `src/hounfour/pool-enforcement.ts` | Canonical PoolId, branded types | FR-2 |
+| `src/hounfour/pool-registry.ts` | Canonical PoolId | FR-2 |
+| `src/hounfour/jwt-auth.ts` | Canonical types | FR-2 |
+| `src/hounfour/nft-routing-config.ts` | Canonical PoolId | FR-2 |
+| `src/hounfour/billing-finalize-client.ts` | MicroUSD branded type, evaluator | FR-2, FR-3 |
+| `src/hounfour/cost-arithmetic.ts` | MicroUSD branded type, evaluator | FR-2, FR-3 |
+| `src/hounfour/budget.ts` | BasisPoints branded type, evaluator | FR-2, FR-3 |
+| `src/config.ts` | Protocol version in config | FR-4 |
+
+### Source Files (Delete)
+
+| File | Reason | FR |
+|------|--------|-----|
+| `packages/loa-hounfour/` (entire directory) | Replaced by external package | FR-1 |
+
+### Test Files (Modify)
+
+| File | Change Type | FR |
+|------|-----------|-----|
+| `tests/finn/pool-enforcement.test.ts` | Update imports | FR-1, FR-2 |
+| `tests/finn/budget-accounting.test.ts` | Branded type assertions | FR-2, FR-3 |
+| `tests/finn/jwt-roundtrip.test.ts` | Verify wire compatibility | FR-4 |
+| `tests/finn/pool-registry.test.ts` | Update imports | FR-1 |
+
+### Knowledge Files (Rewrite)
+
+| File | Change Type | FR |
+|------|-----------|-----|
+| `grimoires/oracle/code-reality-hounfour.md` | Complete rewrite for v7.0.0 | FR-5 |
+| `grimoires/oracle/sources.json` | Update checksum | FR-5 |
+
+---
+
+## 9. Implementation Strategy
+
+### Sprint Sequencing
+
+```
+Sprint 1: Foundation — Bump + Cleanup + Safety Gates
+├── Create golden wire fixtures BEFORE bump (JWT, billing, stream events)
+├── Delete packages/loa-hounfour/ (comprehensive search for hidden refs)
+├── Bump dep to v7.0.0 tag
+├── Schema audit: diff every imported symbol v5→v7, confirm no new required wire fields
+├── Fix compile errors (tsc --noEmit)
+├── Fix or independently cover s2s-jwt.test.ts wire-compat surface
+├── Update protocol handshake (v7.0.0 advertised, MIN_SUPPORTED=4.0.0)
+├── Add interop handshake fixture (arrakis v4.6.0 simulation)
+├── Verify golden wire fixtures still pass AFTER bump
+├── Run full test suite — verify ≥187 passing
+└── Independently shippable checkpoint
+
+Sprint 2: Type Adoption — Branded Types + Evaluator
+├── Replace local MicroUSD/BasisPoints/AccountId with canonical
+├── Add golden wire snapshot tests (billing req/res, JWT, streams)
+├── Verify wire fixtures byte-for-byte stable after type migration
+├── Wire conservation evaluator (compile once at startup, cache)
+├── All billing invariants fail-closed — no fail-open mode
+├── Add evaluator-backed invariant tests
+├── CI microbenchmark: p95 evaluator overhead < 1ms
+└── Independently shippable checkpoint
+
+Sprint 3: Knowledge + Hardening
+├── Rewrite Oracle knowledge sources for v7.0.0
+├── Update gold-set test vectors
+├── Verify 20/20 gold-set pass rate
+├── Protocol version drift detection in CI
+└── Final integration pass
+```
+
+### Rollback Strategy
+
+Each sprint is independently shippable. If any sprint introduces regressions:
+1. Revert the sprint's commits
+2. Prior sprint's state is valid and tested
+3. Git tag pin can be reverted to old commit SHA trivially
+
+**Rollback runbook (per sprint):**
+
+| Trigger | Signal | Owner | Action | RTO |
+|---------|--------|-------|--------|-----|
+| Wire-compat fixture failure post-deploy | Golden fixture test fails in staging | On-call engineer | Revert PR, re-pin to previous commit SHA | < 15 min |
+| Billing invariant violation in production | Evaluator HARD-FAIL alert rate > 0 for new failure modes | On-call engineer | Circuit-open billing endpoints, revert evaluator wiring | < 10 min |
+| arrakis handshake rejection | `CONTRACT_VERSION_MISMATCH` errors from arrakis | On-call engineer | Revert `CONTRACT_VERSION` to previous value | < 10 min |
+| Test regression > 2 failures beyond baseline | CI red, new failures not in pre-existing 13 | Sprint author | Block merge, fix or revert | Before merge |
+
+**Verification after rollback**: Golden wire fixtures pass, test count ≥ 187, arrakis handshake fixture passes, evaluator health check returns OK.
+
+### Deployment Strategy
+
+**Canary deployment** for each sprint merge:
+1. Deploy to staging with full test suite + golden wire fixtures
+2. Shadow traffic: replay 10 min of production billing requests against staging, compare responses byte-for-byte
+3. Canary: route 5% of production traffic for 30 min, monitor evaluator latency + error rate
+4. Full rollout only after canary shows zero new errors and p95 latency within budget
+5. Rollback hook: automated revert if error rate exceeds 0.1% during canary window

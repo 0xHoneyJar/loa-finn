@@ -1,1980 +1,1091 @@
-# SDD: The Oracle — From Engine to Product (Phase 1)
+# SDD: Protocol Convergence — loa-hounfour v5.0.0 → v7.0.0
 
-> **Version**: 3.0.0
-> **Date**: 2026-02-17
-> **Author**: @janitooor + Bridgebuilder
+> **Version**: 1.0.0
+> **Date**: 2026-02-18
+> **Author**: @janitooor + Claude Opus 4.6
 > **Status**: Draft
-> **Cycle**: cycle-025 (extended)
-> **PRD**: `grimoires/loa/prd.md` (v3.0.0, GPT-5.2 APPROVED iteration 2, Flatline APPROVED)
-> **Predecessor**: SDD v2.0.0 — Oracle Knowledge Engine (Phase 0, IMPLEMENTED in PR #75)
-> **Grounding**: `src/gateway/server.ts` (235 lines), `src/gateway/routes/invoke.ts` (97 lines), `src/gateway/rate-limit.ts` (99 lines), `src/gateway/auth.ts` (85 lines), `src/config.ts` (247 lines), `src/scheduler/health.ts` (203 lines), `deploy/Dockerfile` (77 lines), `deploy/terraform/finn.tf` (471 lines)
+> **Cycle**: cycle-026
+> **PRD**: `grimoires/loa/prd.md` v1.1.0 (Flatline-integrated)
+> **Grounding**: `grimoires/loa/reality/` (2026-02-13), `src/hounfour/` (33 files), `packages/loa-hounfour/` (stale v1.0.0)
 
 ---
 
 ## 1. Executive Summary
 
-Phase 0 (SDD v2.0.0) built the Oracle's brain — a knowledge enrichment engine inside the Hounfour router. That work is complete: 600 lines of TypeScript, 107 tests, 10 curated knowledge sources, fully reviewed and approved in PR #75.
+This SDD designs the architecture for upgrading loa-finn's protocol package from `@0xhoneyjar/loa-hounfour` v5.0.0 to v7.0.0. The migration introduces three new architectural elements while preserving the existing system architecture:
 
-Phase 1 gives the Oracle a body. This SDD designs the product surface that makes the engine accessible:
+1. **Wire Boundary Module** — Centralized branded type parse/serialize layer (FAANG pattern)
+2. **BillingConservationGuard** — Fail-closed evaluator wrapping existing billing invariant checks
+3. **Schema Audit & Golden Fixture Infrastructure** — Deterministic wire-compatibility verification
 
-**Backend (loa-finn):**
-1. `src/gateway/routes/oracle.ts` — BFF endpoint (`POST /api/v1/oracle`) wrapping the invoke pipeline (~120 lines)
-2. `src/gateway/oracle-rate-limit.ts` — Redis-backed per-IP / per-key / global rate limiter with fail-closed semantics (~200 lines)
-3. `src/gateway/oracle-auth.ts` — Oracle API key validation middleware (~80 lines)
-4. `src/gateway/oracle-concurrency.ts` — Semaphore for max 3 concurrent Oracle requests per ECS task (~60 lines)
+**What doesn't change**: Module structure (15 modules), request pipeline flow, persistence cascade (WAL→R2→Git), boot sequence, JWT auth algorithm (ES256), WebSocket protocol, API endpoints, database schemas.
 
-**Infrastructure (deploy/terraform/):**
-5. `deploy/terraform/modules/dnft-site/` — Reusable Terraform module (S3 + CloudFront + Route 53 + CSP headers)
-6. Module invocation for `oracle.arrakis.community`
-7. ACM wildcard certificate for `*.arrakis.community`
-8. GitHub Actions OIDC role for loa-dixie → S3 deployment
-
-**Build Pipeline:**
-9. Dockerfile changes — CI-fetched loa-dixie knowledge via `COPY` from build context (no `ADD` from GitHub)
-10. Docker labels for provenance (`dixie.ref`, `dixie.commit`, `build.timestamp`)
-
-**Frontend (loa-dixie/site/):**
-11. Next.js static export — chat interface, source attribution panel, abstraction level selector
-12. Deployed to S3 + CloudFront, migration-ready for Cloudflare Pages
-
-**Scripts:**
-13. `scripts/oracle-keys.sh` — Admin CLI for API key create/revoke/list
-
-**Modified files** (~120 lines of changes across 4 existing files):
-- `src/config.ts` — Oracle Phase 1 env vars (~30 lines)
-- `src/gateway/server.ts` — Oracle route + middleware registration (~20 lines)
-- `src/scheduler/health.ts` — Rate limiter + dixie ref health fields (~15 lines)
-- `deploy/Dockerfile` — `COPY` loa-dixie knowledge from build context (~10 lines)
-
-Phase 0 components are fully retained. No changes to the knowledge enrichment pipeline, types, loader, registry, or enricher. The Oracle product API delegates to the same `HounfourRouter.invokeForTenant()` that the existing invoke endpoint uses.
+**What changes**: Import paths (canonical types replace local), billing pipeline gains evaluator layer, protocol handshake advertises v7.0.0, Oracle knowledge sources updated.
 
 ---
 
 ## 2. System Architecture
 
-### 2.1 Phase 1 Request Flow
+### 2.1 High-Level Component Map
 
 ```
-┌─────────────────────────────────────────────────────┐
-│            oracle.arrakis.community                  │
-│            Next.js static on S3 + CloudFront         │
-│            CSP + HSTS response headers               │
-└─────────────────────┬───────────────────────────────┘
-                      │ HTTPS (cross-origin)
-                      ▼
-┌─────────────────────────────────────────────────────┐
-│            finn.arrakis.community                    │
-│            ALB → ECS (existing)                      │
-│                                                      │
-│  ┌─ CORS middleware ─────────────────────────────┐  │
-│  │  Origin: https://oracle.arrakis.community     │  │
-│  └───────────────────────────────────────────────┘  │
-│                      │                               │
-│  ┌─ Oracle Auth middleware ──────────────────────┐  │
-│  │  dk_live_* → SHA-256 lookup in Redis          │  │
-│  │  No token → IP-based public tier              │  │
-│  └───────────────────────────────────────────────┘  │
-│                      │                               │
-│  ┌─ Oracle Rate Limiter ─────────────────────────┐  │
-│  │  Redis-backed: IP (5/day), Key (50/day),      │  │
-│  │  Global (200/day). Fail-closed on Redis err.  │  │
-│  └───────────────────────────────────────────────┘  │
-│                      │                               │
-│  ┌─ Concurrency Limiter ─────────────────────────┐  │
-│  │  Semaphore: max 3 concurrent Oracle requests  │  │
-│  └───────────────────────────────────────────────┘  │
-│                      │                               │
-│  ┌─ Oracle Route Handler ────────────────────────┐  │
-│  │  POST /api/v1/oracle                          │  │
-│  │  { question, context? } → { answer, sources } │  │
-│  │  Translates to invokeForTenant("oracle", ...) │  │
-│  └───────────────────┬───────────────────────────┘  │
-│                      │ internal call                 │
-│                      ▼                               │
-│  ┌─ HounfourRouter.invokeForTenant() ────────────┐  │
-│  │  Pool selection → Budget → Persona → Knowledge │  │
-│  │  enrichment → Model invoke → Billing finalize  │  │
-│  │  (Phase 0 — EXISTING, unchanged)               │  │
-│  └───────────────────────────────────────────────┘  │
-│                      │ reads at startup              │
-│                      ▼                               │
-│  ┌─ Knowledge Corpus ───────────────────────────────┐
-│  │  20+ sources from loa-dixie (build-time COPY)    │
-│  │  ~150K tokens, all 7 abstraction levels          │
-│  └──────────────────────────────────────────────────┘
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                        Gateway Layer                         │
+│  ┌──────────┐  ┌───────────┐  ┌───────────┐  ┌──────────┐  │
+│  │ HTTP/WS  │  │ JWT Auth  │  │   CORS    │  │Rate Limit│  │
+│  └────┬─────┘  └─────┬─────┘  └───────────┘  └──────────┘  │
+│       │              │                                       │
+│       │    ┌─────────▼──────────┐                           │
+│       │    │  Wire Boundary ◄── │ NEW: parse branded types  │
+│       │    │  (wire-boundary.ts)│ at request ingress         │
+│       │    └─────────┬──────────┘                           │
+└───────┼──────────────┼──────────────────────────────────────┘
+        │              │
+┌───────▼──────────────▼──────────────────────────────────────┐
+│                     Hounfour Layer (33→35 files)             │
+│  ┌──────────────┐  ┌────────────────┐  ┌─────────────────┐  │
+│  │Pool Enforce- │  │  Tier Bridge   │  │Protocol Handshake│ │
+│  │ment (canonical│  │ (canonical     │  │(v7.0.0 advertise,│ │
+│  │ PoolId)      │  │  vocabulary)   │  │ MIN_SUPP=4.0.0) │ │
+│  └──────┬───────┘  └───────┬────────┘  └─────────────────┘  │
+│         │                  │                                 │
+│  ┌──────▼──────────────────▼────────────────────────────┐   │
+│  │              Router + Orchestrator                     │   │
+│  │  (pool selection → provider → model → invoke)         │   │
+│  └──────────────────────┬────────────────────────────────┘   │
+│                         │                                     │
+│  ┌──────────────────────▼────────────────────────────────┐   │
+│  │              Billing Pipeline                          │   │
+│  │  cost-arithmetic.ts → budget.ts → billing-finalize    │   │
+│  │         │                                              │   │
+│  │  ┌──────▼───────────────────────┐                     │   │
+│  │  │ BillingConservationGuard ◄── │ NEW: evaluator      │   │
+│  │  │ (compiled at startup,        │ wraps ad-hoc checks │   │
+│  │  │  fail-closed, bypass env)    │                     │   │
+│  │  └──────────────────────────────┘                     │   │
+│  └────────────────────────────────────────────────────────┘   │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 Phase 1 Change Map
+### 2.2 Architectural Invariants (Unchanged)
 
-```
-┌────────────────────────────────────────────────────────────┐
-│ Phase 1 Changes (6 new backend, 4 modified, infra + site)  │
-│                                                             │
-│ NEW TypeScript (loa-finn):                                  │
-│   src/gateway/routes/oracle.ts           ~120 lines         │
-│   src/gateway/oracle-rate-limit.ts       ~200 lines         │
-│   src/gateway/oracle-auth.ts             ~80 lines          │
-│   src/gateway/oracle-concurrency.ts      ~60 lines          │
-│   scripts/oracle-keys.sh                 ~120 lines         │
-│                                                             │
-│ MODIFIED TypeScript:                                        │
-│   src/config.ts                          +30 lines          │
-│   src/gateway/server.ts                  +20 lines          │
-│   src/scheduler/health.ts                +15 lines          │
-│   deploy/Dockerfile                      +10 lines          │
-│                                                             │
-│ NEW Infrastructure:                                         │
-│   deploy/terraform/modules/dnft-site/                       │
-│     main.tf                              ~200 lines         │
-│     variables.tf                         ~50 lines          │
-│     outputs.tf                           ~20 lines          │
-│   deploy/terraform/oracle-site.tf        ~50 lines          │
-│   deploy/terraform/oracle-cert.tf        ~30 lines          │
-│   deploy/terraform/dixie-oidc.tf         ~60 lines          │
-│                                                             │
-│ NEW Frontend (loa-dixie/site/):                             │
-│   package.json, next.config.js           Config             │
-│   src/app/page.tsx                       Chat UI            │
-│   src/components/ChatMessage.tsx         Message render      │
-│   src/components/SourceAttribution.tsx   Source panel        │
-│   src/components/LevelSelector.tsx       Abstraction picker  │
-│   src/lib/oracle-client.ts              API client          │
-│   src/lib/markdown-sanitizer.ts         XSS prevention      │
-│                                                             │
-│ TESTS (loa-finn):                                           │
-│   tests/finn/oracle-api.test.ts          API handler tests  │
-│   tests/finn/oracle-rate-limit.test.ts   Rate limiter tests │
-│   tests/finn/oracle-auth.test.ts         API key auth tests │
-│   tests/finn/oracle-xss.test.ts          XSS prevention     │
-└────────────────────────────────────────────────────────────┘
-```
+| Invariant | Preserved? | Notes |
+|-----------|-----------|-------|
+| ES256 JWT auth with req_hash | Yes | Algorithm, claims structure unchanged on wire |
+| BigInt micro-USD arithmetic | Yes | Internal computation unchanged |
+| WAL→R2→Git persistence cascade | Yes | No persistence changes |
+| Hono v4 request pipeline | Yes | Middleware order unchanged |
+| Boot sequence strict ordering | Yes | BillingConservationGuard.init() added after hounfour step |
+| Graceful shutdown order | Yes | Evaluator has no shutdown requirements (in-memory only) |
 
-### 2.3 Invariants
+### 2.3 New Architectural Elements
 
-1. **Phase 0 untouched**: No changes to `knowledge-{types,loader,registry,enricher}.ts`. PR #75 code remains exactly as approved.
-2. **Existing invoke unaffected**: The `/api/v1/invoke` endpoint, its middleware chain (hounfourAuth + existing rate limiter), and all non-Oracle agents work identically.
-3. **Oracle endpoint separation**: `/api/v1/oracle` has its OWN middleware stack (oracle-auth + oracle-rate-limit + concurrency). It does NOT share the existing `hounfourAuth` or `rateLimitMiddleware`.
-4. **Redis fail-closed**: If Redis is unreachable, Oracle returns 503. Other endpoints are not affected (they use in-memory rate limiting).
+| Element | Type | Location | Purpose |
+|---------|------|----------|---------|
+| `wire-boundary.ts` | Module | `src/hounfour/` | Centralized branded type parse/serialize |
+| `BillingConservationGuard` | Class | `src/hounfour/billing-conservation-guard.ts` | Fail-closed evaluator for billing invariants |
+| Golden wire fixtures | Test infra | `tests/fixtures/wire/` | Deterministic wire-format stability tests |
+| Schema audit artifact | Build artifact | `grimoires/loa/a2a/schema-audit-v5-v7.json` | Checked-in schema diff |
 
 ---
 
-## 3. Component Design
+## 3. Technology Stack
 
-### 3.1 Oracle API Route Handler (`src/gateway/routes/oracle.ts`)
+### 3.1 Dependencies Changed
 
-BFF endpoint that translates the product-facing Oracle contract into the internal invoke pipeline. Follows the same factory pattern as `createInvokeHandler()` in `invoke.ts:34`.
+| Package | Before | After | Reason |
+|---------|--------|-------|--------|
+| `@0xhoneyjar/loa-hounfour` | `github:...#e5b9f16c` (v5.0.0) | `github:...#v7.0.0` | Protocol convergence |
 
-```typescript
-import type { Context } from "hono"
-import type { ContentfulStatusCode } from "hono/utils/http-status"
-import type { HounfourRouter } from "../../hounfour/router.js"
-import type { TenantContext } from "../../hounfour/jwt-auth.js"
-import { HounfourError } from "../../hounfour/errors.js"
+### 3.2 Dependencies Unchanged
 
-const API_VERSION = "2026-02-17"
-const MAX_QUESTION_LENGTH = 10_000
-const MAX_CONTEXT_LENGTH = 5_000
+| Package | Version | Relevance |
+|---------|---------|-----------|
+| `@sinclair/typebox` | ^0.34.48 | Runtime schema validation — verify peer dep alignment with v7.0.0 |
+| `jose` | ^6.1.3 | JWT signing/verification — unchanged |
+| `hono` | ^4.0.0 | HTTP framework — unchanged |
+| `ioredis` | (current) | Budget state — unchanged |
 
-interface OracleRequest {
-  question: string
-  context?: string
-  session_id?: string  // reserved, ignored in Phase 1
-}
+### 3.3 Dependencies Removed
 
-interface OracleResponse {
-  answer: string
-  sources: Array<{
-    id: string
-    tags: string[]
-    tokens_used: number
-  }>
-  metadata: {
-    knowledge_mode: "full" | "reduced"
-    total_knowledge_tokens: number
-    knowledge_budget: number
-    retrieval_ms: number
-    model: string
-    session_id: null  // null until sessions implemented
-  }
-}
+| Package | Location | Reason |
+|---------|----------|--------|
+| `packages/loa-hounfour/` | Local workspace | Stale v1.0.0 — replaced by external v7.0.0 |
 
-export function createOracleHandler(router: HounfourRouter, rateLimiter: OracleRateLimiter) {
-  return async (c: Context) => {
-    // Oracle uses its own auth — tenant comes from oracle-auth middleware
-    const oracleTenant = c.get("oracleTenant") as OracleTenantContext | undefined
-    if (!oracleTenant) {
-      return c.json({ error: "Unauthorized", code: "AUTH_REQUIRED" }, 401)
-    }
+### 3.4 TypeBox Peer Dependency Verification
 
-    let body: OracleRequest
-    try {
-      body = await c.req.json()
-    } catch {
-      return c.json({ error: "Invalid JSON body", code: "INVALID_REQUEST" }, 400)
-    }
+loa-hounfour v7.0.0 declares TypeBox as a peer dependency. Sprint 1 schema audit must verify:
+- loa-finn's TypeBox version satisfies the peer range
+- No TypeBox major version mismatch that could cause validation behavior differences
+- If mismatch: align versions before proceeding
 
-    // Validate question
-    if (!body.question || typeof body.question !== "string" || !body.question.trim()) {
-      return c.json(
-        { error: "question is required and must be a non-empty string", code: "INVALID_REQUEST" },
-        400,
-      )
-    }
-    if (body.question.length > MAX_QUESTION_LENGTH) {
-      return c.json(
-        { error: `question must be ≤${MAX_QUESTION_LENGTH} characters`, code: "INVALID_REQUEST" },
-        400,
-      )
-    }
-    if (body.context && body.context.length > MAX_CONTEXT_LENGTH) {
-      return c.json(
-        { error: `context must be ≤${MAX_CONTEXT_LENGTH} characters`, code: "INVALID_REQUEST" },
-        400,
-      )
-    }
+---
 
-    // Build prompt: question + optional context
-    const prompt = body.context
-      ? `${body.question}\n\nAdditional context: ${body.context}`
-      : body.question
+## 4. Component Design
 
-    // Cost reservation: atomic check-and-reserve before invoking model (Flatline IMP-002/SKP-004)
-    const reservation = await rateLimiter.reserveCost(
-      config.oracle.estimatedCostCents,
-      config.oracle.costCeilingCents,
-    )
-    if (!reservation.allowed) {
-      return c.json({ error: "Daily cost ceiling reached", code: "COST_CEILING_EXCEEDED" }, 503)
-    }
+### 4.1 Wire Boundary Module (`src/hounfour/wire-boundary.ts`)
 
-    try {
-      // Delegate to existing invoke pipeline with "oracle" agent
-      // Use a synthetic TenantContext for Oracle public/authenticated tiers
-      const result = await router.invokeForTenant("oracle", prompt, oracleTenant.asTenant(), "invoke")
+**Design philosophy**: Branded types are a security boundary. The Wire Boundary Module is the **sole constructor** for branded type values in the application. This is enforced through three layers:
 
-      // Reconcile actual cost (best-effort refund of overestimate)
-      const actualCostCents = result.metadata.cost_cents ?? config.oracle.estimatedCostCents
-      await reservation.release(actualCostCents)
-
-      // Reshape response for product API
-      const knowledge = result.metadata.knowledge
-      const response: OracleResponse = {
-        answer: result.content,
-        sources: (knowledge?.knowledge_sources_used ?? []).map((id, i) => ({
-          id,
-          tags: knowledge?.tags_matched ?? [],
-          tokens_used: 0,  // individual source tokens from enricher metadata
-        })),
-        metadata: {
-          knowledge_mode: knowledge?.knowledge_mode ?? "full",
-          total_knowledge_tokens: knowledge?.knowledge_tokens_used ?? 0,
-          knowledge_budget: knowledge?.knowledge_tokens_budget ?? 0,
-          retrieval_ms: knowledge?.knowledge_retrieval_ms ?? 0,
-          model: result.metadata.model,
-          session_id: null,
-        },
-      }
-
-      // API version header (PRD §FR-2, Flatline IMP-002)
-      c.header("X-Oracle-API-Version", API_VERSION)
-
-      return c.json(response)
-    } catch (err) {
-      // Release reservation on failure (full refund)
-      await reservation.release(0)
-
-      if (err instanceof HounfourError) {
-        const statusMap: Record<string, ContentfulStatusCode> = {
-          BUDGET_EXCEEDED: 402,
-          ORACLE_MODEL_UNAVAILABLE: 422,
-          ORACLE_KNOWLEDGE_UNAVAILABLE: 503,
-          CONTEXT_OVERFLOW: 413,
-          RATE_LIMITED: 429,
-        }
-        const status = statusMap[err.code] ?? 502
-        return c.json({ error: err.message, code: err.code }, status)
-      }
-      console.error("[oracle] unexpected error:", err)
-      return c.json({ error: "Internal error", code: "INTERNAL_ERROR" }, 500)
-    }
-  }
-}
-```
-
-**Key design decisions**:
-- Separate handler from invoke (not shared middleware) because the request/response contracts differ
-- `oracleTenant` is set by `oracleAuthMiddleware`, NOT by `hounfourAuth` — the Oracle has its own auth chain
-- `.asTenant()` converts Oracle identity (IP or API key) into a synthetic `TenantContext` for the invoke pipeline. The synthetic tenant MUST conform to the existing `TenantContext` interface (`tenantId`, `scope`, `poolId`, `endpointType`) and pass any downstream validation — tests should assert `invokeForTenant` accepts the synthetic tenant without error (Flatline IMP-003)
-- `session_id` accepted but ignored — API contract reserves it for future use
-- API version header on every response per Flatline IMP-002
-- Cost reservation (`reserveCost` → invoke → `release`) is wired directly into the handler, not as middleware, because it needs access to the model result for reconciliation (Flatline IMP-002/SKP-004)
-
-### 3.2 Oracle Rate Limiter (`src/gateway/oracle-rate-limit.ts`)
-
-Redis-backed rate limiter with three tiers and fail-closed semantics. This is a **new, separate module** from the existing in-memory `RateLimiter` in `rate-limit.ts:11-58`.
+1. **Type-level**: Brand symbol is not exported — only the parse functions can construct branded values. The brand type helper (`__brand`) is module-private (Stripe pattern).
+2. **Lint-level**: ESLint rule bans `as MicroUSD`, `as BasisPoints`, `as AccountId`, `as PoolId` type assertions outside of `wire-boundary.ts` and test files.
+3. **Runtime-level**: Critical persistence boundaries (ledger write, billing finalize) include a runtime format assertion (`assertMicroUSDFormat()`) that validates the string matches the canonical pattern before writing. This catches any bypass that slipped through compile-time and lint-time checks.
 
 ```typescript
-import type { Context, Next } from "hono"
-import type { RedisClient } from "../redis-client.js"
+// === PARSE FUNCTIONS (wire → domain) ===
+// Each is the ONLY way to create the corresponding branded type.
+// All normalization and validation happens here.
 
-export interface OracleRateLimitConfig {
-  dailyCap: number             // Global daily cap (default: 200)
-  publicDailyLimit: number     // Per-IP limit (default: 5)
-  authenticatedDailyLimit: number  // Per-key limit (default: 50)
-  costCeilingCents: number     // Daily cost circuit breaker (default: 2000 = $20)
-}
+export function parseMicroUSD(raw: string): MicroUSD
+  // 1. Reject empty string
+  // 2. Reject plus sign prefix
+  // 3. Strip leading zeros (except for "0" itself)
+  // 4. Normalize "-0" → "0"
+  // 5. Validate pattern: /^-?[1-9][0-9]*$|^0$/
+  // 6. Return as MicroUSD branded type
+  // Throws: WireBoundaryError with { field: 'micro_usd', raw, reason }
 
-export class OracleRateLimiter {
+export function parseBasisPoints(raw: number): BasisPoints
+  // 1. Verify integer (Number.isInteger)
+  // 2. Verify range [0, 10000]
+  // 3. Return as BasisPoints branded type
+  // Throws: WireBoundaryError
+
+export function parseAccountId(raw: string): AccountId
+  // 1. Reject empty string
+  // 2. Validate pattern: /^[a-zA-Z0-9_-]+$/
+  // 3. Return as AccountId branded type
+  // Throws: WireBoundaryError
+
+export function parsePoolId(raw: string): PoolId
+  // 1. Validate membership in canonical POOL_IDS vocabulary
+  // 2. Return as PoolId branded type
+  // Throws: WireBoundaryError with { field: 'pool_id', raw, valid: POOL_IDS }
+
+// === SERIALIZE FUNCTIONS (domain → wire) ===
+// Guarantee canonical wire format for outbound data.
+
+export function serializeMicroUSD(value: MicroUSD): string
+  // Returns the branded string directly (MicroUSD is already a string)
+  // Asserts normalization invariant (no leading zeros, no -0)
+
+export function serializeBasisPoints(value: BasisPoints): number
+  // Returns the branded number directly
+
+export function serializeAccountId(value: AccountId): string
+  // Returns the branded string directly
+
+// === ERROR TYPE ===
+export class WireBoundaryError extends Error {
   constructor(
-    private redis: RedisClient,
-    private config: OracleRateLimitConfig,
-  ) {}
-
-  /**
-   * Check all rate limit tiers ATOMICALLY via Redis Lua script.
-   * Returns allow/deny with reason.
-   *
-   * The Lua script checks identity limit, cost ceiling, and global cap
-   * in a single atomic operation. Global counter is ONLY incremented
-   * if the identity check passes — preventing global counter inflation
-   * from over-limit identities. (GPT-5.2 Fix #2)
-   *
-   * Check order inside Lua (atomic, no partial state):
-   *   1. Cost circuit breaker → COST_CEILING_EXCEEDED
-   *   2. Per-identity limit → IDENTITY_LIMIT_EXCEEDED
-   *   3. Global daily cap → GLOBAL_CAP_EXCEEDED
-   *   4. All pass → increment identity + global, return allowed
-   */
-  private static readonly RATE_LIMIT_LUA = `
-    local costKey = KEYS[1]
-    local identityKey = KEYS[2]
-    local globalKey = KEYS[3]
-    local costCeiling = tonumber(ARGV[1])
-    local identityLimit = tonumber(ARGV[2])
-    local globalCap = tonumber(ARGV[3])
-    local ttl = 86400
-
-    -- 1. Cost circuit breaker (read-only check)
-    local costCents = tonumber(redis.call('GET', costKey) or '0')
-    if costCents >= costCeiling then
-      return {'COST_CEILING_EXCEEDED', 0, 0}
-    end
-
-    -- 2. Per-identity limit (read-only check)
-    local identityCount = tonumber(redis.call('GET', identityKey) or '0')
-    if identityCount >= identityLimit then
-      return {'IDENTITY_LIMIT_EXCEEDED', identityLimit, 0}
-    end
-
-    -- 3. Global daily cap (read-only check)
-    local globalCount = tonumber(redis.call('GET', globalKey) or '0')
-    if globalCount >= globalCap then
-      return {'GLOBAL_CAP_EXCEEDED', 0, 0}
-    end
-
-    -- All checks passed — atomically increment both counters
-    local newIdentity = redis.call('INCR', identityKey)
-    if newIdentity == 1 then redis.call('EXPIRE', identityKey, ttl) end
-    local newGlobal = redis.call('INCR', globalKey)
-    if newGlobal == 1 then redis.call('EXPIRE', globalKey, ttl) end
-
-    return {'ALLOWED', identityLimit, identityLimit - newIdentity}
-  `
-
-  async check(identity: OracleIdentity): Promise<RateLimitResult> {
-    const dateKey = utcDateKey()
-    const costKey = `oracle:cost:${dateKey}`
-    const globalKey = `oracle:global:${dateKey}`
-    const { key: identityKey, limit } = identity.type === "api_key"
-      ? { key: `oracle:ratelimit:key:${identity.keyHash}:${dateKey}`, limit: this.config.authenticatedDailyLimit }
-      : { key: `oracle:ratelimit:ip:${identity.ip}:${dateKey}`, limit: this.config.publicDailyLimit }
-
-    const [reason, luaLimit, remaining] = await this.redis.eval(
-      OracleRateLimiter.RATE_LIMIT_LUA,
-      3, costKey, identityKey, globalKey,
-      this.config.costCeilingCents, limit, this.config.dailyCap,
-    ) as [string, number, number]
-
-    if (reason === "ALLOWED") {
-      return { allowed: true, reason: null, limit, remaining }
-    }
-
-    return {
-      allowed: false,
-      reason: reason as RateLimitResult["reason"],
-      retryAfterSeconds: secondsUntilMidnightUTC(),
-      limit: reason === "IDENTITY_LIMIT_EXCEEDED" ? limit : undefined,
-      remaining: 0,
-    }
-  }
-
-  /**
-   * Atomic check-and-reserve: reserve estimated cost BEFORE invoking the model,
-   * deny if reservation would exceed the ceiling, reconcile after.
-   * Uses Lua to guarantee no concurrent overshoot. (GPT-5.2 Fix #3, iteration 2)
-   *
-   * @param estimatedCostCents - Pessimistic estimate (e.g., max cost for the model)
-   * @param costCeilingCents - Daily ceiling from config (e.g., 2000 for $20)
-   * @returns { allowed, release } — if !allowed, do NOT invoke the model
-   */
-  private static readonly RESERVE_COST_LUA = `
-    local costKey = KEYS[1]
-    local estimatedCost = tonumber(ARGV[1])
-    local ceiling = tonumber(ARGV[2])
-    local ttl = 86400
-
-    local current = tonumber(redis.call('GET', costKey) or '0')
-    if (current + estimatedCost) > ceiling then
-      return {0, current}
-    end
-
-    local newVal = redis.call('INCRBY', costKey, estimatedCost)
-    if newVal == estimatedCost then
-      redis.call('EXPIRE', costKey, ttl)
-    end
-    return {1, newVal}
-  `
-
-  async reserveCost(
-    estimatedCostCents: number,
-    costCeilingCents: number,
-  ): Promise<{ allowed: boolean; release: (actualCostCents: number) => Promise<void> }> {
-    const costKey = `oracle:cost:${utcDateKey()}`
-    const [allowed, _currentCost] = await this.redis.eval(
-      OracleRateLimiter.RESERVE_COST_LUA,
-      { keys: [costKey], arguments: [String(estimatedCostCents), String(costCeilingCents)] },
-    ) as [number, number]
-
-    if (!allowed) {
-      return {
-        allowed: false,
-        release: async () => {}, // no-op, nothing was reserved
-      }
-    }
-
-    return {
-      allowed: true,
-      release: async (actualCostCents: number) => {
-        // Reconcile: adjust by the difference (may be negative = refund)
-        const delta = actualCostCents - estimatedCostCents
-        if (delta !== 0) {
-          await this.redis.incrBy(costKey, delta).catch(() => {})
-        }
-      },
-    }
-  }
-
-  /** Health check: is Redis reachable? */
-  async isHealthy(): Promise<boolean> {
-    try {
-      await this.redis.ping()
-      return true
-    } catch {
-      return false
-    }
-  }
-}
-
-export type OracleIdentity =
-  | { type: "ip"; ip: string }
-  | { type: "api_key"; keyHash: string; ip: string }
-
-interface RateLimitResult {
-  allowed: boolean
-  reason: "GLOBAL_CAP_EXCEEDED" | "COST_CEILING_EXCEEDED" | "IDENTITY_LIMIT_EXCEEDED" | null
-  retryAfterSeconds?: number
-  limit?: number
-  remaining?: number
-}
-
-function utcDateKey(): string {
-  return new Date().toISOString().slice(0, 10) // "2026-02-17"
-}
-
-function secondsUntilMidnightUTC(): number {
-  const now = new Date()
-  const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1))
-  return Math.ceil((midnight.getTime() - now.getTime()) / 1000)
+    public readonly field: string,
+    public readonly raw: unknown,
+    public readonly reason: string,
+  ) { super(`Wire boundary violation: ${field} — ${reason}`) }
 }
 ```
 
-**Middleware wrapper**:
+**Integration points:**
+
+| Call Site | Function | Direction |
+|-----------|----------|-----------|
+| `jwt-auth.ts` → claim extraction | `parseAccountId(claims.tenant_id)` | Inbound |
+| `jwt-auth.ts` → claim extraction | `parsePoolId(claims.pool_id)` (if present) | Inbound |
+| `billing-finalize-client.ts` → cost recording | `parseMicroUSD(cost_string)` | Internal boundary |
+| `budget.ts` → config loading | `parseBasisPoints(threshold)` | Config boundary |
+| `billing-finalize-client.ts` → response | `serializeMicroUSD(total)` | Outbound |
+| Pool enforcement → validation | `parsePoolId(requested)` | Inbound |
+| WAL deserialization → ledger read | `parseMicroUSD(entry.total_cost_micro)` | Persistence read |
+| R2 deserialization → recovery | `parseMicroUSD(entry.total_cost_micro)` | Persistence read |
+| Redis deserialization → budget snapshot | `parseMicroUSD(snapshot.spent_usd)` | Cache read |
+
+**Exhaustive runtime boundary enforcement**: Every ingress point where data enters the application must pass through wire-boundary parse functions. This includes not just HTTP/WS/JWT ingress but also deserialization from WAL, R2, and Redis. Persistence reads are trust boundaries — data written by a previous version could have different format assumptions.
+
+**Testing**: Each parse function has a dedicated test suite covering all edge cases from the PRD's MicroUSD normalization table, plus property-based tests for round-trip stability (`parse(serialize(x)) === x`).
+
+### 4.2 BillingConservationGuard (`src/hounfour/billing-conservation-guard.ts`)
+
+**Design**: Singleton guard that compiles the constraint registry at startup and validates billing invariants at each billing checkpoint. Wraps (does not replace) existing ad-hoc checks — the ad-hoc checks serve as the `EVALUATOR_BYPASS` fallback.
 
 ```typescript
-export function oracleRateLimitMiddleware(limiter: OracleRateLimiter) {
-  return async (c: Context, next: Next) => {
-    const identity = c.get("oracleIdentity") as OracleIdentity | undefined
-    if (!identity) {
-      // Should never happen — auth middleware sets this
-      return c.json({ error: "Identity not established", code: "INTERNAL_ERROR" }, 500)
-    }
+export class BillingConservationGuard {
+  private compiled: CompiledConstraintRegistry | null = null
+  private state: 'uninitialized' | 'ready' | 'degraded' | 'bypassed' = 'uninitialized'
 
-    let result: RateLimitResult
-    try {
-      result = await limiter.check(identity)
-    } catch {
-      // Redis unreachable — FAIL CLOSED (PRD NFR-2, Flatline IMP-003)
-      return c.json(
-        { error: "Service temporarily unavailable", code: "RATE_LIMITER_UNAVAILABLE" },
-        503,
-      )
-    }
+  // === LIFECYCLE ===
 
-    if (!result.allowed) {
-      const status = result.reason === "IDENTITY_LIMIT_EXCEEDED" ? 429 : 503
-      if (result.retryAfterSeconds) {
-        c.header("Retry-After", String(result.retryAfterSeconds))
-      }
-      return c.json({ error: "Rate limit exceeded", code: result.reason }, status)
-    }
+  async init(): Promise<void>
+    // 1. Check EVALUATOR_BYPASS env — if true, set state='bypassed', return
+    // 2. Attempt compilation with retry (3 attempts, 1s/2s/4s backoff)
+    // 3. On success: state='ready', log compiled constraint count
+    // 4. On all retries exhausted: state='degraded', log error, emit alert
+    // Idempotent: calling init() when ready is a no-op
 
-    // Expose remaining for response headers
-    if (result.remaining !== undefined) {
-      c.header("X-RateLimit-Remaining", String(result.remaining))
-      c.header("X-RateLimit-Limit", String(result.limit))
-    }
+  getHealth(): { billing: 'ready' | 'degraded' | 'unavailable', evaluator_compiled: boolean }
+    // Maps state to health response for /health endpoint
 
-    return next()
-  }
+  // === INVARIANT CHECKS ===
+  // Each method runs BOTH the evaluator check AND the existing ad-hoc check.
+  // Strict fail-closed lattice: effective = FAIL if EITHER check fails or errors.
+  // Only PASS if both evaluator AND ad-hoc return PASS.
+  // An evaluator error is treated as FAIL, NOT a fallback trigger.
+
+  checkBudgetConservation(spent: MicroUSD, limit: MicroUSD): InvariantResult
+    // Evaluator: bigint_lte(spent, limit)
+    // Ad-hoc: existing budget.ts check
+    // If evaluator errors: effective = 'fail' (not fallback), log + alert
+
+  checkCostNonNegative(cost: MicroUSD): InvariantResult
+    // Evaluator: bigint_gte(cost, '0')
+    // Ad-hoc: existing cost-arithmetic.ts check
+    // Same strict lattice
+
+  checkReserveWithinAllocation(reserve: MicroUSD, allocation: MicroUSD): InvariantResult
+    // Evaluator: bigint_lte(reserve, allocation)
+    // Ad-hoc: existing billing-finalize-client.ts check
+    // Same strict lattice
+
+  checkMicroUSDFormat(value: string): InvariantResult
+    // Evaluator: string_matches_pattern(value, MICRO_USD_PATTERN)
+    // Ad-hoc: regex check
+    // Same strict lattice
+
+  // === BYPASS MODE (break-glass only) ===
+  // EVALUATOR_BYPASS is the ONLY way to fall back to ad-hoc-only.
+  // It is NOT activated automatically by evaluator errors.
+  // When EVALUATOR_BYPASS=true:
+  // - All check methods run ONLY the ad-hoc path
+  // - Every check logs { evaluator_bypassed: true } to append-only audit sink
+  // - Metrics emit evaluator.bypassed counter
+  // - High-severity alert fires on every pod start with bypass enabled
+  // See Section 7.2 for bypass security requirements.
 }
+
+// === RESULT TYPE ===
+export interface InvariantResult {
+  ok: boolean
+  invariant_id: string
+  evaluator_result: 'pass' | 'fail' | 'error' | 'bypassed'
+  adhoc_result: 'pass' | 'fail'
+  // Strict lattice: PASS only if evaluator=pass AND adhoc=pass
+  // FAIL if evaluator=fail|error OR adhoc=fail
+  // When bypassed: effective follows adhoc_result only
+  effective: 'pass' | 'fail'
+}
+
+// === FAIL-CLOSED LATTICE ===
+// evaluator | adhoc | effective
+// pass      | pass  | pass
+// pass      | fail  | fail      ← ad-hoc caught something evaluator missed
+// fail      | pass  | fail      ← evaluator caught something ad-hoc missed
+// fail      | fail  | fail
+// error     | pass  | fail      (evaluator error = FAIL, not fallback)
+// error     | fail  | fail
+// bypassed  | pass  | pass      (explicit break-glass only)
+// bypassed  | fail  | fail
+
+// === DIVERGENCE MONITORING ===
+// When evaluator and ad-hoc disagree (evaluator=pass, adhoc=fail OR vice versa):
+// - Emit metric: evaluator.divergence{invariant_id, evaluator_result, adhoc_result}
+// - Log structured event with full input context for debugging
+// - Alert if divergence rate > 0 (any disagreement is a bug signal)
+// Divergence is a high-signal indicator of drift or implementation bugs.
+// The strict lattice ensures safety (always FAIL on disagreement),
+// but divergence must be investigated and resolved.
 ```
 
-**Redis key schema**:
+**Boot sequence integration:**
 
-| Key Pattern | TTL | Type | Purpose |
-|-------------|-----|------|---------|
-| `oracle:global:{YYYY-MM-DD}` | 24h | counter | Global daily invocation count |
-| `oracle:cost:{YYYY-MM-DD}` | 24h | counter | Cumulative daily cost in cents |
-| `oracle:ratelimit:ip:{ip}:{YYYY-MM-DD}` | 24h | counter | Per-IP daily request count |
-| `oracle:ratelimit:key:{sha256}:{YYYY-MM-DD}` | 24h | counter | Per-API-key daily request count |
-| `oracle:apikeys:{sha256}` | none | hash | API key metadata (see §3.3) |
+```
+Current: config → validate → identity → persistence → recovery → beads →
+         compound → activityFeed → workerPool → redis → hounfour →
+         sidecar/orchestrator → gateway → scheduler → HTTP serve
 
-**Design rationale**:
-- 24h TTL on date-keyed counters auto-cleans without cron
-- **Atomic multi-tier check via Lua script** (GPT-5.2 Fix #2): identity + global counters are incremented atomically only when ALL checks pass. No global counter inflation from over-limit identities.
-- **Pessimistic cost reservation** (GPT-5.2 Fix #3): cost is reserved before invoke and reconciled after, preventing concurrent overshoot of the $20 ceiling.
-- Fail-closed: any Redis error → 503, never 200 (PRD NFR-2)
-- Separate from existing `RateLimiter` because: different algorithm (daily counters vs token bucket), different backing store (Redis vs in-memory), different failure semantics (fail-closed vs continue)
+New:     config → validate → identity → persistence → recovery → beads →
+         compound → activityFeed → workerPool → redis → hounfour →
+         ┌──────────────────────────────────────────────┐
+         │ BillingConservationGuard.init() ◄── NEW STEP │
+         └──────────────────────────────────────────────┘
+         sidecar/orchestrator → gateway → scheduler → HTTP serve
+```
 
-### 3.3 Oracle API Key Auth (`src/gateway/oracle-auth.ts`)
+The guard initializes AFTER hounfour (needs package loaded) and BEFORE gateway (needs to be ready before serving requests).
 
-Validates `Authorization: Bearer dk_live_...` tokens against Redis-stored SHA-256 hashes. Falls back to IP-based public tier when no token is provided.
+**Startup behavior decision tree:**
+
+```
+BillingConservationGuard.init()
+├── EVALUATOR_BYPASS=true → state='bypassed', log to audit sink, alert, READY
+├── Compilation succeeds → state='ready', READY
+├── Compilation fails, retry 1 → ...
+├── Compilation fails, retry 2 → ...
+├── Compilation fails, retry 3 → state='degraded'
+│   ├── Billing endpoints: return 503 (BILLING_EVALUATOR_UNAVAILABLE)
+│   ├── Non-billing endpoints: serve normally (/health, /api/sessions, /ws, etc.)
+│   └── Readiness probe: READY (pod can serve non-billing traffic)
+└── Pod is always READY after init() completes (even if degraded)
+```
+
+**Key decisions:**
+1. **Pod always becomes ready** — init() never crashes the process. Zero-downtime is preserved.
+2. **Billing endpoints fail individually** — 503 only for billing operations, not the whole pod.
+3. **Non-billing traffic unaffected** — sessions, WebSocket, dashboard, health all serve normally.
+4. **Readiness is endpoint-level, not pod-level** — Kubernetes readiness probe passes; billing endpoint readiness is checked per-request by the guard.
+
+**Health endpoint integration:**
 
 ```typescript
-import { createHash } from "node:crypto"
-import type { Context, Next } from "hono"
-import type { RedisClient } from "../redis-client.js"
-import type { OracleIdentity } from "./oracle-rate-limit.js"
-
-const API_KEY_PREFIX_LIVE = "dk_live_"
-const API_KEY_PREFIX_TEST = "dk_test_"
-
-interface ApiKeyRecord {
-  status: "active" | "revoked"
-  owner: string
-  created_at: string
-  last_used_at: string | null
-}
-
-export interface OracleTenantContext {
-  tier: "public" | "authenticated"
-  identity: OracleIdentity
-  /** Convert to TenantContext for the invoke pipeline */
-  asTenant(): TenantContext
-}
-
-export function oracleAuthMiddleware(redis: RedisClient) {
-  return async (c: Context, next: Next) => {
-    const ip = extractClientIp(c)
-    const authHeader = c.req.header("Authorization")
-
-    // Check for API key
-    if (authHeader?.startsWith("Bearer dk_")) {
-      const token = authHeader.slice(7)
-      if (!token.startsWith(API_KEY_PREFIX_LIVE) && !token.startsWith(API_KEY_PREFIX_TEST)) {
-        // Invalid prefix — fall through to IP-based
-      } else {
-        const keyHash = createHash("sha256").update(token).digest("hex")
-        try {
-          const record = await redis.hGetAll(`oracle:apikeys:${keyHash}`)
-          if (record?.status === "active") {
-            // Valid API key — authenticated tier
-            // Update last_used_at (fire and forget)
-            redis.hSet(`oracle:apikeys:${keyHash}`, "last_used_at", new Date().toISOString()).catch(() => {})
-
-            const identity: OracleIdentity = { type: "api_key", keyHash, ip }
-            const tenant: OracleTenantContext = {
-              tier: "authenticated",
-              identity,
-              asTenant: () => ({
-                tenantId: `dk:${keyHash.slice(0, 12)}`,
-                scope: "oracle",
-                poolId: "default",
-                endpointType: "invoke" as const,
-              }),
-            }
-            c.set("oracleTenant", tenant)
-            c.set("oracleIdentity", identity)
-            return next()
-          }
-          // Invalid or revoked key — fall through to IP-based
-        } catch {
-          // Redis error with Authorization header present — FAIL CLOSED.
-          // Do NOT silently downgrade to IP-based (GPT-5.2 Fix #5):
-          // a revoked key would regain access as public during partial Redis outage.
-          return c.json(
-            { error: "Service temporarily unavailable", code: "AUTH_UNAVAILABLE" },
-            503,
-          )
-        }
-      }
-    }
-
-    // Public tier — IP-based
-    const identity: OracleIdentity = { type: "ip", ip }
-    const tenant: OracleTenantContext = {
-      tier: "public",
-      identity,
-      asTenant: () => ({
-        tenantId: `ip:${ip}`,
-        scope: "oracle",
-        poolId: "default",
-        endpointType: "invoke" as const,
-      }),
-    }
-    c.set("oracleTenant", tenant)
-    c.set("oracleIdentity", identity)
-    return next()
+// In /health handler:
+const guardHealth = billingConservationGuard.getHealth()
+return {
+  status: 'healthy', // Pod is healthy even if evaluator degraded
+  subsystems: {
+    // ... existing subsystems ...
+    billing_evaluator: guardHealth
+    // billing: 'ready' | 'degraded' | 'bypassed'
   }
-}
-
-/**
- * Extract client IP from X-Forwarded-For using AWS standard behavior.
- *
- * IP extraction strategy: rightmost-untrusted-hop (Flatline SKP-001b hardening).
- *
- * Our proxy chain is: Client → CloudFront → ALB → ECS.
- * CloudFront and ALB each append one entry to XFF. With TRUSTED_PROXY_COUNT=2,
- * the true client IP is at position parts[parts.length - TRUSTED_PROXY_COUNT - 1].
- * This is immune to client-prepended XFF spoofing because attackers can only
- * add entries to the LEFT; the rightmost entries are always from trusted proxies.
- *
- * Fallback: If CloudFront-Viewer-Address header is available (set by CloudFront,
- * cannot be spoofed), prefer it over XFF parsing.
- *
- * TRUST_XFF env var (default: true in production behind ALB) gates XFF parsing.
- * In local/test environments, falls back to connection remote address.
- *
- * (PRD §3 Rate Limiting, Flatline SKP-001/SKP-001b, GPT-5.2 Fix #1)
- */
-const TRUSTED_PROXY_COUNT = 2 // CloudFront + ALB
-
-function extractClientIp(c: Context): string {
-  // Prefer CloudFront-Viewer-Address if available (unspoofable)
-  const cfViewer = c.req.header("CloudFront-Viewer-Address")
-  if (cfViewer) {
-    const ip = cfViewer.split(":")[0] // "ip:port" format
-    if (ip && isValidIp(ip)) return ip
-  }
-
-  const xff = c.req.header("X-Forwarded-For")
-  if (xff && config.oracle.trustXff) {
-    const parts = xff.split(",").map((s) => s.trim())
-    // Rightmost-untrusted-hop: skip the known trusted proxy entries from the right
-    const clientIndex = parts.length - TRUSTED_PROXY_COUNT - 1
-    if (clientIndex >= 0) {
-      const candidate = parts[clientIndex]
-      if (candidate && isValidIp(candidate)) return candidate
-    }
-  }
-
-  // Fall back to connection remote address (not X-Real-IP, which is client-settable)
-  return c.env?.remoteAddr ?? "unknown"
-}
-
-/** Validate IPv4 or IPv6 address format (reject garbage/spoofed non-IP values) */
-function isValidIp(ip: string): boolean {
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return true
-  if (/^[0-9a-fA-F:]+$/.test(ip) && ip.includes(":")) return true
-  return false
 }
 ```
 
-**API key hash scheme**: `dk_live_<32 hex chars>` → SHA-256 → Redis lookup. The raw key is never stored. SHA-256 is one-way and collision-resistant. Timing-safe comparison is not needed because we're doing a hash lookup, not a string comparison.
+**Per-request billing gate** (in billing middleware):
+```typescript
+if (guard.state === 'degraded') {
+  return c.json({ error: 'BILLING_EVALUATOR_UNAVAILABLE', retry_after_seconds: 30 }, 503)
+}
+```
 
-**Fallback behavior** (GPT-5.2 Fix #5):
-- **No Authorization header**: Public tier (IP-based). Normal path for unauthenticated users.
-- **Authorization header with valid `dk_*` prefix but Redis reachable**: Validate key. If active → authenticated tier. If revoked/invalid → fall through to IP-based public tier (no info leakage about key validity).
-- **Authorization header with valid `dk_*` prefix but Redis unreachable**: Return 503. Do NOT silently downgrade to IP-based — this would allow revoked keys to regain access during partial Redis outages.
-- **Authorization header with non-`dk_*` prefix**: Ignored, fall through to IP-based (not an Oracle key).
+**CI preflight gate** (Sprint 2): Evaluator compilation runs in the same Node version and container base image as production during CI. If compilation fails in CI, the build is red — this catches env-specific issues before deploy.
 
-### 3.4 Oracle Concurrency Limiter (`src/gateway/oracle-concurrency.ts`)
+**Degraded state recovery**: The `degraded` state is not permanent. Recovery paths:
+1. **Automatic**: Background timer retries compilation every 60s while degraded. On success, transitions to `ready` and resumes billing.
+2. **Manual**: Redeploy with fix (constraint file fix, dependency fix, etc.)
+3. **Emergency**: Set `EVALUATOR_BYPASS=true` via redeploy to restore billing via ad-hoc path (break-glass, see Section 7.2).
+The `degraded` → `ready` transition emits a recovery metric and clears the alert.
 
-In-memory semaphore preventing Oracle traffic from starving non-Oracle invoke requests on the shared ECS task (PRD NFR-1, Flatline IMP-010).
+### 4.3 Protocol Handshake Updates (`src/hounfour/protocol-handshake.ts`)
+
+**Changes:**
+
+| Field | Before | After |
+|-------|--------|-------|
+| `CONTRACT_VERSION` | `'1.0.0'` (from local package) | `'7.0.0'` (from external v7.0.0) |
+| `MIN_SUPPORTED_VERSION` | `'1.0.0'` (from local package) | `'4.0.0'` (hardcoded in loa-finn) |
+
+**Design decision**: `MIN_SUPPORTED_VERSION` is set in loa-finn's own code, NOT imported from the package. This prevents the package from inadvertently raising the minimum and rejecting arrakis.
 
 ```typescript
-import type { Context, Next } from "hono"
+// src/hounfour/protocol-handshake.ts
 
-export class ConcurrencyLimiter {
-  private active = 0
+import { CONTRACT_VERSION, validateCompatibility } from '@0xhoneyjar/loa-hounfour'
 
-  constructor(private maxConcurrent: number) {}
+// Override: loa-finn controls its own minimum, not the package
+const FINN_MIN_SUPPORTED = '4.0.0' as const
 
-  acquire(): boolean {
-    if (this.active >= this.maxConcurrent) return false
-    this.active++
-    return true
-  }
+export async function performHandshake(arrakisUrl: string): Promise<HandshakeResult> {
+  const peerVersion = await fetchPeerVersion(arrakisUrl)
 
-  release(): void {
-    this.active = Math.max(0, this.active - 1)
-  }
+  // Validate using package's validateCompatibility but with our minimum
+  const compat = validateCompatibility(peerVersion, FINN_MIN_SUPPORTED)
 
-  getActive(): number {
-    return this.active
-  }
-}
+  // Feature detection
+  const hasTrustScopes = semverGte(peerVersion, '6.0.0')
 
-export function oracleConcurrencyMiddleware(limiter: ConcurrencyLimiter) {
-  return async (c: Context, next: Next) => {
-    if (!limiter.acquire()) {
-      c.header("Retry-After", "5")
-      return c.json(
-        { error: "Too many concurrent Oracle requests", code: "ORACLE_CONCURRENCY_EXCEEDED" },
-        429,
-      )
-    }
-    try {
-      return await next()
-    } finally {
-      limiter.release()
-    }
+  return {
+    peerVersion,
+    advertisedVersion: CONTRACT_VERSION, // '7.0.0'
+    compatible: compat.ok,
+    features: { trustScopes: hasTrustScopes },
   }
 }
 ```
 
-**Why in-memory, not Redis**: Concurrency is per-ECS-task (PRD says "per ECS task"), not global. With `desired_count=1` (finn.tf:329), in-memory is correct. If scaling to multiple tasks, each gets its own independent semaphore — which is the desired behavior (max 3 per task, not max 3 globally).
+**Version response in health endpoint:**
 
-### 3.5 Config Extensions (`src/config.ts`)
-
-Extend `FinnConfig` (currently at config.ts:6-114) with Oracle Phase 1 fields:
-
-```typescript
-/** Oracle Phase 1 product surface (Cycle 025 Phase 1) */
-oracle: {
-  enabled: boolean                // Master toggle (Phase 0, existing)
-  sourcesConfigPath: string       // Path to sources.json (Phase 0, existing)
-  minContextWindow: number        // Min context for full mode (Phase 0, existing)
-  dailyCap: number                // Global daily cap (Phase 1, NEW)
-  costCeilingCents: number        // Cost circuit breaker in cents (Phase 1, NEW)
-  maxConcurrent: number           // Max concurrent Oracle requests (Phase 1, NEW)
-  publicDailyLimit: number        // Per-IP daily limit (Phase 1, NEW)
-  authenticatedDailyLimit: number // Per-API-key daily limit (Phase 1, NEW)
-  dixieRef: string                // Build-time loa-dixie commit ref (Phase 1, NEW)
-}
-```
-
-Extension to `loadConfig()` (config.ts:231-235):
-
-```typescript
-oracle: {
-  enabled: process.env.FINN_ORACLE_ENABLED === "true",
-  sourcesConfigPath: process.env.FINN_ORACLE_SOURCES_CONFIG ?? "grimoires/oracle/sources.json",
-  minContextWindow: parseIntEnv("FINN_ORACLE_MIN_CONTEXT", "30000"),
-  // Phase 1 additions
-  dailyCap: parseIntEnv("FINN_ORACLE_DAILY_CAP", "200"),
-  costCeilingCents: parseIntEnv("FINN_ORACLE_COST_CEILING_CENTS", "2000"),
-  maxConcurrent: parseIntEnv("FINN_ORACLE_MAX_CONCURRENT", "3"),
-  publicDailyLimit: parseIntEnv("FINN_ORACLE_PUBLIC_DAILY_LIMIT", "5"),
-  authenticatedDailyLimit: parseIntEnv("FINN_ORACLE_AUTH_DAILY_LIMIT", "50"),
-  estimatedCostCents: parseIntEnv("FINN_ORACLE_ESTIMATED_COST_CENTS", "50"),
-  trustXff: process.env.FINN_ORACLE_TRUST_XFF !== "false",  // default: true
-  corsOrigins: (process.env.FINN_ORACLE_CORS_ORIGINS ?? "https://oracle.arrakis.community").split(","),
-  dixieRef: process.env.DIXIE_REF ?? "unknown",
-},
-```
-
-**Environment variables (new)**:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `FINN_ORACLE_DAILY_CAP` | `200` | Global daily invocation cap |
-| `FINN_ORACLE_COST_CEILING_CENTS` | `2000` | Daily cost circuit breaker ($20) |
-| `FINN_ORACLE_MAX_CONCURRENT` | `3` | Max concurrent Oracle requests per ECS task |
-| `FINN_ORACLE_PUBLIC_DAILY_LIMIT` | `5` | Per-IP daily limit (public tier) |
-| `FINN_ORACLE_AUTH_DAILY_LIMIT` | `50` | Per-API-key daily limit (authenticated tier) |
-| `FINN_ORACLE_ESTIMATED_COST_CENTS` | `50` | Pessimistic per-request cost estimate for reservation |
-| `FINN_ORACLE_TRUST_XFF` | `true` | Parse X-Forwarded-For (disable for local dev) |
-| `FINN_ORACLE_CORS_ORIGINS` | `https://oracle.arrakis.community` | Comma-separated allowed CORS origins |
-| `DIXIE_REF` | `unknown` | Loa-dixie commit SHA (set at Docker build time) |
-
-### 3.6 Server Registration (`src/gateway/server.ts`)
-
-Register Oracle routes with a separate middleware chain. Insertion point: after the existing invoke registration (server.ts:126-128).
-
-```typescript
-// src/gateway/server.ts additions
-
-import { createOracleHandler } from "./routes/oracle.js"
-import { oracleAuthMiddleware } from "./oracle-auth.js"
-import { oracleRateLimitMiddleware, OracleRateLimiter } from "./oracle-rate-limit.js"
-import { oracleConcurrencyMiddleware, ConcurrencyLimiter } from "./oracle-concurrency.js"
-
-// In AppOptions interface (server.ts:22-34):
-export interface AppOptions {
-  // ... existing fields ...
-  /** Oracle rate limiter (Phase 1) */
-  oracleRateLimiter?: OracleRateLimiter
-  /** Redis client for Oracle auth (Phase 1) */
-  redisClient?: RedisClient
-}
-
-// In createApp() — BEFORE the existing /api/v1/* middleware (server.ts:116-123):
-
-// Oracle product endpoint — dedicated sub-app with its own middleware chain.
-// MUST be registered BEFORE the /api/v1/* wildcard middleware to prevent
-// hounfourAuth and rateLimitMiddleware from executing on Oracle requests.
-// Using app.route() guarantees middleware isolation regardless of registration order.
-// (GPT-5.2 Fix #4)
-if (options.hounfour && config.oracle.enabled && options.oracleRateLimiter && options.redisClient) {
-  const oracleApp = new Hono()
-  const concurrencyLimiter = new ConcurrencyLimiter(config.oracle.maxConcurrent)
-
-  oracleApp.use("*", oracleCorsMiddleware(config.oracle.corsOrigins))  // Flatline IMP-001
-  oracleApp.use("*", oracleAuthMiddleware(options.redisClient))
-  oracleApp.use("*", oracleRateLimitMiddleware(options.oracleRateLimiter))
-  oracleApp.use("*", oracleConcurrencyMiddleware(concurrencyLimiter))
-  oracleApp.post("/", createOracleHandler(options.hounfour, options.oracleRateLimiter))
-  app.route("/api/v1/oracle", oracleApp)
-}
-
-// Existing /api/v1/* middleware — add explicit skip guard for Oracle path
-// to prevent double-processing in case of Hono routing edge cases:
-const isOraclePath = (path: string) =>
-  path === "/api/v1/oracle" || path.startsWith("/api/v1/oracle/")
-
-app.use("/api/v1/*", async (c, next) => {
-  if (isOraclePath(c.req.path)) return next() // Handled by oracleApp
-  return rateLimitMiddleware(config)(c, next)
-})
-app.use("/api/v1/*", async (c, next) => {
-  if (isOraclePath(c.req.path)) return next() // Handled by oracleApp
-  return hounfourAuth(config)(c, next)
-})
-```
-
-**Middleware isolation** (GPT-5.2 Fix #4, hardened in iteration 2): The Oracle uses a dedicated Hono sub-app mounted via `app.route()`. This guarantees that `hounfourAuth` and `rateLimitMiddleware` (the existing `/api/v1/*` middleware) never execute on Oracle requests. An additional explicit skip guard using a prefix check (`isOraclePath` — matches both `/api/v1/oracle` and `/api/v1/oracle/...`) provides defense-in-depth against trailing slashes and future subpaths. A test MUST assert that the wildcard middleware is not invoked for `/api/v1/oracle` or `/api/v1/oracle/`.
-
-**CORS middleware** (Flatline IMP-001): The Oracle frontend (loa-dixie, hosted on a different subdomain) makes cross-origin requests to the Oracle API. The `oracleCorsMiddleware` handles preflight (`OPTIONS`) and actual requests:
-
-```typescript
-function oracleCorsMiddleware(allowedOrigins: string[]) {
-  return async (c: Context, next: Next) => {
-    const origin = c.req.header("Origin")
-    if (origin && allowedOrigins.includes(origin)) {
-      c.header("Access-Control-Allow-Origin", origin)
-      c.header("Access-Control-Allow-Methods", "POST, OPTIONS")
-      c.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Oracle-API-Version")
-      c.header("Access-Control-Max-Age", "86400")
-      // No credentials — API keys are passed via Authorization header, not cookies
-    }
-    if (c.req.method === "OPTIONS") return c.text("", 204)
-    return next()
-  }
-}
-```
-
-`config.oracle.corsOrigins` defaults to `["https://oracle.arrakis.community"]` in production and `["http://localhost:3000"]` in development.
-
-### 3.7 Health Extensions (`src/scheduler/health.ts`)
-
-Extend health status (health.ts:12-66) with Oracle Phase 1 fields:
-
-```typescript
-// Add to HealthStatus.checks:
-oracle?: {
-  ready: boolean
-  sources_loaded: number
-  total_tokens: number
-  missing_required: string[]
-  // Phase 1 additions:
-  rate_limiter_healthy: boolean
-  knowledge_dixie_ref: string
-  daily_usage: {
-    global_count: number
-    global_cap: number
-    cost_cents: number
-    cost_ceiling_cents: number
-  } | null
-}
-```
-
-**HealthDeps extension** (health.ts:68-83):
-
-```typescript
-getOracleRateLimiterHealth?: () => Promise<boolean>
-getOracleDailyUsage?: () => Promise<{ globalCount: number; costCents: number } | null>
-dixieRef?: string
-```
-
-**Health aggregation** — Oracle rate limiter health does NOT affect overall status. The Oracle section is informational only (per PRD: "Oracle degradation is isolated"):
-
-```typescript
-// After existing oracle health block:
-if (oracleHealth) {
-  const rateLimiterHealthy = await this.deps.getOracleRateLimiterHealth?.() ?? false
-  const dailyUsage = await this.deps.getOracleDailyUsage?.() ?? null
-
-  checks.oracle = {
-    ...checks.oracle,
-    rate_limiter_healthy: rateLimiterHealthy,
-    knowledge_dixie_ref: this.deps.dixieRef ?? "unknown",
-    daily_usage: dailyUsage ? {
-      global_count: dailyUsage.globalCount,
-      global_cap: config.oracle.dailyCap,
-      cost_cents: dailyUsage.costCents,
-      cost_ceiling_cents: config.oracle.costCeilingCents,
-    } : null,
-  }
-}
-```
-
-### 3.8 Oracle API Key CLI (`scripts/oracle-keys.sh`)
-
-Admin script for minimal key lifecycle management (PRD §3, Flatline SKP-006).
-
-```bash
-#!/usr/bin/env bash
-# scripts/oracle-keys.sh — Oracle API key management
-# Usage: ./scripts/oracle-keys.sh create|revoke|list [options]
-
-set -euo pipefail
-
-REDIS_URL="${REDIS_URL:?REDIS_URL required}"
-PREFIX_LIVE="dk_live_"
-PREFIX_TEST="dk_test_"
-
-case "${1:-}" in
-  create)
-    owner="${2:?Usage: oracle-keys.sh create <owner> [--test]}"
-    prefix="${PREFIX_LIVE}"
-    [[ "${3:-}" == "--test" ]] && prefix="${PREFIX_TEST}"
-
-    # Generate 32-byte hex key
-    raw_key="${prefix}$(openssl rand -hex 32)"
-    key_hash=$(echo -n "$raw_key" | sha256sum | cut -d' ' -f1)
-
-    # Store in Redis
-    redis-cli -u "$REDIS_URL" HSET "oracle:apikeys:${key_hash}" \
-      status active \
-      owner "$owner" \
-      created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      last_used_at ""
-
-    echo "Created key for ${owner}:"
-    echo "  Key:  ${raw_key}"
-    echo "  Hash: ${key_hash}"
-    echo ""
-    echo "IMPORTANT: Store this key securely. It cannot be recovered."
-    ;;
-
-  revoke)
-    key_hash="${2:?Usage: oracle-keys.sh revoke <key_hash>}"
-    redis-cli -u "$REDIS_URL" HSET "oracle:apikeys:${key_hash}" status revoked
-    echo "Revoked key: ${key_hash}"
-    ;;
-
-  list)
-    echo "Active Oracle API keys:"
-    for key in $(redis-cli -u "$REDIS_URL" --scan --pattern "oracle:apikeys:*"); do
-      status=$(redis-cli -u "$REDIS_URL" HGET "$key" status)
-      owner=$(redis-cli -u "$REDIS_URL" HGET "$key" owner)
-      created=$(redis-cli -u "$REDIS_URL" HGET "$key" created_at)
-      last_used=$(redis-cli -u "$REDIS_URL" HGET "$key" last_used_at)
-      hash=${key#oracle:apikeys:}
-      echo "  ${hash:0:12}... | ${status} | ${owner} | created: ${created} | last used: ${last_used:-never}"
-    done
-    ;;
-
-  *)
-    echo "Usage: oracle-keys.sh create|revoke|list"
-    exit 1
-    ;;
-esac
-```
-
----
-
-## 4. Data Architecture
-
-### 4.1 Knowledge Sources Config
-
-Retained from SDD v2.0.0 §4.1. The `sources.json` format, provenance frontmatter, and citation substrate are unchanged.
-
-**Phase 1 change**: The canonical `sources.json` moves from `grimoires/oracle/sources.json` (loa-finn) to `loa-dixie/knowledge/sources.json`. The Docker image copies it to the same path. The `FINN_ORACLE_SOURCES_CONFIG` env var still defaults to `grimoires/oracle/sources.json` — the path inside the container remains the same.
-
-### 4.2 Redis Key Schema (Phase 1)
-
-All Oracle Redis keys use the `oracle:` prefix for namespace isolation:
-
-| Key Pattern | Type | TTL | Content |
-|-------------|------|-----|---------|
-| `oracle:global:{date}` | string (counter) | 24h | Daily global invocation count |
-| `oracle:cost:{date}` | string (counter) | 24h | Daily cumulative cost in cents |
-| `oracle:ratelimit:ip:{ip}:{date}` | string (counter) | 24h | Per-IP daily count |
-| `oracle:ratelimit:key:{hash}:{date}` | string (counter) | 24h | Per-API-key daily count |
-| `oracle:apikeys:{hash}` | hash | none | `{ status, owner, created_at, last_used_at }` |
-
-**Date format**: `YYYY-MM-DD` in UTC. TTL set on first `INCR` (atomic creation). Keys auto-expire — no cleanup cron needed.
-
-**Cost tracking with atomic check-and-reserve** (GPT-5.2 Fix #3, hardened in iteration 2): `oracle:cost:{date}` accumulates model inference cost in cents. The Oracle handler uses an **atomic check-and-reserve pattern** via a dedicated Lua script: (1) before invoking the model, call `rateLimiter.reserveCost(estimatedCostCents, costCeilingCents)` which atomically reads the current cost, verifies `(current + estimate) <= ceiling`, and only INCRBYs if allowed — returning `{ allowed: false }` if the ceiling would be exceeded, (2) if allowed, after the invoke completes, call `reservation.release(actualCostCents)` to reconcile the difference. This guarantees no concurrent overshoot of the $20 ceiling because the Lua script is atomic in Redis. If the invoke fails, the reservation is released with `actualCostCents=0` (full refund). The estimated cost per model is derived from the pool configuration's max output tokens and per-token pricing.
-
-### 4.3 Extended Knowledge Corpus
-
-Phase 1 expands from 10 to 20+ sources. The source taxonomy (7 abstraction levels), gold-set contract, and deterministic ordering contract are defined in PRD §FR-3 and implemented by the Phase 0 enricher (SDD v2.0.0 §3.4). No enricher changes needed — the additional sources are loaded by the existing `KnowledgeRegistry.fromConfig()` at startup.
-
-**Corpus location**: All sources move to `loa-dixie/knowledge/sources/`. The `sources.json` registry is at `loa-dixie/knowledge/sources.json`. These are copied into the Docker image at build time (see §7).
-
----
-
-## 5. API Design
-
-### 5.1 Oracle Product API
-
-**Request**:
-```http
-POST /api/v1/oracle
-Content-Type: application/json
-Authorization: Bearer dk_live_a1b2c3... (optional)
-
-{
-  "question": "How does the billing settlement flow work?",
-  "context": "I'm looking at the arrakis credit ledger",
-  "session_id": "abc-123"
-}
-```
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `question` | string | Yes | 1-10,000 chars |
-| `context` | string | No | 0-5,000 chars |
-| `session_id` | string | No | Ignored in Phase 1, reserved for future |
-
-**Response** (200):
 ```json
 {
-  "answer": "The billing settlement flow...",
-  "sources": [
-    { "id": "code-reality-arrakis", "tags": ["billing", "arrakis"], "tokens_used": 5200 },
-    { "id": "rfcs", "tags": ["billing", "architecture"], "tokens_used": 3100 }
-  ],
-  "metadata": {
-    "knowledge_mode": "full",
-    "total_knowledge_tokens": 8300,
-    "knowledge_budget": 30000,
-    "retrieval_ms": 12,
-    "model": "claude-sonnet-4-5-20250929",
-    "session_id": null
+  "protocol": {
+    "version": "7.0.0",
+    "min_supported": "4.0.0",
+    "peer_version": "4.6.0",
+    "compatible": true
   }
 }
 ```
 
-**Response headers**:
+### 4.4 Import Path Migration
 
-| Header | Value | Purpose |
-|--------|-------|---------|
-| `X-Oracle-API-Version` | `2026-02-17` | Date-based API versioning (Flatline IMP-002) |
-| `X-RateLimit-Remaining` | `4` | Remaining requests in daily quota |
-| `X-RateLimit-Limit` | `5` or `50` | Total daily quota for this identity |
-| `Retry-After` | `3600` | Seconds until rate limit resets (only on 429/503) |
+**Before (v5.0.0 + local package):**
 
-**Error responses**:
+```typescript
+// Some files import from external:
+import { PoolId, POOL_IDS } from '@0xhoneyjar/loa-hounfour'
 
-| Status | Code | When |
-|--------|------|------|
-| 400 | `INVALID_REQUEST` | Missing/invalid `question`, body parse failure |
-| 401 | `AUTH_REQUIRED` | Auth middleware failed to establish identity |
-| 402 | `BUDGET_EXCEEDED` | Hounfour scope budget exhausted |
-| 413 | `CONTEXT_OVERFLOW` | Enriched prompt exceeds model context window |
-| 422 | `ORACLE_MODEL_UNAVAILABLE` | Routed model has < 30K context |
-| 429 | `IDENTITY_LIMIT_EXCEEDED` | Per-IP or per-key daily limit hit |
-| 429 | `ORACLE_CONCURRENCY_EXCEEDED` | Max concurrent Oracle requests reached |
-| 503 | `GLOBAL_CAP_EXCEEDED` | 200 daily Oracle invocations reached |
-| 503 | `COST_CEILING_EXCEEDED` | $20 daily cost ceiling reached |
-| 503 | `AUTH_UNAVAILABLE` | Redis unreachable during API key validation (GPT-5.2 Fix #5) |
-| 503 | `RATE_LIMITER_UNAVAILABLE` | Redis unreachable during rate limit check (fail-closed) |
-| 502 | (varies) | Upstream provider error |
+// Some files import from local package:
+import { ... } from '../../packages/loa-hounfour/src/...'
 
-### 5.2 API Versioning (Flatline IMP-002)
+// Some files define local equivalents:
+type MicroUSD = string  // local shadow
+```
 
-Date-based versioning per PRD §FR-2:
+**After (v7.0.0, single source):**
 
-- Every Oracle response includes `X-Oracle-API-Version: 2026-02-17`
-- Clients can send `Oracle-API-Version` request header to pin behavior
-- Old versions supported for 90 days after successor ships
-- Sunset header (`Sunset: <HTTP-date>`) added when a version is deprecated (per RFC 8594)
+```typescript
+// ALL protocol types from one source:
+import { PoolId, POOL_IDS, MicroUSD, BasisPoints, AccountId } from '@0xhoneyjar/loa-hounfour'
 
-Phase 1 ships a single version. The versioning infrastructure is in place for future iterations.
+// Branded type creation ONLY through wire boundary:
+import { parseMicroUSD, parseAccountId } from './wire-boundary'
 
-### 5.3 Health Endpoint Extension
+// NO local type shadows, NO local package imports
+```
 
-The existing `/health` endpoint (server.ts:56-91) is extended with Phase 1 Oracle fields:
+**ESLint enforcement** (new rule):
+
+```json
+{
+  "no-restricted-imports": ["error", {
+    "patterns": [{
+      "group": ["**/packages/loa-hounfour/**"],
+      "message": "Import from '@0xhoneyjar/loa-hounfour' instead"
+    }]
+  }]
+}
+```
+
+### 4.5 Oracle Knowledge Corpus Architecture
+
+**No architectural change** — same knowledge source format, same gold-set evaluation. Content update only:
+
+| File | Action | Content |
+|------|--------|---------|
+| `grimoires/oracle/code-reality-hounfour.md` | Rewrite | v7.0.0 schemas, builtins, constraints, branded types |
+| `grimoires/oracle/architecture.md` | Update | Protocol layer describes v7.0.0 |
+| `grimoires/oracle/capabilities.md` | Update | Add evaluator, branded types, liveness properties |
+| `grimoires/oracle/sources.json` | Update | Checksums for updated files |
+
+---
+
+## 5. Data Architecture
+
+### 5.1 No Schema Changes
+
+This migration does not change:
+- Ledger entry format (V2 is already string-serialized BigInt micro-USD)
+- WAL segment format
+- R2 checkpoint format
+- Redis key structure
+- Session state format
+
+### 5.2 Type Narrowing Changes
+
+The internal TypeScript types narrow from loose to branded:
+
+| Field | Before (v5) | After (v7) | Wire Format |
+|-------|-------------|------------|-------------|
+| `LedgerEntryV2.total_cost_micro` | `string` | `MicroUSD` (branded string) | Unchanged: `"12345"` |
+| `LedgerEntryV2.tenant_id` | `string` | `AccountId` (branded string) | Unchanged: `"user_abc"` |
+| `LedgerEntryV2.pool_id` | `string \| undefined` | `PoolId \| undefined` (branded) | Unchanged: `"cheap"` |
+| `BudgetSnapshot.limit_usd` | `string` | `MicroUSD` (branded string) | Unchanged |
+
+**Key invariant**: Branded types are purely compile-time narrowing. The runtime wire representation is identical. This is verified by golden wire fixtures.
+
+---
+
+## 6. API Design
+
+### 6.1 No New Endpoints
+
+No API endpoints are added or removed. Existing endpoints remain backward-compatible.
+
+### 6.2 Health Endpoint Enhancement
+
+**`GET /health`** — adds evaluator status:
 
 ```json
 {
   "status": "healthy",
-  "checks": {
-    "oracle": {
-      "ready": true,
-      "sources_loaded": 22,
-      "total_tokens": 148000,
-      "missing_required": [],
-      "rate_limiter_healthy": true,
-      "knowledge_dixie_ref": "a1b2c3d4e5f6",
-      "daily_usage": {
-        "global_count": 47,
-        "global_cap": 200,
-        "cost_cents": 812,
-        "cost_ceiling_cents": 2000
-      }
+  "subsystems": {
+    "persistence": { "wal": "ok", "r2": "ok" },
+    "scheduler": { "state": "running", "jobs": 4 },
+    "billing_evaluator": {
+      "billing": "ready",
+      "evaluator_compiled": true
+    },
+    "protocol": {
+      "version": "7.0.0",
+      "min_supported": "4.0.0",
+      "peer_version": "4.6.0",
+      "compatible": true
     }
   }
 }
 ```
+
+### 6.3 Error Response Changes
+
+New error codes from evaluator:
+
+| Code | HTTP | When | Body |
+|------|------|------|------|
+| `BILLING_INVARIANT_VIOLATION` | 402 | Budget conservation check fails | `{ error, invariant_id, details }` |
+| `BILLING_INVARIANT_VIOLATION` | 409 | Reserve ≤ allocation check fails | `{ error, invariant_id, details }` |
+| `BILLING_EVALUATOR_UNAVAILABLE` | 503 | Evaluator not compiled (circuit-open) | `{ error, retry_after_seconds }` |
+
+These replace existing ad-hoc error responses with structured invariant IDs. The HTTP status codes remain the same (402/409 were already used).
 
 ---
 
-## 6. Security Architecture
+## 7. Security Architecture
 
-### 6.1 Phase 0 Security (Retained)
+### 7.1 JWT Auth (Unchanged)
 
-All Phase 0 security measures from SDD v2.0.0 §6 remain in force:
-- Knowledge loader 5-gate security (absolute path, path escape, symlink file, symlink parent, injection)
-- Trust boundary template (`<reference_material>` data/instruction separation)
-- Red-team test suite (10+ adversarial prompts)
-- Advisory mode for curated sources under `grimoires/oracle/`
-- `detectInjection()` reused from persona-loader.ts
+- Algorithm: ES256 (ECDSA P-256) — unchanged
+- Claims: Same wire format — branded types are compile-time only
+- Validation: Same flow in `jwt-auth.ts`, with `parseAccountId()` call added at extraction
+- `req_hash`: SHA-256 of raw body — unchanged
+- JWKS caching: 5-minute TTL — unchanged
 
-### 6.2 Redis Fail-Closed & Connection Lifecycle (Flatline IMP-003, IMP-004, SKP-003)
+### 7.2 Billing Safety (Enhanced)
 
-**Policy**: If Redis is unreachable, the Oracle API returns HTTP 503 — never 200. This is enforced at the rate limiter middleware level: any exception from `limiter.check()` triggers a 503 response.
+| Control | Before (v5) | After (v7) |
+|---------|-------------|------------|
+| Budget check | Ad-hoc `if (spent > limit)` | Evaluator `bigint_lte` + ad-hoc (strict lattice) |
+| Cost validation | Ad-hoc regex | `parseMicroUSD()` + evaluator `string_matches_pattern` |
+| Fail mode | Implicit fail-closed | Explicit HARD-FAIL classification, strict lattice |
+| Observability | Minimal logging | Structured logs with invariant_id, metrics, alerts |
+| Emergency bypass | None | Break-glass `EVALUATOR_BYPASS` with immutable audit |
 
-**Rationale**: Fail-open on a public endpoint with expensive model inference is a denial-of-wallet risk. An attacker who can disrupt Redis would get unlimited free Oracle queries.
+**Break-glass bypass security requirements:**
 
-**Monitoring**: The health endpoint reports `rate_limiter_healthy: true/false` AND `oracle_status: "healthy" | "degraded" | "unavailable"`. A CloudWatch alarm fires if Redis is unreachable for >60s. The `/health` oracle_status MUST be wired to operational alerts so Redis outages are visible as user-impacting events (Flatline SKP-003).
+The `EVALUATOR_BYPASS` mechanism is a billing safety control and must be treated as a break-glass operation:
 
-**Redis Connection Lifecycle** (Flatline IMP-004):
-- **Client creation**: A single `ioredis` client is created at server startup in `src/gateway/server.ts` and injected into `OracleRateLimiter` and `oracleAuthMiddleware` via `AppOptions.redisClient`. No per-request connections.
-- **Connection reuse**: All Oracle components share the same Redis client instance. The client maintains a persistent TCP connection with automatic reconnection (ioredis default: exponential backoff, max 20 retries).
-- **Timeouts**: `connectTimeout: 5000ms`, `commandTimeout: 2000ms`. Commands that exceed timeout trigger fail-closed 503.
-- **Retry strategy**: ioredis built-in retry with `retryStrategy: (times) => Math.min(times * 200, 3000)`. After max retries exhausted, client emits `error` event and subsequent commands fail immediately until reconnected.
-- **Lifecycle**: Client is created in `buildServer()`, passed to Oracle components, and closed in the server shutdown handler (`process.on("SIGTERM")`).
+| Requirement | Implementation |
+|-------------|---------------|
+| **Immutable audit trail** | On startup with bypass enabled, write an entry to the WAL append-only log with: build SHA, pod identity, `EVALUATOR_BYPASS=true`, timestamp. WAL is synced to R2 (durable). |
+| **High-severity alert** | Every pod start with bypass enabled fires a `critical` alert via `AlertService.fire()` with trigger type `evaluator_bypass_active`. |
+| **Structured logging** | Every billing request while bypassed logs `{ evaluator_bypassed: true, pod_id, build_sha }` to structured logs. |
+| **No silent activation** | Bypass requires an explicit deploy with the env var set. It is NOT auto-activated by evaluator errors (errors = FAIL, not bypass). |
+| **Expiry recommendation** | Operational runbook should specify max bypass duration (recommended: 4 hours). Monitoring should alert if bypass has been active > 4 hours. |
+| **No runtime toggle** | Bypass is startup-only (env var read at init). Cannot be toggled without a redeploy. This prevents runtime manipulation. |
 
-**Redis Deployment Topology** (Flatline SKP-003):
-- **Production**: Amazon ElastiCache Redis with Multi-AZ enabled (automatic failover). Single-node cluster mode disabled (simple primary + read replica). This provides sub-second failover on primary failure.
-- **Connection string**: `REDIS_URL` env var points to the ElastiCache primary endpoint. On failover, the DNS endpoint automatically resolves to the new primary.
-- **Terraform**: The existing `finn.tf` ElastiCache resource MUST be configured with `automatic_failover_enabled = true` and `num_cache_clusters = 2` (primary + replica).
-- **Development/staging**: Single Redis instance (no replication). Acceptable because cost protection is less critical in non-production.
+### 7.3 Wire Format Integrity
 
-### 6.3 Client IP Extraction (Flatline SKP-001/SKP-001b, GPT-5.2 Fix #1)
+**Threat model**: Version bump silently changes wire encoding, breaking arrakis interop.
 
-The request path is: Client → CloudFront → ALB → ECS (TRUSTED_PROXY_COUNT = 2).
+**Mitigations:**
+1. Golden wire fixtures (deterministic, pre/post comparison)
+2. Schema audit checklist (9 dimensions)
+3. Interop handshake fixture (synthetic + captured traffic)
+4. TypeBox peer dependency alignment verification
 
-**Strategy: rightmost-untrusted-hop** (Flatline SKP-001b hardening). Attackers can prepend arbitrary entries to the left of XFF, but the rightmost entries are always appended by trusted proxies. With 2 known trusted proxies, the true client is at `parts[parts.length - 3]`.
+### 7.4 Supply Chain
 
-```
-X-Forwarded-For: <spoofed>, <true-client-ip>, <cloudfront-ip>, <alb-ip>
-                              ^^^^^^^^^^^^^^^^
-                              parts[length - TRUSTED_PROXY_COUNT - 1]
-```
+**Git tag pin security**: `github:0xHoneyJar/loa-hounfour#v7.0.0` — the tag is mutable (can be force-pushed). Mitigation:
 
-**Preferred: CloudFront-Viewer-Address** header (set by CloudFront, cannot be spoofed by clients). If present, extract IP from `"ip:port"` format. This completely bypasses XFF parsing and is immune to spoofing.
+| Control | Mechanism | Failure Mode |
+|---------|-----------|-------------|
+| Lockfile SHA pinning | `npm install` records resolved commit SHA in `package-lock.json` | Tag force-push → lockfile SHA mismatch on next `npm ci` |
+| CI lockfile integrity | `npm ci` (not `npm install`) in CI — fails if lockfile doesn't match `package.json` | Tampered lockfile → CI red |
+| SHA documentation | Schema audit artifact records `tag_sha` field with the resolved commit | Post-hoc verification of what was actually installed |
+| Lockfile diff review | PR review must include `package-lock.json` diff showing resolved SHA | Human verification of dependency change |
 
-**XFF gating**: The `TRUST_XFF` config flag (default: `true` in production behind ALB) controls whether XFF is parsed at all. In local/test environments, falls back to connection remote address.
+**Verification command** (CI step): `npm ci && node -e "const p = require('@0xhoneyjar/loa-hounfour/package.json'); console.log(p.version);"` — must output `7.0.0`.
 
-**Validation**: The extracted IP is validated as a syntactically correct IPv4 or IPv6 address. If validation fails (garbage value, non-IP string), fall back to the connection remote address from the runtime. `X-Real-IP` is NOT used as a fallback because it is client-settable.
+### 7.5 Bypass Access Control
 
-**Network-level invariant**: ECS security groups MUST only accept traffic from the ALB. ALB MUST only accept traffic from CloudFront (via AWS-managed prefix list or WAF). This ensures XFF is always set by trusted infrastructure.
+The `EVALUATOR_BYPASS` env var must be controlled through the deployment pipeline, not set ad-hoc:
 
-**Acceptance tests** (PRD §3):
-1. Spoofed `X-Forwarded-For` headers (`"evil-ip, real-ip, cf-ip, alb-ip"`) — rightmost-untrusted-hop correctly extracts `real-ip`, not attacker-controlled `evil-ip`
-2. CloudFront-Viewer-Address header takes precedence over XFF when present
-3. Integration test with real ALB + CloudFront header chain to lock the algorithm
-4. Invalid/expired API keys fall back to IP-based limiting
-5. The 6th request from the same IP within 24h returns HTTP 429
-6. Non-IP values in `X-Forwarded-For` fall back to connection remote address
-7. Direct-to-ECS requests (bypassing ALB) are rejected by security group
+| Control | Implementation |
+|---------|---------------|
+| **GitOps-only** | Bypass env var is set in deployment manifests (Terraform/Kubernetes YAML), not via runtime env injection |
+| **Mandatory review** | Any PR that adds `EVALUATOR_BYPASS=true` to deploy config requires approval from `@janitooor` |
+| **External metrics** | Bypass state is exported as a Prometheus gauge (`evaluator_bypass_active{pod}`) scraped by external monitoring — cannot be suppressed by the application |
+| **Centralized audit** | WAL audit entry + structured log, both forwarded to centralized log aggregator |
 
-### 6.4 Browser Security Headers (Flatline IMP-004)
+### 7.6 WAL Audit Event Schema
 
-Applied via CloudFront response header policy on the Oracle frontend distribution:
-
-```
-Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://finn.arrakis.community; frame-ancestors 'none'
-Strict-Transport-Security: max-age=31536000; includeSubDomains
-X-Content-Type-Options: nosniff
-X-Frame-Options: DENY
-Referrer-Policy: strict-origin-when-cross-origin
-```
-
-**CSP key decisions**:
-- `connect-src` allows `finn.arrakis.community` for API calls
-- `frame-ancestors 'none'` prevents clickjacking
-- `'unsafe-inline'` for style-src only (required for CSS-in-JS patterns in Next.js)
-- No `'unsafe-eval'` — Next.js static export does not require it
-
-### 6.5 UI Rendering Safety (PRD NFR-2)
-
-**Non-negotiable rule**: The frontend renders model-generated `answer` text as **sanitized markdown** with HTML tags stripped. No `dangerouslySetInnerHTML`, no raw HTML passthrough.
-
-The source attribution panel renders only `source.id`, `source.tags`, and `source.tokens_used` — no raw knowledge excerpts in Phase 1.
-
-**Implementation**: A `markdown-sanitizer.ts` utility in loa-dixie/site/ strips all HTML tags from the markdown before rendering. This is defense-in-depth — the model boundary (Phase 0 trust envelope) already prevents injection, but the UI boundary adds a second layer.
-
-**Automated test**: An XSS test injects `<script>alert(1)</script>` in a knowledge source and confirms it cannot execute in the browser DOM.
-
-### 6.6 API Key Security
-
-- Keys are 32-byte hex with a recognizable prefix (`dk_live_`, `dk_test_`)
-- Server stores SHA-256 hash only — raw key never persisted
-- Revocation is immediate (Redis `HSET status revoked`)
-- Invalid keys fall back to IP-based limiting (no information leakage about key validity)
-- Key creation and revocation events logged as structured JSON to CloudWatch
-- No rotation or scoped keys for Phase 1
-
----
-
-## 7. Knowledge Sync Pipeline
-
-### 7.1 CI-Fetch Strategy (Flatline SKP-003)
-
-The knowledge sync happens in a **CI step before the Docker build**, not inside the Dockerfile. This eliminates outbound network access during image construction.
-
-**CI pipeline**:
-
-```yaml
-# .github/workflows/build.yml (relevant steps)
-- name: Fetch loa-dixie knowledge
-  env:
-    DIXIE_REF: ${{ vars.DIXIE_REF }}
-  run: |
-    # Enforce immutable ref for production builds
-    if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
-      if [[ ! "$DIXIE_REF" =~ ^[0-9a-f]{40}$ ]] && [[ ! "$DIXIE_REF" =~ ^v[0-9] ]]; then
-        echo "ERROR: DIXIE_REF must be a commit SHA or semver tag for production builds"
-        exit 1
-      fi
-    fi
-
-    # Fetch archive
-    curl -fsSL "https://github.com/0xHoneyJar/loa-dixie/archive/${DIXIE_REF}.tar.gz" \
-      -o /tmp/dixie.tar.gz
-
-    # Extract knowledge into build context
-    tar -xzf /tmp/dixie.tar.gz -C /tmp
-    cp -r /tmp/loa-dixie-*/knowledge deploy/build-context/oracle-knowledge
-    cp -r /tmp/loa-dixie-*/persona deploy/build-context/oracle-persona
-
-    # Record provenance
-    echo "$DIXIE_REF" > deploy/build-context/DIXIE_REF
-
-- name: Build Docker image
-  run: |
-    docker build \
-      --build-arg DIXIE_REF=$(cat deploy/build-context/DIXIE_REF) \
-      --label "dixie.ref=${DIXIE_REF}" \
-      --label "dixie.commit=$(git -C /tmp/loa-dixie-* rev-parse HEAD 2>/dev/null || echo ${DIXIE_REF})" \
-      --label "build.timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      -f deploy/Dockerfile .
-```
-
-### 7.2 Dockerfile Changes
-
-Modify `deploy/Dockerfile` to `COPY` from build context instead of `ADD` from GitHub:
-
-```dockerfile
-# After COPY grimoires/ ./grimoires/ (line 50):
-
-# Oracle knowledge corpus from loa-dixie (CI-fetched, no network)
-COPY deploy/build-context/oracle-knowledge/ ./grimoires/oracle-dixie/
-COPY deploy/build-context/oracle-persona/ ./grimoires/oracle-persona/
-
-# Provenance
-ARG DIXIE_REF=unknown
-ENV DIXIE_REF=${DIXIE_REF}
-```
-
-**Source path migration**: The `FINN_ORACLE_SOURCES_CONFIG` env var should point to `grimoires/oracle-dixie/sources.json` (the loa-dixie version). The existing `grimoires/oracle/sources.json` in loa-finn is replaced by a README pointing to loa-dixie.
-
-### 7.3 Freshness Checker
-
-A **separate CI job** (not inside the Docker build) runs daily:
-
-```yaml
-# .github/workflows/dixie-freshness.yml
-name: Check Dixie Freshness
-on:
-  schedule:
-    - cron: '0 9 * * *'  # Daily at 9am UTC
-
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Compare pinned ref vs HEAD
-        run: |
-          PINNED_REF="${{ vars.DIXIE_REF }}"
-          HEAD_SHA=$(gh api repos/0xHoneyJar/loa-dixie/commits/main --jq .sha)
-
-          # Check if pinned ref is >7 days behind HEAD
-          PINNED_DATE=$(gh api "repos/0xHoneyJar/loa-dixie/commits/${PINNED_REF}" --jq .commit.committer.date)
-          DAYS_BEHIND=$(( ($(date +%s) - $(date -d "$PINNED_DATE" +%s)) / 86400 ))
-
-          if [[ $DAYS_BEHIND -gt 7 ]]; then
-            echo "DIXIE_REF is ${DAYS_BEHIND} days behind HEAD — opening bump PR"
-            # Create PR to bump DIXIE_REF
-          fi
-```
-
-### 7.4 Sync Failure Semantics (Flatline IMP-001)
-
-- **CI**: If the fetch fails, CI fails fast. No stale-cache fallback.
-- **Local dev**: `DIXIE_FALLBACK_LOCAL=true` allows using a previously-fetched local copy with a WARN log.
-- **Error message**: `"DIXIE_REF fetch failed: {HTTP status}"` — clear and actionable.
-
----
-
-## 8. Infrastructure Architecture
-
-### 8.1 Terraform Module: dNFT Site (`deploy/terraform/modules/dnft-site/`)
-
-Reusable module parameterized by subdomain name. Adding the next dNFT website = one module block.
-
-**`modules/dnft-site/variables.tf`**:
-
-```hcl
-variable "subdomain" {
-  description = "Subdomain for the dNFT site (e.g., 'oracle' → oracle.arrakis.community)"
-  type        = string
-}
-
-variable "domain" {
-  description = "Base domain"
-  type        = string
-  default     = "arrakis.community"
-}
-
-variable "zone_id" {
-  description = "Route 53 hosted zone ID"
-  type        = string
-}
-
-variable "acm_certificate_arn" {
-  description = "ACM certificate ARN (wildcard)"
-  type        = string
-}
-
-variable "api_domain" {
-  description = "Backend API domain for CSP connect-src"
-  type        = string
-  default     = "finn.arrakis.community"
-}
-
-variable "environment" {
-  description = "Environment (production, staging)"
-  type        = string
-  default     = "production"
-}
-```
-
-**`modules/dnft-site/main.tf`**:
-
-```hcl
-# S3 bucket — private, CloudFront OAI only
-# Bucket name includes account ID for global uniqueness (GPT-5.2 Fix #6)
-resource "aws_s3_bucket" "site" {
-  bucket = "${var.subdomain}-site-${var.environment}-${data.aws_caller_identity.current.account_id}"
-
-  tags = {
-    Name = "${var.subdomain}-site"
-    Type = "dnft-site"
-  }
-}
-
-data "aws_caller_identity" "current" {}
-
-resource "aws_s3_bucket_public_access_block" "site" {
-  bucket = aws_s3_bucket.site.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-# CloudFront Origin Access Identity
-resource "aws_cloudfront_origin_access_identity" "site" {
-  comment = "${var.subdomain}.${var.domain} OAI"
-}
-
-# S3 bucket policy — CloudFront OAI only
-resource "aws_s3_bucket_policy" "site" {
-  bucket = aws_s3_bucket.site.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Sid       = "CloudFrontOAI"
-      Effect    = "Allow"
-      Principal = { AWS = aws_cloudfront_origin_access_identity.site.iam_arn }
-      Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.site.arn}/*"
-    }]
-  })
-}
-
-# CloudFront response headers policy (CSP + HSTS)
-resource "aws_cloudfront_response_headers_policy" "security" {
-  name = "${var.subdomain}-security-headers"
-
-  security_headers_config {
-    strict_transport_security {
-      access_control_max_age_sec = 31536000
-      include_subdomains         = true
-      override                   = true
-    }
-
-    content_type_options {
-      override = true
-    }
-
-    frame_options {
-      frame_option = "DENY"
-      override     = true
-    }
-
-    referrer_policy {
-      referrer_policy = "strict-origin-when-cross-origin"
-      override        = true
-    }
-
-    content_security_policy {
-      content_security_policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://${var.api_domain}; frame-ancestors 'none'"
-      override                = true
-    }
-  }
-}
-
-# CloudFront distribution
-resource "aws_cloudfront_distribution" "site" {
-  origin {
-    domain_name = aws_s3_bucket.site.bucket_regional_domain_name
-    origin_id   = "s3-${var.subdomain}"
-
-    s3_origin_config {
-      origin_access_identity = aws_cloudfront_origin_access_identity.site.cloudfront_access_identity_path
-    }
-  }
-
-  enabled             = true
-  is_ipv6_enabled     = true
-  default_root_object = "index.html"
-  aliases             = ["${var.subdomain}.${var.domain}"]
-
-  default_cache_behavior {
-    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
-    cached_methods             = ["GET", "HEAD"]
-    target_origin_id           = "s3-${var.subdomain}"
-    viewer_protocol_policy     = "redirect-to-https"
-    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
-
-    forwarded_values {
-      query_string = false
-      cookies {
-        forward = "none"
-      }
-    }
-
-    min_ttl     = 0
-    default_ttl = 86400
-    max_ttl     = 31536000
-  }
-
-  # SPA fallback — serve index.html for all unmatched routes
-  custom_error_response {
-    error_code         = 404
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
-
-  custom_error_response {
-    error_code         = 403
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
-
-  restrictions {
-    geo_restriction {
-      restriction_type = "none"
-    }
-  }
-
-  viewer_certificate {
-    acm_certificate_arn      = var.acm_certificate_arn
-    ssl_support_method       = "sni-only"
-    minimum_protocol_version = "TLSv1.2_2021"
-  }
-
-  tags = {
-    Name = "${var.subdomain}-site-cdn"
-    Type = "dnft-site"
-  }
-}
-
-# Route 53 record
-resource "aws_route53_record" "site" {
-  zone_id = var.zone_id
-  name    = "${var.subdomain}.${var.domain}"
-  type    = "A"
-
-  alias {
-    name                   = aws_cloudfront_distribution.site.domain_name
-    zone_id                = aws_cloudfront_distribution.site.hosted_zone_id
-    evaluate_target_health = false
-  }
-}
-```
-
-**`modules/dnft-site/outputs.tf`**:
-
-```hcl
-output "cloudfront_distribution_id" {
-  value = aws_cloudfront_distribution.site.id
-}
-
-output "cloudfront_domain_name" {
-  value = aws_cloudfront_distribution.site.domain_name
-}
-
-output "s3_bucket_name" {
-  value = aws_s3_bucket.site.id
-}
-
-output "s3_bucket_arn" {
-  value = aws_s3_bucket.site.arn
-  description = "S3 bucket ARN for IAM policies (GPT-5.2 Fix #8)"
-}
-
-output "site_url" {
-  value = "https://${var.subdomain}.${var.domain}"
-}
-```
-
-### 8.2 Oracle Site Invocation (`deploy/terraform/oracle-site.tf`)
-
-```hcl
-# CloudFront requires ACM certs in us-east-1 (GPT-5.2 Fix #7)
-provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
-}
-
-# Wildcard certificate for all dNFT subdomains — MUST be in us-east-1 for CloudFront
-resource "aws_acm_certificate" "wildcard" {
-  provider          = aws.us_east_1
-  domain_name       = "*.arrakis.community"
-  validation_method = "DNS"
-
-  lifecycle {
-    create_before_destroy = true
-  }
-
-  tags = {
-    Name = "arrakis-wildcard"
-  }
-}
-
-resource "aws_route53_record" "wildcard_validation" {
-  for_each = {
-    for dvo in aws_acm_certificate.wildcard.domain_validation_options : dvo.domain_name => {
-      name   = dvo.resource_record_name
-      record = dvo.resource_record_value
-      type   = dvo.resource_record_type
-    }
-  }
-
-  allow_overwrite = true
-  name            = each.value.name
-  records         = [each.value.record]
-  ttl             = 60
-  type            = each.value.type
-  zone_id         = data.aws_route53_zone.arrakis.zone_id
-}
-
-resource "aws_acm_certificate_validation" "wildcard" {
-  certificate_arn         = aws_acm_certificate.wildcard.arn
-  validation_record_fqdns = [for record in aws_route53_record.wildcard_validation : record.fqdn]
-}
-
-data "aws_route53_zone" "arrakis" {
-  name = "arrakis.community"
-}
-
-# Oracle site — first dNFT using the module
-module "oracle_site" {
-  source = "./modules/dnft-site"
-
-  subdomain           = "oracle"
-  domain              = "arrakis.community"
-  zone_id             = data.aws_route53_zone.arrakis.zone_id
-  acm_certificate_arn = aws_acm_certificate.wildcard.arn
-  api_domain          = "finn.arrakis.community"
-  environment         = var.environment
-
-  depends_on = [aws_acm_certificate_validation.wildcard]
-}
-```
-
-### 8.3 GitHub Actions OIDC for loa-dixie Deployment (`deploy/terraform/dixie-oidc.tf`)
-
-```hcl
-# OIDC provider for GitHub Actions (may already exist in arrakis account)
-data "aws_iam_openid_connect_provider" "github" {
-  url = "https://token.actions.githubusercontent.com"
-}
-
-# IAM role for loa-dixie site deployment
-resource "aws_iam_role" "dixie_site_deploy" {
-  name = "dixie-site-deploy"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Federated = data.aws_iam_openid_connect_provider.github.arn
-      }
-      Action = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = {
-          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-        }
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:0xHoneyJar/loa-dixie:ref:refs/heads/main"
-        }
-      }
-    }]
-  })
-}
-
-# Least-privilege: S3 PutObject + CloudFront InvalidateCache only
-resource "aws_iam_role_policy" "dixie_site_deploy" {
-  name = "dixie-site-deploy-policy"
-  role = aws_iam_role.dixie_site_deploy.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = ["s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
-        Resource = [
-          module.oracle_site.s3_bucket_arn,
-          "${module.oracle_site.s3_bucket_arn}/*",
-        ]
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["cloudfront:CreateInvalidation"]
-        Resource = "arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${module.oracle_site.cloudfront_distribution_id}"
-      },
-    ]
-  })
-}
-```
-
----
-
-## 9. Frontend Architecture (loa-dixie/site/)
-
-### 9.1 Technology Choices
-
-| Choice | Rationale |
-|--------|-----------|
-| Next.js | Standard React meta-framework, static export for S3, large ecosystem |
-| Static export (`output: "export"`) | S3-friendly, no server required, Cloudflare Pages compatible |
-| Tailwind CSS | Utility-first, dark mode built-in, no component library lock-in |
-| No heavy component libraries | Keeps bundle small, avoids framework lock-in (PRD FR-5) |
-
-### 9.2 Component Structure
-
-```
-loa-dixie/site/
-├── next.config.js               # output: "export", basePath: ""
-├── package.json
-├── tailwind.config.ts
-├── src/
-│   ├── app/
-│   │   ├── layout.tsx           # Dark mode default, Oracle branding
-│   │   └── page.tsx             # Main chat interface
-│   ├── components/
-│   │   ├── ChatInput.tsx        # Question input + level selector
-│   │   ├── ChatMessage.tsx      # Sanitized markdown render
-│   │   ├── SourceAttribution.tsx # Collapsible source panel
-│   │   ├── LevelSelector.tsx    # Technical/Product/Cultural/All
-│   │   └── RateLimitBanner.tsx  # Friendly rate limit messaging
-│   └── lib/
-│       ├── oracle-client.ts     # fetch wrapper for /api/v1/oracle
-│       └── markdown-sanitizer.ts # Strip HTML tags from answer
-```
-
-### 9.3 Oracle API Client
+Bypass audit entries in the WAL use a typed discriminator to avoid breaking existing WAL consumers:
 
 ```typescript
-// src/lib/oracle-client.ts
-const ORACLE_API = process.env.NEXT_PUBLIC_ORACLE_API_URL
-  ?? "https://finn.arrakis.community/api/v1/oracle"
-
-export async function askOracle(
-  question: string,
-  options?: { context?: string; apiKey?: string },
-): Promise<OracleResponse> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  }
-  if (options?.apiKey) {
-    headers["Authorization"] = `Bearer ${options.apiKey}`
-  }
-
-  const response = await fetch(ORACLE_API, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      question,
-      context: options?.context,
-    }),
-  })
-
-  if (response.status === 429) {
-    const retryAfter = response.headers.get("Retry-After")
-    throw new RateLimitError(retryAfter ? parseInt(retryAfter) : 86400)
-  }
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: "Unknown error" }))
-    throw new OracleError(response.status, error.code, error.error)
-  }
-
-  return response.json()
+// New WAL entry type for audit events
+interface WALAuditEntry {
+  type: 'audit'           // Discriminator — existing types: 'session', 'bead', 'memory', 'config'
+  subtype: 'evaluator_bypass' | 'evaluator_recovery' | 'evaluator_degraded'
+  timestamp: string
+  pod_id: string
+  build_sha: string
+  details: Record<string, unknown>
 }
 ```
 
-### 9.4 Markdown Sanitizer (Flatline SKP-005)
+Existing WAL consumers (R2 sync, Git sync, recovery) filter by `type` and will ignore `audit` entries. The `type` discriminator is the compatibility contract — no existing `WALEntryType` values are changed.
+
+---
+
+## 8. Integration Points
+
+### 8.1 loa-hounfour v7.0.0
+
+| Import Category | Examples | Count |
+|----------------|---------|-------|
+| Type definitions | `MicroUSD`, `BasisPoints`, `AccountId`, `PoolId` | ~10 types |
+| Vocabulary | `POOL_IDS`, `TIER_POOL_ACCESS`, `TIER_DEFAULT_POOL` | 3 constants |
+| Schemas (TypeBox) | `JwtClaimsSchema`, `StreamEventSchema` | ~5 schemas |
+| Evaluator builtins | `bigint_lte`, `bigint_gte`, `string_matches_pattern` | 4 builtins |
+| Evaluator registry | `EVALUATOR_BUILTIN_SPECS`, `ConservationPropertyRegistry` | 2 registry types |
+| Protocol | `CONTRACT_VERSION`, `validateCompatibility` | 2 functions |
+
+### 8.2 arrakis (Peer — No Changes Required)
+
+| Interaction | Protocol | Changes |
+|------------|----------|---------|
+| JWT validation | ES256 via JWKS | None — same claims, same signing |
+| Stream events | WebSocket JSON | None — same envelope format |
+| Health/handshake | HTTP GET | Advertised version changes (cosmetic) |
+
+### 8.3 External Services (No Changes)
+
+Redis, R2, GitHub API, Anthropic API — all unchanged.
+
+---
+
+## 9. Scalability & Performance
+
+### 9.1 Evaluator Performance Contract
+
+| Metric | Budget | Measurement |
+|--------|--------|-------------|
+| Constraint compilation (startup) | < 500ms | `evaluator.compile.duration_ms` |
+| Per-invariant check (p95) | < 1ms | `evaluator.check.p95_ms` |
+| Total billing pipeline overhead | < 5ms | End-to-end billing latency delta |
+| Memory (compiled registry) | < 1MB | Process RSS delta at boot |
+
+**CI enforcement**: Microbenchmark harness runs 10,000 iterations of each billing invariant check on representative payloads. Build fails if p95 exceeds 1ms.
+
+### 9.2 Wire Boundary Performance
+
+Branded type parse/serialize functions are trivial (regex match + string comparison). Expected overhead: < 0.01ms per call. No caching needed.
+
+### 9.3 No Scalability Changes
+
+Request concurrency, worker pool sizing, Redis usage patterns, rate limiting — all unchanged.
+
+---
+
+## 10. Deployment Architecture
+
+### 10.1 Canary Deployment Strategy (Per Sprint)
+
+```
+1. PR merge → CI green (tests + fixtures + schema audit + microbenchmark)
+2. Deploy to staging
+3. Run full test suite against staging (including golden wire fixtures)
+4. Shadow traffic (read-only replay):
+   - Replay 10 min of captured production billing requests against staging
+   - Staging runs in READ-ONLY shadow mode: processes requests but does NOT
+     write to ledger, does NOT debit budgets, does NOT call external APIs
+   - Compare response payloads (status code + body) against production responses
+   - Divergence report: any response difference flagged for manual review
+   - Shadow mode enforced by env var SHADOW_MODE=true (disables all side effects)
+5. Canary: route 5% production traffic for 30 min
+6. Monitor (SLO-based canary gate):
+   - Billing success rate SLO: ≥ 99.9% (measured as non-503 billing responses)
+   - BILLING_EVALUATOR_UNAVAILABLE rate: must be 0
+   - Evaluator divergence rate: must be 0
+   - p95 billing latency: within 5ms of pre-deploy baseline
+   - Any SLO breach → automated rollback (not just error rate > 0.1%)
+7. Full rollout (only if ALL SLO gates pass for 30 min)
+8. Rollback hook: automated revert on any SLO breach during canary window
+```
+
+### 10.2 Rollback Procedure
+
+| Trigger | Action | RTO |
+|---------|--------|-----|
+| Wire fixture failure post-deploy | Revert PR, re-pin previous commit SHA | < 15 min |
+| Billing invariant violation (new) | Circuit-open billing, revert evaluator wiring | < 10 min |
+| arrakis handshake rejection | Revert `CONTRACT_VERSION` | < 10 min |
+| Test regression > 2 beyond baseline | Block merge, fix or revert | Before merge |
+
+### 10.3 Environment Variables (New)
+
+| Variable | Default | Type | Description |
+|----------|---------|------|-------------|
+| `EVALUATOR_BYPASS` | `false` | boolean | Emergency: disable evaluator, fall back to ad-hoc checks |
+
+No other new environment variables required.
+
+---
+
+## 11. Testing Strategy
+
+### 11.1 Golden Wire Fixtures (`tests/fixtures/wire/`)
+
+**Purpose**: Deterministic JSON snapshots that must remain byte-for-byte stable across the migration.
+
+**Fixture files:**
+
+| File | Contents | Determinism |
+|------|----------|-------------|
+| `jwt-claims.fixture.json` | Complete JWT claims payload | Fixed `iat`/`exp`/`jti`, fixed `tenant_id`/`tier` |
+| `jwt-signed.fixture.txt` | JWT header + payload segments (signature verified at runtime, not snapshot) | Fixed claims, header checked structurally |
+| `billing-request.fixture.json` | Billing finalize request body | Fixed costs, reservation_id |
+| `billing-response.fixture.json` | Billing finalize response body | Fixed totals, ledger entry |
+| `stream-event.fixture.json` | Stream event envelope | Fixed delta, usage, trace_id |
+
+**Determinism rules:**
+
+| Element | Fixed Value | Rationale |
+|---------|-------------|-----------|
+| JWT signing key | `tests/fixtures/keys/es256-test.{key,pub}` | Deterministic signatures |
+| Timestamps | `iat: 1700000000, exp: 1700003600` | Reproducible |
+| Nonce/JTI | `"test-jti-fixture-001"` | Deterministic token body |
+| JSON format | `json-stable-stringify(obj)` (compact, deterministic key order) | Byte-for-byte |
+| req_hash | SHA-256 of fixed request body | End-to-end verification |
+
+**Fixture test flow:**
+
+```
+For JSON fixtures (billing, stream events):
+  1. Load fixture JSON
+  2. Validate against v7.0.0 TypeBox schema (must pass)
+  3. Parse through wire-boundary functions (must succeed)
+  4. Re-serialize
+  5. Compare output to fixture (byte-for-byte match)
+
+For JWT fixtures (non-deterministic ECDSA signatures):
+  1. Load fixture claims JSON (jwt-claims.fixture.json)
+  2. Validate claims against v7.0.0 JwtClaimsSchema (must pass)
+  3. Sign at runtime with test ES256 keypair
+  4. Decode signed token, compare decoded claims to fixture (structural match)
+  5. Verify signature with test public key (round-trip integrity)
+  6. Verify req_hash computation matches fixture request body
+  NOTE: Do NOT snapshot the full signed JWT token — ES256 signatures
+        are non-deterministic (ECDSA uses random k unless RFC 6979).
+        Only the claims payload is golden.
+```
+
+### 11.2 Schema Audit Infrastructure
+
+**Sprint 1 gate artifact**: `grimoires/loa/a2a/schema-audit-v5-v7.json`
+
+```json
+{
+  "audit_version": "1.0.0",
+  "source_version": "5.0.0",
+  "target_version": "7.0.0",
+  "tag_sha": "<resolved commit SHA>",
+  "typebox_alignment": { "finn": "0.34.48", "hounfour_peer": "..." , "compatible": true },
+  "schemas": {
+    "JwtClaimsSchema": {
+      "required_fields_added": [],
+      "optional_fields_added": ["trust_scopes"],
+      "fields_removed": [],
+      "pattern_changes": [],
+      "default_changes": [],
+      "additional_properties_change": null,
+      "verdict": "COMPATIBLE"
+    }
+  },
+  "vocabulary": {
+    "POOL_IDS": { "added": [], "removed": [], "verdict": "UNCHANGED" }
+  },
+  "overall_verdict": "COMPATIBLE"
+}
+```
+
+**Checklist per schema** (9 dimensions from PRD):
+
+1. Required fields: New required fields added?
+2. Optional fields + defaults: Changed defaults?
+3. Patterns/regex: Tightened or changed?
+4. Enum/vocabulary members: Added, removed, renamed?
+5. `additionalProperties`: Changed from true/absent to false?
+6. Nullable/union changes: Narrowed unions or removed null?
+7. Numeric bounds: Changed min/max/multipleOf?
+8. Validator strictness: TypeBox config changes?
+9. TypeBox version: Peer dependency compatible?
+
+### 11.3 Interop Handshake Fixture
+
+**Synthetic fixture** (Sprint 1, required):
 
 ```typescript
-// src/lib/markdown-sanitizer.ts
-// Uses DOMPurify for battle-tested HTML sanitization of model-generated content.
-// Regex-based stripping is insufficient (malformed tags, HTML entities, javascript: URIs).
-import DOMPurify from "dompurify"
+// tests/finn/interop-handshake.test.ts
 
-const ALLOWED_TAGS = ["p", "br", "strong", "em", "code", "pre", "ul", "ol", "li", "a", "h1", "h2", "h3", "blockquote"]
-const ALLOWED_ATTR = ["href"]
+test('arrakis v4.6.0 handshake accepted', () => {
+  const arrakisResponse = {
+    contract_version: '4.6.0',
+    // Fields from arrakis source analysis
+  }
 
-export function sanitizeMarkdown(raw: string): string {
-  return DOMPurify.sanitize(raw, {
-    ALLOWED_TAGS,
-    ALLOWED_ATTR,
-    ALLOW_DATA_ATTR: false,
-    FORBID_ATTR: ["style", "onerror", "onclick"],
-  })
-}
+  const result = validateHandshake(arrakisResponse)
+  expect(result.compatible).toBe(true)
+  expect(result.peerVersion).toBe('4.6.0')
+})
+
+// Document: arrakis handshake code reference
+// https://github.com/0xHoneyJar/arrakis/blob/<commit>/src/<file>#L<line>
 ```
 
-The sanitized output is then rendered via `react-markdown` configured with `rehype-sanitize` (using the `defaultSchema` from `hast-util-sanitize`). `rehype-raw` MUST be disabled. The `javascript:` protocol MUST be blocked in link hrefs (DOMPurify handles this by default). The key constraint: **no `dangerouslySetInnerHTML` anywhere in the Oracle UI**. Tests MUST cover OWASP XSS filter evasion vectors including malformed tags, unclosed tags, HTML entities, and `javascript:` protocol URIs.
+**Captured traffic replay** (Sprint 1, best-effort):
+- If staging available: capture real handshake, replay against v7.0.0
+- If unavailable: document as risk, require manual verification pre-deploy
 
-### 9.5 Abstraction Level Selector
+### 11.4 Evaluator Tests
 
-The level selector prepends a context hint to the question:
+| Test | Type | Coverage |
+|------|------|---------|
+| Guard compilation success | Unit | Happy path — registry compiles |
+| Guard compilation failure + retry | Unit | 3 retries with backoff, degraded state |
+| Guard bypass mode | Unit | `EVALUATOR_BYPASS=true` → ad-hoc only |
+| Budget conservation check | Unit | Evaluator + ad-hoc agree |
+| Evaluator/ad-hoc disagreement | Unit | Strictest wins (fail-closed) |
+| Evaluator runtime error | Unit | effective=FAIL (no fallback), logs error + fires alert |
+| Bypass does not auto-activate on error | Unit | Evaluator error does NOT toggle bypass mode |
+| Health endpoint with guard | Integration | `/health` reflects evaluator state |
+| Microbenchmark | Performance | p95 < 1ms per invariant |
 
-| Selection | Prepended Context |
-|-----------|-------------------|
-| All (default) | (nothing prepended) |
-| Technical | "Answer from a technical/engineering perspective: " |
-| Product | "Answer from a product management perspective: " |
-| Cultural | "Answer from a community and cultural perspective: " |
+### 11.5 Wire Boundary Tests
 
-This uses the existing `context` field in the Oracle API request. The enricher's tag classifier picks up the level-specific keywords from the prepended text.
+| Test | Coverage |
+|------|---------|
+| `parseMicroUSD` — valid values | `"0"`, `"12345"`, `"-100"` |
+| `parseMicroUSD` — edge cases | `""`, `"+100"`, `"007"`, `"-0"`, `"00"` |
+| `parseBasisPoints` — valid | `0`, `5000`, `10000` |
+| `parseBasisPoints` — invalid | `-1`, `10001`, `0.5`, `NaN` |
+| `parseAccountId` — valid/invalid | Pattern validation |
+| `parsePoolId` — vocabulary | Known/unknown pool IDs |
+| Round-trip property tests | `serialize(parse(x)) === x` for all types |
 
-### 9.6 Migration Path to Cloudflare Pages
+### 11.6 Test Baseline
 
-The frontend is a static Next.js export. Migration requires:
-1. Point DNS CNAME from CloudFront to Cloudflare Pages
-2. Deploy the same `out/` directory to Cloudflare Pages
-3. Remove CloudFront distribution and S3 bucket from Terraform
-
-No code changes required. The API domain (`finn.arrakis.community`) is not affected.
-
----
-
-## 10. Testing Strategy
-
-### 10.1 Phase 1 Unit Tests
-
-| File | Tests | Focus |
-|------|-------|-------|
-| `tests/finn/oracle-api.test.ts` | ~15 | Request validation, response reshaping, error mapping, API version header |
-| `tests/finn/oracle-rate-limit.test.ts` | ~20 | Per-IP limits, per-key limits, global cap, cost ceiling, fail-closed, counter rollover |
-| `tests/finn/oracle-auth.test.ts` | ~12 | dk_live_ validation, dk_test_ validation, revoked key fallback, missing key fallback, Redis error fallback |
-| `tests/finn/oracle-concurrency.test.ts` | ~8 | Semaphore acquire/release, overflow returns 429, release on error |
-| `tests/finn/oracle-xss.test.ts` | ~5 | Markdown sanitizer strips HTML, script tags, event handlers |
-
-### 10.2 Phase 1 Integration Tests
-
-| File | Tests | Focus |
-|------|-------|-------|
-| `tests/finn/oracle-e2e-phase1.test.ts` | ~10 | Full Oracle API flow with Redis mock: auth → rate limit → invoke → response |
-| `tests/finn/oracle-ip-extraction.test.ts` | ~8 | X-Forwarded-For extraction: spoofed headers, single entry, CloudFront chain |
-
-### 10.3 Gold-Set Expansion (PRD FR-3)
-
-The Phase 0 gold-set (10 queries) is expanded to 20 queries covering all 7 abstraction levels. Gold-set tests run through the Oracle API endpoint (not just the enricher).
-
-**Two-tier strategy** (PRD):
-- **Tier 1 — Deterministic**: Tag classifier + enricher unit tests (blocking CI)
-- **Tier 2 — Gold-set integration**: Full API flow (non-blocking initially, promoted to blocking after 10+ stable builds)
-
-### 10.4 Phase 0 Backward Compatibility
-
-All existing tests pass unchanged. The Phase 1 Oracle route is additive — it does not modify any existing middleware or handlers.
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Total tests | 200 | ~220 | +20 (fixtures, evaluator, boundary) |
+| Passing | 187 | ≥ 207 | All new tests pass, zero regression |
+| Pre-existing failures | 13 | 13 | Unchanged (separate concern) |
 
 ---
 
-## 11. Deployment Architecture
+## 12. Migration Plan (Sprint Breakdown)
 
-### 11.1 Environment Variables (Complete Phase 1)
+### Sprint 1: Foundation — Bump + Cleanup + Safety Gates
 
-| Variable | Default | Required | Phase | Description |
-|----------|---------|----------|-------|-------------|
-| `FINN_ORACLE_ENABLED` | `false` | No | 0 | Master toggle |
-| `FINN_ORACLE_SOURCES_CONFIG` | `grimoires/oracle/sources.json` | No | 0 | Sources JSON path |
-| `FINN_ORACLE_MIN_CONTEXT` | `30000` | No | 0 | Min context for full mode |
-| `FINN_ORACLE_DAILY_CAP` | `200` | No | 1 | Global daily invocation cap |
-| `FINN_ORACLE_COST_CEILING_CENTS` | `2000` | No | 1 | Cost circuit breaker ($20) |
-| `FINN_ORACLE_MAX_CONCURRENT` | `3` | No | 1 | Max concurrent per ECS task |
-| `FINN_ORACLE_PUBLIC_DAILY_LIMIT` | `5` | No | 1 | Per-IP daily limit |
-| `FINN_ORACLE_AUTH_DAILY_LIMIT` | `50` | No | 1 | Per-API-key daily limit |
-| `FINN_ORACLE_ESTIMATED_COST_CENTS` | `50` | No | 1 | Pessimistic per-request cost estimate |
-| `FINN_ORACLE_TRUST_XFF` | `true` | No | 1 | Parse X-Forwarded-For |
-| `FINN_ORACLE_CORS_ORIGINS` | `https://oracle.arrakis.community` | No | 1 | Comma-separated CORS origins |
-| `DIXIE_REF` | `unknown` | No | 1 | Build-time loa-dixie commit |
-| `REDIS_URL` | (existing) | Yes | 0 | Redis connection (existing) |
+**Objective**: Get to v7.0.0 with all safety gates green.
 
-### 11.2 Rollout Strategy
+```
+1. Create golden wire fixtures (BEFORE bump)
+   - Generate fixture files from current v5.0.0 behavior
+   - Commit to tests/fixtures/wire/
 
-1. **Merge PR #75** — Oracle engine → main (no risk, already approved)
-2. **Deploy loa-finn with `FINN_ORACLE_ENABLED=true`** — Oracle invoke works, rate limiter active
-3. **Create wildcard cert** — `*.arrakis.community` via Terraform
-4. **Deploy Terraform module** — S3 + CloudFront + Route 53 for `oracle.arrakis.community`
-5. **Deploy frontend** — loa-dixie Next.js static export → S3
-6. **Verify end-to-end** — oracle.arrakis.community → API → Oracle response with sources
-7. **Monitor** — `/health` for Oracle readiness, CloudWatch for rate limiter, daily usage
+2. Schema audit
+   - Install v7.0.0 temporarily alongside v5.0.0
+   - Generate schema-audit-v5-v7.json (9-dimension checklist)
+   - Verify TypeBox peer dep alignment
+   - Commit audit artifact
 
-### 11.3 Rollback Plan
+3. Delete packages/loa-hounfour/
+   - Comprehensive search (workspace, tsconfig, file:, deep imports, compiled JS)
+   - Remove all references
+   - Add ESLint no-restricted-imports rule
 
-| Failure | Rollback Action |
-|---------|----------------|
-| Oracle API errors | Set `FINN_ORACLE_ENABLED=false` — disables Oracle, other agents unaffected |
-| Rate limiter Redis failure | Auto-handled: fail-closed returns 503 |
-| Cost ceiling breach | Auto-handled: circuit breaker returns 503 |
-| Frontend issues | Revert loa-dixie deployment, CloudFront serves cached version |
-| Terraform issues | `terraform destroy` module invocation — isolated from finn ECS |
+4. Bump dependency
+   - Update package.json to github:...#v7.0.0
+   - npm install
+   - Record resolved commit SHA
 
----
+5. Fix compilation
+   - tsc --noEmit
+   - Update import paths as needed
 
-## 12. File Inventory
+6. Protocol handshake update
+   - Set FINN_MIN_SUPPORTED = '4.0.0'
+   - CONTRACT_VERSION from package (7.0.0)
+   - Feature detection for trust_scopes
+   - Add health endpoint protocol version
 
-### New Files (loa-finn)
+7. Interop verification
+   - Synthetic arrakis v4.6.0 handshake fixture
+   - Captured traffic replay (if staging available)
+   - Document arrakis source code reference
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `src/gateway/routes/oracle.ts` | ~120 | Oracle product API handler |
-| `src/gateway/oracle-rate-limit.ts` | ~200 | Redis-backed rate limiter |
-| `src/gateway/oracle-auth.ts` | ~80 | Oracle API key validation |
-| `src/gateway/oracle-concurrency.ts` | ~60 | Concurrency semaphore |
-| `scripts/oracle-keys.sh` | ~120 | API key management CLI |
-| `tests/finn/oracle-api.test.ts` | ~200 | API handler tests |
-| `tests/finn/oracle-rate-limit.test.ts` | ~250 | Rate limiter tests |
-| `tests/finn/oracle-auth.test.ts` | ~150 | Auth middleware tests |
-| `tests/finn/oracle-concurrency.test.ts` | ~80 | Concurrency limiter tests |
-| `tests/finn/oracle-xss.test.ts` | ~60 | XSS prevention tests |
-| `tests/finn/oracle-e2e-phase1.test.ts` | ~150 | End-to-end integration |
-| `tests/finn/oracle-ip-extraction.test.ts` | ~100 | IP extraction tests |
+8. Wire fixture verification (AFTER bump)
+   - All golden fixtures still pass byte-for-byte
 
-### New Files (Infrastructure)
+9. Test suite
+   - Full run: ≥ 187 passing
+   - Fix or independently cover s2s-jwt.test.ts wire-compat surface
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `deploy/terraform/modules/dnft-site/main.tf` | ~200 | Reusable site module |
-| `deploy/terraform/modules/dnft-site/variables.tf` | ~50 | Module inputs |
-| `deploy/terraform/modules/dnft-site/outputs.tf` | ~20 | Module outputs |
-| `deploy/terraform/oracle-site.tf` | ~80 | Oracle site + wildcard cert |
-| `deploy/terraform/dixie-oidc.tf` | ~60 | OIDC for loa-dixie deploys |
+GATE: Schema audit artifact committed, all fixtures green, tsc clean, ≥ 187 tests
+```
 
-### New Files (Frontend — loa-dixie/site/)
+### Sprint 2: Type Adoption — Branded Types + Evaluator
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `src/app/layout.tsx` | ~30 | App layout, dark mode default |
-| `src/app/page.tsx` | ~100 | Main chat page |
-| `src/components/ChatInput.tsx` | ~60 | Question input + send |
-| `src/components/ChatMessage.tsx` | ~80 | Sanitized markdown render |
-| `src/components/SourceAttribution.tsx` | ~70 | Collapsible source panel |
-| `src/components/LevelSelector.tsx` | ~40 | Abstraction level picker |
-| `src/components/RateLimitBanner.tsx` | ~30 | Rate limit messaging |
-| `src/lib/oracle-client.ts` | ~50 | API client |
-| `src/lib/markdown-sanitizer.ts` | ~10 | HTML tag stripping |
+**Objective**: Canonical types everywhere, evaluator operational.
 
-### Modified Files (loa-finn)
+```
+1. Wire Boundary Module
+   - Create src/hounfour/wire-boundary.ts
+   - All parse/serialize functions with full edge-case coverage
+   - Wire boundary test suite
 
-| File | Changes | Lines Added |
-|------|---------|-------------|
-| `src/config.ts` | Oracle Phase 1 env vars in FinnConfig + loadConfig() | ~30 |
-| `src/gateway/server.ts` | Oracle route + middleware registration | ~20 |
-| `src/scheduler/health.ts` | Rate limiter health, dixie ref, daily usage | ~15 |
-| `deploy/Dockerfile` | COPY loa-dixie knowledge from build context | ~10 |
+2. Branded type adoption (file by file)
+   - jwt-auth.ts: parseAccountId at claim extraction
+   - pool-enforcement.ts: parsePoolId
+   - tier-bridge.ts: canonical vocabulary re-exports
+   - billing-finalize-client.ts: parseMicroUSD
+   - cost-arithmetic.ts: MicroUSD types
+   - budget.ts: parseBasisPoints
+   - types.ts: import branded types, remove local shadows
+
+3. Golden wire fixture verification
+   - All fixtures byte-for-byte stable after type migration
+   - New snapshot tests for billing req/res, JWT claims, stream events
+
+4. BillingConservationGuard
+   - Create src/hounfour/billing-conservation-guard.ts
+   - Compile constraint registry at startup
+   - Wire into billing pipeline
+   - Bypass mode with EVALUATOR_BYPASS env
+   - Health endpoint integration
+
+5. Boot sequence update
+   - Add BillingConservationGuard.init() after hounfour step
+
+6. Evaluator tests
+   - Unit tests for all invariant checks
+   - Disagreement handling tests
+   - Bypass mode tests
+   - CI microbenchmark (p95 < 1ms)
+
+7. Observability
+   - Structured logging for HARD-FAIL events
+   - Metrics: compile duration, check latency, fail count, bypass count
+   - Alert: circuit-open state → PagerDuty
+
+GATE: All branded types canonical, evaluator compiled + passing, microbenchmark green,
+      golden fixtures stable, ≥ 207 tests passing
+```
+
+### Sprint 3: Knowledge + Hardening
+
+**Objective**: Oracle up to date, production hardening complete.
+
+```
+1. Oracle knowledge corpus update
+   - Rewrite code-reality-hounfour.md for v7.0.0
+   - Update architecture.md, capabilities.md
+   - Update sources.json checksums
+
+2. Gold-set verification
+   - Update test vectors for v7.0.0 protocol questions
+   - Verify 20/20 pass rate
+
+3. CI hardening
+   - Protocol version drift detection
+   - Evaluator preflight (compile in production container image)
+   - TypeBox version check
+
+4. Final integration pass
+   - End-to-end billing flow with evaluator
+   - Full fixture suite
+   - Test suite: ≥ 207 passing, zero new failures
+
+GATE: Gold-set 20/20, all CI checks green, production-ready
+```
 
 ---
 
 ## 13. Technical Risks & Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|-----------|
-| Redis outage blocks all Oracle queries | Low | High | Fail-closed is intentional — prevents cost explosion. CloudWatch alarm + existing Redis monitoring. |
-| X-Forwarded-For extraction off-by-one | Medium | Medium | Integration test with real ALB + CloudFront header chains. Configurable index if needed. |
-| Rate limit bypass via IP rotation | Medium | Low | Global daily cap (200) is the real protection. Per-IP is defense-in-depth. |
-| CloudFront cache invalidation lag | Low | Low | Only affects static assets. API calls go directly to ALB. |
-| Wildcard cert complications | Low | Medium | Fall back to per-subdomain cert. ACM + Route 53 validation is automated. |
-| Frontend scope creep | Medium | Medium | Phase 1 UI is minimal: chat + sources + level selector. No auth UI. |
-| Knowledge sync drift (dixie HEAD ≠ deployed) | Medium | Medium | Daily freshness check opens bump PR. Health reports `knowledge_dixie_ref`. |
-| Cost ceiling not tight enough | Low | Medium | Configurable via env var. CloudWatch alarm on approach. Start conservative ($20). |
+| Risk | Likelihood | Impact | Mitigation | Owner |
+|------|-----------|--------|------------|-------|
+| v7.0.0 has undocumented wire-format changes | Low | High | 9-dimension schema audit + golden fixtures | Sprint 1 |
+| PoolId vocabulary changed between v5 and v7 | Low | High | Schema audit vocabulary diff + migration strategy (see below) | Sprint 1 |
+| Evaluator compilation fails in production env | Low | High | CI preflight in production container + emergency bypass | Sprint 2 |
+| MicroUSD normalization mismatch with arrakis | Medium | High | Canonical rules + edge-case fixtures | Sprint 2 |
+| TypeBox version mismatch causes validation drift | Low | Medium | Peer dep alignment check in Sprint 1 | Sprint 1 |
+| Git tag `v7.0.0` is force-pushed | Very Low | High | Lockfile SHA pinning + CI integrity check | Sprint 1 |
+| arrakis rejects v7.0.0 contract_version | Low | High | Interop fixture + arrakis source code analysis | Sprint 1 |
+| Evaluator adds measurable latency | Low | Medium | Startup compilation + cache + microbenchmark gate | Sprint 2 |
+| Oracle knowledge regression | Low | Low | Gold-set 20/20 gate | Sprint 3 |
+
+**PoolId vocabulary migration strategy** (if schema audit detects vocabulary changes):
+
+| Change Type | Strategy | Implementation |
+|------------|----------|----------------|
+| Members added | Backward-compatible — existing code handles known members, new fall through to default | Add new members to any local switch/match statements; no breaking change |
+| Members removed | **Breaking** — requires coordinated handling | Add a compatibility map: `{ removedId: replacementId }`. Apply at `parsePoolId()` boundary. Log deprecated usage. Coordinate with arrakis. |
+| Members renamed | **Breaking** — same as removal + addition | Add alias map in `parsePoolId()`: accept old name, normalize to new. Log deprecated alias usage. Time-bound: remove alias after arrakis migrates. |
+| No changes | No action | Verified by vocabulary snapshot test in schema audit |
+
+Persisted data (ledger entries, Redis keys) may contain old PoolId values. Deserialization via `parsePoolId()` must accept both old and new vocabulary during the transition period. The compatibility map is the mechanism for this.
 
 ---
 
-## 14. Future Considerations
+## 14. File Manifest
 
-| Feature | Phase | Dependency |
-|---------|-------|-----------|
-| Streaming responses (SSE) | Post-Phase 1 | Hounfour streaming interface |
-| Session-based conversations | Phase 2 | Redis session store |
-| NFT-gated Community tier | Phase 3 | On-chain identity verification |
-| Developer/Enterprise tiers | Phase 4-5 | Arrakis billing integration |
-| Cloudflare Pages migration | Any time | DNS change only |
-| Hot-reload knowledge | Phase 5 | File watcher + registry reload |
-| Vector search (embeddings) | Phase 2 | Embedding model + vector store |
-| Second dNFT site | Any time | One `module` block in Terraform |
+### New Files
+
+| File | Sprint | Purpose |
+|------|--------|---------|
+| `src/hounfour/wire-boundary.ts` | 2 | Branded type parse/serialize (sole constructor) |
+| `src/hounfour/billing-conservation-guard.ts` | 2 | Fail-closed evaluator wrapper |
+| `tests/fixtures/wire/jwt-claims.fixture.json` | 1 | Golden JWT claims fixture |
+| `tests/fixtures/wire/jwt-signed.fixture.txt` | 1 | Golden signed JWT fixture |
+| `tests/fixtures/wire/billing-request.fixture.json` | 1 | Golden billing request fixture |
+| `tests/fixtures/wire/billing-response.fixture.json` | 1 | Golden billing response fixture |
+| `tests/fixtures/wire/stream-event.fixture.json` | 1 | Golden stream event fixture |
+| `tests/fixtures/keys/es256-test.key` | 1 | Deterministic test signing key |
+| `tests/fixtures/keys/es256-test.pub` | 1 | Deterministic test public key |
+| `tests/finn/wire-boundary.test.ts` | 2 | Wire boundary unit tests |
+| `tests/finn/billing-conservation-guard.test.ts` | 2 | Evaluator guard tests |
+| `tests/finn/interop-handshake.test.ts` | 1 | arrakis v4.6.0 interop fixture |
+| `tests/finn/wire-fixtures.test.ts` | 1 | Golden wire fixture verification |
+| `grimoires/loa/a2a/schema-audit-v5-v7.json` | 1 | Schema audit artifact |
+
+### Modified Files
+
+| File | Sprint | Changes |
+|------|--------|---------|
+| `package.json` | 1 | Bump dep, remove workspace ref |
+| `tsconfig.json` | 1 | Remove packages/ path mapping |
+| `src/hounfour/protocol-handshake.ts` | 1 | v7.0.0 version, FINN_MIN_SUPPORTED=4.0.0 |
+| `src/hounfour/jwt-auth.ts` | 2 | parseAccountId at extraction |
+| `src/hounfour/pool-enforcement.ts` | 2 | parsePoolId, canonical types |
+| `src/hounfour/tier-bridge.ts` | 2 | Canonical vocabulary re-exports |
+| `src/hounfour/pool-registry.ts` | 2 | Canonical PoolId |
+| `src/hounfour/nft-routing-config.ts` | 2 | Canonical PoolId |
+| `src/hounfour/billing-finalize-client.ts` | 2 | parseMicroUSD, evaluator guard |
+| `src/hounfour/cost-arithmetic.ts` | 2 | MicroUSD branded types |
+| `src/hounfour/budget.ts` | 2 | parseBasisPoints, evaluator guard |
+| `src/hounfour/types.ts` | 2 | Import branded types, remove shadows |
+| `src/config.ts` | 1 | Protocol version in config |
+| `src/index.ts` | 2 | Boot: add BillingConservationGuard.init() |
+| `tests/finn/pool-enforcement.test.ts` | 1-2 | Update imports, branded types |
+| `tests/finn/budget-accounting.test.ts` | 2 | Branded type assertions, evaluator |
+| `tests/finn/jwt-roundtrip.test.ts` | 1 | Wire compat verification |
+| `tests/finn/pool-registry.test.ts` | 1-2 | Update imports |
+| `grimoires/oracle/code-reality-hounfour.md` | 3 | Complete rewrite for v7.0.0 |
+| `grimoires/oracle/sources.json` | 3 | Update checksums |
+| `.eslintrc` / `eslint.config.*` | 1 | no-restricted-imports for local package |
+
+### Deleted Files
+
+| File | Sprint | Reason |
+|------|--------|--------|
+| `packages/loa-hounfour/` (entire directory, ~15 files) | 1 | Replaced by external v7.0.0 |
 
 ---
 
-*This SDD was designed by analyzing the actual source files listed in the Grounding section. Phase 0 (SDD v2.0.0) is fully retained — no changes to the knowledge enrichment pipeline. Phase 1 adds product surface: API endpoint, rate limiting, infrastructure, and frontend. Every integration point references real file locations from the current codebase.*
+## 15. Future Considerations
+
+| Item | When | Dependency |
+|------|------|-----------|
+| Raise `MIN_SUPPORTED_VERSION` to 6.0.0 | After arrakis upgrades to v7.0.0 | arrakis migration |
+| Adopt `trust_scopes` in JWT flow | After arrakis sends trust_scopes | arrakis v7.0.0 |
+| Adopt composition schemas (sagas, governance) | Future cycle | Feature work |
+| npm publish of loa-hounfour | Independent | loa-hounfour repo |
+| Remove ad-hoc billing checks | After evaluator proves stable (2+ weeks production) | Confidence period |
+| Cross-system E2E on v7.0.0 | Phase 4 | Both consumers at v7.0.0 |
