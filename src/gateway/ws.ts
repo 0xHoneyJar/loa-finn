@@ -25,10 +25,21 @@ const MAX_CONNECTIONS_PER_IP = 5
 // Track connections per IP
 const ipConnections = new Map<string, number>()
 
+/** Billing context for cost/balance messages (Sprint 3 Task 3.4). */
+export interface WsBillingContext {
+  /** Get cost of last turn and current balance in CreditUnit. */
+  getCostAndBalance?: (sessionId: string) => Promise<{ cost_cu: string; balance_cu: string } | null>
+  /** CU threshold for credit_warning (default: 50). */
+  warningThreshold?: number
+  /** Check if account is in PENDING_RECONCILIATION. */
+  isAccountBlocked?: (sessionId: string) => Promise<{ blocked: boolean; reason?: string }>
+}
+
 export interface WsHandlerOptions {
   config: FinnConfig
   getSession: (id: string) => AgentSession | undefined
   resumeSession: (id: string) => Promise<AgentSession | undefined>
+  billing?: WsBillingContext
 }
 
 export function handleWebSocket(
@@ -66,7 +77,7 @@ export function handleWebSocket(
   }
 
   function bridgeEvents(agentSession: AgentSession): () => void {
-    return agentSession.subscribe((event: AgentSessionEvent) => {
+    return agentSession.subscribe(async (event: AgentSessionEvent) => {
       switch (event.type) {
         case "message_end": {
           const msg = event.message
@@ -95,7 +106,35 @@ export function handleWebSocket(
           })
           break
         case "turn_end":
+          // Sprint 3 Task 3.4: Include cost/balance if billing context available
+          if (options.billing?.getCostAndBalance) {
+            try {
+              const billing = await options.billing.getCostAndBalance(sessionId)
+              if (billing) {
+                send({ type: "turn_end", data: { cost_cu: billing.cost_cu, balance_cu: billing.balance_cu } })
+                // credit_warning: balance below threshold
+                const threshold = options.billing.warningThreshold ?? 50
+                if (BigInt(billing.balance_cu) < BigInt(threshold)) {
+                  send({ type: "credit_warning", data: { balance_cu: billing.balance_cu, threshold: String(threshold) } })
+                }
+                break
+              }
+            } catch {
+              // Fall through to default turn_end on billing error
+            }
+          }
           send({ type: "turn_end", data: {} })
+          // billing_blocked: check after turn_end
+          if (options.billing?.isAccountBlocked) {
+            try {
+              const blocked = await options.billing.isAccountBlocked(sessionId)
+              if (blocked.blocked) {
+                send({ type: "billing_blocked", data: { reason: blocked.reason ?? "Account reconciliation in progress" } })
+              }
+            } catch {
+              // Best-effort — never block on billing check failure
+            }
+          }
           break
         case "agent_end":
           send({ type: "agent_end", data: {} })
