@@ -20,10 +20,12 @@
     "bridgebuilder:dry-run": "BRIDGEBUILDER_DRY_RUN=true tsx src/bridgebuilder/entry.ts",
     "test:bridgebuilder": "tsx tests/finn/bridgebuilder-r2-context.test.ts && tsx tests/finn/bridgebuilder-launch.test.ts",
     "test:billing": "vitest run tests/finn/billing-finalize.test.ts tests/finn/protocol-handshake.test.ts",
-    "test:gateway": "vitest run tests/finn/invoke-handler.test.ts tests/finn/usage-handler.test.ts tests/finn/invoke-billing-path.test.ts tests/finn/otlp-tracing.test.ts"
+    "test:gateway": "vitest run tests/finn/invoke-handler.test.ts tests/finn/usage-handler.test.ts tests/finn/invoke-billing-path.test.ts tests/finn/otlp-tracing.test.ts",
+    "test:microbench": "vitest run tests/finn/billing-microbench.test.ts",
+    "postinstall": "bash scripts/patch-hounfour-dist.sh"
   },
   "dependencies": {
-    "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#e5b9f16c60a95f7940c96af3b11cf50065abe898",
+    "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#d091a3c0d4802402825fc7765bcc888f2477742f",
     "@aws-sdk/client-s3": "^3.985.0",
     "@hono/node-server": "^1.19.9",
     "@mariozechner/pi-agent-core": "~0.52.6",
@@ -37,17 +39,21 @@
     "ws": "^8.19.0"
   },
   "devDependencies": {
+    "@types/json-stable-stringify": "^1.1.0",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
+    "eslint": "^9.39.2",
     "fast-check": "^4.5.3",
+    "json-stable-stringify": "^1.3.0",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.56.0",
     "vitest": "^4.0.18"
   },
   "optionalDependencies": {
-    "@opentelemetry/sdk-trace-node": "^1.30.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.57.0",
     "@opentelemetry/resources": "^1.30.0",
+    "@opentelemetry/sdk-trace-node": "^1.30.0",
     "@opentelemetry/semantic-conventions": "^1.30.0"
   },
   "imports": {

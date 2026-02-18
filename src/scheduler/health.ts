@@ -8,11 +8,13 @@ import type { ObjectStoreSync } from "../persistence/r2-sync.js"
 import type { GitSync } from "../persistence/git-sync.js"
 import type { FinnConfig } from "../config.js"
 import type { WorkerPoolStats } from "../agent/worker-pool.js"
+import type { GuardHealth } from "../hounfour/billing-conservation-guard.js"
 
 export interface HealthStatus {
   status: "healthy" | "degraded" | "unhealthy"
   uptime: number
   timestamp: number
+  ready_for_billing: boolean
   checks: {
     agent: {
       status: string
@@ -62,6 +64,7 @@ export interface HealthStatus {
       providers?: Record<string, { healthy: boolean; models: Record<string, { healthy: boolean }> }>
       budget?: { spent_usd: number; limit_usd: number; percent_used: number }
     }
+    billing_evaluator?: GuardHealth
     oracle?: {
       status: string
       healthy: boolean
@@ -102,6 +105,7 @@ export interface HealthDeps {
   getProviderHealth?: () => Record<string, { healthy: boolean; models: Record<string, { healthy: boolean }> }> | undefined
   getBudgetSnapshot?: () => { spent_usd: number; limit_usd: number; percent_used: number } | undefined
   getRedisHealth?: () => Promise<{ connected: boolean; latencyMs: number }>
+  getBillingGuardHealth?: () => GuardHealth
   getOracleHealth?: () => { healthy: boolean; sources_loaded: number; total_tokens: number; missing: string[] } | undefined
   // Phase 1 additions (SDD §3.7)
   getOracleRateLimiterHealth?: () => Promise<boolean>
@@ -170,6 +174,12 @@ export class HealthAggregator {
       },
     }
 
+    // Optional: Billing evaluator guard health (SDD §4.2)
+    const guardHealth = this.deps.getBillingGuardHealth?.()
+    if (guardHealth) {
+      checks.billing_evaluator = guardHealth
+    }
+
     // Optional: Hounfour provider health
     const providerHealth = this.deps.getProviderHealth?.()
     const budgetSnapshot = this.deps.getBudgetSnapshot?.()
@@ -196,6 +206,11 @@ export class HealthAggregator {
       }
     }
 
+    // Compute ready_for_billing: true only when guard is ready or bypassed (SDD §6.2)
+    const readyForBilling = guardHealth
+      ? guardHealth.billing === "ready"
+      : true // No guard configured — billing proceeds (backward compatible)
+
     // Compute overall status
     let overall: HealthStatus["status"] = "healthy"
 
@@ -211,7 +226,8 @@ export class HealthAggregator {
       checks.r2Sync.status === "timeout" ||
       checks.gitSync.status === "conflict" ||
       checks.scheduler.status === "partial" ||
-      !beadsAvailable
+      !beadsAvailable ||
+      (guardHealth && guardHealth.billing === "degraded")
     ) {
       overall = "degraded"
     }
@@ -220,6 +236,7 @@ export class HealthAggregator {
       status: overall,
       uptime: Date.now() - this.bootTime,
       timestamp: Date.now(),
+      ready_for_billing: readyForBilling,
       checks,
     }
   }

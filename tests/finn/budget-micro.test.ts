@@ -23,7 +23,7 @@ import type { LedgerEntryV2, BudgetSnapshotMicro } from "../../src/hounfour/type
 
 // --- Golden vector loader ---
 
-const VECTORS_DIR = resolve("packages/loa-hounfour/vectors/budget")
+const VECTORS_DIR = resolve("node_modules/@0xhoneyjar/loa-hounfour/vectors/budget")
 
 // BB-PR63-F009: Guard against missing vector files. If the loa-hounfour
 // subpackage is not installed or vectors are missing, golden vector tests

@@ -1,0 +1,16 @@
+{
+  "billing_entry_id": "billing-entry-fixture-001",
+  "billing_method": "provider_reported",
+  "content": "Hello, I'm an AI assistant.",
+  "contract_version": "7.0.0",
+  "id": "trace-fixture-001",
+  "latency_ms": 1500,
+  "model": "claude-sonnet-4-5-20250929",
+  "pool_id": "fast-code",
+  "provider": "anthropic",
+  "usage": {
+    "completion_tokens": 200,
+    "prompt_tokens": 100,
+    "reasoning_tokens": 50
+  }
+}

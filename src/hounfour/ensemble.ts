@@ -884,7 +884,7 @@ export async function bestOfNStreaming(
         thinking: null,
         tool_calls: null,
         usage: successful[i].usage,
-        metadata: { model: successful[i].pool },
+        metadata: { model: successful[i].pool, latency_ms: 0, trace_id: "ensemble-untraced" },
       }
       const score = await scorer(completionResult)
       if (score > bestScore) {
@@ -899,7 +899,7 @@ export async function bestOfNStreaming(
       thinking: null,
       tool_calls: null,
       usage: best.usage,
-      metadata: { model: best.pool },
+      metadata: { model: best.pool, latency_ms: 0, trace_id: "ensemble-untraced" },
     }
 
     let totalCost = 0n
@@ -1032,7 +1032,7 @@ export async function consensusStreaming(
       thinking: null,
       tool_calls: null,
       usage: r.usage,
-      metadata: { model: r.pool },
+      metadata: { model: r.pool, latency_ms: 0, trace_id: "ensemble-untraced" },
     }))
 
     // Extract structured fields and run majority vote
@@ -1049,7 +1049,7 @@ export async function consensusStreaming(
         thinking: null,
         tool_calls: null,
         usage: aggregateUsage(successful.map((r) => r.usage)),
-        metadata: { model: `ensemble:consensus:${pools.join("+")}` },
+        metadata: { model: `ensemble:consensus:${pools.join("+")}`, latency_ms: 0, trace_id: "ensemble-untraced" },
       }
     } else {
       // Not enough structured data — fall back to first successful

@@ -1,0 +1,14 @@
+{
+  "aud": "loa-finn",
+  "byok": null,
+  "exp": 1700003600,
+  "iat": 1700000000,
+  "iss": "arrakis-test",
+  "jti": "test-jti-fixture-001",
+  "model_preferences": null,
+  "nft_id": null,
+  "req_hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "sub": "user-fixture-001",
+  "tenant_id": "tenant-fixture-001",
+  "tier": "pro"
+}

@@ -28,7 +28,7 @@ import { InMemoryJtiReplayGuard } from "../../src/hounfour/jti-replay.js"
 
 // --- Golden Vectors ---
 
-const VECTORS_DIR = resolve(import.meta.dirname ?? ".", "../../packages/loa-hounfour/vectors/jwt")
+const VECTORS_DIR = resolve(import.meta.dirname ?? ".", "../../node_modules/@0xhoneyjar/loa-hounfour/vectors/jwt")
 const conformanceVectors = JSON.parse(readFileSync(resolve(VECTORS_DIR, "conformance.json"), "utf-8"))
 
 // --- Test JWKS Server ---

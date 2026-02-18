@@ -1,0 +1,17 @@
+{
+  "billing_entry_id": "billing-entry-fixture-001",
+  "billing_method": "provider_reported",
+  "contract_version": "7.0.0",
+  "idempotency_key": "idem-fixture-001",
+  "model": "claude-sonnet-4-5-20250929",
+  "pool_id": "fast-code",
+  "provider": "anthropic",
+  "tenant_id": "tenant-fixture-001",
+  "timestamp": "2023-11-15T00:00:00.000Z",
+  "trace_id": "trace-fixture-001",
+  "usage": {
+    "completion_tokens": 200,
+    "prompt_tokens": 100,
+    "reasoning_tokens": 50
+  }
+}

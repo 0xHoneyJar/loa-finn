@@ -1,0 +1,32 @@
+{
+  "chunk": {
+    "delta": "Hello",
+    "type": "chunk"
+  },
+  "error": {
+    "code": "PROVIDER_ERROR",
+    "message": "Upstream provider returned 500",
+    "retryable": true,
+    "type": "error"
+  },
+  "stream_end": {
+    "billing_method": "provider_reported",
+    "cost_micro": "500000",
+    "finish_reason": "stop",
+    "type": "stream_end"
+  },
+  "stream_start": {
+    "contract_version": "7.0.0",
+    "model": "claude-sonnet-4-5-20250929",
+    "pool_id": "fast-code",
+    "provider": "anthropic",
+    "trace_id": "trace-fixture-001",
+    "type": "stream_start"
+  },
+  "usage": {
+    "completion_tokens": 200,
+    "prompt_tokens": 100,
+    "reasoning_tokens": 50,
+    "type": "usage"
+  }
+}

@@ -68,9 +68,9 @@ async function main(): Promise<number> {
     // BB-063-017: Support legacy personaPath config for backward compatibility
     let persona: string
     const resolvedPath = config.repoOverridePath
-      ?? (config as Record<string, unknown>).personaPath as string | undefined
+      ?? (config as unknown as Record<string, unknown>).personaPath as string | undefined
       ?? "grimoires/bridgebuilder/BEAUVOIR.md"
-    if ((config as Record<string, unknown>).personaPath && !config.repoOverridePath) {
+    if ((config as unknown as Record<string, unknown>).personaPath && !config.repoOverridePath) {
       log.warn("config.personaPath is deprecated — use config.repoOverridePath instead")
     }
     try {

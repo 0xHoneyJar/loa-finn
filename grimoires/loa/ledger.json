@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-025",
+  "current_cycle": "cycle-026",
   "cycles": [
     {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -693,7 +693,7 @@
     },
     {
       "label": "The Oracle — Unified Knowledge Interface",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-16T22:00:00Z",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
@@ -739,8 +739,41 @@
           "tasks": 7,
           "notes": "Commit f34f80b — E2E harness (mock Redis, mock router, IP/CORS helpers), 14 E2E integration tests, 11 XSS prevention tests (OWASP vectors), deploy-dixie workflow reference. 147 total Oracle tests."
         }
+      ],
+      "archived_at": "2026-02-18T00:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-18-oracle-phase1-complete"
+    },
+    {
+      "label": "Protocol Convergence — loa-hounfour v5.0.0 → v7.0.0",
+      "status": "active",
+      "started": "2026-02-18T00:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 65,
+          "label": "Foundation — Bump + Cleanup + Safety Gates",
+          "status": "completed",
+          "tasks": 9
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 66,
+          "label": "Type Adoption — Branded Types + Evaluator",
+          "status": "pending",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 67,
+          "label": "Knowledge + Hardening",
+          "status": "pending",
+          "tasks": 6
+        }
       ]
     }
   ],
-  "next_global_sprint_id": 65
+  "next_global_sprint_id": 68
 }

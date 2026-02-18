@@ -28,7 +28,8 @@ export async function initTracing(config: TracingConfig): Promise<NodeTracerProv
     const { SimpleSpanProcessor } = await import("@opentelemetry/sdk-trace-node")
     const { OTLPTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-grpc")
     const { Resource } = await import("@opentelemetry/resources")
-    const { ATTR_SERVICE_NAME, ATTR_DEPLOYMENT_ENVIRONMENT_NAME } = await import("@opentelemetry/semantic-conventions")
+    const { ATTR_SERVICE_NAME } = await import("@opentelemetry/semantic-conventions")
+    const { ATTR_DEPLOYMENT_ENVIRONMENT_NAME } = await import("@opentelemetry/semantic-conventions/incubating")
 
     const resource = new Resource({
       [ATTR_SERVICE_NAME]: "loa-finn",

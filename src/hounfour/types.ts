@@ -1,5 +1,11 @@
 // src/hounfour/types.ts — Hounfour shared types (SDD §4.2, T-14.4)
 // All interfaces for the multi-model provider abstraction layer.
+//
+// Canonical branded types re-exported from @0xhoneyjar/loa-hounfour (v7.0.0).
+// Use wire-boundary.ts parse functions to construct branded values.
+
+export type { MicroUSD, BasisPoints, AccountId } from "@0xhoneyjar/loa-hounfour"
+export type { PoolId } from "@0xhoneyjar/loa-hounfour"
 
 // --- Provider & Model ---
 
@@ -425,7 +431,7 @@ export function isStreamingPort(port: ModelPort): port is ModelPortStreaming {
   return "stream" in port && typeof (port as ModelPortStreaming).stream === "function"
 }
 
-export type StreamEventType = "chunk" | "tool_call" | "usage" | "done" | "error"
+export type StreamEventType = "chunk" | "tool_call" | "usage" | "done" | "error" | "thinking"
 
 export type StreamChunk =
   | { event: "chunk"; data: StreamChunkData }
@@ -433,6 +439,7 @@ export type StreamChunk =
   | { event: "usage"; data: StreamUsageData }
   | { event: "done"; data: StreamDoneData }
   | { event: "error"; data: StreamErrorData }
+  | { event: "thinking"; data: StreamThinkingData }
 
 export interface StreamChunkData {
   delta: string
@@ -461,4 +468,8 @@ export interface StreamDoneData {
 export interface StreamErrorData {
   code: string
   message: string
+}
+
+export interface StreamThinkingData {
+  thinking: string
 }

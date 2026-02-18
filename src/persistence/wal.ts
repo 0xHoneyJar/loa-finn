@@ -17,8 +17,11 @@ import { monotonicFactory } from "ulid"
 
 const ulid = monotonicFactory()
 
-// WAL entry types matching SDD §3.3.1
-export type WALEntryType = "session" | "bead" | "memory" | "config"
+// WAL entry types matching SDD §3.3.1 + §7.6 (audit entries for BillingConservationGuard)
+export type WALEntryType = "session" | "bead" | "memory" | "config" | "audit"
+
+// Known types for forward-compatible replay — unknown types are skipped with warning
+const KNOWN_WAL_TYPES = new Set<string>(["session", "bead", "memory", "config", "audit"])
 
 export interface WALEntry {
   id: string            // ULID (monotonic, sortable)
@@ -111,7 +114,8 @@ export class WAL {
     return entry.id
   }
 
-  /** Replay WAL entries, optionally since a given ULID. */
+  /** Replay WAL entries, optionally since a given ULID.
+   *  Forward-compatible: unknown entry types are skipped with warning (SDD §7.6). */
   async *replay(since?: string): AsyncIterable<WALEntry> {
     const segments = this.getSegments()
 
@@ -121,6 +125,12 @@ export class WAL {
         if (!line.trim()) continue
         const entry = JSON.parse(line) as WALEntry
         if (since && entry.id <= since) continue
+
+        // Forward-compatible: skip unknown entry types with warning (SDD §7.6)
+        if (!KNOWN_WAL_TYPES.has(entry.type)) {
+          console.warn(`[wal] unknown entry type "${entry.type}" in ${entry.id}, skipping`)
+          continue
+        }
 
         // Verify checksum
         const expected = createHash("sha256")
