@@ -4,23 +4,23 @@
   "state": "RUNNING",
   "timestamps": {
     "started": "2026-02-18T03:05:00Z",
-    "last_activity": "2026-02-18T03:05:00Z"
+    "last_activity": "2026-02-18T12:50:00Z"
   },
   "sprints": {
     "total": 3,
-    "completed": 0,
-    "current": "sprint-1",
+    "completed": 1,
+    "current": "sprint-2",
     "list": [
       {
         "id": "sprint-1",
-        "status": "pending",
-        "cycles": 0,
+        "status": "completed",
+        "cycles": 1,
         "global_id": "sprint-65",
         "label": "Foundation — Schema Audit, Dependency Bump, Wire Fixtures"
       },
       {
         "id": "sprint-2",
-        "status": "pending",
+        "status": "in_progress",
         "cycles": 0,
         "global_id": "sprint-66",
         "label": "Type Adoption + BillingConservationGuard"
@@ -41,8 +41,8 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 0,
-    "total_files_changed": 0,
+    "total_cycles": 1,
+    "total_files_changed": 106,
     "total_findings_fixed": 0
   }
 }
