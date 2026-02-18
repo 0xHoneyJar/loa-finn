@@ -87,7 +87,7 @@ export class BillingConservationGuard {
   private bypassed = false
   private readonly deps: GuardDeps
   private readonly metrics: GuardMetrics
-  private recoveryTimer: ReturnType<typeof setInterval> | null = null
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(deps?: GuardDeps) {
     this.deps = deps ?? {}
@@ -215,8 +215,8 @@ export class BillingConservationGuard {
         }
       }, currentInterval + Math.floor(currentInterval * 0.25 * (Math.random() - 0.5)))
 
-      if (this.recoveryTimer && (this.recoveryTimer as NodeJS.Timeout).unref) {
-        (this.recoveryTimer as NodeJS.Timeout).unref()
+      if (this.recoveryTimer?.unref) {
+        this.recoveryTimer.unref()
       }
     }
 
