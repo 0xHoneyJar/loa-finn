@@ -13,8 +13,9 @@ import {
   type PersonalityResponse,
   NFTPersonalityError,
 } from "./types.js"
-import type { CompatibilityMode, AgentMode, DAPMFingerprint } from "./signal-types.js"
+import type { CompatibilityMode, AgentMode, DAPMFingerprint, SignalSnapshot } from "./signal-types.js"
 import type { PersonalityVersionService } from "./personality-version.js"
+import { deriveDAPM } from "./dapm.js"
 
 // ---------------------------------------------------------------------------
 // dAPM Mode Cache Constants (Sprint 8 Task 8.3)
@@ -90,6 +91,20 @@ export class PersonalityService {
       created_at: now,
       updated_at: now,
       compatibility_mode: compatibilityMode,
+    }
+
+    // Sprint 11 Task 11.1: Derive dAPM fingerprint for signal_v2 personalities
+    if (compatibilityMode === "signal_v2") {
+      const signals = (req as Record<string, unknown>).signals as SignalSnapshot
+      try {
+        const fingerprint = deriveDAPM(signals, "default")
+        personality.dapm = fingerprint
+      } catch {
+        // dAPM derivation failure is non-fatal — personality still created without fingerprint
+        this.writeAudit("dapm_derivation_error", id, {
+          phase: "create",
+        })
+      }
     }
 
     // Persist to Redis
@@ -207,6 +222,17 @@ export class PersonalityService {
       if (req.dapm !== undefined) personality.dapm = req.dapm
       if (req.voice_profile !== undefined) personality.voice_profile = req.voice_profile
       if (req.authored_by !== undefined) personality.authored_by = req.authored_by
+
+      // Sprint 11 Task 11.1: Re-derive dAPM fingerprint when signals change
+      try {
+        const fingerprint = deriveDAPM(req.signals, "default")
+        personality.dapm = fingerprint
+      } catch {
+        // dAPM derivation failure is non-fatal
+        this.writeAudit("dapm_derivation_error", id, {
+          phase: "update",
+        })
+      }
     }
 
     // Regenerate BEAUVOIR.md
@@ -524,6 +550,8 @@ import { requireNFTOwnership } from "../gateway/siwe-ownership.js"
 export interface PersonalityV2Deps {
   service: PersonalityService
   synthesizer?: BeauvoirSynthesizer
+  /** Knowledge graph loader for identity subgraph extraction (Sprint 11 Task 11.1b) */
+  graphLoader?: KnowledgeGraphLoader
   /** Ownership provider for on-chain NFT verification (Sprint 6) */
   ownershipProvider: OwnershipProvider
   /** JWT config for ownership middleware (Sprint 6) */
@@ -632,9 +660,33 @@ export async function handleSynthesize(c: Context, deps: PersonalityV2Deps): Pro
   }
 
   try {
+    // Sprint 11 Task 11.1b: Extract identity subgraph for richer synthesis
+    let synthesisSubgraph: import("./beauvoir-synthesizer.js").IdentitySubgraph | undefined
+    if (deps.graphLoader) {
+      try {
+        const graph = deps.graphLoader.load()
+        const subgraph = extractSubgraph(
+          graph,
+          personality.signals.archetype,
+          personality.signals.ancestor,
+          personality.signals,
+        )
+        synthesisSubgraph = toSynthesisSubgraph(
+          subgraph,
+          graph,
+          personality.signals.archetype,
+          personality.signals.ancestor,
+          personality.signals.era,
+        )
+      } catch {
+        // Graph extraction failure is non-fatal — synthesize without subgraph
+      }
+    }
+
     const beauvoirMd = await deps.synthesizer.synthesize(
       personality.signals,
       personality.dapm ?? null,
+      synthesisSubgraph,
     )
 
     // Persist synthesized result
@@ -674,4 +726,283 @@ export function registerPersonalityV2Routes(app: Hono, deps: PersonalityV2Deps):
   app.post("/:collection/:tokenId/personality/v2", ownershipMiddleware, (c) => handleCreateV2(c, deps))
   app.put("/:collection/:tokenId/personality/v2", ownershipMiddleware, (c) => handleUpdateV2(c, deps))
   app.post("/:collection/:tokenId/personality/synthesize", ownershipMiddleware, (c) => handleSynthesize(c, deps))
+}
+
+// ---------------------------------------------------------------------------
+// Identity Read API (Sprint 10 Tasks 10.1-10.3)
+// ---------------------------------------------------------------------------
+
+import { KnowledgeGraphLoader, extractSubgraph, toSynthesisSubgraph } from "./identity-graph.js"
+import type { IdentitySubgraph, GraphNode, GraphEdge } from "./identity-graph.js"
+
+/** Dependencies for identity read endpoints */
+export interface IdentityReadDeps {
+  service: PersonalityService
+  graphLoader?: KnowledgeGraphLoader
+}
+
+/** Response shape for the identity graph endpoint */
+export interface IdentityGraphResponse {
+  nodes: Array<{
+    id: string
+    type: string
+    label: string
+    weight: number
+    group: string
+  }>
+  edges: Array<{
+    source: string
+    target: string
+    type: string
+    weight: number
+  }>
+  stats: {
+    node_count: number
+    edge_count: number
+    primary_archetype: string
+    era: string
+  }
+}
+
+/** Valid agent modes for dAPM mode query parameter */
+const VALID_AGENT_MODES = new Set(["default", "brainstorm", "critique", "execute"])
+
+/**
+ * Register public read-only identity endpoints on a Hono app.
+ * All endpoints are public — no auth middleware required.
+ *
+ * Sprint 10 Tasks 10.1-10.3:
+ * - GET /:collection/:tokenId/identity-graph
+ * - GET /:collection/:tokenId/signals
+ * - GET /:collection/:tokenId/dapm
+ */
+export function registerIdentityReadRoutes(app: Hono, deps: IdentityReadDeps): void {
+  // GET /:collection/:tokenId/identity-graph — Task 10.1
+  app.get("/:collection/:tokenId/identity-graph", async (c) => {
+    const { collection, tokenId } = c.req.param()
+
+    const personality = await deps.service.getRaw(collection, tokenId)
+    if (!personality) {
+      return c.json({ error: "Personality not found", code: "PERSONALITY_NOT_FOUND" }, 404)
+    }
+
+    // Legacy_v1: minimal response — personality name as single node
+    if (personality.compatibility_mode !== "signal_v2" || !personality.signals) {
+      const minimalResponse: IdentityGraphResponse = {
+        nodes: [{
+          id: personality.id,
+          type: "personality",
+          label: personality.name,
+          weight: 1.0,
+          group: "identity",
+        }],
+        edges: [],
+        stats: {
+          node_count: 1,
+          edge_count: 0,
+          primary_archetype: "unknown",
+          era: "unknown",
+        },
+      }
+      return c.json(minimalResponse)
+    }
+
+    // Signal_v2: build full identity graph
+    try {
+      let subgraph: IdentitySubgraph | null = null
+
+      if (deps.graphLoader) {
+        const graph = deps.graphLoader.load()
+        subgraph = extractSubgraph(
+          graph,
+          personality.signals.archetype,
+          personality.signals.ancestor,
+          personality.signals,
+        )
+      }
+
+      if (!subgraph) {
+        // No graph loader or load failed — simplified response with signal metadata
+        const metadataResponse: IdentityGraphResponse = {
+          nodes: [
+            { id: personality.id, type: "personality", label: personality.name, weight: 1.0, group: "identity" },
+            { id: `archetype:${personality.signals.archetype}`, type: "archetype", label: personality.signals.archetype, weight: 1.0, group: "archetype" },
+            { id: `era:${personality.signals.era}`, type: "era", label: personality.signals.era, weight: 0.8, group: "temporal" },
+          ],
+          edges: [],
+          stats: {
+            node_count: 3,
+            edge_count: 0,
+            primary_archetype: personality.signals.archetype,
+            era: personality.signals.era,
+          },
+        }
+        return c.json(metadataResponse)
+      }
+
+      // Map IdentitySubgraph to API response shape
+      const response = mapSubgraphToResponse(
+        subgraph,
+        personality.signals.archetype,
+        personality.signals.era,
+      )
+      return c.json(response)
+    } catch {
+      // Graph extraction failure — fall back to simplified response
+      const fallbackResponse: IdentityGraphResponse = {
+        nodes: [{
+          id: personality.id,
+          type: "personality",
+          label: personality.name,
+          weight: 1.0,
+          group: "identity",
+        }],
+        edges: [],
+        stats: {
+          node_count: 1,
+          edge_count: 0,
+          primary_archetype: personality.signals.archetype,
+          era: personality.signals.era,
+        },
+      }
+      return c.json(fallbackResponse)
+    }
+  })
+
+  // GET /:collection/:tokenId/signals — Task 10.2
+  app.get("/:collection/:tokenId/signals", async (c) => {
+    const { collection, tokenId } = c.req.param()
+
+    const personality = await deps.service.getRaw(collection, tokenId)
+    if (!personality) {
+      return c.json({ error: "Personality not found", code: "PERSONALITY_NOT_FOUND" }, 404)
+    }
+
+    // Legacy_v1: return null signals
+    if (personality.compatibility_mode !== "signal_v2" || !personality.signals) {
+      return c.json({ signals: null })
+    }
+
+    return c.json({ signals: personality.signals })
+  })
+
+  // GET /:collection/:tokenId/dapm — Tasks 10.2 + 10.3
+  app.get("/:collection/:tokenId/dapm", async (c) => {
+    const { collection, tokenId } = c.req.param()
+
+    const personality = await deps.service.getRaw(collection, tokenId)
+    if (!personality) {
+      return c.json({ error: "Personality not found", code: "PERSONALITY_NOT_FOUND" }, 404)
+    }
+
+    // Legacy_v1: return null dapm
+    if (personality.compatibility_mode !== "signal_v2" || !personality.signals) {
+      return c.json({ dapm: null })
+    }
+
+    // Task 10.3: Mode query parameter
+    const mode = c.req.query("mode") as AgentMode | undefined
+
+    if (mode !== undefined) {
+      // Validate mode
+      if (!VALID_AGENT_MODES.has(mode)) {
+        return c.json({ error: "Invalid agent mode", code: "MODE_INVALID" }, 400)
+      }
+
+      // Derive mode-adjusted fingerprint
+      try {
+        const fingerprint = deriveDAPM(personality.signals, mode as AgentMode)
+        return c.json({ dapm: fingerprint })
+      } catch {
+        // Derivation failure — return stored fingerprint as fallback
+        return c.json({ dapm: personality.dapm ?? null })
+      }
+    }
+
+    // No mode specified — return stored fingerprint or derive with default
+    if (personality.dapm) {
+      return c.json({ dapm: personality.dapm })
+    }
+
+    // No stored fingerprint — derive with default mode
+    try {
+      const fingerprint = deriveDAPM(personality.signals, "default")
+      return c.json({ dapm: fingerprint })
+    } catch {
+      return c.json({ dapm: null })
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Identity Graph Response Mapper (Sprint 10 Task 10.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Map an IdentitySubgraph to the public API response shape.
+ * Assigns `group` categories based on node type for rendering.
+ * Combines graph edges and derived edges into a single edge list.
+ */
+function mapSubgraphToResponse(
+  subgraph: IdentitySubgraph,
+  archetype: string,
+  era: string,
+): IdentityGraphResponse {
+  // Map nodes: assign weight based on node type, group by category
+  const nodes = subgraph.nodes.map((node: GraphNode) => ({
+    id: node.id,
+    type: node.type,
+    label: node.label,
+    weight: nodeWeight(node),
+    group: nodeGroup(node.type),
+  }))
+
+  // Combine graph edges + derived edges into unified edge list
+  const edges: IdentityGraphResponse["edges"] = [
+    ...subgraph.edges.map((edge: GraphEdge) => ({
+      source: edge.source,
+      target: edge.target,
+      type: edge.type,
+      weight: edge.weight,
+    })),
+    ...subgraph.derivedEdges.map((edge) => ({
+      source: edge.source,
+      target: edge.target,
+      type: edge.type,
+      weight: edge.weight,
+    })),
+  ]
+
+  return {
+    nodes,
+    edges,
+    stats: {
+      node_count: nodes.length,
+      edge_count: edges.length,
+      primary_archetype: archetype,
+      era,
+    },
+  }
+}
+
+/** Assign weight to a node based on its type (seed nodes = 1.0, neighbors = lower) */
+function nodeWeight(node: GraphNode): number {
+  const type = node.type
+  if (type === "archetype" || type === "ancestor") return 1.0
+  if (type === "era" || type === "element") return 0.8
+  if (type === "molecule" || type === "tarot") return 0.6
+  return 0.4 // cultural references, aesthetic preferences, etc.
+}
+
+/** Map node type to rendering group category */
+function nodeGroup(type: string): string {
+  if (type === "archetype") return "archetype"
+  if (type === "ancestor" || type === "ancestor_family") return "lineage"
+  if (type === "era") return "temporal"
+  if (type === "element") return "elemental"
+  if (type === "molecule" || type === "tarot") return "substance"
+  if (type === "cultural_reference") return "cultural"
+  if (type === "aesthetic_preference") return "aesthetic"
+  if (type === "philosophical_foundation") return "philosophical"
+  return "other"
 }

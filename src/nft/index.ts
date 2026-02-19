@@ -88,6 +88,10 @@ export {
   handleUpdateV2,
   handleSynthesize,
   type PersonalityV2Deps,
+  // Sprint 10: Identity Read API
+  registerIdentityReadRoutes,
+  type IdentityReadDeps,
+  type IdentityGraphResponse,
 } from "./personality.js"
 
 // Personality Version Service (Sprint 3 Tasks 3.1-3.3)
@@ -124,11 +128,12 @@ export {
   type KnowledgeGraph,
 } from "./dapm.js"
 
-// Personality Resolver (Task 4.3 + 4.4)
+// Personality Resolver (Task 4.3 + 4.4 + Sprint 11 Task 11.3)
 export {
   resolvePersonalityPrompt,
   composeSystemPrompt,
   buildDAPMSummary,
+  buildDistinctiveDialsSummary,
   type PersonalityResolverDeps,
 } from "./personality-resolver.js"
 
@@ -174,10 +179,11 @@ export {
   type SafetyRule,
 } from "./safety-policy.js"
 
-// Identity Graph — Knowledge Graph Integration (Sprint 9 Tasks 9.1-9.5)
+// Identity Graph — Knowledge Graph Integration (Sprint 9 Tasks 9.1-9.5 + Sprint 11 Task 11.2)
 export {
   KnowledgeGraphLoader,
   extractSubgraph,
+  toSynthesisSubgraph,
   resolveCulturalReferences,
   resolveAestheticPreferences,
   resolvePhilosophicalFoundations,
@@ -186,6 +192,7 @@ export {
   type GraphNode,
   type GraphEdge,
   type IdentitySubgraph,
+  type SynthesisSubgraph,
   type DerivedEdge,
   type CulturalReference,
   type AestheticPreference,
