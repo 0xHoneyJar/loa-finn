@@ -56,7 +56,7 @@ export {
   type IdentityChain,
 } from "./signal-engine.js"
 
-// Codex Data Loader (Sprint 1 Task 1.5)
+// Codex Data Loader (Sprint 1 Task 1.5 + Sprint 7 Task 7.2)
 export {
   registerArtifact,
   loadArtifact,
@@ -67,6 +67,7 @@ export {
   loadArchetypeDefinitions,
   loadArchetypeAffinity,
   loadCodexVersion,
+  loadDAPMTables,
 } from "./codex-data/loader.js"
 
 // BEAUVOIR Template
@@ -103,7 +104,24 @@ export {
 export {
   getLegacyDAPMOffsets,
   LEGACY_VOICE_OFFSETS,
+  getDAPMTables,
+  resetDAPMTablesCache,
+  type DAPMTablesData,
+  type DialOffsetRecord,
+  type PartialDialRecord,
 } from "./dapm-tables.js"
+
+// dAPM-96 Derivation Engine (Sprint 7 Tasks 7.1, 7.3-7.5)
+export {
+  deriveDAPM,
+  resolveAncestorFamily,
+  normalizeSwag,
+  deriveAstrologyBlend,
+  ANCESTOR_TO_FAMILY,
+  ANCESTOR_FAMILIES,
+  type AncestorFamily,
+  type KnowledgeGraph,
+} from "./dapm.js"
 
 // Personality Resolver (Task 4.3 + 4.4)
 export {
@@ -146,3 +164,13 @@ export {
   type TemporalViolation,
   type EraDomainDef,
 } from "./temporal-voice.js"
+
+// On-Chain Ownership Provider (Sprint 6 Task 6.0)
+export {
+  type OwnershipProvider,
+  EthersOwnershipProvider,
+  MockOwnershipProvider,
+  OwnershipError,
+  type OwnershipErrorCode,
+  type EthersOwnershipProviderConfig,
+} from "./chain-config.js"

@@ -445,37 +445,31 @@ export function personalityRoutes(service: PersonalityService): Hono {
 import type { Context } from "hono"
 import type { BeauvoirSynthesizer } from "./beauvoir-synthesizer.js"
 import type { SignalSnapshot, DAPMFingerprint, DerivedVoiceProfile } from "./signal-types.js"
+import type { OwnershipProvider } from "./chain-config.js"
+import type { OwnershipMiddlewareConfig } from "../gateway/siwe-ownership.js"
+import { requireNFTOwnership } from "../gateway/siwe-ownership.js"
 
 /** Dependencies for V2 route registration */
 export interface PersonalityV2Deps {
   service: PersonalityService
   synthesizer?: BeauvoirSynthesizer
-}
-
-/**
- * Pre-auth safety guard: V2 write endpoints return 503 SERVICE_UNAVAILABLE
- * with "governance not configured" until Sprint 6 wires auth.
- * Returns true if the guard blocked the request (caller should return early).
- */
-function governanceGuard(c: Context): Response | null {
-  // Sprint 6 will replace this with actual auth check.
-  // Until then, all V2 write endpoints are blocked.
-  return c.json(
-    { error: "governance not configured", code: "SERVICE_UNAVAILABLE" },
-    503,
-  )
+  /** Ownership provider for on-chain NFT verification (Sprint 6) */
+  ownershipProvider: OwnershipProvider
+  /** JWT config for ownership middleware (Sprint 6) */
+  ownershipMiddlewareConfig: OwnershipMiddlewareConfig
 }
 
 /**
  * POST /:collection/:tokenId/personality/v2 — Create signal_v2 personality
- * Pre-auth: returns 503 until governance is configured.
+ * Protected by requireNFTOwnership middleware (Sprint 6).
+ * Extracts wallet_address from context (set by middleware) for authored_by.
  */
 export async function handleCreateV2(c: Context, deps: PersonalityV2Deps): Promise<Response> {
-  const guard = governanceGuard(c)
-  if (guard) return guard
-
-  // Unreachable until Sprint 6 removes the guard — placeholder for future implementation
   const { collection, tokenId } = c.req.param()
+
+  // Extract wallet_address set by ownership middleware (Sprint 6 Task 6.2)
+  const walletAddress: string = c.get("wallet_address") ?? "unknown"
+
   let body: unknown
   try {
     body = await c.req.json()
@@ -492,6 +486,9 @@ export async function handleCreateV2(c: Context, deps: PersonalityV2Deps): Promi
     return c.json({ error: "signals is required for V2 personality creation", code: "INVALID_REQUEST" }, 400)
   }
 
+  // Inject authored_by from authenticated wallet address
+  b.authored_by = walletAddress
+
   try {
     const req = validateCreateRequest(body)
     const result = await deps.service.create(collection, tokenId, req)
@@ -506,19 +503,25 @@ export async function handleCreateV2(c: Context, deps: PersonalityV2Deps): Promi
 
 /**
  * PUT /:collection/:tokenId/personality/v2 — Update signal_v2 personality
- * Pre-auth: returns 503 until governance is configured.
+ * Protected by requireNFTOwnership middleware (Sprint 6).
+ * Extracts wallet_address from context (set by middleware) for authored_by.
  */
 export async function handleUpdateV2(c: Context, deps: PersonalityV2Deps): Promise<Response> {
-  const guard = governanceGuard(c)
-  if (guard) return guard
-
-  // Unreachable until Sprint 6 removes the guard — placeholder for future implementation
   const { collection, tokenId } = c.req.param()
+
+  // Extract wallet_address set by ownership middleware (Sprint 6 Task 6.2)
+  const walletAddress: string = c.get("wallet_address") ?? "unknown"
+
   let body: unknown
   try {
     body = await c.req.json()
   } catch {
     return c.json({ error: "Invalid JSON body", code: "INVALID_REQUEST" }, 400)
+  }
+
+  // Inject authored_by from authenticated wallet address
+  if (typeof body === "object" && body !== null) {
+    (body as Record<string, unknown>).authored_by = walletAddress
   }
 
   try {
@@ -535,14 +538,10 @@ export async function handleUpdateV2(c: Context, deps: PersonalityV2Deps): Promi
 
 /**
  * POST /:collection/:tokenId/personality/synthesize — Trigger BEAUVOIR synthesis
- * Pre-auth: returns 503 until governance is configured.
- * When unblocked: synthesizes from stored signals, persists result + creates version.
+ * Protected by requireNFTOwnership middleware (Sprint 6).
+ * Synthesizes from stored signals, persists result + creates version.
  */
 export async function handleSynthesize(c: Context, deps: PersonalityV2Deps): Promise<Response> {
-  const guard = governanceGuard(c)
-  if (guard) return guard
-
-  // Unreachable until Sprint 6 removes the guard — placeholder for future implementation
   const { collection, tokenId } = c.req.param()
 
   if (!deps.synthesizer) {
@@ -590,9 +589,18 @@ export async function handleSynthesize(c: Context, deps: PersonalityV2Deps): Pro
 /**
  * Register V2 routes on a Hono app.
  * Composable — can be mounted alongside the v1 personalityRoutes.
+ *
+ * Sprint 6: Write endpoints (POST, PUT, synthesize) are protected by
+ * requireNFTOwnership middleware. Read endpoints remain public.
  */
 export function registerPersonalityV2Routes(app: Hono, deps: PersonalityV2Deps): void {
-  app.post("/:collection/:tokenId/personality/v2", (c) => handleCreateV2(c, deps))
-  app.put("/:collection/:tokenId/personality/v2", (c) => handleUpdateV2(c, deps))
-  app.post("/:collection/:tokenId/personality/synthesize", (c) => handleSynthesize(c, deps))
+  const ownershipMiddleware = requireNFTOwnership(
+    deps.ownershipProvider,
+    deps.ownershipMiddlewareConfig,
+  )
+
+  // Write endpoints — ownership-protected
+  app.post("/:collection/:tokenId/personality/v2", ownershipMiddleware, (c) => handleCreateV2(c, deps))
+  app.put("/:collection/:tokenId/personality/v2", ownershipMiddleware, (c) => handleUpdateV2(c, deps))
+  app.post("/:collection/:tokenId/personality/synthesize", ownershipMiddleware, (c) => handleSynthesize(c, deps))
 }
