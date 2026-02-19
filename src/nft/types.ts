@@ -1,4 +1,14 @@
-// src/nft/types.ts — NFT Personality Authoring Types (SDD §3.2, Sprint 4 Task 4.1)
+// src/nft/types.ts — NFT Personality Authoring Types (SDD §3.1, Sprint 1 Task 1.1)
+
+import type {
+  CompatibilityMode,
+  SignalSnapshot,
+  DAPMFingerprint,
+  DerivedVoiceProfile,
+} from "./signal-types.js"
+
+// Re-export CompatibilityMode for convenience
+export type { CompatibilityMode } from "./signal-types.js"
 
 // ---------------------------------------------------------------------------
 // Voice Types
@@ -25,11 +35,12 @@ export const MAX_EXPERTISE_DOMAINS = 5
 
 /** NFT personality configuration */
 export interface NFTPersonality {
+  // === PRESERVED: Existing fields (unchanged shape) ===
   /** Composite key: `${collection}:${tokenId}` */
   id: string
   /** Display name for the agent */
   name: string
-  /** Voice archetype */
+  /** Voice archetype (populated in both modes for API compat) */
   voice: VoiceType
   /** Expertise domains (up to 5) */
   expertise_domains: string[]
@@ -41,6 +52,30 @@ export interface NFTPersonality {
   created_at: number
   /** Last update timestamp (Unix ms) */
   updated_at: number
+
+  // === NEW: Signal hierarchy (null in legacy_v1 mode) ===
+  /** Full signal state — null when compatibility_mode is legacy_v1 */
+  signals?: SignalSnapshot | null
+  /** Derived 96-dial values — null when compatibility_mode is legacy_v1 */
+  dapm?: DAPMFingerprint | null
+
+  // === NEW: Versioning ===
+  /** Current version ID (ULID) */
+  version_id?: string
+  /** Link to previous version */
+  previous_version_id?: string | null
+  /** Wallet address that created/last modified */
+  authored_by?: string
+
+  // === NEW: Governance ===
+  /** Governance model */
+  governance_model?: "holder" | "community" | "dao"
+  /** Compatibility mode discriminant */
+  compatibility_mode?: CompatibilityMode
+
+  // === NEW: Derived voice (null in legacy_v1 mode) ===
+  /** Emergent voice profile from signals — null in legacy_v1 */
+  voice_profile?: DerivedVoiceProfile | null
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,42 @@
+{
+  "description": "Tarot suit to archetype affinity mapping. Each suit has a primary and secondary archetype affinity with weights.",
+  "suit_affinity": {
+    "wands": {
+      "primary": { "archetype": "freetekno", "weight": 0.6 },
+      "secondary": { "archetype": "acidhouse", "weight": 0.25 },
+      "tertiary": { "archetype": "chicago_detroit", "weight": 0.1 },
+      "quaternary": { "archetype": "milady", "weight": 0.05 }
+    },
+    "cups": {
+      "primary": { "archetype": "acidhouse", "weight": 0.6 },
+      "secondary": { "archetype": "chicago_detroit", "weight": 0.25 },
+      "tertiary": { "archetype": "milady", "weight": 0.1 },
+      "quaternary": { "archetype": "freetekno", "weight": 0.05 }
+    },
+    "swords": {
+      "primary": { "archetype": "milady", "weight": 0.6 },
+      "secondary": { "archetype": "freetekno", "weight": 0.25 },
+      "tertiary": { "archetype": "acidhouse", "weight": 0.1 },
+      "quaternary": { "archetype": "chicago_detroit", "weight": 0.05 }
+    },
+    "pentacles": {
+      "primary": { "archetype": "chicago_detroit", "weight": 0.6 },
+      "secondary": { "archetype": "milady", "weight": 0.25 },
+      "tertiary": { "archetype": "freetekno", "weight": 0.1 },
+      "quaternary": { "archetype": "acidhouse", "weight": 0.05 }
+    },
+    "major": {
+      "primary": { "archetype": "acidhouse", "weight": 0.35 },
+      "secondary": { "archetype": "milady", "weight": 0.3 },
+      "tertiary": { "archetype": "freetekno", "weight": 0.2 },
+      "quaternary": { "archetype": "chicago_detroit", "weight": 0.15 }
+    }
+  },
+  "element_mapping": {
+    "wands": "fire",
+    "cups": "water",
+    "swords": "air",
+    "pentacles": "earth",
+    "major": "fire"
+  }
+}
