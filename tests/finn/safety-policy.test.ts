@@ -126,7 +126,7 @@ describe("getSafetyPolicyText (Sprint 8 Task 8.2)", () => {
 
 describe("Safety Policy mode independence (Sprint 8 Task 8.2)", () => {
   it("safety policy is not affected by mode — always returns same rules", () => {
-    // Safety is separate from dAPM dials; calling getSafetyPolicy() multiple
+    // Safety is separate from dAMP dials; calling getSafetyPolicy() multiple
     // times always returns the same rules regardless of any external state.
     const policy1 = getSafetyPolicy()
     const policy2 = getSafetyPolicy()

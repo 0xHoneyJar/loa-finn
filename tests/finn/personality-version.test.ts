@@ -192,7 +192,7 @@ function makeCreateData(overrides?: Partial<CreateVersionData>): CreateVersionDa
   return {
     beauvoir_md: "# Test Agent\n\nTest personality content.",
     signals: null,
-    dapm: null,
+    damp: null,
     authored_by: "0xTestWallet",
     ...overrides,
   }

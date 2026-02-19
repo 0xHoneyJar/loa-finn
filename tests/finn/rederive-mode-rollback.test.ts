@@ -19,7 +19,7 @@ import type {
 } from "../../src/nft/personality.js"
 import type { RedisCommandClient } from "../../src/hounfour/redis/client.js"
 import type { NFTPersonality } from "../../src/nft/types.js"
-import type { SignalSnapshot, DAPMFingerprint, AgentMode, PersonalityVersion } from "../../src/nft/signal-types.js"
+import type { SignalSnapshot, DAMPFingerprint, AgentMode, PersonalityVersion } from "../../src/nft/signal-types.js"
 import { resolvePersonalityPrompt } from "../../src/nft/personality-resolver.js"
 
 // ---------------------------------------------------------------------------
@@ -188,18 +188,18 @@ vi.mock("../../src/nft/codex-data/loader.js", () => ({
   loadMoleculeTarotBijection: () => [],
   loadArchetypeDefinitions: () => [],
   loadArchetypeAffinity: () => ({}),
-  loadDAPMTables: () => ({}),
+  loadDAMPTables: () => ({}),
   loadArtifact: () => ({ data: {}, checksum: "mock", valid: true }),
   registerArtifact: () => {},
   clearArtifactCache: () => {},
   getRegisteredArtifacts: () => [],
 }))
 
-// Mock dapm.js — control deriveDAPM output
-const mockDeriveDAPM = vi.fn()
+// Mock damp.js — control deriveDAMP output
+const mockDeriveDAMP = vi.fn()
 
-vi.mock("../../src/nft/dapm.js", () => ({
-  deriveDAPM: (...args: unknown[]) => mockDeriveDAPM(...args),
+vi.mock("../../src/nft/damp.js", () => ({
+  deriveDAMP: (...args: unknown[]) => mockDeriveDAMP(...args),
   resolveAncestorFamily: () => "hellenic",
   normalizeSwag: () => 0.5,
   deriveAstrologyBlend: () => 0.5,
@@ -258,7 +258,7 @@ function makeSignalSnapshot(overrides?: Partial<SignalSnapshot>): SignalSnapshot
   }
 }
 
-function makeDAPMFingerprint(mode: AgentMode = "default"): DAPMFingerprint {
+function makeDAMPFingerprint(mode: AgentMode = "default"): DAMPFingerprint {
   const dials = {} as Record<string, number>
   // Create 96 dials with deterministic values
   const categories = ["sw", "cs", "as", "cg", "ep", "cr", "cv", "mo", "et", "sc", "ag", "id"]
@@ -272,7 +272,7 @@ function makeDAPMFingerprint(mode: AgentMode = "default"): DAPMFingerprint {
     }
   }
   return {
-    dials: dials as DAPMFingerprint["dials"],
+    dials: dials as DAMPFingerprint["dials"],
     mode,
     derived_from: "test-sha",
     derived_at: Date.now(),
@@ -291,7 +291,7 @@ function makePersonality(overrides?: Partial<NFTPersonality>): NFTPersonality {
     updated_at: Date.now() - 5000,
     compatibility_mode: "signal_v2",
     signals: makeSignalSnapshot(),
-    dapm: makeDAPMFingerprint(),
+    damp: makeDAMPFingerprint(),
     version_id: "VERSION_001",
     previous_version_id: null,
     authored_by: "0xTestWallet",
@@ -358,7 +358,7 @@ describe("handleRederive", () => {
       description: "Updated codex",
       pinned_at: "2026-02-19T00:00:00Z",
     })
-    mockDeriveDAPM.mockReturnValue(makeDAPMFingerprint())
+    mockDeriveDAMP.mockReturnValue(makeDAMPFingerprint())
   })
 
   it("returns 404 when personality does not exist", async () => {
@@ -408,7 +408,7 @@ describe("handleRederive", () => {
         codex_version: "0.2.0", // Same as loadCodexVersion mock
         personality_id: "testcol:1",
         signal_snapshot: personality.signals,
-        dapm_fingerprint: personality.dapm,
+        damp_fingerprint: personality.damp,
         beauvoir_md: personality.beauvoir_md,
         authored_by: "0xTestWallet",
         governance_model: "holder",
@@ -450,7 +450,7 @@ describe("handleRederive", () => {
         codex_version: "0.1.0", // Older than loadCodexVersion mock (0.2.0)
         personality_id: "testcol:1",
         signal_snapshot: personality.signals,
-        dapm_fingerprint: personality.dapm,
+        damp_fingerprint: personality.damp,
         beauvoir_md: personality.beauvoir_md,
         authored_by: "0xTestWallet",
         governance_model: "holder",
@@ -477,7 +477,7 @@ describe("handleRederive", () => {
     const body = await res.json() as Record<string, unknown>
     expect(body.rederived).toBe(true)
     expect(body.codex_version).toBe("0.2.0")
-    expect(mockDeriveDAPM).toHaveBeenCalledWith(personality.signals, "default")
+    expect(mockDeriveDAMP).toHaveBeenCalledWith(personality.signals, "default")
   })
 
   it("re-derives without version service (no codex check)", async () => {
@@ -599,8 +599,8 @@ describe("handleModeSwitch", () => {
       const personality = makePersonality()
       await seedPersonality(redis, personality)
 
-      const expectedFingerprint = makeDAPMFingerprint(mode)
-      mockDeriveDAPM.mockReturnValue(expectedFingerprint)
+      const expectedFingerprint = makeDAMPFingerprint(mode)
+      mockDeriveDAMP.mockReturnValue(expectedFingerprint)
 
       const app = new Hono()
       app.post("/:collection/:tokenId/mode", (c) => handleModeSwitch(c, deps))
@@ -614,8 +614,8 @@ describe("handleModeSwitch", () => {
       expect(res.status).toBe(200)
       const body = await res.json() as Record<string, unknown>
       expect(body.mode).toBe(mode)
-      expect(body.dapm).toBeDefined()
-      expect(mockDeriveDAPM).toHaveBeenCalledWith(personality.signals, mode)
+      expect(body.damp).toBeDefined()
+      expect(mockDeriveDAMP).toHaveBeenCalledWith(personality.signals, mode)
     })
   }
 
@@ -623,7 +623,7 @@ describe("handleModeSwitch", () => {
     const personality = makePersonality()
     await seedPersonality(redis, personality)
 
-    mockDeriveDAPM.mockReturnValue(makeDAPMFingerprint("brainstorm"))
+    mockDeriveDAMP.mockReturnValue(makeDAMPFingerprint("brainstorm"))
 
     const app = new Hono()
     app.post("/:collection/:tokenId/mode", (c) => handleModeSwitch(c, deps))
@@ -635,16 +635,16 @@ describe("handleModeSwitch", () => {
     })
 
     // Verify Redis persistence
-    const persistedMode = await redis.get("dapm:mode:testcol:1")
+    const persistedMode = await redis.get("damp:mode:testcol:1")
     expect(persistedMode).toBe("brainstorm")
   })
 
-  it("caches dAPM fingerprint for the mode", async () => {
+  it("caches dAMP fingerprint for the mode", async () => {
     const personality = makePersonality()
     await seedPersonality(redis, personality)
 
-    const fingerprint = makeDAPMFingerprint("critique")
-    mockDeriveDAPM.mockReturnValue(fingerprint)
+    const fingerprint = makeDAMPFingerprint("critique")
+    mockDeriveDAMP.mockReturnValue(fingerprint)
 
     const app = new Hono()
     app.post("/:collection/:tokenId/mode", (c) => handleModeSwitch(c, deps))
@@ -655,8 +655,8 @@ describe("handleModeSwitch", () => {
       body: JSON.stringify({ mode: "critique" }),
     })
 
-    // Verify dAPM cache was set
-    const cacheKey = "dapm:cache:testcol:1:critique"
+    // Verify dAMP cache was set
+    const cacheKey = "damp:cache:testcol:1:critique"
     const cached = await redis.get(cacheKey)
     expect(cached).not.toBeNull()
     const parsedCached = JSON.parse(cached!)
@@ -693,27 +693,27 @@ describe("resolvePersonalityPrompt — mode-aware", () => {
 
     expect(result).toContain("<system-personality>")
     expect(result).toContain("</system-personality>")
-    // Should NOT have called deriveDAPM since no persisted mode (or mode is "default")
-    expect(mockDeriveDAPM).not.toHaveBeenCalled()
+    // Should NOT have called deriveDAMP since no persisted mode (or mode is "default")
+    expect(mockDeriveDAMP).not.toHaveBeenCalled()
   })
 
-  it("uses persisted mode from Redis for dAPM derivation", async () => {
+  it("uses persisted mode from Redis for dAMP derivation", async () => {
     const personality = makePersonality()
     await seedPersonality(redis, personality)
 
     // Persist a non-default mode
-    await redis.set("dapm:mode:testcol:1", "brainstorm")
+    await redis.set("damp:mode:testcol:1", "brainstorm")
 
-    const brainstormFingerprint = makeDAPMFingerprint("brainstorm")
-    mockDeriveDAPM.mockReturnValue(brainstormFingerprint)
+    const brainstormFingerprint = makeDAMPFingerprint("brainstorm")
+    mockDeriveDAMP.mockReturnValue(brainstormFingerprint)
 
     const service = new PersonalityService({ redis, walAppend: () => "wal-id" })
 
     const result = await resolvePersonalityPrompt(service, "testcol:1", redis)
 
     expect(result).toContain("<system-personality>")
-    // deriveDAPM should have been called with brainstorm mode
-    expect(mockDeriveDAPM).toHaveBeenCalledWith(personality.signals, "brainstorm")
+    // deriveDAMP should have been called with brainstorm mode
+    expect(mockDeriveDAMP).toHaveBeenCalledWith(personality.signals, "brainstorm")
   })
 
   it("falls back to default when Redis read fails", async () => {
@@ -773,7 +773,7 @@ describe("handleRollback", () => {
       description: "Test codex",
       pinned_at: "2026-02-19T00:00:00Z",
     })
-    mockDeriveDAPM.mockReturnValue(makeDAPMFingerprint())
+    mockDeriveDAMP.mockReturnValue(makeDAMPFingerprint())
 
     mockVersionService = {
       createVersion: vi.fn(),
@@ -848,7 +848,7 @@ describe("handleRollback", () => {
     await seedPersonality(redis, personality)
 
     const targetSignals = makeSignalSnapshot({ archetype: "milady" })
-    const targetFingerprint = makeDAPMFingerprint()
+    const targetFingerprint = makeDAMPFingerprint()
 
     // The version service rollback returns a NEW version with OLD content
     const newVersion: PersonalityVersion = {
@@ -856,7 +856,7 @@ describe("handleRollback", () => {
       previous_version_id: "VERSION_001",
       personality_id: "testcol:1",
       signal_snapshot: targetSignals,
-      dapm_fingerprint: targetFingerprint,
+      damp_fingerprint: targetFingerprint,
       beauvoir_md: "# OldAgent\n\nOld BEAUVOIR content",
       authored_by: "unknown",
       governance_model: "holder",
@@ -897,14 +897,14 @@ describe("handleRollback", () => {
     await seedPersonality(redis, personality)
 
     const targetSignals = makeSignalSnapshot({ archetype: "milady" })
-    const targetFingerprint = makeDAPMFingerprint()
+    const targetFingerprint = makeDAMPFingerprint()
 
     const newVersion: PersonalityVersion = {
       version_id: "ROLLBACK_VERSION_002",
       previous_version_id: "VERSION_001",
       personality_id: "testcol:1",
       signal_snapshot: targetSignals,
-      dapm_fingerprint: targetFingerprint,
+      damp_fingerprint: targetFingerprint,
       beauvoir_md: "# RolledBack\n\nContent",
       authored_by: "unknown",
       governance_model: "holder",

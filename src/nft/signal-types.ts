@@ -3,7 +3,7 @@
 // Complete type system for the identity architecture:
 // - Archetypes, Eras, Elements, Zodiac, SwagRank
 // - TarotCard, SignalSnapshot, SignalCore8
-// - DAPMDialId (96-member union), DAPMFingerprint
+// - DAMPDialId (96-member union), DAMPFingerprint
 // - PersonalityVersion, DerivedVoiceProfile
 
 // ---------------------------------------------------------------------------
@@ -123,10 +123,10 @@ export interface SignalCore8 {
 }
 
 // ---------------------------------------------------------------------------
-// DAPMDialId — 96-member union type (12 categories × 8 dials)
+// DAMPDialId — 96-member union type (12 categories × 8 dials)
 // ---------------------------------------------------------------------------
 
-export type DAPMDialId =
+export type DAMPDialId =
   // Category 1: Social Warmth (dials 1-8)
   | "sw_approachability" | "sw_emotional_attunement" | "sw_generosity"
   | "sw_trust_default" | "sw_physical_metaphor_warmth" | "sw_humor_use"
@@ -176,8 +176,8 @@ export type DAPMDialId =
   | "id_value_anchoring" | "id_narrative_coherence" | "id_cultural_grounding"
   | "id_temporal_fidelity" | "id_contradiction_tolerance"
 
-/** All 96 DAPM dial IDs as a const array for iteration */
-export const DAPM_DIAL_IDS: readonly DAPMDialId[] = [
+/** All 96 DAMP dial IDs as a const array for iteration */
+export const DAMP_DIAL_IDS: readonly DAMPDialId[] = [
   // Category 1: Social Warmth
   "sw_approachability", "sw_emotional_attunement", "sw_generosity",
   "sw_trust_default", "sw_physical_metaphor_warmth", "sw_humor_use",
@@ -229,12 +229,12 @@ export const DAPM_DIAL_IDS: readonly DAPMDialId[] = [
 ] as const
 
 // ---------------------------------------------------------------------------
-// DAPMFingerprint (PRD section 4.2)
+// DAMPFingerprint (PRD section 4.2)
 // ---------------------------------------------------------------------------
 
-export interface DAPMFingerprint {
+export interface DAMPFingerprint {
   /** 96 dials, keyed by canonical dial ID, each 0.0-1.0 */
-  dials: Record<DAPMDialId, number>
+  dials: Record<DAMPDialId, number>
   /** Current mode applied to the fingerprint */
   mode: AgentMode
   /** version_id of the SignalSnapshot used for derivation */
@@ -274,7 +274,7 @@ export interface PersonalityVersion {
   /** Full signal state at this version (null for legacy_v1) */
   signal_snapshot: SignalSnapshot | null
   /** Derived 96-dial values (null for legacy_v1) */
-  dapm_fingerprint: DAPMFingerprint | null
+  damp_fingerprint: DAMPFingerprint | null
   /** Generated BEAUVOIR.md at this version */
   beauvoir_md: string
   /** Wallet address that authored the change */

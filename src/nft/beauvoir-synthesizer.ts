@@ -4,7 +4,7 @@
 // Supports auto mode (zero user input) and guided mode (user-provided overrides).
 // Includes circuit breaker, anti-narration validation, and retry with violation feedback.
 
-import type { SignalSnapshot, DAPMFingerprint, Era } from "./signal-types.js"
+import type { SignalSnapshot, DAMPFingerprint, Era } from "./signal-types.js"
 import { validateAntiNarration, type ANViolation } from "./anti-narration.js"
 import { checkTemporalVoice, type TemporalViolation } from "./temporal-voice.js"
 import { ERA_DOMAINS } from "./temporal-voice.js"
@@ -88,8 +88,8 @@ function recordFailure(state: CircuitBreakerState): void {
 // Prompt Engineering (Task 2.2)
 // ---------------------------------------------------------------------------
 
-/** DAPM dial category labels for fingerprint summary */
-const DAPM_CATEGORIES: Record<string, string> = {
+/** DAMP dial category labels for fingerprint summary */
+const DAMP_CATEGORIES: Record<string, string> = {
   sw: "Social Warmth",
   cs: "Conversational Style",
   as: "Assertiveness",
@@ -105,10 +105,10 @@ const DAPM_CATEGORIES: Record<string, string> = {
 }
 
 /**
- * Summarize DAPM fingerprint into category averages for the prompt.
+ * Summarize DAMP fingerprint into category averages for the prompt.
  * Groups the 96 dials into their 12 categories and computes mean values.
  */
-function summarizeDAPM(fingerprint: DAPMFingerprint): string {
+function summarizeDAMP(fingerprint: DAMPFingerprint): string {
   const categories: Record<string, number[]> = {}
 
   for (const [dialId, value] of Object.entries(fingerprint.dials)) {
@@ -120,7 +120,7 @@ function summarizeDAPM(fingerprint: DAPMFingerprint): string {
   const lines: string[] = []
   for (const [prefix, values] of Object.entries(categories)) {
     const avg = values.reduce((a, b) => a + b, 0) / values.length
-    const label = DAPM_CATEGORIES[prefix] ?? prefix
+    const label = DAMP_CATEGORIES[prefix] ?? prefix
     lines.push(`- ${label}: ${avg.toFixed(2)} (${values.length} dials)`)
   }
 
@@ -160,7 +160,7 @@ function buildEraVocabularyGuidance(era: Era): string {
  */
 export function buildSynthesisPrompt(
   snapshot: SignalSnapshot,
-  fingerprint: DAPMFingerprint | null,
+  fingerprint: DAMPFingerprint | null,
   subgraph?: IdentitySubgraph,
   userCustom?: UserCustomInput,
 ): string {
@@ -190,13 +190,13 @@ export function buildSynthesisPrompt(
   sections.push(`Zodiac triad: Sun=${snapshot.sun_sign}, Moon=${snapshot.moon_sign}, Rising=${snapshot.ascending_sign} — these blend into emotional coloring and interpersonal style.`)
   sections.push("")
 
-  // --- DAPM Fingerprint (if available) ---
+  // --- DAMP Fingerprint (if available) ---
   if (fingerprint) {
     sections.push("## PERSONALITY DIALS (behavioral tendency calibration)")
     sections.push("")
     sections.push("These dial values (0.0-1.0) indicate behavioral tendencies. Higher values mean stronger expression of the trait category. Use these to calibrate the personality's behavioral patterns:")
     sections.push("")
-    sections.push(summarizeDAPM(fingerprint))
+    sections.push(summarizeDAMP(fingerprint))
     sections.push("")
   }
 
@@ -385,7 +385,7 @@ export class BeauvoirSynthesizer {
    * Includes circuit breaker protection and anti-narration retry loop.
    *
    * @param snapshot - Signal data for the agent
-   * @param fingerprint - Optional DAPM fingerprint for behavioral calibration
+   * @param fingerprint - Optional DAMP fingerprint for behavioral calibration
    * @param subgraph - Optional identity subgraph for richer context
    * @param userCustom - Optional user customization (guided mode)
    * @returns Valid BEAUVOIR.md markdown string
@@ -395,7 +395,7 @@ export class BeauvoirSynthesizer {
    */
   async synthesize(
     snapshot: SignalSnapshot,
-    fingerprint: DAPMFingerprint | null,
+    fingerprint: DAMPFingerprint | null,
     subgraph?: IdentitySubgraph,
     userCustom?: UserCustomInput,
   ): Promise<string> {

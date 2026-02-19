@@ -1,12 +1,12 @@
 // tests/finn/identity-pipeline.test.ts — Sprint 11: Full E2E Pipeline Integration Tests
 //
 // Exercises the complete signal-to-BEAUVOIR pipeline:
-// dAPM derivation wiring, identity graph integration, safety policy injection,
+// dAMP derivation wiring, identity graph integration, safety policy injection,
 // distinctive dials summary, and resolver composition.
 
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import type { SignalSnapshot, DAPMFingerprint, DAPMDialId } from "../../src/nft/signal-types.js"
-import { DAPM_DIAL_IDS } from "../../src/nft/signal-types.js"
+import type { SignalSnapshot, DAMPFingerprint, DAMPDialId } from "../../src/nft/signal-types.js"
+import { DAMP_DIAL_IDS } from "../../src/nft/signal-types.js"
 import type { RedisCommandClient } from "../../src/hounfour/redis/client.js"
 
 // ---------------------------------------------------------------------------
@@ -19,13 +19,13 @@ vi.mock("../../src/nft/beauvoir-template.js", () => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Mock deriveDAPM (prevents codex data file access)
+// Mock deriveDAMP (prevents codex data file access)
 // ---------------------------------------------------------------------------
 
-const mockDeriveDAPM = vi.fn()
+const mockDeriveDAMP = vi.fn()
 
-vi.mock("../../src/nft/dapm.js", () => ({
-  deriveDAPM: (...args: unknown[]) => mockDeriveDAPM(...args),
+vi.mock("../../src/nft/damp.js", () => ({
+  deriveDAMP: (...args: unknown[]) => mockDeriveDAMP(...args),
   resolveAncestorFamily: () => "hellenic",
   normalizeSwag: () => 0.6,
   deriveAstrologyBlend: () => 0.5,
@@ -42,7 +42,7 @@ import { PersonalityService } from "../../src/nft/personality.js"
 import type { PersonalityServiceDeps } from "../../src/nft/personality.js"
 import { buildSynthesisPrompt } from "../../src/nft/beauvoir-synthesizer.js"
 import type { IdentitySubgraph as BeauvoirIdentitySubgraph } from "../../src/nft/beauvoir-synthesizer.js"
-import { buildDAPMSummary, buildDistinctiveDialsSummary } from "../../src/nft/personality-resolver.js"
+import { buildDAMPSummary, buildDistinctiveDialsSummary } from "../../src/nft/personality-resolver.js"
 import { getSafetyPolicyText } from "../../src/nft/safety-policy.js"
 import { toSynthesisSubgraph } from "../../src/nft/identity-graph.js"
 import type { IdentitySubgraph, GraphNode, GraphEdge } from "../../src/nft/identity-graph.js"
@@ -100,21 +100,21 @@ function makeMockSignals(): SignalSnapshot {
   }
 }
 
-function makeMockFingerprint(mode: string = "default"): DAPMFingerprint {
-  const dials = {} as Record<DAPMDialId, number>
-  for (let i = 0; i < DAPM_DIAL_IDS.length; i++) {
+function makeMockFingerprint(mode: string = "default"): DAMPFingerprint {
+  const dials = {} as Record<DAMPDialId, number>
+  for (let i = 0; i < DAMP_DIAL_IDS.length; i++) {
     // Create some variation: most dials near 0.5, a few extreme
     if (i < 3) {
-      dials[DAPM_DIAL_IDS[i]] = 0.95 // Very high — distinctive
+      dials[DAMP_DIAL_IDS[i]] = 0.95 // Very high — distinctive
     } else if (i >= 93) {
-      dials[DAPM_DIAL_IDS[i]] = 0.05 // Very low — distinctive
+      dials[DAMP_DIAL_IDS[i]] = 0.05 // Very low — distinctive
     } else {
-      dials[DAPM_DIAL_IDS[i]] = 0.5 + (i % 10) * 0.02 // Near neutral
+      dials[DAMP_DIAL_IDS[i]] = 0.5 + (i % 10) * 0.02 // Near neutral
     }
   }
   return {
     dials,
-    mode: mode as DAPMFingerprint["mode"],
+    mode: mode as DAMPFingerprint["mode"],
     derived_from: "test-sha-v1",
     derived_at: Date.now(),
   }
@@ -148,16 +148,16 @@ function makeMockIdentitySubgraph(): IdentitySubgraph {
 }
 
 // ===========================================================================
-// dAPM Pipeline Tests (Task 11.1)
+// dAMP Pipeline Tests (Task 11.1)
 // ===========================================================================
 
-describe("Sprint 11 — dAPM Pipeline", () => {
+describe("Sprint 11 — dAMP Pipeline", () => {
   let redis: ReturnType<typeof createMockRedis>
 
   beforeEach(() => {
     redis = createMockRedis()
-    mockDeriveDAPM.mockReset()
-    mockDeriveDAPM.mockReturnValue(makeMockFingerprint())
+    mockDeriveDAMP.mockReset()
+    mockDeriveDAMP.mockReturnValue(makeMockFingerprint())
   })
 
   function makeDeps(): PersonalityServiceDeps {
@@ -167,7 +167,7 @@ describe("Sprint 11 — dAPM Pipeline", () => {
     }
   }
 
-  it("v2 personality creation triggers dAPM derivation", async () => {
+  it("v2 personality creation triggers dAMP derivation", async () => {
     const service = new PersonalityService(makeDeps())
     const signals = makeMockSignals()
 
@@ -179,11 +179,11 @@ describe("Sprint 11 — dAPM Pipeline", () => {
       signals,
     } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
 
-    expect(mockDeriveDAPM).toHaveBeenCalledTimes(1)
-    expect(mockDeriveDAPM).toHaveBeenCalledWith(signals, "default")
+    expect(mockDeriveDAMP).toHaveBeenCalledTimes(1)
+    expect(mockDeriveDAMP).toHaveBeenCalledWith(signals, "default")
   })
 
-  it("v2 personality update re-derives dAPM when signals change", async () => {
+  it("v2 personality update re-derives dAMP when signals change", async () => {
     const service = new PersonalityService(makeDeps())
 
     // First create a legacy personality
@@ -193,7 +193,7 @@ describe("Sprint 11 — dAPM Pipeline", () => {
       expertise_domains: [],
     })
 
-    expect(mockDeriveDAPM).not.toHaveBeenCalled()
+    expect(mockDeriveDAMP).not.toHaveBeenCalled()
 
     // Update with signals — triggers derivation
     const signals = makeMockSignals()
@@ -202,11 +202,11 @@ describe("Sprint 11 — dAPM Pipeline", () => {
       authored_by: "0xWallet",
     })
 
-    expect(mockDeriveDAPM).toHaveBeenCalledTimes(1)
-    expect(mockDeriveDAPM).toHaveBeenCalledWith(signals, "default")
+    expect(mockDeriveDAMP).toHaveBeenCalledTimes(1)
+    expect(mockDeriveDAMP).toHaveBeenCalledWith(signals, "default")
   })
 
-  it("legacy_v1 creation does NOT trigger dAPM derivation", async () => {
+  it("legacy_v1 creation does NOT trigger dAMP derivation", async () => {
     const service = new PersonalityService(makeDeps())
 
     await service.create("col", "1", {
@@ -215,15 +215,15 @@ describe("Sprint 11 — dAPM Pipeline", () => {
       expertise_domains: [],
     })
 
-    expect(mockDeriveDAPM).not.toHaveBeenCalled()
+    expect(mockDeriveDAMP).not.toHaveBeenCalled()
   })
 
-  it("derived DAPMFingerprint has all 96 dials", () => {
+  it("derived DAMPFingerprint has all 96 dials", () => {
     const fingerprint = makeMockFingerprint()
     const dialKeys = Object.keys(fingerprint.dials)
     expect(dialKeys.length).toBe(96)
 
-    for (const dialId of DAPM_DIAL_IDS) {
+    for (const dialId of DAMP_DIAL_IDS) {
       expect(fingerprint.dials).toHaveProperty(dialId)
     }
   })
@@ -240,9 +240,9 @@ describe("Sprint 11 — dAPM Pipeline", () => {
     } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const stored = JSON.parse(redis._store.get("personality:col:1")!)
-    expect(stored.dapm).toBeTruthy()
-    expect(stored.dapm.dials).toBeTruthy()
-    expect(stored.dapm.mode).toBe("default")
+    expect(stored.damp).toBeTruthy()
+    expect(stored.damp.dials).toBeTruthy()
+    expect(stored.damp.mode).toBe("default")
   })
 
   it("fingerprint stored on personality record after update", async () => {
@@ -259,8 +259,8 @@ describe("Sprint 11 — dAPM Pipeline", () => {
     })
 
     const stored = JSON.parse(redis._store.get("personality:col:1")!)
-    expect(stored.dapm).toBeTruthy()
-    expect(stored.dapm.dials).toBeTruthy()
+    expect(stored.damp).toBeTruthy()
+    expect(stored.damp.dials).toBeTruthy()
   })
 })
 
@@ -379,9 +379,9 @@ describe("Sprint 11 — Resolver Pipeline", () => {
   // We need to test wrapSignalV2Personality indirectly through resolvePersonalityPrompt
   // since it's a private function. We test via the exported functions.
 
-  it("buildDAPMSummary produces category-grouped output", () => {
+  it("buildDAMPSummary produces category-grouped output", () => {
     const fingerprint = makeMockFingerprint()
-    const summary = buildDAPMSummary(fingerprint)
+    const summary = buildDAMPSummary(fingerprint)
 
     expect(summary).toContain("Social Warmth")
     expect(summary).toContain("Conversational Style")
@@ -437,7 +437,7 @@ describe("Sprint 11 — Resolver Pipeline", () => {
       updated_at: Date.now(),
       compatibility_mode: "signal_v2",
       signals: makeMockSignals(),
-      dapm: makeMockFingerprint(),
+      damp: makeMockFingerprint(),
     }
     redis._store.set("personality:col:1", JSON.stringify(personality))
 
@@ -449,7 +449,7 @@ describe("Sprint 11 — Resolver Pipeline", () => {
     expect(prompt).toContain("SP-1")
   })
 
-  it("signal_v2 resolver prompt includes dAPM summary", async () => {
+  it("signal_v2 resolver prompt includes dAMP summary", async () => {
     const redis = createMockRedis()
     const service = new PersonalityService({ redis, walAppend: () => "wal-id" })
 
@@ -464,14 +464,14 @@ describe("Sprint 11 — Resolver Pipeline", () => {
       updated_at: Date.now(),
       compatibility_mode: "signal_v2",
       signals: makeMockSignals(),
-      dapm: makeMockFingerprint(),
+      damp: makeMockFingerprint(),
     }
     redis._store.set("personality:col:1", JSON.stringify(personality))
 
     const { resolvePersonalityPrompt } = await import("../../src/nft/personality-resolver.js")
     const prompt = await resolvePersonalityPrompt(service, "col:1")
 
-    expect(prompt).toContain("## Behavioral Calibration (dAPM)")
+    expect(prompt).toContain("## Behavioral Calibration (dAMP)")
     expect(prompt).toContain("Social Warmth")
   })
 
@@ -490,7 +490,7 @@ describe("Sprint 11 — Resolver Pipeline", () => {
       updated_at: Date.now(),
       compatibility_mode: "signal_v2",
       signals: makeMockSignals(),
-      dapm: makeMockFingerprint(),
+      damp: makeMockFingerprint(),
     }
     redis._store.set("personality:col:1", JSON.stringify(personality))
 
@@ -525,7 +525,7 @@ describe("Sprint 11 — Resolver Pipeline", () => {
     expect(prompt).not.toContain("SP-1")
   })
 
-  it("legacy_v1 resolver prompt does NOT include dAPM summary", async () => {
+  it("legacy_v1 resolver prompt does NOT include dAMP summary", async () => {
     const redis = createMockRedis()
     const service = new PersonalityService({ redis, walAppend: () => "wal-id" })
 
@@ -556,11 +556,11 @@ describe("Sprint 11 — Resolver Pipeline", () => {
 
 describe("Sprint 11 — Full E2E Pipeline", () => {
   beforeEach(() => {
-    mockDeriveDAPM.mockReset()
-    mockDeriveDAPM.mockReturnValue(makeMockFingerprint())
+    mockDeriveDAMP.mockReset()
+    mockDeriveDAMP.mockReturnValue(makeMockFingerprint())
   })
 
-  it("create v2 -> derive dAPM -> build synthesis prompt -> validate all sections", async () => {
+  it("create v2 -> derive dAMP -> build synthesis prompt -> validate all sections", async () => {
     const redis = createMockRedis()
     const service = new PersonalityService({
       redis,
@@ -569,7 +569,7 @@ describe("Sprint 11 — Full E2E Pipeline", () => {
 
     const signals = makeMockSignals()
 
-    // Step 1: Create a v2 personality (triggers dAPM derivation)
+    // Step 1: Create a v2 personality (triggers dAMP derivation)
     await service.create("col", "1", {
       name: "E2EAgent",
       voice: "analytical",
@@ -577,13 +577,13 @@ describe("Sprint 11 — Full E2E Pipeline", () => {
       signals,
     } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
 
-    // Verify dAPM was derived
-    expect(mockDeriveDAPM).toHaveBeenCalledTimes(1)
+    // Verify dAMP was derived
+    expect(mockDeriveDAMP).toHaveBeenCalledTimes(1)
 
     // Step 2: Load the personality to get the fingerprint
     const personality = await service.getRaw("col", "1")
     expect(personality).toBeTruthy()
-    expect(personality!.dapm).toBeTruthy()
+    expect(personality!.damp).toBeTruthy()
 
     // Step 3: Build synthesis prompt with all data
     const subgraph: BeauvoirIdentitySubgraph = {
@@ -594,7 +594,7 @@ describe("Sprint 11 — Full E2E Pipeline", () => {
 
     const prompt = buildSynthesisPrompt(
       signals,
-      personality!.dapm!,
+      personality!.damp!,
       subgraph,
       { name: "E2EAgent", expertise_domains: ["philosophy"] },
     )
@@ -634,7 +634,7 @@ describe("Sprint 11 — Full E2E Pipeline", () => {
       updated_at: Date.now(),
       compatibility_mode: "signal_v2",
       signals: makeMockSignals(),
-      dapm: makeMockFingerprint(),
+      damp: makeMockFingerprint(),
       voice_profile: {
         archetype_voice: "freetekno" as const,
         cultural_voice: "Hellenic philosophical tradition",
@@ -656,8 +656,8 @@ describe("Sprint 11 — Full E2E Pipeline", () => {
     expect(prompt).toContain("# FullAgent")
     expect(prompt).toContain("A thoughtful entity")
 
-    // Should contain dAPM behavioral calibration
-    expect(prompt).toContain("## Behavioral Calibration (dAPM)")
+    // Should contain dAMP behavioral calibration
+    expect(prompt).toContain("## Behavioral Calibration (dAMP)")
     expect(prompt).toContain("Social Warmth")
 
     // Should contain distinctive dials

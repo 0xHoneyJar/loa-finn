@@ -8,7 +8,7 @@ import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import type {
   PersonalityVersion,
   SignalSnapshot,
-  DAPMFingerprint,
+  DAMPFingerprint,
   CompatibilityMode,
 } from "./signal-types.js"
 import { loadCodexVersion } from "./codex-data/loader.js"
@@ -51,7 +51,7 @@ export function generateUlid(now?: number): string {
 export interface CreateVersionData {
   beauvoir_md: string
   signals: SignalSnapshot | null
-  dapm: DAPMFingerprint | null
+  damp: DAMPFingerprint | null
   authored_by: string
   governance_model?: "holder" | "community" | "dao"
   change_summary?: string
@@ -250,7 +250,7 @@ export class PersonalityVersionService {
     return this.createVersion(nftId, {
       beauvoir_md: targetVersion.beauvoir_md,
       signals: targetVersion.signal_snapshot,
-      dapm: targetVersion.dapm_fingerprint,
+      damp: targetVersion.damp_fingerprint,
       authored_by: authoredBy,
       governance_model: targetVersion.governance_model,
       change_summary: `Rollback to version ${targetVersionId}`,
@@ -290,7 +290,7 @@ export class PersonalityVersionService {
       previous_version_id: previousVersionId,
       personality_id: nftId,
       signal_snapshot: data.signals,
-      dapm_fingerprint: data.dapm,
+      damp_fingerprint: data.damp,
       beauvoir_md: data.beauvoir_md,
       authored_by: data.authored_by,
       governance_model: data.governance_model ?? "holder",

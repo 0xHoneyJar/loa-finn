@@ -28,15 +28,15 @@ export {
   type TarotCard,
   type SignalSnapshot,
   type SignalCore8,
-  type DAPMDialId,
-  type DAPMFingerprint,
+  type DAMPDialId,
+  type DAMPFingerprint,
   type DerivedVoiceProfile,
   type PersonalityVersion,
   ARCHETYPES,
   ERA_BOUNDARIES,
   SWAG_RANK_VALUES,
   ZODIAC_SIGNS,
-  DAPM_DIAL_IDS,
+  DAMP_DIAL_IDS,
 } from "./signal-types.js"
 
 // Signal Engine (Sprint 1 Tasks 1.3 + 1.4)
@@ -67,7 +67,7 @@ export {
   loadArchetypeDefinitions,
   loadArchetypeAffinity,
   loadCodexVersion,
-  loadDAPMTables,
+  loadDAMPTables,
 } from "./codex-data/loader.js"
 
 // BEAUVOIR Template
@@ -108,20 +108,20 @@ export {
   type PersonalityVersionServiceDeps,
 } from "./personality-version.js"
 
-// Legacy VoiceType → dAPM Mapping (Sprint 4 Task 4.1)
+// Legacy VoiceType → dAMP Mapping (Sprint 4 Task 4.1)
 export {
-  getLegacyDAPMOffsets,
+  getLegacyDAMPOffsets,
   LEGACY_VOICE_OFFSETS,
-  getDAPMTables,
-  resetDAPMTablesCache,
-  type DAPMTablesData,
+  getDAMPTables,
+  resetDAMPTablesCache,
+  type DAMPTablesData,
   type DialOffsetRecord,
   type PartialDialRecord,
-} from "./dapm-tables.js"
+} from "./damp-tables.js"
 
-// dAPM-96 Derivation Engine (Sprint 7 Tasks 7.1, 7.3-7.5 + Sprint 8 Task 8.1)
+// dAMP-96 Derivation Engine (Sprint 7 Tasks 7.1, 7.3-7.5 + Sprint 8 Task 8.1)
 export {
-  deriveDAPM,
+  deriveDAMP,
   resolveAncestorFamily,
   normalizeSwag,
   deriveAstrologyBlend,
@@ -130,13 +130,13 @@ export {
   ANCESTOR_FAMILIES,
   type AncestorFamily,
   type KnowledgeGraph,
-} from "./dapm.js"
+} from "./damp.js"
 
 // Personality Resolver (Task 4.3 + 4.4 + Sprint 11 Task 11.3)
 export {
   resolvePersonalityPrompt,
   composeSystemPrompt,
-  buildDAPMSummary,
+  buildDAMPSummary,
   buildDistinctiveDialsSummary,
   type PersonalityResolverDeps,
 } from "./personality-resolver.js"
@@ -245,15 +245,15 @@ export {
   // Temporal Consistency Scorer
   scoreTemporalConsistency,
   type TemporalResult,
-  // dAPM Behavioral Distinctiveness (Sprint 13 Task 13.1)
-  scoreDAPMDistinctiveness,
+  // dAMP Behavioral Distinctiveness (Sprint 13 Task 13.1)
+  scoreDAMPDistinctiveness,
   welchTTest,
   extractBehavioralFeatures,
-  DAPM_DIMENSION_PREFIXES,
-  type DAPMEvalConfig,
-  type DAPMDimensionResult,
-  type DAPMEvalResult,
-  type DAPMDimensionPrefix,
+  DAMP_DIMENSION_PREFIXES,
+  type DAMPEvalConfig,
+  type DAMPDimensionResult,
+  type DAMPEvalResult,
+  type DAMPDimensionPrefix,
   // Aggregate Scorecard (Sprint 13 Task 13.2)
   buildScorecards,
   type EvalScorecard,

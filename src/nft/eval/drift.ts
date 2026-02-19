@@ -1,9 +1,9 @@
 // src/nft/eval/drift.ts — Personality Drift Analysis (Sprint 16 Task 16.4)
 //
-// Computes drift between dAPM fingerprints across personality versions.
+// Computes drift between dAMP fingerprints across personality versions.
 // Drift = sum of absolute dial deltas across all 96 dials.
 
-import { DAPM_DIAL_IDS, type DAPMFingerprint, type DAPMDialId } from "../signal-types.js"
+import { DAMP_DIAL_IDS, type DAMPFingerprint, type DAMPDialId } from "../signal-types.js"
 import type { PersonalityVersion } from "../signal-types.js"
 
 // ---------------------------------------------------------------------------
@@ -12,7 +12,7 @@ import type { PersonalityVersion } from "../signal-types.js"
 
 /** A single dial change entry */
 export interface DialChange {
-  dial_id: DAPMDialId
+  dial_id: DAMPDialId
   old_value: number
   new_value: number
   delta: number
@@ -53,7 +53,7 @@ export interface VersionChainDrift {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute drift between two dAPM fingerprints.
+ * Compute drift between two dAMP fingerprints.
  * Drift is the sum of absolute deltas across all 96 dials.
  *
  * @param fingerprintA - First fingerprint (baseline)
@@ -61,14 +61,14 @@ export interface VersionChainDrift {
  * @returns DriftResult with total, mean, max drift and top changed dials
  */
 export function computeDrift(
-  fingerprintA: DAPMFingerprint,
-  fingerprintB: DAPMFingerprint,
+  fingerprintA: DAMPFingerprint,
+  fingerprintB: DAMPFingerprint,
 ): DriftResult {
   const changes: DialChange[] = []
   let totalDrift = 0
   let maxDrift = 0
 
-  for (const dialId of DAPM_DIAL_IDS) {
+  for (const dialId of DAMP_DIAL_IDS) {
     const oldVal = fingerprintA.dials[dialId] ?? 0
     const newVal = fingerprintB.dials[dialId] ?? 0
     const delta = Math.abs(newVal - oldVal)
@@ -84,7 +84,7 @@ export function computeDrift(
     })
   }
 
-  const dialCount = DAPM_DIAL_IDS.length
+  const dialCount = DAMP_DIAL_IDS.length
   const meanDrift = dialCount > 0 ? totalDrift / dialCount : 0
 
   // Sort by delta descending for top_changed
@@ -108,13 +108,13 @@ export function computeDrift(
  * @returns Array of DialChange entries sorted by absolute delta descending
  */
 export function getTopChangedDials(
-  fingerprintA: DAPMFingerprint,
-  fingerprintB: DAPMFingerprint,
+  fingerprintA: DAMPFingerprint,
+  fingerprintB: DAMPFingerprint,
   topN = 10,
 ): DialChange[] {
   const changes: DialChange[] = []
 
-  for (const dialId of DAPM_DIAL_IDS) {
+  for (const dialId of DAMP_DIAL_IDS) {
     const oldVal = fingerprintA.dials[dialId] ?? 0
     const newVal = fingerprintB.dials[dialId] ?? 0
     const delta = Math.abs(newVal - oldVal)
@@ -133,7 +133,7 @@ export function getTopChangedDials(
 
 /**
  * Analyze drift across a chain of personality versions.
- * Computes drift between each consecutive pair of versions that have dAPM fingerprints.
+ * Computes drift between each consecutive pair of versions that have dAMP fingerprints.
  *
  * @param versions - Array of PersonalityVersion records, ordered chronologically
  * @returns VersionChainDrift with per-transition and cumulative drift
@@ -142,17 +142,17 @@ export function analyzeDrift(versions: PersonalityVersion[]): VersionChainDrift 
   const transitions: VersionChainDrift["transitions"] = []
   let cumulativeDrift = 0
 
-  // Filter to versions that have dAPM fingerprints
+  // Filter to versions that have dAMP fingerprints
   const withFingerprints = versions.filter(
-    (v): v is PersonalityVersion & { dapm_fingerprint: DAPMFingerprint } =>
-      v.dapm_fingerprint !== null && v.dapm_fingerprint !== undefined,
+    (v): v is PersonalityVersion & { damp_fingerprint: DAMPFingerprint } =>
+      v.damp_fingerprint !== null && v.damp_fingerprint !== undefined,
   )
 
   for (let i = 1; i < withFingerprints.length; i++) {
     const prev = withFingerprints[i - 1]
     const curr = withFingerprints[i]
 
-    const drift = computeDrift(prev.dapm_fingerprint, curr.dapm_fingerprint)
+    const drift = computeDrift(prev.damp_fingerprint, curr.damp_fingerprint)
     cumulativeDrift += drift.total_drift
 
     transitions.push({

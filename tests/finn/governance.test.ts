@@ -68,7 +68,7 @@ function createMockVersionService(): PersonalityVersionService {
         previous_version_id: null,
         personality_id: nftId,
         signal_snapshot: data.signals,
-        dapm_fingerprint: data.dapm,
+        damp_fingerprint: data.damp,
         beauvoir_md: data.beauvoir_md,
         authored_by: data.authored_by,
         governance_model: data.governance_model ?? "holder",

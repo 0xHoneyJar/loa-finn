@@ -1,24 +1,24 @@
-// tests/finn/eval/dapm-eval.test.ts — dAPM Behavioral Distinctiveness Tests (Sprint 13 Task 13.1)
+// tests/finn/eval/damp-eval.test.ts — dAMP Behavioral Distinctiveness Tests (Sprint 13 Task 13.1)
 
 import { describe, it, expect } from "vitest"
 import {
   welchTTest,
-  scoreDAPMDistinctiveness,
+  scoreDAMPDistinctiveness,
   extractBehavioralFeatures,
-  DAPM_DIMENSION_PREFIXES,
-} from "../../../src/nft/eval/dapm-eval.js"
-import type { DAPMEvalConfig } from "../../../src/nft/eval/dapm-eval.js"
-import type { DAPMFingerprint, DAPMDialId } from "../../../src/nft/signal-types.js"
-import { DAPM_DIAL_IDS } from "../../../src/nft/signal-types.js"
+  DAMP_DIMENSION_PREFIXES,
+} from "../../../src/nft/eval/damp-eval.js"
+import type { DAMPEvalConfig } from "../../../src/nft/eval/damp-eval.js"
+import type { DAMPFingerprint, DAMPDialId } from "../../../src/nft/signal-types.js"
+import { DAMP_DIAL_IDS } from "../../../src/nft/signal-types.js"
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a minimal DAPMFingerprint for testing */
-function makeFakeFingerprint(baseValue: number = 0.5): DAPMFingerprint {
-  const dials = {} as Record<DAPMDialId, number>
-  for (const id of DAPM_DIAL_IDS) {
+/** Build a minimal DAMPFingerprint for testing */
+function makeFakeFingerprint(baseValue: number = 0.5): DAMPFingerprint {
+  const dials = {} as Record<DAMPDialId, number>
+  for (const id of DAMP_DIAL_IDS) {
     dials[id] = baseValue
   }
   return {
@@ -186,7 +186,7 @@ describe("welchTTest", () => {
 describe("extractBehavioralFeatures", () => {
   it("returns all 12 dimension prefixes", () => {
     const features = extractBehavioralFeatures("Hello world, this is a test.")
-    for (const prefix of DAPM_DIMENSION_PREFIXES) {
+    for (const prefix of DAMP_DIMENSION_PREFIXES) {
       expect(features).toHaveProperty(prefix)
       expect(typeof features[prefix]).toBe("number")
     }
@@ -196,7 +196,7 @@ describe("extractBehavioralFeatures", () => {
     const features = extractBehavioralFeatures(
       "A wonderful and beautiful day filled with joy! I love sharing warmth with my dear friends and community.",
     )
-    for (const prefix of DAPM_DIMENSION_PREFIXES) {
+    for (const prefix of DAMP_DIMENSION_PREFIXES) {
       expect(features[prefix]).toBeGreaterThanOrEqual(0)
       expect(features[prefix]).toBeLessThanOrEqual(1)
     }
@@ -224,7 +224,7 @@ describe("extractBehavioralFeatures", () => {
 
   it("handles empty string without errors", () => {
     const features = extractBehavioralFeatures("")
-    for (const prefix of DAPM_DIMENSION_PREFIXES) {
+    for (const prefix of DAMP_DIMENSION_PREFIXES) {
       expect(typeof features[prefix]).toBe("number")
       expect(isNaN(features[prefix])).toBe(false)
     }
@@ -232,16 +232,16 @@ describe("extractBehavioralFeatures", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Tests: scoreDAPMDistinctiveness
+// Tests: scoreDAMPDistinctiveness
 // ---------------------------------------------------------------------------
 
-describe("scoreDAPMDistinctiveness", () => {
+describe("scoreDAMPDistinctiveness", () => {
   it("responses from different personalities produce significant differences", () => {
     const warmResponses = generateWarmResponses(12)
     const coldResponses = generateColdResponses(12)
     const allResponses = [...warmResponses, ...coldResponses]
 
-    const config: DAPMEvalConfig = {
+    const config: DAMPEvalConfig = {
       fingerprints: new Map([
         ["warm-personality", makeFakeFingerprint(0.8)],
         ["cold-personality", makeFakeFingerprint(0.2)],
@@ -249,7 +249,7 @@ describe("scoreDAPMDistinctiveness", () => {
       minSamplesPerPersonality: 10,
     }
 
-    const result = scoreDAPMDistinctiveness(allResponses, config)
+    const result = scoreDAMPDistinctiveness(allResponses, config)
 
     expect(result.total_pairs).toBe(1)
     expect(result.per_pair).toHaveLength(1)
@@ -259,7 +259,7 @@ describe("scoreDAPMDistinctiveness", () => {
     expect(pair.personality_a).toBe("cold-personality")
     expect(pair.personality_b).toBe("warm-personality")
     expect(pair.significant_count).toBeGreaterThan(0)
-    expect(pair.dimensions).toHaveLength(DAPM_DIMENSION_PREFIXES.length)
+    expect(pair.dimensions).toHaveLength(DAMP_DIMENSION_PREFIXES.length)
   })
 
   it("responses from same personality show no significant difference", () => {
@@ -267,7 +267,7 @@ describe("scoreDAPMDistinctiveness", () => {
     const responsesB = generateSameStyleResponses("personality-b", 12)
     const allResponses = [...responsesA, ...responsesB]
 
-    const config: DAPMEvalConfig = {
+    const config: DAMPEvalConfig = {
       fingerprints: new Map([
         ["personality-a", makeFakeFingerprint(0.5)],
         ["personality-b", makeFakeFingerprint(0.5)],
@@ -275,7 +275,7 @@ describe("scoreDAPMDistinctiveness", () => {
       minSamplesPerPersonality: 10,
     }
 
-    const result = scoreDAPMDistinctiveness(allResponses, config)
+    const result = scoreDAMPDistinctiveness(allResponses, config)
 
     expect(result.total_pairs).toBe(1)
     const pair = result.per_pair[0]
@@ -287,7 +287,7 @@ describe("scoreDAPMDistinctiveness", () => {
     const warmResponses = generateWarmResponses(12)
     const coldResponses = generateColdResponses(12)
 
-    const config: DAPMEvalConfig = {
+    const config: DAMPEvalConfig = {
       fingerprints: new Map([
         ["warm-personality", makeFakeFingerprint(0.8)],
         ["cold-personality", makeFakeFingerprint(0.2)],
@@ -295,7 +295,7 @@ describe("scoreDAPMDistinctiveness", () => {
       minSamplesPerPersonality: 10,
     }
 
-    const result = scoreDAPMDistinctiveness([...warmResponses, ...coldResponses], config)
+    const result = scoreDAMPDistinctiveness([...warmResponses, ...coldResponses], config)
 
     // Verify dimensions_with_significant_difference matches per_pair max
     const maxSig = Math.max(...result.per_pair.map(p => p.significant_count))
@@ -315,7 +315,7 @@ describe("scoreDAPMDistinctiveness", () => {
     const warmResponses = generateWarmResponses(12)
     const coldResponses = generateColdResponses(12)
 
-    const config: DAPMEvalConfig = {
+    const config: DAMPEvalConfig = {
       fingerprints: new Map([
         ["warm-personality", makeFakeFingerprint(0.8)],
         ["cold-personality", makeFakeFingerprint(0.2)],
@@ -323,7 +323,7 @@ describe("scoreDAPMDistinctiveness", () => {
       minSamplesPerPersonality: 10,
     }
 
-    const result = scoreDAPMDistinctiveness([...warmResponses, ...coldResponses], config)
+    const result = scoreDAMPDistinctiveness([...warmResponses, ...coldResponses], config)
 
     // The warm vs cold texts should differ on enough dimensions
     if (result.dimensions_with_significant_difference >= 5) {
@@ -341,7 +341,7 @@ describe("scoreDAPMDistinctiveness", () => {
     ]
     const enoughResponses = generateWarmResponses(12)
 
-    const config: DAPMEvalConfig = {
+    const config: DAMPEvalConfig = {
       fingerprints: new Map([
         ["few-samples", makeFakeFingerprint(0.5)],
         ["warm-personality", makeFakeFingerprint(0.8)],
@@ -349,7 +349,7 @@ describe("scoreDAPMDistinctiveness", () => {
       minSamplesPerPersonality: 10,
     }
 
-    const result = scoreDAPMDistinctiveness([...fewResponses, ...enoughResponses], config)
+    const result = scoreDAMPDistinctiveness([...fewResponses, ...enoughResponses], config)
 
     // Only one personality has enough samples, so no pairs can be formed
     expect(result.total_pairs).toBe(0)
@@ -358,14 +358,14 @@ describe("scoreDAPMDistinctiveness", () => {
   })
 
   it("handles empty responses gracefully", () => {
-    const config: DAPMEvalConfig = {
+    const config: DAMPEvalConfig = {
       fingerprints: new Map([
         ["p1", makeFakeFingerprint(0.5)],
       ]),
       minSamplesPerPersonality: 10,
     }
 
-    const result = scoreDAPMDistinctiveness([], config)
+    const result = scoreDAMPDistinctiveness([], config)
 
     expect(result.total_pairs).toBe(0)
     expect(result.per_pair).toHaveLength(0)

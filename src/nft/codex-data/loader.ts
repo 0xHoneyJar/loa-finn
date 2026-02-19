@@ -110,18 +110,18 @@ export interface CodexVersionData {
 }
 
 // ---------------------------------------------------------------------------
-// DAPM Tables Types (Sprint 7 Task 7.2)
+// DAMP Tables Types (Sprint 7 Task 7.2)
 // ---------------------------------------------------------------------------
 
-import type { DAPMDialId } from "../signal-types.js"
+import type { DAMPDialId } from "../signal-types.js"
 
 /** Full 96-dial offset record */
-export type DialOffsetRecord = Record<DAPMDialId, number>
+export type DialOffsetRecord = Record<DAMPDialId, number>
 
 /** Partial dial overrides for mode deltas */
-export type PartialDialRecord = Partial<Record<DAPMDialId, number>>
+export type PartialDialRecord = Partial<Record<DAMPDialId, number>>
 
-export interface DAPMTablesData {
+export interface DAMPTablesData {
   archetype_offsets: Record<string, DialOffsetRecord>
   ancestor_family_offsets: Record<string, DialOffsetRecord>
   era_offsets: Record<string, DialOffsetRecord>
@@ -144,7 +144,7 @@ const cache: Map<string, LoadedArtifact> = new Map()
 
 /**
  * Register an artifact for loading and checksum validation.
- * Extensible for later artifacts (dapm-tables.json in Sprint 7.2, graph.json in Sprint 9.0).
+ * Extensible for later artifacts (damp-tables.json in Sprint 7.2, graph.json in Sprint 9.0).
  */
 export function registerArtifact(name: string, path: string, checksumPath: string): void {
   registry.set(name, { name, path, checksumPath })
@@ -239,9 +239,9 @@ registerArtifact(
 )
 
 registerArtifact(
-  "dapm-tables",
-  "dapm-tables.json",
-  "dapm-tables.json.sha256",
+  "damp-tables",
+  "damp-tables.json",
+  "damp-tables.json.sha256",
 )
 
 registerArtifact(
@@ -279,7 +279,7 @@ export function loadCodexVersion(): CodexVersionData {
   return loadArtifact<CodexVersionData>("codex-version").data
 }
 
-/** Load the dAPM offset tables (Sprint 7 Task 7.2) */
-export function loadDAPMTables(): DAPMTablesData {
-  return loadArtifact<DAPMTablesData>("dapm-tables").data
+/** Load the dAMP offset tables (Sprint 7 Task 7.2) */
+export function loadDAMPTables(): DAMPTablesData {
+  return loadArtifact<DAMPTablesData>("damp-tables").data
 }

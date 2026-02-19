@@ -4,16 +4,16 @@
 // Wraps personality in <system-personality> delimiters for prompt boundary enforcement.
 // Missing personality → default BEAUVOIR.md (fail-safe, not error).
 //
-// Sprint 4 Task 4.4: signal_v2 mode composes dAPM dial summary into prompt.
+// Sprint 4 Task 4.4: signal_v2 mode composes dAMP dial summary into prompt.
 // Legacy_v1 mode uses the existing template-based path (BEAUVOIR.md only).
 
 import { DEFAULT_BEAUVOIR_MD } from "./beauvoir-template.js"
 import type { PersonalityService } from "./personality.js"
 import type { NFTPersonality } from "./types.js"
-import type { AgentMode, DAPMFingerprint } from "./signal-types.js"
+import type { AgentMode, DAMPFingerprint } from "./signal-types.js"
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import { getSafetyPolicyText } from "./safety-policy.js"
-import { deriveDAPM } from "./dapm.js"
+import { deriveDAMP } from "./damp.js"
 
 // ---------------------------------------------------------------------------
 // Sanitization
@@ -52,12 +52,12 @@ export interface PersonalityResolverDeps {
  * Returns the personality content wrapped in <system-personality> delimiters.
  * If no personality exists, returns the default BEAUVOIR.md content.
  *
- * Sprint 4 Task 4.4: For signal_v2 personalities, composes a dAPM dial summary
+ * Sprint 4 Task 4.4: For signal_v2 personalities, composes a dAMP dial summary
  * section into the prompt alongside the BEAUVOIR.md. For legacy_v1 personalities,
  * uses the existing template-based path (BEAUVOIR.md only).
  *
  * Sprint 15 Task 15.2: When redis is provided, reads the persisted agent mode
- * from `dapm:mode:{collection}:{tokenId}` and uses that mode's dAPM fingerprint
+ * from `damp:mode:{collection}:{tokenId}` and uses that mode's dAMP fingerprint
  * for prompt composition. Falls back to "default" mode when no mode is persisted.
  *
  * IMPORTANT: User input is NEVER interpolated into this template.
@@ -91,25 +91,25 @@ export async function resolvePersonalityPrompt(
     return wrapPersonality(personality.beauvoir_md)
   }
 
-  // Sprint 15 Task 15.2: Read persisted mode from Redis for mode-aware dAPM selection
+  // Sprint 15 Task 15.2: Read persisted mode from Redis for mode-aware dAMP selection
   if (redis && personality.signals) {
     try {
-      const modeKey = `dapm:mode:${collection}:${tokenId}`
+      const modeKey = `damp:mode:${collection}:${tokenId}`
       const persistedMode = await redis.get(modeKey)
 
       if (persistedMode && persistedMode !== "default") {
         const agentMode = persistedMode as AgentMode
-        // Re-derive dAPM for the persisted mode
+        // Re-derive dAMP for the persisted mode
         try {
-          const modeFingerprint = deriveDAPM(personality.signals, agentMode)
-          // Use a copy of the personality with mode-specific dAPM for prompt composition
+          const modeFingerprint = deriveDAMP(personality.signals, agentMode)
+          // Use a copy of the personality with mode-specific dAMP for prompt composition
           const modePersonality: NFTPersonality = {
             ...personality,
-            dapm: modeFingerprint,
+            damp: modeFingerprint,
           }
           return wrapSignalV2Personality(modePersonality)
         } catch {
-          // dAPM derivation failure is non-fatal — fall through to default mode
+          // dAMP derivation failure is non-fatal — fall through to default mode
         }
       }
     } catch {
@@ -117,13 +117,13 @@ export async function resolvePersonalityPrompt(
     }
   }
 
-  // Signal_v2: compose dAPM dial summary alongside BEAUVOIR.md (default mode)
+  // Signal_v2: compose dAMP dial summary alongside BEAUVOIR.md (default mode)
   return wrapSignalV2Personality(personality)
 }
 
 /**
- * Compose a signal_v2 personality prompt with dAPM behavioral summary.
- * The BEAUVOIR.md sets identity/voice, and the dAPM summary provides
+ * Compose a signal_v2 personality prompt with dAMP behavioral summary.
+ * The BEAUVOIR.md sets identity/voice, and the dAMP summary provides
  * quantitative behavioral calibration for the inference engine.
  */
 function wrapSignalV2Personality(personality: NFTPersonality): string {
@@ -132,16 +132,16 @@ function wrapSignalV2Personality(personality: NFTPersonality): string {
   // BEAUVOIR.md content (identity + voice)
   sections.push(sanitizePersonalityContent(personality.beauvoir_md))
 
-  // dAPM dial summary (behavioral calibration)
-  if (personality.dapm) {
+  // dAMP dial summary (behavioral calibration)
+  if (personality.damp) {
     sections.push("")
-    sections.push("## Behavioral Calibration (dAPM)")
+    sections.push("## Behavioral Calibration (dAMP)")
     sections.push("")
-    sections.push(buildDAPMSummary(personality.dapm))
+    sections.push(buildDAMPSummary(personality.damp))
     // Sprint 11 Task 11.3: Top 5 most distinctive dials
     sections.push("")
     sections.push("### Most Distinctive Traits")
-    sections.push(buildDistinctiveDialsSummary(personality.dapm))
+    sections.push(buildDistinctiveDialsSummary(personality.damp))
   }
 
   // Voice profile summary (if available)
@@ -165,11 +165,11 @@ function wrapSignalV2Personality(personality: NFTPersonality): string {
 }
 
 // ---------------------------------------------------------------------------
-// dAPM Summary Builder (Task 4.4)
+// dAMP Summary Builder (Task 4.4)
 // ---------------------------------------------------------------------------
 
-/** Category labels for dAPM dial groupings */
-const DAPM_CATEGORY_LABELS: Record<string, string> = {
+/** Category labels for dAMP dial groupings */
+const DAMP_CATEGORY_LABELS: Record<string, string> = {
   sw: "Social Warmth",
   cs: "Conversational Style",
   as: "Assertiveness",
@@ -185,10 +185,10 @@ const DAPM_CATEGORY_LABELS: Record<string, string> = {
 }
 
 /**
- * Build a human-readable dAPM summary grouped by category.
+ * Build a human-readable dAMP summary grouped by category.
  * Each category shows the average dial value and a behavioral descriptor.
  */
-export function buildDAPMSummary(fingerprint: DAPMFingerprint): string {
+export function buildDAMPSummary(fingerprint: DAMPFingerprint): string {
   const categories: Record<string, number[]> = {}
 
   for (const [dialId, value] of Object.entries(fingerprint.dials)) {
@@ -200,7 +200,7 @@ export function buildDAPMSummary(fingerprint: DAPMFingerprint): string {
   const lines: string[] = []
   for (const [prefix, values] of Object.entries(categories)) {
     const avg = values.reduce((a, b) => a + b, 0) / values.length
-    const label = DAPM_CATEGORY_LABELS[prefix] ?? prefix
+    const label = DAMP_CATEGORY_LABELS[prefix] ?? prefix
     const descriptor = describeLevel(avg)
     lines.push(`- ${label}: ${descriptor} (${avg.toFixed(2)})`)
   }
@@ -242,7 +242,7 @@ function describeDialName(dialId: string): string {
  * Format:
  * - Dial Name: value (category)
  */
-export function buildDistinctiveDialsSummary(fingerprint: DAPMFingerprint): string {
+export function buildDistinctiveDialsSummary(fingerprint: DAMPFingerprint): string {
   const entries = Object.entries(fingerprint.dials) as Array<[string, number]>
 
   // Sort by absolute deviation from 0.5 neutral, descending
@@ -260,7 +260,7 @@ export function buildDistinctiveDialsSummary(fingerprint: DAPMFingerprint): stri
   const lines = top5.map(({ dialId, value }) => {
     const name = describeDialName(dialId)
     const prefix = dialId.split("_")[0]
-    const category = DAPM_CATEGORY_LABELS[prefix] ?? prefix
+    const category = DAMP_CATEGORY_LABELS[prefix] ?? prefix
     return `- ${name}: ${value.toFixed(2)} (${category})`
   })
 

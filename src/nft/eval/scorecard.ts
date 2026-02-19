@@ -7,7 +7,7 @@ import type { DistinctivenessResult } from "./distinctiveness.js"
 import type { FidelityResult } from "./fidelity.js"
 import type { ANBatchResult } from "./anti-narration-eval.js"
 import type { TemporalResult } from "./temporal-eval.js"
-import type { DAPMEvalResult } from "./dapm-eval.js"
+import type { DAMPEvalResult } from "./damp-eval.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,8 +28,8 @@ export interface EvalScorecard {
   /** Temporal consistency: compliance rate (target: >= 0.75) */
   temporal_consistency_score: number
 
-  /** dAPM behavioral impact: max significant dimensions across pairs (target: >= 5) */
-  dapm_behavioral_score: number
+  /** dAMP behavioral impact: max significant dimensions across pairs (target: >= 5) */
+  damp_behavioral_score: number
 
   /** Overall pass/fail based on all targets */
   overall_pass: boolean
@@ -49,7 +49,7 @@ export interface AggregateScorecard {
     mean_fidelity: number
     total_an_violations: number
     mean_temporal_consistency: number
-    mean_dapm_dimensions: number
+    mean_damp_dimensions: number
   }
   evaluated_at: number
   eval_model: string
@@ -63,7 +63,7 @@ const DISTINCTIVENESS_THRESHOLD = 0.3 // mean similarity must be BELOW this
 const FIDELITY_THRESHOLD = 0.8 // accuracy must be AT OR ABOVE this
 const AN_VIOLATION_THRESHOLD = 0 // must be exactly 0
 const TEMPORAL_THRESHOLD = 0.75 // compliance must be AT OR ABOVE this
-const DAPM_DIMENSION_THRESHOLD = 5 // significant dimensions must be AT OR ABOVE this
+const DAMP_DIMENSION_THRESHOLD = 5 // significant dimensions must be AT OR ABOVE this
 
 // ---------------------------------------------------------------------------
 // Builder
@@ -77,7 +77,7 @@ const DAPM_DIMENSION_THRESHOLD = 5 // significant dimensions must be AT OR ABOVE
  * @param fidelity - Fidelity result from scoreFidelity()
  * @param antiNarration - Anti-narration batch result from checkAntiNarrationBatch()
  * @param temporal - Temporal result from scoreTemporalConsistency()
- * @param dapm - dAPM eval result from scoreDAPMDistinctiveness()
+ * @param damp - dAMP eval result from scoreDAMPDistinctiveness()
  * @param evalModel - Model identifier used for evaluation
  * @returns AggregateScorecard with per-personality and summary results
  */
@@ -87,7 +87,7 @@ export function buildScorecards(
   fidelity: FidelityResult,
   antiNarration: ANBatchResult,
   temporal: TemporalResult,
-  dapm: DAPMEvalResult,
+  damp: DAMPEvalResult,
   evalModel: string,
 ): AggregateScorecard {
   const now = Date.now()
@@ -124,14 +124,14 @@ export function buildScorecards(
     personalityANViolations.set(v.personality_id, current + 1)
   }
 
-  // --- Extract per-personality dAPM scores ---
+  // --- Extract per-personality dAMP scores ---
   // For each personality, find max significant_count across all pairs it participates in
-  const personalityDAPM = new Map<string, number>()
-  for (const pair of dapm.per_pair) {
-    const currentA = personalityDAPM.get(pair.personality_a) ?? 0
-    const currentB = personalityDAPM.get(pair.personality_b) ?? 0
-    personalityDAPM.set(pair.personality_a, Math.max(currentA, pair.significant_count))
-    personalityDAPM.set(pair.personality_b, Math.max(currentB, pair.significant_count))
+  const personalityDAMP = new Map<string, number>()
+  for (const pair of damp.per_pair) {
+    const currentA = personalityDAMP.get(pair.personality_a) ?? 0
+    const currentB = personalityDAMP.get(pair.personality_b) ?? 0
+    personalityDAMP.set(pair.personality_a, Math.max(currentA, pair.significant_count))
+    personalityDAMP.set(pair.personality_b, Math.max(currentB, pair.significant_count))
   }
 
   // --- Build scorecards ---
@@ -152,8 +152,8 @@ export function buildScorecards(
     // Temporal: use overall compliance rate (it's an aggregate metric)
     const temporalScore = temporal.compliance_rate
 
-    // dAPM: max significant dimensions for this personality
-    const dapmScore = personalityDAPM.get(pid) ?? 0
+    // dAMP: max significant dimensions for this personality
+    const dampScore = personalityDAMP.get(pid) ?? 0
 
     // Pass/fail
     const overallPass =
@@ -161,7 +161,7 @@ export function buildScorecards(
       fidelityScore >= FIDELITY_THRESHOLD &&
       anViolations === AN_VIOLATION_THRESHOLD &&
       temporalScore >= TEMPORAL_THRESHOLD &&
-      dapmScore >= DAPM_DIMENSION_THRESHOLD
+      dampScore >= DAMP_DIMENSION_THRESHOLD
 
     return {
       personality_id: pid,
@@ -169,7 +169,7 @@ export function buildScorecards(
       signal_fidelity_score: fidelityScore,
       anti_narration_violations: anViolations,
       temporal_consistency_score: temporalScore,
-      dapm_behavioral_score: dapmScore,
+      damp_behavioral_score: dampScore,
       overall_pass: overallPass,
       evaluated_at: now,
       eval_model: evalModel,
@@ -193,9 +193,9 @@ export function buildScorecards(
     totalEvaluated > 0
       ? scorecards.reduce((sum, s) => sum + s.temporal_consistency_score, 0) / totalEvaluated
       : 0
-  const meanDAPM =
+  const meanDAMP =
     totalEvaluated > 0
-      ? scorecards.reduce((sum, s) => sum + s.dapm_behavioral_score, 0) / totalEvaluated
+      ? scorecards.reduce((sum, s) => sum + s.damp_behavioral_score, 0) / totalEvaluated
       : 0
 
   return {
@@ -208,7 +208,7 @@ export function buildScorecards(
       mean_fidelity: meanFidelity,
       total_an_violations: totalANViolations,
       mean_temporal_consistency: meanTemporal,
-      mean_dapm_dimensions: meanDAPM,
+      mean_damp_dimensions: meanDAMP,
     },
     evaluated_at: now,
     eval_model: evalModel,

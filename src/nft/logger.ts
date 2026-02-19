@@ -10,7 +10,7 @@
 /** Canonical identity pipeline operations */
 export type IdentityOperation =
   | "signal_build"
-  | "dapm_derive"
+  | "damp_derive"
   | "graph_resolve"
   | "synthesis"
   | "version_create"

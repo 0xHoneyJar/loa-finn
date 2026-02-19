@@ -1,14 +1,14 @@
-// src/nft/dapm-tables.ts — dAPM Dial Tables (SDD §3.1, Sprint 4 Task 4.1 + Sprint 7 Task 7.2)
+// src/nft/damp-tables.ts — dAMP Dial Tables (SDD §3.1, Sprint 4 Task 4.1 + Sprint 7 Task 7.2)
 //
-// Legacy mode: Maps the 4 legacy VoiceType archetypes to fixed dAPM dial offsets.
-// Signal mode: Loads full offset tables from dapm-tables.json via codex loader.
+// Legacy mode: Maps the 4 legacy VoiceType archetypes to fixed dAMP dial offsets.
+// Signal mode: Loads full offset tables from damp-tables.json via codex loader.
 
 import type { VoiceType } from "./types.js"
-import type { DAPMDialId } from "./signal-types.js"
-import { DAPM_DIAL_IDS } from "./signal-types.js"
+import type { DAMPDialId } from "./signal-types.js"
+import { DAMP_DIAL_IDS } from "./signal-types.js"
 import {
-  loadDAPMTables,
-  type DAPMTablesData,
+  loadDAMPTables,
+  type DAMPTablesData,
   type DialOffsetRecord,
   type PartialDialRecord,
 } from "./codex-data/loader.js"
@@ -29,13 +29,13 @@ function clamp(value: number): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Per-voice offsets for legacy VoiceType → dAPM mapping.
+ * Per-voice offsets for legacy VoiceType → dAMP mapping.
  *
  * Only dials in the conversational_style (cs_*, dials 9-16) and
  * emotional_tone (et_*, dials 65-72) categories carry offsets.
  * All offsets are relative to the 0.5 neutral baseline.
  *
- * Dial name mapping from spec intent to actual DAPMDialId values:
+ * Dial name mapping from spec intent to actual DAMPDialId values:
  *   spec "cs_humor_frequency"    → cs_turn_taking (quick-fire exchanges)
  *   spec "cs_storytelling_tendency" → cs_narrative_tendency
  *   spec "cs_technical_depth"    → cs_reference_density (depth of references)
@@ -49,7 +49,7 @@ function clamp(value: number): number {
  *   spec "et_gravitas"           → et_composure_under_stress
  *   spec "et_vulnerability"      → et_emotional_granularity
  */
-export const LEGACY_VOICE_OFFSETS: Record<VoiceType, Partial<Record<DAPMDialId, number>>> = {
+export const LEGACY_VOICE_OFFSETS: Record<VoiceType, Partial<Record<DAMPDialId, number>>> = {
   analytical: {
     cs_formality: +0.3,
     cs_directness: +0.2,
@@ -82,19 +82,19 @@ export const LEGACY_VOICE_OFFSETS: Record<VoiceType, Partial<Record<DAPMDialId, 
 // ---------------------------------------------------------------------------
 
 /**
- * Get the full 96-dial dAPM fingerprint for a legacy VoiceType.
+ * Get the full 96-dial dAMP fingerprint for a legacy VoiceType.
  *
  * Returns all 96 dials: non-specified dials at 0.5 (neutral), specified
  * dials at 0.5 + offset, clamped to [0.0, 1.0].
  *
  * @param voice - One of the 4 legacy VoiceType archetypes
- * @returns Record mapping all 96 DAPMDialId keys to their values
+ * @returns Record mapping all 96 DAMPDialId keys to their values
  */
-export function getLegacyDAPMOffsets(voice: VoiceType): Record<DAPMDialId, number> {
+export function getLegacyDAMPOffsets(voice: VoiceType): Record<DAMPDialId, number> {
   const offsets = LEGACY_VOICE_OFFSETS[voice]
-  const result = {} as Record<DAPMDialId, number>
+  const result = {} as Record<DAMPDialId, number>
 
-  for (const dialId of DAPM_DIAL_IDS) {
+  for (const dialId of DAMP_DIAL_IDS) {
     const offset = offsets[dialId]
     result[dialId] = offset !== undefined ? clamp(NEUTRAL + offset) : NEUTRAL
   }
@@ -103,24 +103,24 @@ export function getLegacyDAPMOffsets(voice: VoiceType): Record<DAPMDialId, numbe
 }
 
 // ---------------------------------------------------------------------------
-// Signal-Mode Tables (Sprint 7 Task 7.2) — loaded from dapm-tables.json
+// Signal-Mode Tables (Sprint 7 Task 7.2) — loaded from damp-tables.json
 // ---------------------------------------------------------------------------
 
 /** Lazy-cached tables instance */
-let _tables: DAPMTablesData | null = null
+let _tables: DAMPTablesData | null = null
 
-/** Get the full dAPM offset tables (lazy-loaded, cached) */
-export function getDAPMTables(): DAPMTablesData {
+/** Get the full dAMP offset tables (lazy-loaded, cached) */
+export function getDAMPTables(): DAMPTablesData {
   if (!_tables) {
-    _tables = loadDAPMTables()
+    _tables = loadDAMPTables()
   }
   return _tables
 }
 
 /** Clear the cached tables (useful for testing) */
-export function resetDAPMTablesCache(): void {
+export function resetDAMPTablesCache(): void {
   _tables = null
 }
 
 // Re-export types for convenience
-export type { DAPMTablesData, DialOffsetRecord, PartialDialRecord }
+export type { DAMPTablesData, DialOffsetRecord, PartialDialRecord }

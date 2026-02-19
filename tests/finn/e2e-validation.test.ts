@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 // --- Core modules ---
 import { buildSignalSnapshot, type OnChainMetadata } from "../../src/nft/signal-engine.js"
-import { deriveDAPM } from "../../src/nft/dapm.js"
+import { deriveDAMP } from "../../src/nft/damp.js"
 import { generateBeauvoirMd } from "../../src/nft/beauvoir-template.js"
 import { validateAntiNarration } from "../../src/nft/anti-narration.js"
 import { checkTemporalVoice } from "../../src/nft/temporal-voice.js"
@@ -18,7 +18,7 @@ import { PersonalityVersionService } from "../../src/nft/personality-version.js"
 import { MockOwnershipProvider } from "../../src/nft/chain-config.js"
 
 // --- Types ---
-import { DAPM_DIAL_IDS, type DAPMFingerprint, type SignalSnapshot, type AgentMode } from "../../src/nft/signal-types.js"
+import { DAMP_DIAL_IDS, type DAMPFingerprint, type SignalSnapshot, type AgentMode } from "../../src/nft/signal-types.js"
 
 // ---------------------------------------------------------------------------
 // Mock Redis — Simulates Lua scripts for PersonalityVersionService
@@ -142,20 +142,20 @@ const METADATA_B: OnChainMetadata = {
 }
 
 // ---------------------------------------------------------------------------
-// I-1: Distinctiveness — dAPM fingerprints for different signals are distinct
+// I-1: Distinctiveness — dAMP fingerprints for different signals are distinct
 // ---------------------------------------------------------------------------
 
 describe("I-1: Distinctiveness", () => {
-  it("should produce distinct dAPM fingerprints for different signal profiles", () => {
+  it("should produce distinct dAMP fingerprints for different signal profiles", () => {
     const signalsA = buildSignalSnapshot(METADATA_A)
     const signalsB = buildSignalSnapshot(METADATA_B)
 
-    const fpA = deriveDAPM(signalsA, "default")
-    const fpB = deriveDAPM(signalsB, "default")
+    const fpA = deriveDAMP(signalsA, "default")
+    const fpB = deriveDAMP(signalsB, "default")
 
     // Count dials that differ by more than 0.1
     let significantDiffs = 0
-    for (const dialId of DAPM_DIAL_IDS) {
+    for (const dialId of DAMP_DIAL_IDS) {
       const delta = Math.abs(fpA.dials[dialId] - fpB.dials[dialId])
       if (delta > 0.1) {
         significantDiffs++
@@ -251,19 +251,19 @@ describe("I-4: Temporal Consistency", () => {
 })
 
 // ---------------------------------------------------------------------------
-// I-5: dAPM Integration — different modes produce different fingerprints
+// I-5: dAMP Integration — different modes produce different fingerprints
 // ---------------------------------------------------------------------------
 
-describe("I-5: dAPM Integration", () => {
+describe("I-5: dAMP Integration", () => {
   it("should produce different fingerprints for different agent modes", () => {
     const signals = buildSignalSnapshot(METADATA_A)
 
-    const fpDefault = deriveDAPM(signals, "default")
-    const fpBrainstorm = deriveDAPM(signals, "brainstorm")
+    const fpDefault = deriveDAMP(signals, "default")
+    const fpBrainstorm = deriveDAMP(signals, "brainstorm")
 
     // Verify they differ on at least 1 dial
     let diffCount = 0
-    for (const dialId of DAPM_DIAL_IDS) {
+    for (const dialId of DAMP_DIAL_IDS) {
       if (fpDefault.dials[dialId] !== fpBrainstorm.dials[dialId]) {
         diffCount++
       }
@@ -277,11 +277,11 @@ describe("I-5: dAPM Integration", () => {
   it("should produce different fingerprints for critique vs execute modes", () => {
     const signals = buildSignalSnapshot(METADATA_B)
 
-    const fpCritique = deriveDAPM(signals, "critique")
-    const fpExecute = deriveDAPM(signals, "execute")
+    const fpCritique = deriveDAMP(signals, "critique")
+    const fpExecute = deriveDAMP(signals, "execute")
 
     let diffCount = 0
-    for (const dialId of DAPM_DIAL_IDS) {
+    for (const dialId of DAMP_DIAL_IDS) {
       if (fpCritique.dials[dialId] !== fpExecute.dials[dialId]) {
         diffCount++
       }
@@ -417,7 +417,7 @@ describe("I-7: Version Chain", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Full Pipeline: Metadata → Signals → dAPM → BEAUVOIR → AN Validation → Version
+// Full Pipeline: Metadata → Signals → dAMP → BEAUVOIR → AN Validation → Version
 // ---------------------------------------------------------------------------
 
 describe("Full Pipeline", () => {
@@ -432,15 +432,15 @@ describe("Full Pipeline", () => {
     expect(signals.tarot).toBeDefined()
     expect(signals.element).toBeDefined()
 
-    // Step 2: Derive dAPM fingerprint
-    const fingerprint = deriveDAPM(signals, "default")
+    // Step 2: Derive dAMP fingerprint
+    const fingerprint = deriveDAMP(signals, "default")
 
     expect(fingerprint.dials).toBeDefined()
     expect(Object.keys(fingerprint.dials).length).toBe(96)
     expect(fingerprint.mode).toBe("default")
 
     // Verify all dials are in 0-1 range
-    for (const dialId of DAPM_DIAL_IDS) {
+    for (const dialId of DAMP_DIAL_IDS) {
       const value = fingerprint.dials[dialId]
       expect(value).toBeGreaterThanOrEqual(0)
       expect(value).toBeLessThanOrEqual(1)
@@ -482,20 +482,20 @@ describe("Full Pipeline", () => {
     // Step 6: Update with signal_v2 data (auto-upgrade)
     const updated = await service.update("pipeline", "1", {
       signals,
-      dapm: fingerprint,
+      damp: fingerprint,
       authored_by: "0xPIPELINE",
     })
 
     expect(updated.compatibility_mode).toBe("signal_v2")
     expect(updated.signals).toBeDefined()
-    expect(updated.dapm).toBeDefined()
+    expect(updated.damp).toBeDefined()
 
     // Step 7: Verify version chain
     const latest = await versionService.getLatest("pipeline:1")
     expect(latest).not.toBeNull()
     expect(latest!.personality_id).toBe("pipeline:1")
 
-    // Full pipeline success: metadata → signals → dAPM → BEAUVOIR → AN → versioned personality
+    // Full pipeline success: metadata → signals → dAMP → BEAUVOIR → AN → versioned personality
   })
 
   it("should produce deterministic results for same input", () => {
@@ -503,11 +503,11 @@ describe("Full Pipeline", () => {
     const signals1 = buildSignalSnapshot(METADATA_A)
     const signals2 = buildSignalSnapshot(METADATA_A)
 
-    // dAPM derivation should be deterministic
-    const fp1 = deriveDAPM(signals1, "default")
-    const fp2 = deriveDAPM(signals2, "default")
+    // dAMP derivation should be deterministic
+    const fp1 = deriveDAMP(signals1, "default")
+    const fp2 = deriveDAMP(signals2, "default")
 
-    for (const dialId of DAPM_DIAL_IDS) {
+    for (const dialId of DAMP_DIAL_IDS) {
       expect(fp1.dials[dialId]).toBe(fp2.dials[dialId])
     }
   })
@@ -516,10 +516,10 @@ describe("Full Pipeline", () => {
     const signals = buildSignalSnapshot(METADATA_B)
     const modes: AgentMode[] = ["default", "brainstorm", "critique", "execute"]
 
-    const fingerprints = new Map<AgentMode, DAPMFingerprint>()
+    const fingerprints = new Map<AgentMode, DAMPFingerprint>()
 
     for (const mode of modes) {
-      const fp = deriveDAPM(signals, mode)
+      const fp = deriveDAMP(signals, mode)
       expect(fp.mode).toBe(mode)
       expect(Object.keys(fp.dials).length).toBe(96)
       fingerprints.set(mode, fp)

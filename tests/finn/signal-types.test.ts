@@ -11,8 +11,8 @@ import type {
   TarotCard,
   SignalSnapshot,
   SignalCore8,
-  DAPMDialId,
-  DAPMFingerprint,
+  DAMPDialId,
+  DAMPFingerprint,
   DerivedVoiceProfile,
   PersonalityVersion,
   CompatibilityMode,
@@ -22,7 +22,7 @@ import {
   ERA_BOUNDARIES,
   SWAG_RANK_VALUES,
   ZODIAC_SIGNS,
-  DAPM_DIAL_IDS,
+  DAMP_DIAL_IDS,
 } from "../../src/nft/signal-types.js"
 
 async function test(name: string, fn: () => Promise<void> | void) {
@@ -121,19 +121,19 @@ async function main() {
     }
   })
 
-  // --- DAPMDialId ---
+  // --- DAMPDialId ---
 
-  await test("DAPM_DIAL_IDS has exactly 96 entries", () => {
-    assert.equal(DAPM_DIAL_IDS.length, 96)
+  await test("DAMP_DIAL_IDS has exactly 96 entries", () => {
+    assert.equal(DAMP_DIAL_IDS.length, 96)
   })
 
-  await test("DAPM_DIAL_IDS has no duplicates", () => {
-    const set = new Set(DAPM_DIAL_IDS)
+  await test("DAMP_DIAL_IDS has no duplicates", () => {
+    const set = new Set(DAMP_DIAL_IDS)
     assert.equal(set.size, 96, `Found ${96 - set.size} duplicate dial IDs`)
   })
 
-  await test("DAPM_DIAL_IDS covers all 12 categories", () => {
-    const prefixes = new Set(DAPM_DIAL_IDS.map((id) => id.split("_")[0]))
+  await test("DAMP_DIAL_IDS covers all 12 categories", () => {
+    const prefixes = new Set(DAMP_DIAL_IDS.map((id) => id.split("_")[0]))
     const expected = ["sw", "cs", "as", "cg", "ep", "cr", "cv", "mo", "et", "sc", "ag", "id"]
     assert.equal(prefixes.size, expected.length)
     for (const prefix of expected) {
@@ -141,9 +141,9 @@ async function main() {
     }
   })
 
-  await test("Each DAPM category has exactly 8 dials", () => {
+  await test("Each DAMP category has exactly 8 dials", () => {
     const categories = new Map<string, number>()
-    for (const id of DAPM_DIAL_IDS) {
+    for (const id of DAMP_DIAL_IDS) {
       const prefix = id.split("_")[0]
       categories.set(prefix, (categories.get(prefix) ?? 0) + 1)
     }
@@ -188,12 +188,12 @@ async function main() {
     assert.equal(core.value_system, "milady")
   })
 
-  await test("DAPMFingerprint type compiles correctly", () => {
-    const dials = {} as Record<DAPMDialId, number>
-    for (const id of DAPM_DIAL_IDS) {
+  await test("DAMPFingerprint type compiles correctly", () => {
+    const dials = {} as Record<DAMPDialId, number>
+    for (const id of DAMP_DIAL_IDS) {
       dials[id] = 0.5
     }
-    const fp: DAPMFingerprint = {
+    const fp: DAMPFingerprint = {
       dials,
       mode: "default",
       derived_from: "version-123",
@@ -221,7 +221,7 @@ async function main() {
       previous_version_id: null,
       personality_id: "collection:token1",
       signal_snapshot: null,
-      dapm_fingerprint: null,
+      damp_fingerprint: null,
       beauvoir_md: "# Test",
       authored_by: "0x1234",
       governance_model: "holder",

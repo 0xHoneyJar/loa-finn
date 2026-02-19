@@ -47,17 +47,17 @@ export {
   type TemporalResult,
 } from "./temporal-eval.js"
 
-// dAPM Behavioral Distinctiveness (Sprint 13 Task 13.1)
+// dAMP Behavioral Distinctiveness (Sprint 13 Task 13.1)
 export {
-  scoreDAPMDistinctiveness,
+  scoreDAMPDistinctiveness,
   welchTTest,
   extractBehavioralFeatures,
-  DAPM_DIMENSION_PREFIXES,
-  type DAPMEvalConfig,
-  type DAPMDimensionResult,
-  type DAPMEvalResult,
-  type DAPMDimensionPrefix,
-} from "./dapm-eval.js"
+  DAMP_DIMENSION_PREFIXES,
+  type DAMPEvalConfig,
+  type DAMPDimensionResult,
+  type DAMPEvalResult,
+  type DAMPDimensionPrefix,
+} from "./damp-eval.js"
 
 // Aggregate Scorecard (Sprint 13 Task 13.2)
 export {

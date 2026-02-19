@@ -23,7 +23,7 @@ import type {
   PhilosophicalFoundation,
   IdentityGraphCacheConfig,
 } from "../../src/nft/identity-graph.js"
-import { resolveAncestorFamily, ANCESTOR_TO_FAMILY } from "../../src/nft/dapm.js"
+import { resolveAncestorFamily, ANCESTOR_TO_FAMILY } from "../../src/nft/damp.js"
 import type { SignalSnapshot } from "../../src/nft/signal-types.js"
 import { clearArtifactCache } from "../../src/nft/codex-data/loader.js"
 
@@ -613,7 +613,7 @@ describe("IdentityGraphCache (Task 9.5)", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Graph-Aware resolveAncestorFamily (Sprint 9 update to dapm.ts)
+// Graph-Aware resolveAncestorFamily (Sprint 9 update to damp.ts)
 // ---------------------------------------------------------------------------
 
 describe("resolveAncestorFamily with graph (Sprint 9)", () => {

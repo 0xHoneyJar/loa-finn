@@ -1,4 +1,4 @@
-// src/nft/dapm.ts — dAPM-96 Derivation Engine (SDD §3.1, Sprint 7 Tasks 7.1, 7.3–7.5)
+// src/nft/damp.ts — dAMP-96 Derivation Engine (SDD §3.1, Sprint 7 Tasks 7.1, 7.3–7.5)
 //
 // Pure, deterministic derivation of 96-dial personality fingerprints from SignalSnapshot.
 // Composition formula:
@@ -12,15 +12,15 @@
 import type {
   SignalSnapshot,
   AgentMode,
-  DAPMDialId,
-  DAPMFingerprint,
+  DAMPDialId,
+  DAMPFingerprint,
   SwagRank,
   ZodiacSign,
 } from "./signal-types.js"
 
-import { DAPM_DIAL_IDS, SWAG_RANK_VALUES, ZODIAC_SIGNS } from "./signal-types.js"
+import { DAMP_DIAL_IDS, SWAG_RANK_VALUES, ZODIAC_SIGNS } from "./signal-types.js"
 
-import { getDAPMTables } from "./dapm-tables.js"
+import { getDAMPTables } from "./damp-tables.js"
 import { loadCodexVersion, loadAncestors } from "./codex-data/loader.js"
 import type { AncestorEntry } from "./codex-data/loader.js"
 import type { KnowledgeGraph } from "./identity-graph.js"
@@ -221,7 +221,7 @@ export function clampModeOffset(v: number): number {
 }
 
 /**
- * Derive a full 96-dial dAPM fingerprint from a SignalSnapshot and agent mode.
+ * Derive a full 96-dial dAMP fingerprint from a SignalSnapshot and agent mode.
  *
  * Pure function — deterministic: same inputs always produce the same output.
  *
@@ -236,13 +236,13 @@ export function clampModeOffset(v: number): number {
  *
  * @param snapshot - Full signal state for this NFT
  * @param mode - Current agent mode (default, brainstorm, critique, execute)
- * @returns Complete 96-dial DAPMFingerprint
+ * @returns Complete 96-dial DAMPFingerprint
  */
-export function deriveDAPM(
+export function deriveDAMP(
   snapshot: SignalSnapshot,
   mode: AgentMode,
-): DAPMFingerprint {
-  const tables = getDAPMTables()
+): DAMPFingerprint {
+  const tables = getDAMPTables()
   const codexVersion = loadCodexVersion()
 
   // Resolve composite inputs
@@ -264,22 +264,22 @@ export function deriveDAPM(
   const modeDeltas = tables.mode_deltas[mode] ?? {}
 
   if (!archetypeRow) {
-    throw new Error(`Missing DAPM archetype_offsets row for: ${snapshot.archetype}`)
+    throw new Error(`Missing DAMP archetype_offsets row for: ${snapshot.archetype}`)
   }
   if (!eraRow) {
-    throw new Error(`Missing DAPM era_offsets row for: ${snapshot.era}`)
+    throw new Error(`Missing DAMP era_offsets row for: ${snapshot.era}`)
   }
   if (!familyRow) {
-    throw new Error(`Missing DAPM ancestor_family_offsets row for: ${family}`)
+    throw new Error(`Missing DAMP ancestor_family_offsets row for: ${family}`)
   }
   if (!elementRow) {
-    throw new Error(`Missing DAPM element_offsets row for: ${snapshot.element}`)
+    throw new Error(`Missing DAMP element_offsets row for: ${snapshot.element}`)
   }
 
   // Compute all 96 dials
-  const dials = {} as Record<DAPMDialId, number>
+  const dials = {} as Record<DAMPDialId, number>
 
-  for (const dialId of DAPM_DIAL_IDS) {
+  for (const dialId of DAMP_DIAL_IDS) {
     // Tier 1: archetype (weight 0.50)
     const f1 = archetypeRow[dialId] ?? 0
 

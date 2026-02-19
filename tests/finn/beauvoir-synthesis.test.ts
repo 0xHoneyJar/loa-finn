@@ -11,8 +11,8 @@ import type {
   IdentitySubgraph,
   UserCustomInput,
 } from "../../src/nft/beauvoir-synthesizer.js"
-import type { SignalSnapshot, DAPMFingerprint, DAPMDialId } from "../../src/nft/signal-types.js"
-import { DAPM_DIAL_IDS } from "../../src/nft/signal-types.js"
+import type { SignalSnapshot, DAMPFingerprint, DAMPDialId } from "../../src/nft/signal-types.js"
+import { DAMP_DIAL_IDS } from "../../src/nft/signal-types.js"
 
 // ---------------------------------------------------------------------------
 // Test Fixtures
@@ -36,9 +36,9 @@ function makeSnapshot(overrides?: Partial<SignalSnapshot>): SignalSnapshot {
   }
 }
 
-function makeFingerprint(): DAPMFingerprint {
-  const dials = {} as Record<DAPMDialId, number>
-  for (const id of DAPM_DIAL_IDS) {
+function makeFingerprint(): DAMPFingerprint {
+  const dials = {} as Record<DAMPDialId, number>
+  for (const id of DAMP_DIAL_IDS) {
     dials[id] = 0.5
   }
   return {
@@ -143,7 +143,7 @@ describe("BeauvoirSynthesizer: Auto Mode", () => {
     expect(prompt).toContain("fire")
   })
 
-  it("includes DAPM fingerprint summary when provided", async () => {
+  it("includes DAMP fingerprint summary when provided", async () => {
     const router = makeMockRouter([CLEAN_BEAUVOIR])
     const synth = new BeauvoirSynthesizer(router)
     const snapshot = makeSnapshot()
@@ -382,7 +382,7 @@ describe("buildSynthesisPrompt", () => {
     expect(prompt).toContain("Never write phrases like")
   })
 
-  it("includes DAPM fingerprint summary when provided", () => {
+  it("includes DAMP fingerprint summary when provided", () => {
     const snapshot = makeSnapshot()
     const fingerprint = makeFingerprint()
     const prompt = buildSynthesisPrompt(snapshot, fingerprint)

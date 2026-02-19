@@ -6,8 +6,8 @@ import type { PersonalityServiceDeps } from "../../src/nft/personality.js"
 import type { NFTPersonality } from "../../src/nft/types.js"
 import type { SignalSnapshot } from "../../src/nft/signal-types.js"
 import type { RedisCommandClient } from "../../src/hounfour/redis/client.js"
-import { getLegacyDAPMOffsets, LEGACY_VOICE_OFFSETS } from "../../src/nft/dapm-tables.js"
-import { DAPM_DIAL_IDS } from "../../src/nft/signal-types.js"
+import { getLegacyDAMPOffsets, LEGACY_VOICE_OFFSETS } from "../../src/nft/damp-tables.js"
+import { DAMP_DIAL_IDS } from "../../src/nft/signal-types.js"
 import type { VoiceType } from "../../src/nft/types.js"
 
 // ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ describe("Backward Compatibility — decodePersonality()", () => {
     expect(decoded.signals).toBeNull()
   })
 
-  it("maps undefined dapm to null", () => {
+  it("maps undefined damp to null", () => {
     const raw: Record<string, unknown> = {
       id: "col:1",
       name: "TestAgent",
@@ -86,7 +86,7 @@ describe("Backward Compatibility — decodePersonality()", () => {
     }
 
     const decoded = decodePersonality(raw)
-    expect(decoded.dapm).toBeNull()
+    expect(decoded.damp).toBeNull()
   })
 
   it("maps undefined voice_profile to null", () => {
@@ -238,7 +238,7 @@ describe("Backward Compatibility — decodePersonality()", () => {
     expect(decoded.id).toBe("oldcol:42")
     expect(decoded.name).toBe("OldAgent")
     expect(decoded.signals).toBeNull()
-    expect(decoded.dapm).toBeNull()
+    expect(decoded.damp).toBeNull()
     expect(decoded.voice_profile).toBeNull()
     expect(decoded.compatibility_mode).toBe("legacy_v1")
     expect(decoded.governance_model).toBe("holder")
@@ -399,7 +399,7 @@ describe("Sprint 4 — Legacy API response shape", () => {
     })
 
     expect(result.signals).toBeNull()
-    expect(result.dapm).toBeNull()
+    expect(result.damp).toBeNull()
     expect(result.voice_profile).toBeNull()
     expect(result.compatibility_mode).toBe("legacy_v1")
     expect(result.version_id).toBeNull()
@@ -416,7 +416,7 @@ describe("Sprint 4 — Legacy API response shape", () => {
     const result = await service.get("col", "1")
     expect(result).toBeTruthy()
     expect(result!.signals).toBeNull()
-    expect(result!.dapm).toBeNull()
+    expect(result!.damp).toBeNull()
     expect(result!.voice_profile).toBeNull()
     expect(result!.compatibility_mode).toBe("legacy_v1")
     expect(result!.version_id).toBeNull()
@@ -432,7 +432,7 @@ describe("Sprint 4 — Legacy API response shape", () => {
 
     const result = await service.update("col", "1", { name: "Updated" })
     expect(result.signals).toBeNull()
-    expect(result.dapm).toBeNull()
+    expect(result.damp).toBeNull()
     expect(result.voice_profile).toBeNull()
     expect(result.compatibility_mode).toBe("legacy_v1")
     expect(result.version_id).toBeNull()
@@ -461,12 +461,12 @@ describe("Sprint 4 — Legacy API response shape", () => {
 // Task 4.5: VoiceType-to-offset mapping tests
 // ---------------------------------------------------------------------------
 
-describe("Sprint 4 — getLegacyDAPMOffsets()", () => {
+describe("Sprint 4 — getLegacyDAMPOffsets()", () => {
   const voices: VoiceType[] = ["analytical", "creative", "witty", "sage"]
 
   it("returns exactly 96 dials for each voice", () => {
     for (const voice of voices) {
-      const offsets = getLegacyDAPMOffsets(voice)
+      const offsets = getLegacyDAMPOffsets(voice)
       const keys = Object.keys(offsets)
       expect(keys.length).toBe(96)
     }
@@ -474,7 +474,7 @@ describe("Sprint 4 — getLegacyDAPMOffsets()", () => {
 
   it("all dial values are in [0.0, 1.0] range", () => {
     for (const voice of voices) {
-      const offsets = getLegacyDAPMOffsets(voice)
+      const offsets = getLegacyDAMPOffsets(voice)
       for (const [dialId, value] of Object.entries(offsets)) {
         expect(value).toBeGreaterThanOrEqual(0)
         expect(value).toBeLessThanOrEqual(1)
@@ -483,10 +483,10 @@ describe("Sprint 4 — getLegacyDAPMOffsets()", () => {
   })
 
   it("non-specified dials are at 0.5 (neutral)", () => {
-    const offsets = getLegacyDAPMOffsets("analytical")
+    const offsets = getLegacyDAMPOffsets("analytical")
     // Dials NOT in the analytical offset map should be 0.5
     const specifiedDials = new Set(Object.keys(LEGACY_VOICE_OFFSETS.analytical))
-    for (const dialId of DAPM_DIAL_IDS) {
+    for (const dialId of DAMP_DIAL_IDS) {
       if (!specifiedDials.has(dialId)) {
         expect(offsets[dialId]).toBe(0.5)
       }
@@ -494,44 +494,44 @@ describe("Sprint 4 — getLegacyDAPMOffsets()", () => {
   })
 
   it("analytical: cs_formality is offset +0.3 from neutral", () => {
-    const offsets = getLegacyDAPMOffsets("analytical")
+    const offsets = getLegacyDAMPOffsets("analytical")
     expect(offsets.cs_formality).toBeCloseTo(0.8, 5)
   })
 
   it("analytical: cs_directness is offset +0.2 from neutral", () => {
-    const offsets = getLegacyDAPMOffsets("analytical")
+    const offsets = getLegacyDAMPOffsets("analytical")
     expect(offsets.cs_directness).toBeCloseTo(0.7, 5)
   })
 
   it("creative: cs_metaphor_density is offset +0.3 from neutral", () => {
-    const offsets = getLegacyDAPMOffsets("creative")
+    const offsets = getLegacyDAMPOffsets("creative")
     expect(offsets.cs_metaphor_density).toBeCloseTo(0.8, 5)
   })
 
   it("creative: cs_narrative_tendency is offset +0.3 from neutral", () => {
-    const offsets = getLegacyDAPMOffsets("creative")
+    const offsets = getLegacyDAMPOffsets("creative")
     expect(offsets.cs_narrative_tendency).toBeCloseTo(0.8, 5)
   })
 
   it("witty: cs_turn_taking is offset +0.4 from neutral", () => {
-    const offsets = getLegacyDAPMOffsets("witty")
+    const offsets = getLegacyDAMPOffsets("witty")
     expect(offsets.cs_turn_taking).toBeCloseTo(0.9, 5)
   })
 
   it("sage: et_mood_stability is offset +0.3 from neutral", () => {
-    const offsets = getLegacyDAPMOffsets("sage")
+    const offsets = getLegacyDAMPOffsets("sage")
     expect(offsets.et_mood_stability).toBeCloseTo(0.8, 5)
   })
 
   it("sage: et_empathic_resonance is offset +0.2 from neutral", () => {
-    const offsets = getLegacyDAPMOffsets("sage")
+    const offsets = getLegacyDAMPOffsets("sage")
     expect(offsets.et_empathic_resonance).toBeCloseTo(0.7, 5)
   })
 
-  it("all 96 DAPM_DIAL_IDS are present in output", () => {
+  it("all 96 DAMP_DIAL_IDS are present in output", () => {
     for (const voice of voices) {
-      const offsets = getLegacyDAPMOffsets(voice)
-      for (const dialId of DAPM_DIAL_IDS) {
+      const offsets = getLegacyDAMPOffsets(voice)
+      for (const dialId of DAMP_DIAL_IDS) {
         expect(offsets).toHaveProperty(dialId)
       }
     }

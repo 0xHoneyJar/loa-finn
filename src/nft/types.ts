@@ -3,7 +3,7 @@
 import type {
   CompatibilityMode,
   SignalSnapshot,
-  DAPMFingerprint,
+  DAMPFingerprint,
   DerivedVoiceProfile,
 } from "./signal-types.js"
 
@@ -57,7 +57,7 @@ export interface NFTPersonality {
   /** Full signal state — null when compatibility_mode is legacy_v1 */
   signals?: SignalSnapshot | null
   /** Derived 96-dial values — null when compatibility_mode is legacy_v1 */
-  dapm?: DAPMFingerprint | null
+  damp?: DAMPFingerprint | null
 
   // === NEW: Versioning ===
   /** Current version ID (ULID) */
@@ -100,7 +100,7 @@ export interface UpdatePersonalityRequest {
   /** When provided, triggers auto-upgrade from legacy_v1 → signal_v2 (irreversible) */
   signals?: SignalSnapshot
   /** Derived 96-dial fingerprint (optional, can be computed externally) */
-  dapm?: DAPMFingerprint
+  damp?: DAMPFingerprint
   /** Derived voice profile (optional, can be computed externally) */
   voice_profile?: DerivedVoiceProfile
   /** Wallet address performing the upgrade */
@@ -120,7 +120,7 @@ export interface PersonalityResponse {
   /** Full signal state — null for legacy_v1 personalities */
   signals: SignalSnapshot | null
   /** Derived 96-dial values — null for legacy_v1 personalities */
-  dapm: DAPMFingerprint | null
+  damp: DAMPFingerprint | null
   /** Emergent voice profile from signals — null for legacy_v1 personalities */
   voice_profile: DerivedVoiceProfile | null
   /** Compatibility mode: legacy_v1 or signal_v2 */
@@ -264,11 +264,11 @@ export function validateUpdateRequest(body: unknown): UpdatePersonalityRequest {
     }
     update.signals = b.signals as SignalSnapshot
   }
-  if (b.dapm !== undefined) {
-    if (typeof b.dapm !== "object" || b.dapm === null) {
-      throw new NFTPersonalityError("INVALID_REQUEST", "dapm must be a non-null object")
+  if (b.damp !== undefined) {
+    if (typeof b.damp !== "object" || b.damp === null) {
+      throw new NFTPersonalityError("INVALID_REQUEST", "damp must be a non-null object")
     }
-    update.dapm = b.dapm as DAPMFingerprint
+    update.damp = b.damp as DAMPFingerprint
   }
   if (b.voice_profile !== undefined) {
     if (typeof b.voice_profile !== "object" || b.voice_profile === null) {

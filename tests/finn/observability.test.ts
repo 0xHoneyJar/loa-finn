@@ -33,13 +33,13 @@ describe("IdentityLogger", () => {
     })
 
     it("should include required fields: timestamp, operation, personality_id", () => {
-      logger.log("dapm_derive", "col:99")
+      logger.log("damp_derive", "col:99")
 
       const parsed = JSON.parse(consoleSpy.mock.calls[0][0] as string)
 
       expect(parsed.timestamp).toBeDefined()
       expect(typeof parsed.timestamp).toBe("string")
-      expect(parsed.operation).toBe("dapm_derive")
+      expect(parsed.operation).toBe("damp_derive")
       expect(parsed.personality_id).toBe("col:99")
     })
 
@@ -79,7 +79,7 @@ describe("IdentityLogger", () => {
 
     it("should support all defined operation types", () => {
       const operations = [
-        "signal_build", "dapm_derive", "graph_resolve",
+        "signal_build", "damp_derive", "graph_resolve",
         "synthesis", "version_create", "ownership_check",
       ] as const
 
@@ -110,7 +110,7 @@ describe("IdentityLogger", () => {
     })
 
     it("should handle string errors", () => {
-      logger.logError("dapm_derive", "col:6", "something broke")
+      logger.logError("damp_derive", "col:6", "something broke")
 
       const parsed = JSON.parse(consoleSpy.mock.calls[0][0] as string)
 

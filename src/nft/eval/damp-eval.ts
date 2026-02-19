@@ -1,24 +1,24 @@
-// src/nft/eval/dapm-eval.ts — dAPM Behavioral Distinctiveness (Sprint 13 Task 13.1)
+// src/nft/eval/damp-eval.ts — dAMP Behavioral Distinctiveness (Sprint 13 Task 13.1)
 //
 // Compares response distributions between personality pairs across behavioral
-// dimensions derived from the 96-dial dAPM system. Uses Welch's t-test for
+// dimensions derived from the 96-dial dAMP system. Uses Welch's t-test for
 // statistical significance testing on text-extracted behavioral features.
 
 import type { EvalResponse } from "./harness.js"
-import type { DAPMFingerprint, DAPMDialId } from "../signal-types.js"
+import type { DAMPFingerprint, DAMPDialId } from "../signal-types.js"
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface DAPMEvalConfig {
-  /** Map personality_id -> DAPMFingerprint for comparison */
-  fingerprints: Map<string, DAPMFingerprint>
+export interface DAMPEvalConfig {
+  /** Map personality_id -> DAMPFingerprint for comparison */
+  fingerprints: Map<string, DAMPFingerprint>
   /** Minimum samples per personality for statistical significance */
   minSamplesPerPersonality?: number // default: 10
 }
 
-export interface DAPMDimensionResult {
+export interface DAMPDimensionResult {
   /** Dial category prefix (sw, cs, as, cg, ep, cr, cv, mo, et, sc, ag, id) */
   dimension: string
   mean_a: number
@@ -28,13 +28,13 @@ export interface DAPMDimensionResult {
   significant: boolean
 }
 
-export interface DAPMEvalResult {
+export interface DAMPEvalResult {
   total_pairs: number
   dimensions_with_significant_difference: number
   per_pair: Array<{
     personality_a: string
     personality_b: string
-    dimensions: DAPMDimensionResult[]
+    dimensions: DAMPDimensionResult[]
     significant_count: number
   }>
   /** Target met if >= 5 dimensions with significant difference */
@@ -42,15 +42,15 @@ export interface DAPMEvalResult {
 }
 
 // ---------------------------------------------------------------------------
-// DAPM Dimension Categories — the 12 category prefixes
+// DAMP Dimension Categories — the 12 category prefixes
 // ---------------------------------------------------------------------------
 
-/** The 12 behavioral dimension category prefixes from dAPM-96 */
-export const DAPM_DIMENSION_PREFIXES = [
+/** The 12 behavioral dimension category prefixes from dAMP-96 */
+export const DAMP_DIMENSION_PREFIXES = [
   "sw", "cs", "as", "cg", "ep", "cr", "cv", "mo", "et", "sc", "ag", "id",
 ] as const
 
-export type DAPMDimensionPrefix = typeof DAPM_DIMENSION_PREFIXES[number]
+export type DAMPDimensionPrefix = typeof DAMP_DIMENSION_PREFIXES[number]
 
 // ---------------------------------------------------------------------------
 // Welch's T-Test Implementation
@@ -299,13 +299,13 @@ function countSetMatches(tokens: string[], wordSet: Set<string>): number {
 }
 
 /**
- * Extract behavioral feature values for each DAPM dimension from response text.
+ * Extract behavioral feature values for each DAMP dimension from response text.
  * Returns a map from dimension prefix to a numeric feature value.
  *
  * These are simple heuristic proxies — they produce measurably different
  * distributions for different personality profiles, enabling statistical testing.
  */
-export function extractBehavioralFeatures(text: string): Record<DAPMDimensionPrefix, number> {
+export function extractBehavioralFeatures(text: string): Record<DAMPDimensionPrefix, number> {
   const tokens = tokenize(text)
   const wordCount = tokens.length || 1
   const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0)
@@ -395,22 +395,22 @@ export function extractBehavioralFeatures(text: string): Record<DAPMDimensionPre
 // ---------------------------------------------------------------------------
 
 /**
- * Run dAPM behavioral distinctiveness evaluation.
+ * Run dAMP behavioral distinctiveness evaluation.
  * Compares response distributions between personality pairs and checks
  * for statistical significance on behavioral dimensions.
  *
  * @param responses - Eval responses (must have personality_id and response_text)
- * @param config - DAPMEvalConfig with fingerprints and min samples
- * @returns DAPMEvalResult with per-pair dimensional analysis
+ * @param config - DAMPEvalConfig with fingerprints and min samples
+ * @returns DAMPEvalResult with per-pair dimensional analysis
  */
-export function scoreDAPMDistinctiveness(
+export function scoreDAMPDistinctiveness(
   responses: Array<{ personality_id: string; response_text: string }>,
-  config: DAPMEvalConfig,
-): DAPMEvalResult {
+  config: DAMPEvalConfig,
+): DAMPEvalResult {
   const minSamples = config.minSamplesPerPersonality ?? 10
 
   // Group responses by personality and extract features
-  const featuresByPersonality = new Map<string, Array<Record<DAPMDimensionPrefix, number>>>()
+  const featuresByPersonality = new Map<string, Array<Record<DAMPDimensionPrefix, number>>>()
 
   for (const r of responses) {
     if (!config.fingerprints.has(r.personality_id)) continue
@@ -430,7 +430,7 @@ export function scoreDAPMDistinctiveness(
   validPersonalities.sort()
 
   // Compare all pairs
-  const perPair: DAPMEvalResult["per_pair"] = []
+  const perPair: DAMPEvalResult["per_pair"] = []
   let maxSignificantDimensions = 0
 
   for (let i = 0; i < validPersonalities.length; i++) {
@@ -440,10 +440,10 @@ export function scoreDAPMDistinctiveness(
       const featuresA = featuresByPersonality.get(pidA)!
       const featuresB = featuresByPersonality.get(pidB)!
 
-      const dimensions: DAPMDimensionResult[] = []
+      const dimensions: DAMPDimensionResult[] = []
       let significantCount = 0
 
-      for (const dim of DAPM_DIMENSION_PREFIXES) {
+      for (const dim of DAMP_DIMENSION_PREFIXES) {
         const valuesA = featuresA.map(f => f[dim])
         const valuesB = featuresB.map(f => f[dim])
 

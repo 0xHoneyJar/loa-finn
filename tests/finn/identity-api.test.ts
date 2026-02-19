@@ -6,8 +6,8 @@ import { PersonalityService, registerIdentityReadRoutes } from "../../src/nft/pe
 import type { PersonalityServiceDeps, IdentityReadDeps } from "../../src/nft/personality.js"
 import type { RedisCommandClient } from "../../src/hounfour/redis/client.js"
 import type { NFTPersonality } from "../../src/nft/types.js"
-import type { SignalSnapshot, DAPMFingerprint, DAPMDialId } from "../../src/nft/signal-types.js"
-import { DAPM_DIAL_IDS } from "../../src/nft/signal-types.js"
+import type { SignalSnapshot, DAMPFingerprint, DAMPDialId } from "../../src/nft/signal-types.js"
+import { DAMP_DIAL_IDS } from "../../src/nft/signal-types.js"
 
 // ---------------------------------------------------------------------------
 // Mock Redis (minimal key-value)
@@ -51,13 +51,13 @@ vi.mock("../../src/nft/beauvoir-template.js", () => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Mock deriveDAPM (avoids loading codex data files from filesystem)
+// Mock deriveDAMP (avoids loading codex data files from filesystem)
 // ---------------------------------------------------------------------------
 
-const mockDeriveDAPM = vi.fn()
+const mockDeriveDAMP = vi.fn()
 
-vi.mock("../../src/nft/dapm.js", () => ({
-  deriveDAPM: (...args: unknown[]) => mockDeriveDAPM(...args),
+vi.mock("../../src/nft/damp.js", () => ({
+  deriveDAMP: (...args: unknown[]) => mockDeriveDAMP(...args),
   resolveAncestorFamily: () => "hellenic",
   normalizeSwag: () => 0.5,
   deriveAstrologyBlend: () => 0.5,
@@ -89,9 +89,9 @@ vi.mock("../../src/nft/identity-graph.js", () => ({
 // Test Fixtures
 // ---------------------------------------------------------------------------
 
-function makeDials(value = 0.5): Record<DAPMDialId, number> {
-  const dials = {} as Record<DAPMDialId, number>
-  for (const id of DAPM_DIAL_IDS) dials[id] = value
+function makeDials(value = 0.5): Record<DAMPDialId, number> {
+  const dials = {} as Record<DAMPDialId, number>
+  for (const id of DAMP_DIAL_IDS) dials[id] = value
   return dials
 }
 
@@ -112,10 +112,10 @@ function makeSignalSnapshot(): SignalSnapshot {
   }
 }
 
-function makeDAPMFingerprint(mode = "default"): DAPMFingerprint {
+function makeDAMPFingerprint(mode = "default"): DAMPFingerprint {
   return {
     dials: makeDials(0.55),
-    mode: mode as DAPMFingerprint["mode"],
+    mode: mode as DAMPFingerprint["mode"],
     derived_from: "test-sha",
     derived_at: Date.now(),
   }
@@ -133,7 +133,7 @@ function makeLegacyPersonality(): NFTPersonality {
     updated_at: Date.now(),
     compatibility_mode: "legacy_v1",
     signals: null,
-    dapm: null,
+    damp: null,
     governance_model: "holder",
   }
 }
@@ -150,7 +150,7 @@ function makeSignalV2Personality(): NFTPersonality {
     updated_at: Date.now(),
     compatibility_mode: "signal_v2",
     signals: makeSignalSnapshot(),
-    dapm: makeDAPMFingerprint(),
+    damp: makeDAMPFingerprint(),
     governance_model: "holder",
   }
 }
@@ -224,7 +224,7 @@ describe("Identity Read API — GET /identity-graph", () => {
   beforeEach(() => {
     mockGraphLoad.mockReset()
     mockExtractSubgraph.mockReset()
-    mockDeriveDAPM.mockReset()
+    mockDeriveDAMP.mockReset()
   })
 
   it("returns 404 for non-existent personality", async () => {
@@ -377,70 +377,70 @@ describe("Identity Read API — GET /signals", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Tests: dAPM Endpoint
+// Tests: dAMP Endpoint
 // ---------------------------------------------------------------------------
 
-describe("Identity Read API — GET /dapm", () => {
+describe("Identity Read API — GET /damp", () => {
   beforeEach(() => {
-    mockDeriveDAPM.mockReset()
+    mockDeriveDAMP.mockReset()
   })
 
   it("returns 404 for non-existent personality", async () => {
     const { app } = createTestApp()
 
-    const res = await app.request("/testcol/999/dapm")
+    const res = await app.request("/testcol/999/damp")
     expect(res.status).toBe(404)
 
     const body = await res.json() as Record<string, unknown>
     expect(body.code).toBe("PERSONALITY_NOT_FOUND")
   })
 
-  it("returns null dapm for legacy_v1 personality", async () => {
+  it("returns null damp for legacy_v1 personality", async () => {
     const { app, redis } = createTestApp()
     seedPersonality(redis, makeLegacyPersonality())
 
-    const res = await app.request("/testcol/1/dapm")
+    const res = await app.request("/testcol/1/damp")
     expect(res.status).toBe(200)
 
     const body = await res.json() as Record<string, unknown>
-    expect(body.dapm).toBeNull()
+    expect(body.damp).toBeNull()
   })
 
-  it("returns DAPMFingerprint for signal_v2 personality", async () => {
+  it("returns DAMPFingerprint for signal_v2 personality", async () => {
     const { app, redis } = createTestApp()
     seedPersonality(redis, makeSignalV2Personality())
 
-    const res = await app.request("/testcol/2/dapm")
+    const res = await app.request("/testcol/2/damp")
     expect(res.status).toBe(200)
 
     const body = await res.json() as Record<string, unknown>
-    const dapm = body.dapm as Record<string, unknown>
+    const damp = body.damp as Record<string, unknown>
 
-    expect(dapm).not.toBeNull()
-    expect(dapm.mode).toBe("default")
-    expect(dapm.dials).toBeDefined()
-    expect(dapm.derived_from).toBe("test-sha")
+    expect(damp).not.toBeNull()
+    expect(damp.mode).toBe("default")
+    expect(damp.dials).toBeDefined()
+    expect(damp.derived_from).toBe("test-sha")
   })
 
   it("returns default fingerprint with no mode query", async () => {
     const { app, redis } = createTestApp()
     seedPersonality(redis, makeSignalV2Personality())
 
-    const res = await app.request("/testcol/2/dapm")
+    const res = await app.request("/testcol/2/damp")
     expect(res.status).toBe(200)
 
     const body = await res.json() as Record<string, unknown>
-    const dapm = body.dapm as Record<string, unknown>
+    const damp = body.damp as Record<string, unknown>
 
     // Should return stored fingerprint (mode: "default")
-    expect(dapm.mode).toBe("default")
+    expect(damp.mode).toBe("default")
   })
 
   it("returns 400 MODE_INVALID for invalid mode", async () => {
     const { app, redis } = createTestApp()
     seedPersonality(redis, makeSignalV2Personality())
 
-    const res = await app.request("/testcol/2/dapm?mode=invalid")
+    const res = await app.request("/testcol/2/damp?mode=invalid")
     expect(res.status).toBe(400)
 
     const body = await res.json() as Record<string, unknown>
@@ -451,17 +451,17 @@ describe("Identity Read API — GET /dapm", () => {
     const { app, redis } = createTestApp()
     seedPersonality(redis, makeSignalV2Personality())
 
-    const brainstormFingerprint = makeDAPMFingerprint("brainstorm")
-    mockDeriveDAPM.mockReturnValue(brainstormFingerprint)
+    const brainstormFingerprint = makeDAMPFingerprint("brainstorm")
+    mockDeriveDAMP.mockReturnValue(brainstormFingerprint)
 
-    const res = await app.request("/testcol/2/dapm?mode=brainstorm")
+    const res = await app.request("/testcol/2/damp?mode=brainstorm")
     expect(res.status).toBe(200)
 
     const body = await res.json() as Record<string, unknown>
-    const dapm = body.dapm as Record<string, unknown>
+    const damp = body.damp as Record<string, unknown>
 
-    expect(dapm.mode).toBe("brainstorm")
-    expect(mockDeriveDAPM).toHaveBeenCalledWith(
+    expect(damp.mode).toBe("brainstorm")
+    expect(mockDeriveDAMP).toHaveBeenCalledWith(
       expect.objectContaining({ archetype: "freetekno" }),
       "brainstorm",
     )
@@ -471,17 +471,17 @@ describe("Identity Read API — GET /dapm", () => {
     const { app, redis } = createTestApp()
     seedPersonality(redis, makeSignalV2Personality())
 
-    const critiqueFingerprint = makeDAPMFingerprint("critique")
-    mockDeriveDAPM.mockReturnValue(critiqueFingerprint)
+    const critiqueFingerprint = makeDAMPFingerprint("critique")
+    mockDeriveDAMP.mockReturnValue(critiqueFingerprint)
 
-    const res = await app.request("/testcol/2/dapm?mode=critique")
+    const res = await app.request("/testcol/2/damp?mode=critique")
     expect(res.status).toBe(200)
 
     const body = await res.json() as Record<string, unknown>
-    const dapm = body.dapm as Record<string, unknown>
+    const damp = body.damp as Record<string, unknown>
 
-    expect(dapm.mode).toBe("critique")
-    expect(mockDeriveDAPM).toHaveBeenCalledWith(
+    expect(damp.mode).toBe("critique")
+    expect(mockDeriveDAMP).toHaveBeenCalledWith(
       expect.objectContaining({ archetype: "freetekno" }),
       "critique",
     )
@@ -491,17 +491,17 @@ describe("Identity Read API — GET /dapm", () => {
     const { app, redis } = createTestApp()
     seedPersonality(redis, makeSignalV2Personality())
 
-    const executeFingerprint = makeDAPMFingerprint("execute")
-    mockDeriveDAPM.mockReturnValue(executeFingerprint)
+    const executeFingerprint = makeDAMPFingerprint("execute")
+    mockDeriveDAMP.mockReturnValue(executeFingerprint)
 
-    const res = await app.request("/testcol/2/dapm?mode=execute")
+    const res = await app.request("/testcol/2/damp?mode=execute")
     expect(res.status).toBe(200)
 
     const body = await res.json() as Record<string, unknown>
-    const dapm = body.dapm as Record<string, unknown>
+    const damp = body.damp as Record<string, unknown>
 
-    expect(dapm.mode).toBe("execute")
-    expect(mockDeriveDAPM).toHaveBeenCalledWith(
+    expect(damp.mode).toBe("execute")
+    expect(mockDeriveDAMP).toHaveBeenCalledWith(
       expect.objectContaining({ archetype: "freetekno" }),
       "execute",
     )
@@ -511,38 +511,38 @@ describe("Identity Read API — GET /dapm", () => {
     const { app, redis } = createTestApp()
     seedPersonality(redis, makeSignalV2Personality())
 
-    const defaultFingerprint = makeDAPMFingerprint("default")
-    mockDeriveDAPM.mockReturnValue(defaultFingerprint)
+    const defaultFingerprint = makeDAMPFingerprint("default")
+    mockDeriveDAMP.mockReturnValue(defaultFingerprint)
 
-    const res = await app.request("/testcol/2/dapm?mode=default")
+    const res = await app.request("/testcol/2/damp?mode=default")
     expect(res.status).toBe(200)
 
     const body = await res.json() as Record<string, unknown>
-    const dapm = body.dapm as Record<string, unknown>
+    const damp = body.damp as Record<string, unknown>
 
-    expect(dapm.mode).toBe("default")
+    expect(damp.mode).toBe("default")
   })
 
   it("derives with default mode when no stored fingerprint and no mode param", async () => {
     const { app, redis } = createTestApp()
 
-    // Create a signal_v2 personality WITHOUT a stored dapm fingerprint
+    // Create a signal_v2 personality WITHOUT a stored damp fingerprint
     const personality = makeSignalV2Personality()
-    personality.dapm = null
+    personality.damp = null
     seedPersonality(redis, personality)
 
-    const defaultFingerprint = makeDAPMFingerprint("default")
-    mockDeriveDAPM.mockReturnValue(defaultFingerprint)
+    const defaultFingerprint = makeDAMPFingerprint("default")
+    mockDeriveDAMP.mockReturnValue(defaultFingerprint)
 
-    const res = await app.request("/testcol/2/dapm")
+    const res = await app.request("/testcol/2/damp")
     expect(res.status).toBe(200)
 
     const body = await res.json() as Record<string, unknown>
-    const dapm = body.dapm as Record<string, unknown>
+    const damp = body.damp as Record<string, unknown>
 
-    expect(dapm).not.toBeNull()
-    expect(dapm.mode).toBe("default")
-    expect(mockDeriveDAPM).toHaveBeenCalledWith(
+    expect(damp).not.toBeNull()
+    expect(damp.mode).toBe("default")
+    expect(mockDeriveDAMP).toHaveBeenCalledWith(
       expect.objectContaining({ archetype: "freetekno" }),
       "default",
     )
@@ -565,8 +565,8 @@ describe("Identity Read API — Route Registration", () => {
     const signalsRes = await app.request("/testcol/1/signals")
     expect(signalsRes.status).toBe(200)
 
-    const dapmRes = await app.request("/testcol/1/dapm")
-    expect(dapmRes.status).toBe(200)
+    const dampRes = await app.request("/testcol/1/damp")
+    expect(dampRes.status).toBe(200)
   })
 
   it("unregistered routes return 404", async () => {

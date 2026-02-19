@@ -1,27 +1,27 @@
-// tests/finn/dapm.test.ts — dAPM-96 Derivation Test Suite (Sprint 7 Task 7.6)
+// tests/finn/damp.test.ts — dAMP-96 Derivation Test Suite (Sprint 7 Task 7.6)
 
 import { describe, it, expect, beforeEach } from "vitest"
 import * as fc from "fast-check"
 import {
-  deriveDAPM,
+  deriveDAMP,
   resolveAncestorFamily,
   normalizeSwag,
   deriveAstrologyBlend,
   ANCESTOR_TO_FAMILY,
   ANCESTOR_FAMILIES,
-} from "../../src/nft/dapm.js"
-import type { AncestorFamily } from "../../src/nft/dapm.js"
+} from "../../src/nft/damp.js"
+import type { AncestorFamily } from "../../src/nft/damp.js"
 import {
-  getDAPMTables,
-  resetDAPMTablesCache,
-} from "../../src/nft/dapm-tables.js"
+  getDAMPTables,
+  resetDAMPTablesCache,
+} from "../../src/nft/damp-tables.js"
 import { clearArtifactCache, loadArtifact } from "../../src/nft/codex-data/loader.js"
 import { computeSha256 } from "../../src/nft/codex-data/checksums.js"
 import { readFileSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
-  DAPM_DIAL_IDS,
+  DAMP_DIAL_IDS,
   SWAG_RANK_VALUES,
   ZODIAC_SIGNS,
   ARCHETYPES,
@@ -29,7 +29,7 @@ import {
 import type {
   SignalSnapshot,
   AgentMode,
-  DAPMDialId,
+  DAMPDialId,
   SwagRank,
   ZodiacSign,
   Archetype,
@@ -95,14 +95,14 @@ const arbSnapshot: fc.Arbitrary<SignalSnapshot> = fc.record({
 // Table Completeness & Integrity
 // ---------------------------------------------------------------------------
 
-describe("dAPM Tables (Task 7.2)", () => {
+describe("dAMP Tables (Task 7.2)", () => {
   beforeEach(() => {
     clearArtifactCache()
-    resetDAPMTablesCache()
+    resetDAMPTablesCache()
   })
 
-  it("loads dapm-tables.json without error", () => {
-    const tables = getDAPMTables()
+  it("loads damp-tables.json without error", () => {
+    const tables = getDAMPTables()
     expect(tables).toBeDefined()
     expect(tables.archetype_offsets).toBeDefined()
     expect(tables.ancestor_family_offsets).toBeDefined()
@@ -115,19 +115,19 @@ describe("dAPM Tables (Task 7.2)", () => {
   })
 
   it("archetype_offsets has all 4 archetypes × 96 dials", () => {
-    const tables = getDAPMTables()
+    const tables = getDAMPTables()
     for (const arch of ["freetekno", "milady", "chicago_detroit", "acidhouse"]) {
       const row = tables.archetype_offsets[arch]
       expect(row, `missing archetype: ${arch}`).toBeDefined()
       expect(Object.keys(row).length).toBe(96)
-      for (const dialId of DAPM_DIAL_IDS) {
+      for (const dialId of DAMP_DIAL_IDS) {
         expect(typeof row[dialId]).toBe("number")
       }
     }
   })
 
   it("ancestor_family_offsets has all 8 families × 96 dials", () => {
-    const tables = getDAPMTables()
+    const tables = getDAMPTables()
     for (const family of ANCESTOR_FAMILIES) {
       const row = tables.ancestor_family_offsets[family]
       expect(row, `missing family: ${family}`).toBeDefined()
@@ -136,7 +136,7 @@ describe("dAPM Tables (Task 7.2)", () => {
   })
 
   it("era_offsets has all 5 eras × 96 dials", () => {
-    const tables = getDAPMTables()
+    const tables = getDAMPTables()
     for (const era of ["ancient", "medieval", "early_modern", "modern", "contemporary"]) {
       const row = tables.era_offsets[era]
       expect(row, `missing era: ${era}`).toBeDefined()
@@ -145,7 +145,7 @@ describe("dAPM Tables (Task 7.2)", () => {
   })
 
   it("element_offsets has all 4 elements × 96 dials", () => {
-    const tables = getDAPMTables()
+    const tables = getDAMPTables()
     for (const elem of ["fire", "water", "air", "earth"]) {
       const row = tables.element_offsets[elem]
       expect(row, `missing element: ${elem}`).toBeDefined()
@@ -154,7 +154,7 @@ describe("dAPM Tables (Task 7.2)", () => {
   })
 
   it("tarot_suit_scales has all 5 suits × 96 dials", () => {
-    const tables = getDAPMTables()
+    const tables = getDAMPTables()
     for (const suit of ["wands", "cups", "swords", "pentacles", "major"]) {
       const row = tables.tarot_suit_scales[suit]
       expect(row, `missing suit: ${suit}`).toBeDefined()
@@ -163,24 +163,24 @@ describe("dAPM Tables (Task 7.2)", () => {
   })
 
   it("swag_dial_scales has all 96 dials", () => {
-    const tables = getDAPMTables()
+    const tables = getDAMPTables()
     expect(Object.keys(tables.swag_dial_scales).length).toBe(96)
   })
 
   it("astrology_dial_offsets has all 96 dials", () => {
-    const tables = getDAPMTables()
+    const tables = getDAMPTables()
     expect(Object.keys(tables.astrology_dial_offsets).length).toBe(96)
   })
 
   it("mode_deltas has all 4 modes", () => {
-    const tables = getDAPMTables()
+    const tables = getDAMPTables()
     for (const mode of ["brainstorm", "critique", "execute", "default"]) {
       expect(tables.mode_deltas[mode]).toBeDefined()
     }
   })
 
   it("all offset values are within [-0.5, +0.5] range", () => {
-    const tables = getDAPMTables()
+    const tables = getDAMPTables()
     const checkRange = (obj: Record<string, unknown>, path: string) => {
       for (const [k, v] of Object.entries(obj)) {
         if (typeof v === "number") {
@@ -194,16 +194,16 @@ describe("dAPM Tables (Task 7.2)", () => {
     checkRange(tables as unknown as Record<string, unknown>, "tables")
   })
 
-  it("checksum of dapm-tables.json matches .sha256 file", () => {
-    const jsonPath = resolve(CODEX_DATA_DIR, "dapm-tables.json")
-    const sha256Path = resolve(CODEX_DATA_DIR, "dapm-tables.json.sha256")
+  it("checksum of damp-tables.json matches .sha256 file", () => {
+    const jsonPath = resolve(CODEX_DATA_DIR, "damp-tables.json")
+    const sha256Path = resolve(CODEX_DATA_DIR, "damp-tables.json.sha256")
     const expectedHash = readFileSync(sha256Path, "utf-8").trim().toLowerCase()
     const actualHash = computeSha256(jsonPath)
     expect(actualHash).toBe(expectedHash)
   })
 
-  it("codex loader validates dapm-tables artifact", () => {
-    const artifact = loadArtifact("dapm-tables")
+  it("codex loader validates damp-tables artifact", () => {
+    const artifact = loadArtifact("damp-tables")
     expect(artifact.valid).toBe(true)
     expect(artifact.data).toBeDefined()
   })
@@ -213,23 +213,23 @@ describe("dAPM Tables (Task 7.2)", () => {
 // Composition Function (Task 7.1)
 // ---------------------------------------------------------------------------
 
-describe("deriveDAPM (Task 7.1)", () => {
+describe("deriveDAMP (Task 7.1)", () => {
   beforeEach(() => {
     clearArtifactCache()
-    resetDAPMTablesCache()
+    resetDAMPTablesCache()
   })
 
   it("returns all 96 dials", () => {
-    const fp = deriveDAPM(makeSnapshot(), "default")
+    const fp = deriveDAMP(makeSnapshot(), "default")
     expect(Object.keys(fp.dials).length).toBe(96)
-    for (const dialId of DAPM_DIAL_IDS) {
+    for (const dialId of DAMP_DIAL_IDS) {
       expect(typeof fp.dials[dialId]).toBe("number")
     }
   })
 
   it("all dials in [0.0, 1.0] for a basic snapshot", () => {
-    const fp = deriveDAPM(makeSnapshot(), "default")
-    for (const dialId of DAPM_DIAL_IDS) {
+    const fp = deriveDAMP(makeSnapshot(), "default")
+    for (const dialId of DAMP_DIAL_IDS) {
       const val = fp.dials[dialId]
       expect(val, `${dialId} = ${val}`).toBeGreaterThanOrEqual(0.0)
       expect(val, `${dialId} = ${val}`).toBeLessThanOrEqual(1.0)
@@ -238,15 +238,15 @@ describe("deriveDAPM (Task 7.1)", () => {
 
   it("is deterministic: same inputs produce same dials", () => {
     const snap = makeSnapshot()
-    const fp1 = deriveDAPM(snap, "default")
-    const fp2 = deriveDAPM(snap, "default")
-    for (const dialId of DAPM_DIAL_IDS) {
+    const fp1 = deriveDAMP(snap, "default")
+    const fp2 = deriveDAMP(snap, "default")
+    for (const dialId of DAMP_DIAL_IDS) {
       expect(fp1.dials[dialId]).toBe(fp2.dials[dialId])
     }
   })
 
   it("populates mode and derived_from fields", () => {
-    const fp = deriveDAPM(makeSnapshot(), "brainstorm")
+    const fp = deriveDAMP(makeSnapshot(), "brainstorm")
     expect(fp.mode).toBe("brainstorm")
     expect(typeof fp.derived_from).toBe("string")
     expect(fp.derived_from.length).toBeGreaterThan(0)
@@ -257,10 +257,10 @@ describe("deriveDAPM (Task 7.1)", () => {
     const archetypes: Archetype[] = ["freetekno", "milady", "chicago_detroit", "acidhouse"]
     for (let i = 0; i < archetypes.length; i++) {
       for (let j = i + 1; j < archetypes.length; j++) {
-        const fp1 = deriveDAPM(makeSnapshot({ archetype: archetypes[i] }), "default")
-        const fp2 = deriveDAPM(makeSnapshot({ archetype: archetypes[j] }), "default")
+        const fp1 = deriveDAMP(makeSnapshot({ archetype: archetypes[i] }), "default")
+        const fp2 = deriveDAMP(makeSnapshot({ archetype: archetypes[j] }), "default")
         let differCount = 0
-        for (const dialId of DAPM_DIAL_IDS) {
+        for (const dialId of DAMP_DIAL_IDS) {
           if (Math.abs(fp1.dials[dialId] - fp2.dials[dialId]) > 0.001) {
             differCount++
           }
@@ -275,14 +275,14 @@ describe("deriveDAPM (Task 7.1)", () => {
 
   it("different modes produce different fingerprints", () => {
     const snap = makeSnapshot()
-    const fpDefault = deriveDAPM(snap, "default")
-    const fpBrainstorm = deriveDAPM(snap, "brainstorm")
-    const fpCritique = deriveDAPM(snap, "critique")
-    const fpExecute = deriveDAPM(snap, "execute")
+    const fpDefault = deriveDAMP(snap, "default")
+    const fpBrainstorm = deriveDAMP(snap, "brainstorm")
+    const fpCritique = deriveDAMP(snap, "critique")
+    const fpExecute = deriveDAMP(snap, "execute")
 
     // brainstorm should differ from default on creativity dials
     let brainstormDiff = 0
-    for (const dialId of DAPM_DIAL_IDS) {
+    for (const dialId of DAMP_DIAL_IDS) {
       if (Math.abs(fpDefault.dials[dialId] - fpBrainstorm.dials[dialId]) > 0.001) {
         brainstormDiff++
       }
@@ -291,7 +291,7 @@ describe("deriveDAPM (Task 7.1)", () => {
 
     // critique should differ from default
     let critiqueDiff = 0
-    for (const dialId of DAPM_DIAL_IDS) {
+    for (const dialId of DAMP_DIAL_IDS) {
       if (Math.abs(fpDefault.dials[dialId] - fpCritique.dials[dialId]) > 0.001) {
         critiqueDiff++
       }
@@ -300,7 +300,7 @@ describe("deriveDAPM (Task 7.1)", () => {
 
     // execute should differ from default
     let executeDiff = 0
-    for (const dialId of DAPM_DIAL_IDS) {
+    for (const dialId of DAMP_DIAL_IDS) {
       if (Math.abs(fpDefault.dials[dialId] - fpExecute.dials[dialId]) > 0.001) {
         executeDiff++
       }
@@ -312,8 +312,8 @@ describe("deriveDAPM (Task 7.1)", () => {
   it("property: all dials in [0.0, 1.0] for random inputs", () => {
     fc.assert(
       fc.property(arbSnapshot, arbMode, (snap, mode) => {
-        const fp = deriveDAPM(snap, mode)
-        for (const dialId of DAPM_DIAL_IDS) {
+        const fp = deriveDAMP(snap, mode)
+        for (const dialId of DAMP_DIAL_IDS) {
           const val = fp.dials[dialId]
           if (val < 0.0 || val > 1.0) {
             return false
@@ -328,9 +328,9 @@ describe("deriveDAPM (Task 7.1)", () => {
   it("property: deterministic for same input", () => {
     fc.assert(
       fc.property(arbSnapshot, arbMode, (snap, mode) => {
-        const fp1 = deriveDAPM(snap, mode)
-        const fp2 = deriveDAPM(snap, mode)
-        for (const dialId of DAPM_DIAL_IDS) {
+        const fp1 = deriveDAMP(snap, mode)
+        const fp2 = deriveDAMP(snap, mode)
+        for (const dialId of DAMP_DIAL_IDS) {
           if (fp1.dials[dialId] !== fp2.dials[dialId]) return false
         }
         return true

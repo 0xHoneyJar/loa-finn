@@ -7,7 +7,7 @@ import type { DistinctivenessResult } from "../../../src/nft/eval/distinctivenes
 import type { FidelityResult } from "../../../src/nft/eval/fidelity.js"
 import type { ANBatchResult } from "../../../src/nft/eval/anti-narration-eval.js"
 import type { TemporalResult } from "../../../src/nft/eval/temporal-eval.js"
-import type { DAPMEvalResult } from "../../../src/nft/eval/dapm-eval.js"
+import type { DAMPEvalResult } from "../../../src/nft/eval/damp-eval.js"
 
 // ---------------------------------------------------------------------------
 // Test Data Factories
@@ -65,7 +65,7 @@ function makeTemporalResult(overrides?: Partial<TemporalResult>): TemporalResult
   }
 }
 
-function makeDAPMEvalResult(overrides?: Partial<DAPMEvalResult>): DAPMEvalResult {
+function makeDAMPEvalResult(overrides?: Partial<DAMPEvalResult>): DAMPEvalResult {
   return {
     total_pairs: 1,
     dimensions_with_significant_difference: 7,
@@ -107,7 +107,7 @@ describe("buildScorecards", () => {
       makeFidelityResult(),
       makeANBatchResult(),
       makeTemporalResult(),
-      makeDAPMEvalResult(),
+      makeDAMPEvalResult(),
       "test-model-v1",
     )
 
@@ -121,7 +121,7 @@ describe("buildScorecards", () => {
       expect(typeof card.signal_fidelity_score).toBe("number")
       expect(typeof card.anti_narration_violations).toBe("number")
       expect(typeof card.temporal_consistency_score).toBe("number")
-      expect(typeof card.dapm_behavioral_score).toBe("number")
+      expect(typeof card.damp_behavioral_score).toBe("number")
       expect(typeof card.overall_pass).toBe("boolean")
       expect(card.eval_model).toBe("test-model-v1")
       expect(typeof card.evaluated_at).toBe("number")
@@ -135,7 +135,7 @@ describe("buildScorecards", () => {
       makeFidelityResult({ overall_accuracy: 0.9 }),
       makeANBatchResult({ total_violations: 0, violations: [] }),
       makeTemporalResult({ compliance_rate: 0.85 }),
-      makeDAPMEvalResult({ dimensions_with_significant_difference: 7 }),
+      makeDAMPEvalResult({ dimensions_with_significant_difference: 7 }),
       "test-model",
     )
 
@@ -145,7 +145,7 @@ describe("buildScorecards", () => {
       expect(card.signal_fidelity_score).toBeGreaterThanOrEqual(0.8)
       expect(card.anti_narration_violations).toBe(0)
       expect(card.temporal_consistency_score).toBeGreaterThanOrEqual(0.75)
-      expect(card.dapm_behavioral_score).toBeGreaterThanOrEqual(5)
+      expect(card.damp_behavioral_score).toBeGreaterThanOrEqual(5)
       expect(card.overall_pass).toBe(true)
     }
   })
@@ -160,7 +160,7 @@ describe("buildScorecards", () => {
       makeFidelityResult(),
       makeANBatchResult(),
       makeTemporalResult(),
-      makeDAPMEvalResult(),
+      makeDAMPEvalResult(),
       "test-model",
     )
 
@@ -185,7 +185,7 @@ describe("buildScorecards", () => {
         ],
       }),
       makeTemporalResult(),
-      makeDAPMEvalResult(),
+      makeDAMPEvalResult(),
       "test-model",
     )
 
@@ -205,7 +205,7 @@ describe("buildScorecards", () => {
       makeFidelityResult(),
       makeANBatchResult(),
       makeTemporalResult(),
-      makeDAPMEvalResult(),
+      makeDAMPEvalResult(),
       "test-model",
     )
 
@@ -218,7 +218,7 @@ describe("buildScorecards", () => {
     expect(typeof result.summary.mean_fidelity).toBe("number")
     expect(typeof result.summary.total_an_violations).toBe("number")
     expect(typeof result.summary.mean_temporal_consistency).toBe("number")
-    expect(typeof result.summary.mean_dapm_dimensions).toBe("number")
+    expect(typeof result.summary.mean_damp_dimensions).toBe("number")
 
     // With default test data: all pass
     // 2 personalities, both should pass with default data
@@ -232,7 +232,7 @@ describe("buildScorecards", () => {
       makeFidelityResult(),
       makeANBatchResult(),
       makeTemporalResult(),
-      makeDAPMEvalResult(),
+      makeDAMPEvalResult(),
       "test-model",
     )
 
@@ -257,7 +257,7 @@ describe("buildScorecards", () => {
       makeFidelityResult(),
       makeANBatchResult(),
       makeTemporalResult(),
-      makeDAPMEvalResult({ per_pair: [], total_pairs: 0 }),
+      makeDAMPEvalResult({ per_pair: [], total_pairs: 0 }),
       "test-model",
     )
 
@@ -275,7 +275,7 @@ describe("buildScorecards", () => {
       makeFidelityResult(),
       makeANBatchResult({ total_violations: 0, violations: [] }),
       makeTemporalResult(),
-      makeDAPMEvalResult({ per_pair: [], total_pairs: 0 }),
+      makeDAMPEvalResult({ per_pair: [], total_pairs: 0 }),
       "test-model",
     )
 
@@ -296,7 +296,7 @@ describe("buildScorecards", () => {
       makeFidelityResult(),
       makeANBatchResult(),
       makeTemporalResult(),
-      makeDAPMEvalResult(),
+      makeDAMPEvalResult(),
       "test-model",
     )
 
@@ -316,7 +316,7 @@ describe("buildScorecards", () => {
       makeFidelityResult(),
       makeANBatchResult(),
       makeTemporalResult(),
-      makeDAPMEvalResult({ per_pair: [], total_pairs: 0 }),
+      makeDAMPEvalResult({ per_pair: [], total_pairs: 0 }),
       "gpt-4o-mini",
     )
     const after = Date.now()

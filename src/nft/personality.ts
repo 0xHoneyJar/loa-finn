@@ -13,20 +13,20 @@ import {
   type PersonalityResponse,
   NFTPersonalityError,
 } from "./types.js"
-import type { CompatibilityMode, AgentMode, DAPMFingerprint, SignalSnapshot } from "./signal-types.js"
+import type { CompatibilityMode, AgentMode, DAMPFingerprint, SignalSnapshot } from "./signal-types.js"
 import type { PersonalityVersionService } from "./personality-version.js"
-import { deriveDAPM } from "./dapm.js"
+import { deriveDAMP } from "./damp.js"
 import { loadCodexVersion } from "./codex-data/loader.js"
 
 // ---------------------------------------------------------------------------
-// dAPM Mode Cache Constants (Sprint 8 Task 8.3)
+// dAMP Mode Cache Constants (Sprint 8 Task 8.3)
 // ---------------------------------------------------------------------------
 
 /** All agent modes for cache key iteration */
 const AGENT_MODES: AgentMode[] = ["default", "brainstorm", "critique", "execute"]
 
 /** Cache TTL in seconds (1 hour) */
-const DAPM_CACHE_TTL_SECONDS = 3600
+const DAMP_CACHE_TTL_SECONDS = 3600
 
 // ---------------------------------------------------------------------------
 // Dependencies
@@ -94,15 +94,15 @@ export class PersonalityService {
       compatibility_mode: compatibilityMode,
     }
 
-    // Sprint 11 Task 11.1: Derive dAPM fingerprint for signal_v2 personalities
+    // Sprint 11 Task 11.1: Derive dAMP fingerprint for signal_v2 personalities
     if (compatibilityMode === "signal_v2") {
       const signals = (req as Record<string, unknown>).signals as SignalSnapshot
       try {
-        const fingerprint = deriveDAPM(signals, "default")
-        personality.dapm = fingerprint
+        const fingerprint = deriveDAMP(signals, "default")
+        personality.damp = fingerprint
       } catch {
-        // dAPM derivation failure is non-fatal — personality still created without fingerprint
-        this.writeAudit("dapm_derivation_error", id, {
+        // dAMP derivation failure is non-fatal — personality still created without fingerprint
+        this.writeAudit("damp_derivation_error", id, {
           phase: "create",
         })
       }
@@ -117,7 +117,7 @@ export class PersonalityService {
         const version = await this.versionService.createVersion(id, {
           beauvoir_md: beauvoirMd,
           signals: (req as Record<string, unknown>).signals as NFTPersonality["signals"] ?? null,
-          dapm: (req as Record<string, unknown>).dapm as NFTPersonality["dapm"] ?? null,
+          damp: (req as Record<string, unknown>).damp as NFTPersonality["damp"] ?? null,
           authored_by: (req as Record<string, unknown>).authored_by as string ?? "system",
         })
         personality.version_id = version.version_id
@@ -220,17 +220,17 @@ export class PersonalityService {
     // Only triggers on explicit write with signal data — no silent migration.
     if (req.signals !== undefined) {
       personality.signals = req.signals
-      if (req.dapm !== undefined) personality.dapm = req.dapm
+      if (req.damp !== undefined) personality.damp = req.damp
       if (req.voice_profile !== undefined) personality.voice_profile = req.voice_profile
       if (req.authored_by !== undefined) personality.authored_by = req.authored_by
 
-      // Sprint 11 Task 11.1: Re-derive dAPM fingerprint when signals change
+      // Sprint 11 Task 11.1: Re-derive dAMP fingerprint when signals change
       try {
-        const fingerprint = deriveDAPM(req.signals, "default")
-        personality.dapm = fingerprint
+        const fingerprint = deriveDAMP(req.signals, "default")
+        personality.damp = fingerprint
       } catch {
-        // dAPM derivation failure is non-fatal
-        this.writeAudit("dapm_derivation_error", id, {
+        // dAMP derivation failure is non-fatal
+        this.writeAudit("damp_derivation_error", id, {
           phase: "update",
         })
       }
@@ -256,9 +256,9 @@ export class PersonalityService {
     const key = `personality:${id}`
     await this.redis.set(key, JSON.stringify(personality))
 
-    // Invalidate dAPM mode cache (Sprint 8 Task 8.3)
+    // Invalidate dAMP mode cache (Sprint 8 Task 8.3)
     // Any personality update could affect derivation inputs, so purge all mode variants.
-    await this.invalidateDAPMCache(collection, tokenId)
+    await this.invalidateDAMPCache(collection, tokenId)
 
     // Create linked personality version (Task 3.4)
     if (this.versionService) {
@@ -266,7 +266,7 @@ export class PersonalityService {
         const version = await this.versionService.createVersion(id, {
           beauvoir_md: personality.beauvoir_md,
           signals: personality.signals ?? null,
-          dapm: personality.dapm ?? null,
+          damp: personality.damp ?? null,
           authored_by: personality.authored_by ?? "system",
         })
         personality.previous_version_id = personality.version_id ?? null
@@ -333,55 +333,55 @@ export class PersonalityService {
   }
 
   // ---------------------------------------------------------------------------
-  // dAPM Mode Cache (Sprint 8 Task 8.3)
+  // dAMP Mode Cache (Sprint 8 Task 8.3)
   // ---------------------------------------------------------------------------
 
   /**
-   * Get a cached dAPM fingerprint for a specific mode.
+   * Get a cached dAMP fingerprint for a specific mode.
    * Returns null on cache miss or Redis error.
    *
-   * Cache key: `dapm:cache:{collection}:{tokenId}:{mode}`
+   * Cache key: `damp:cache:{collection}:{tokenId}:{mode}`
    */
-  async getDAPMCached(
+  async getDAMPCached(
     collection: string,
     tokenId: string,
     mode: AgentMode,
-  ): Promise<DAPMFingerprint | null> {
-    const key = `dapm:cache:${collection}:${tokenId}:${mode}`
+  ): Promise<DAMPFingerprint | null> {
+    const key = `damp:cache:${collection}:${tokenId}:${mode}`
     try {
       const data = await this.redis.get(key)
       if (!data) return null
-      return JSON.parse(data) as DAPMFingerprint
+      return JSON.parse(data) as DAMPFingerprint
     } catch {
       return null
     }
   }
 
   /**
-   * Store a dAPM fingerprint in cache with 1h TTL.
+   * Store a dAMP fingerprint in cache with 1h TTL.
    *
-   * Cache key: `dapm:cache:{collection}:{tokenId}:{mode}`
+   * Cache key: `damp:cache:{collection}:{tokenId}:{mode}`
    */
-  async setDAPMCached(
+  async setDAMPCached(
     collection: string,
     tokenId: string,
     mode: AgentMode,
-    fingerprint: DAPMFingerprint,
+    fingerprint: DAMPFingerprint,
   ): Promise<void> {
-    const key = `dapm:cache:${collection}:${tokenId}:${mode}`
+    const key = `damp:cache:${collection}:${tokenId}:${mode}`
     try {
-      await this.redis.set(key, JSON.stringify(fingerprint), "EX", DAPM_CACHE_TTL_SECONDS)
+      await this.redis.set(key, JSON.stringify(fingerprint), "EX", DAMP_CACHE_TTL_SECONDS)
     } catch {
       // Cache write failure is non-fatal
     }
   }
 
   /**
-   * Invalidate ALL mode variants of the dAPM cache for an NFT.
+   * Invalidate ALL mode variants of the dAMP cache for an NFT.
    * Iterates over all 4 modes (default, brainstorm, critique, execute) and deletes each key.
    */
-  async invalidateDAPMCache(collection: string, tokenId: string): Promise<void> {
-    const keys = AGENT_MODES.map((mode) => `dapm:cache:${collection}:${tokenId}:${mode}`)
+  async invalidateDAMPCache(collection: string, tokenId: string): Promise<void> {
+    const keys = AGENT_MODES.map((mode) => `damp:cache:${collection}:${tokenId}:${mode}`)
     try {
       await this.redis.del(...keys)
     } catch {
@@ -430,7 +430,7 @@ export function decodePersonality(raw: Record<string, unknown>): NFTPersonality 
   const p = raw as NFTPersonality
   // Normalize undefined → null for signal-era fields
   if (p.signals === undefined) p.signals = null
-  if (p.dapm === undefined) p.dapm = null
+  if (p.damp === undefined) p.damp = null
   if (p.voice_profile === undefined) p.voice_profile = null
   if (p.version_id === undefined) p.version_id = undefined
   if (p.previous_version_id === undefined) p.previous_version_id = null
@@ -457,7 +457,7 @@ function toResponse(p: NFTPersonality): PersonalityResponse {
     updated_at: p.updated_at,
     // Sprint 4 Task 4.2: Extended response fields
     signals: p.signals ?? null,
-    dapm: p.dapm ?? null,
+    damp: p.damp ?? null,
     voice_profile: p.voice_profile ?? null,
     compatibility_mode: p.compatibility_mode ?? "legacy_v1",
     version_id: p.version_id ?? null,
@@ -696,7 +696,7 @@ export async function handleSynthesize(c: Context, deps: PersonalityV2Deps): Pro
 
     const beauvoirMd = await deps.synthesizer.synthesize(
       personality.signals,
-      personality.dapm ?? null,
+      personality.damp ?? null,
       synthesisSubgraph,
     )
 
@@ -728,10 +728,10 @@ export async function handleSynthesize(c: Context, deps: PersonalityV2Deps): Pro
 const VALID_MODES: ReadonlySet<string> = new Set(["default", "brainstorm", "critique", "execute"])
 
 /**
- * POST /:collection/:tokenId/personality/rederive — Re-derive dAPM from stored signals
+ * POST /:collection/:tokenId/personality/rederive — Re-derive dAMP from stored signals
  * Protected by requireNFTOwnership middleware (Sprint 15 Task 15.1).
  *
- * Re-derives the dAPM fingerprint using the latest codex version.
+ * Re-derives the dAMP fingerprint using the latest codex version.
  * Returns 409 if the codex version hasn't changed (no re-derive needed).
  * Returns 400 if the personality is legacy_v1 (no signals to derive from).
  * Returns 404 if personality not found.
@@ -778,8 +778,8 @@ export async function handleRederive(c: Context, deps: PersonalityV2Deps): Promi
   }
 
   try {
-    // Re-derive dAPM from signals with default mode
-    const fingerprint = deriveDAPM(personality.signals, "default")
+    // Re-derive dAMP from signals with default mode
+    const fingerprint = deriveDAMP(personality.signals, "default")
 
     // Re-synthesize BEAUVOIR.md if synthesizer available
     let synthesizedMd: string | undefined
@@ -814,14 +814,14 @@ export async function handleRederive(c: Context, deps: PersonalityV2Deps): Promi
           synthesisSubgraph,
         )
       } catch {
-        // Synthesis failure is non-fatal — proceed with re-derived dAPM only
+        // Synthesis failure is non-fatal — proceed with re-derived dAMP only
       }
     }
 
     // Update personality via service.update()
     const result = await deps.service.update(collection, tokenId, {
       signals: personality.signals,
-      dapm: fingerprint,
+      damp: fingerprint,
       authored_by: personality.authored_by ?? "system",
     })
 
@@ -843,8 +843,8 @@ export async function handleRederive(c: Context, deps: PersonalityV2Deps): Promi
  * POST /:collection/:tokenId/mode — Switch agent mode
  * Protected by requireNFTOwnership middleware (Sprint 15 Task 15.2).
  *
- * Persists active mode in Redis and warms the dAPM cache for the mode.
- * Returns the updated DAPMFingerprint for the requested mode.
+ * Persists active mode in Redis and warms the dAMP cache for the mode.
+ * Returns the updated DAMPFingerprint for the requested mode.
  */
 export async function handleModeSwitch(c: Context, deps: PersonalityV2Deps): Promise<Response> {
   const { collection, tokenId } = c.req.param()
@@ -887,19 +887,19 @@ export async function handleModeSwitch(c: Context, deps: PersonalityV2Deps): Pro
   }
 
   try {
-    // Derive dAPM fingerprint for the new mode
-    const fingerprint = deriveDAPM(personality.signals, agentMode)
+    // Derive dAMP fingerprint for the new mode
+    const fingerprint = deriveDAMP(personality.signals, agentMode)
 
     // Persist mode to Redis (no TTL — persists until changed)
-    const modeKey = `dapm:mode:${collection}:${tokenId}`
+    const modeKey = `damp:mode:${collection}:${tokenId}`
     if (deps.redis) {
       await deps.redis.set(modeKey, agentMode)
     }
 
-    // Cache the fingerprint via setDAPMCached
-    await deps.service.setDAPMCached(collection, tokenId, agentMode, fingerprint)
+    // Cache the fingerprint via setDAMPCached
+    await deps.service.setDAMPCached(collection, tokenId, agentMode, fingerprint)
 
-    return c.json({ mode: agentMode, dapm: fingerprint })
+    return c.json({ mode: agentMode, damp: fingerprint })
   } catch (e) {
     if (e instanceof NFTPersonalityError) {
       return c.json({ error: e.message, code: e.code }, e.httpStatus as 400)
@@ -944,8 +944,8 @@ export async function handleRollback(c: Context, deps: PersonalityV2Deps): Promi
     if (newVersion.signal_snapshot) {
       updateReq.signals = newVersion.signal_snapshot
     }
-    if (newVersion.dapm_fingerprint) {
-      updateReq.dapm = newVersion.dapm_fingerprint
+    if (newVersion.damp_fingerprint) {
+      updateReq.damp = newVersion.damp_fingerprint
     }
     updateReq.authored_by = walletAddress
 
@@ -1053,7 +1053,7 @@ export interface IdentityGraphResponse {
   }
 }
 
-/** Valid agent modes for dAPM mode query parameter */
+/** Valid agent modes for dAMP mode query parameter */
 const VALID_AGENT_MODES = new Set(["default", "brainstorm", "critique", "execute"])
 
 /**
@@ -1063,7 +1063,7 @@ const VALID_AGENT_MODES = new Set(["default", "brainstorm", "critique", "execute
  * Sprint 10 Tasks 10.1-10.3:
  * - GET /:collection/:tokenId/identity-graph
  * - GET /:collection/:tokenId/signals
- * - GET /:collection/:tokenId/dapm
+ * - GET /:collection/:tokenId/damp
  */
 export function registerIdentityReadRoutes(app: Hono, deps: IdentityReadDeps): void {
   // GET /:collection/:tokenId/identity-graph — Task 10.1
@@ -1175,8 +1175,8 @@ export function registerIdentityReadRoutes(app: Hono, deps: IdentityReadDeps): v
     return c.json({ signals: personality.signals })
   })
 
-  // GET /:collection/:tokenId/dapm — Tasks 10.2 + 10.3
-  app.get("/:collection/:tokenId/dapm", async (c) => {
+  // GET /:collection/:tokenId/damp — Tasks 10.2 + 10.3
+  app.get("/:collection/:tokenId/damp", async (c) => {
     const { collection, tokenId } = c.req.param()
 
     const personality = await deps.service.getRaw(collection, tokenId)
@@ -1184,9 +1184,9 @@ export function registerIdentityReadRoutes(app: Hono, deps: IdentityReadDeps): v
       return c.json({ error: "Personality not found", code: "PERSONALITY_NOT_FOUND" }, 404)
     }
 
-    // Legacy_v1: return null dapm
+    // Legacy_v1: return null damp
     if (personality.compatibility_mode !== "signal_v2" || !personality.signals) {
-      return c.json({ dapm: null })
+      return c.json({ damp: null })
     }
 
     // Task 10.3: Mode query parameter
@@ -1200,25 +1200,25 @@ export function registerIdentityReadRoutes(app: Hono, deps: IdentityReadDeps): v
 
       // Derive mode-adjusted fingerprint
       try {
-        const fingerprint = deriveDAPM(personality.signals, mode as AgentMode)
-        return c.json({ dapm: fingerprint })
+        const fingerprint = deriveDAMP(personality.signals, mode as AgentMode)
+        return c.json({ damp: fingerprint })
       } catch {
         // Derivation failure — return stored fingerprint as fallback
-        return c.json({ dapm: personality.dapm ?? null })
+        return c.json({ damp: personality.damp ?? null })
       }
     }
 
     // No mode specified — return stored fingerprint or derive with default
-    if (personality.dapm) {
-      return c.json({ dapm: personality.dapm })
+    if (personality.damp) {
+      return c.json({ damp: personality.damp })
     }
 
     // No stored fingerprint — derive with default mode
     try {
-      const fingerprint = deriveDAPM(personality.signals, "default")
-      return c.json({ dapm: fingerprint })
+      const fingerprint = deriveDAMP(personality.signals, "default")
+      return c.json({ damp: fingerprint })
     } catch {
-      return c.json({ dapm: null })
+      return c.json({ damp: null })
     }
   })
 }

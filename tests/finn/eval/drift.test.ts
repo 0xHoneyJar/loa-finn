@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from "vitest"
 import { computeDrift, getTopChangedDials, analyzeDrift } from "../../../src/nft/eval/drift.js"
-import { DAPM_DIAL_IDS, type DAPMFingerprint, type DAPMDialId } from "../../../src/nft/signal-types.js"
+import { DAMP_DIAL_IDS, type DAMPFingerprint, type DAMPDialId } from "../../../src/nft/signal-types.js"
 import type { PersonalityVersion } from "../../../src/nft/signal-types.js"
 
 // ---------------------------------------------------------------------------
@@ -10,9 +10,9 @@ import type { PersonalityVersion } from "../../../src/nft/signal-types.js"
 // ---------------------------------------------------------------------------
 
 /** Create a fingerprint with all dials set to a given value */
-function createUniformFingerprint(value: number, mode: "default" | "brainstorm" = "default"): DAPMFingerprint {
-  const dials = {} as Record<DAPMDialId, number>
-  for (const id of DAPM_DIAL_IDS) {
+function createUniformFingerprint(value: number, mode: "default" | "brainstorm" = "default"): DAMPFingerprint {
+  const dials = {} as Record<DAMPDialId, number>
+  for (const id of DAMP_DIAL_IDS) {
     dials[id] = value
   }
   return {
@@ -26,11 +26,11 @@ function createUniformFingerprint(value: number, mode: "default" | "brainstorm" 
 /** Create a fingerprint with specific overrides on top of a base value */
 function createFingerprint(
   baseValue: number,
-  overrides: Partial<Record<DAPMDialId, number>> = {},
+  overrides: Partial<Record<DAMPDialId, number>> = {},
   mode: "default" | "brainstorm" = "default",
-): DAPMFingerprint {
-  const dials = {} as Record<DAPMDialId, number>
-  for (const id of DAPM_DIAL_IDS) {
+): DAMPFingerprint {
+  const dials = {} as Record<DAMPDialId, number>
+  for (const id of DAMP_DIAL_IDS) {
     dials[id] = overrides[id] ?? baseValue
   }
   return {
@@ -44,7 +44,7 @@ function createFingerprint(
 /** Create a minimal PersonalityVersion with a fingerprint */
 function createVersion(
   versionId: string,
-  fingerprint: DAPMFingerprint | null,
+  fingerprint: DAMPFingerprint | null,
   previousVersionId: string | null = null,
 ): PersonalityVersion {
   return {
@@ -52,7 +52,7 @@ function createVersion(
     previous_version_id: previousVersionId,
     personality_id: "test-col:1",
     signal_snapshot: null,
-    dapm_fingerprint: fingerprint,
+    damp_fingerprint: fingerprint,
     beauvoir_md: "# Test",
     authored_by: "0xtest",
     governance_model: "holder",
@@ -244,7 +244,7 @@ describe("analyzeDrift", () => {
     expect(result.mean_transition_drift).toBeCloseTo(48.0, 5)
   })
 
-  it("should skip versions without dAPM fingerprints", () => {
+  it("should skip versions without dAMP fingerprints", () => {
     const fp1 = createUniformFingerprint(0.0)
     const fp3 = createUniformFingerprint(1.0)
     const versions = [
