@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "bridge_id": "bridge-20260219-108e8b",
-  "state": "ITERATING",
+  "state": "FINALIZING",
   "config": {
     "depth": 3,
     "mode": "full",
@@ -12,24 +12,42 @@
   },
   "timestamps": {
     "started": "2026-02-19T00:49:31Z",
-    "last_activity": "2026-02-19T00:49:59Z"
+    "last_activity": "2026-02-19T14:30:00Z"
   },
-  "iterations": [],
+  "iterations": [
+    {
+      "iteration": 1,
+      "type": "sprint_plan",
+      "sprints": ["sprint-78", "sprint-79", "sprint-80"],
+      "findings_count": 13,
+      "severity_breakdown": { "critical": 1, "high": 4, "medium": 5, "low": 3 },
+      "flatlined": false
+    },
+    {
+      "iteration": 2,
+      "type": "bridge_fixes",
+      "findings_addressed": 13,
+      "new_findings": 2,
+      "severity_breakdown": { "critical": 0, "high": 0, "medium": 1, "low": 1 },
+      "flatlined": true,
+      "post_flatline_fix": true
+    }
+  ],
   "flatline": {
-    "initial_score": null,
-    "last_score": null,
-    "consecutive_below_threshold": 0
+    "initial_score": 13,
+    "last_score": 2,
+    "consecutive_below_threshold": 1
   },
   "metrics": {
-    "total_sprints_executed": 0,
-    "total_files_changed": 0,
-    "total_findings_addressed": 0,
+    "total_sprints_executed": 3,
+    "total_files_changed": 17,
+    "total_findings_addressed": 14,
     "total_visions_captured": 0
   },
   "finalization": {
-    "ground_truth_updated": false,
-    "rtfm_passed": true,
-    "pr_url": null,
+    "ground_truth_updated": true,
+    "rtfm_passed": false,
+    "pr_url": "https://github.com/0xHoneyJar/loa-finn/pull/82",
     "butterfreezone_generated": true
   }
 }
