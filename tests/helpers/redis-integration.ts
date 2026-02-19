@@ -90,46 +90,77 @@ export class MinimalRedisClient {
   }
 
   private processBuffer(): void {
-    // Simple RESP parser for single-line and bulk string responses
+    // RESP parser for single-line, bulk string, integer, error, and array responses
     while (this.buffer.length > 0 && this.responseQueue.length > 0) {
-      const firstChar = this.buffer[0]
-      const newlineIdx = this.buffer.indexOf("\r\n")
-      if (newlineIdx === -1) return // Incomplete response
-
-      if (firstChar === "+" || firstChar === "-" || firstChar === ":") {
-        // Simple string, error, or integer
-        const line = this.buffer.slice(1, newlineIdx)
-        this.buffer = this.buffer.slice(newlineIdx + 2)
-        const pending = this.responseQueue.shift()!
-        if (firstChar === "-") {
-          pending.reject(new Error(line))
-        } else {
-          pending.resolve(line)
-        }
-      } else if (firstChar === "$") {
-        // Bulk string
-        const length = parseInt(this.buffer.slice(1, newlineIdx), 10)
-        if (length === -1) {
-          this.buffer = this.buffer.slice(newlineIdx + 2)
-          this.responseQueue.shift()!.resolve("$-1")
-        } else {
-          const dataStart = newlineIdx + 2
-          const dataEnd = dataStart + length + 2 // +2 for trailing \r\n
-          if (this.buffer.length < dataEnd) return // Incomplete
-          const data = this.buffer.slice(dataStart, dataStart + length)
-          this.buffer = this.buffer.slice(dataEnd)
-          this.responseQueue.shift()!.resolve(data)
-        }
-      } else if (firstChar === "*") {
-        // Array — for simplicity, resolve as raw string
-        const line = this.buffer.slice(0, newlineIdx)
-        this.buffer = this.buffer.slice(newlineIdx + 2)
-        this.responseQueue.shift()!.resolve(line)
+      const result = this.parseOne()
+      if (result === undefined) return // Incomplete response
+      const pending = this.responseQueue.shift()!
+      if (result instanceof Error) {
+        pending.reject(result)
       } else {
-        // Unknown — consume line
-        this.buffer = this.buffer.slice(newlineIdx + 2)
-        this.responseQueue.shift()!.resolve("")
+        pending.resolve(typeof result === "string" ? result : JSON.stringify(result))
       }
+    }
+  }
+
+  /**
+   * Parse one RESP value from the buffer.
+   * Returns undefined if incomplete, Error for RESP errors, or the parsed value.
+   */
+  private parseOne(): string | string[] | Error | undefined {
+    if (this.buffer.length === 0) return undefined
+    const firstChar = this.buffer[0]
+    const newlineIdx = this.buffer.indexOf("\r\n")
+    if (newlineIdx === -1) return undefined
+
+    if (firstChar === "+" || firstChar === ":") {
+      // Simple string or integer
+      const line = this.buffer.slice(1, newlineIdx)
+      this.buffer = this.buffer.slice(newlineIdx + 2)
+      return line
+    } else if (firstChar === "-") {
+      // Error
+      const line = this.buffer.slice(1, newlineIdx)
+      this.buffer = this.buffer.slice(newlineIdx + 2)
+      return new Error(line)
+    } else if (firstChar === "$") {
+      // Bulk string
+      const length = parseInt(this.buffer.slice(1, newlineIdx), 10)
+      if (length === -1) {
+        this.buffer = this.buffer.slice(newlineIdx + 2)
+        return "$-1"
+      }
+      const dataStart = newlineIdx + 2
+      const dataEnd = dataStart + length + 2 // +2 for trailing \r\n
+      if (this.buffer.length < dataEnd) return undefined // Incomplete
+      const data = this.buffer.slice(dataStart, dataStart + length)
+      this.buffer = this.buffer.slice(dataEnd)
+      return data
+    } else if (firstChar === "*") {
+      // Array — recursively parse N elements
+      const count = parseInt(this.buffer.slice(1, newlineIdx), 10)
+      if (count === -1) {
+        this.buffer = this.buffer.slice(newlineIdx + 2)
+        return "$-1" // Null array
+      }
+      // Save buffer state in case we need to backtrack (incomplete)
+      const savedBuffer = this.buffer
+      this.buffer = this.buffer.slice(newlineIdx + 2)
+      const elements: string[] = []
+      for (let i = 0; i < count; i++) {
+        const elem = this.parseOne()
+        if (elem === undefined) {
+          // Incomplete — restore buffer and signal incomplete
+          this.buffer = savedBuffer
+          return undefined
+        }
+        elements.push(elem instanceof Error ? elem.message : String(elem))
+      }
+      return elements
+    } else {
+      // Unknown — consume line
+      this.buffer = this.buffer.slice(newlineIdx + 2)
+      return ""
     }
   }
 }

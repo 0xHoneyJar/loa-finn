@@ -20,9 +20,12 @@ describe("WAL Fencing Token Monotonicity (Task 11.3)", async () => {
     return {
       store,
       evalCallCount: () => evalCallCount,
-      eval: vi.fn(async (script: string, keys: string[], args: string[]) => {
+      eval: vi.fn(async (script: string, numkeys: number, ...rest: (string | number)[]) => {
         evalCallCount++
         const scriptStr = String(script)
+        // Split flat args into keys and argv based on numkeys
+        const keys = rest.slice(0, numkeys).map(String)
+        const args = rest.slice(numkeys).map(String)
 
         // Lock acquisition script (SETNX + INCR)
         if (scriptStr.includes("NX") && scriptStr.includes("INCR")) {
@@ -274,19 +277,17 @@ describe("CreditNote BigInt Consistency (Task 11.4)", async () => {
         store[key] = String(newVal)
         return newVal
       }),
-      eval: vi.fn(async (_script: string, keys: string[], args: string[]) => {
-        const key = Array.isArray(keys) ? keys[0] : keys
+      eval: vi.fn(async (_script: string, _numkeys: number, balanceKey: string, ...args: (string | number)[]) => {
         const delta = Number(args[0])
         const cap = Number(args[1])
-        const ttl = Number(args[2])
-        const current = Number(store[key as string] ?? "0")
+        const current = Number(store[balanceKey] ?? "0")
 
         if (current + delta > cap) {
           return "CAP_EXCEEDED"
         }
 
         const newBalance = current + delta
-        store[key as string] = String(newBalance)
+        store[balanceKey] = String(newBalance)
         return String(newBalance)
       }),
       store,

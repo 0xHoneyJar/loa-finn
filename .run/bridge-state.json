@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "bridge_id": "bridge-20260219-95228b",
-  "state": "JACKED_OUT",
+  "bridge_id": "bridge-20260219-108e8b",
+  "state": "ITERATING",
   "config": {
     "depth": 3,
     "mode": "full",
@@ -11,134 +11,25 @@
     "repo": ""
   },
   "timestamps": {
-    "started": "2026-02-18T23:32:20Z",
-    "last_activity": "2026-02-19T00:15:00Z"
+    "started": "2026-02-19T00:49:31Z",
+    "last_activity": "2026-02-19T00:49:59Z"
   },
-  "iterations": [
-    {
-      "iteration": 1,
-      "state": "completed",
-      "sprint_plan_source": "existing",
-      "sprints_executed": 10,
-      "bridgebuilder": {
-        "total_findings": 23,
-        "by_severity": {
-          "critical": 2,
-          "high": 4,
-          "medium": 8,
-          "low": 3,
-          "vision": 1,
-          "praise": 5
-        },
-        "severity_weighted_score": 59,
-        "pr_comment_url": "https://github.com/0xHoneyJar/loa-finn/pull/82#issuecomment-3923839099"
-      },
-      "enrichment": {
-        "persona_loaded": true,
-        "persona_validation": "valid",
-        "findings_format": "json_v2",
-        "field_fill_rates": {
-          "faang_parallel": 0.6,
-          "metaphor": 0.3,
-          "teachable_moment": 0.8,
-          "connection": 0.2
-        },
-        "praise_count": 5,
-        "insights_size_bytes": 32000,
-        "redactions_applied": 0
-      },
-      "visions_captured": 1,
-      "started_at": "2026-02-18T23:32:20Z",
-      "updated_at": "2026-02-19T00:00:00Z"
-    },
-    {
-      "iteration": 2,
-      "state": "completed",
-      "sprint_plan_source": "findings",
-      "sprints_executed": 1,
-      "bridgebuilder": {
-        "total_findings": 18,
-        "by_severity": {
-          "critical": 0,
-          "high": 0,
-          "medium": 10,
-          "low": 3,
-          "vision": 0,
-          "praise": 5
-        },
-        "severity_weighted_score": 23,
-        "pr_comment_url": "https://github.com/0xHoneyJar/loa-finn/pull/82#issuecomment-3923894131"
-      },
-      "enrichment": {
-        "persona_loaded": true,
-        "persona_validation": "valid",
-        "findings_format": "json_v2",
-        "field_fill_rates": {
-          "faang_parallel": 0.1,
-          "metaphor": 0.0,
-          "teachable_moment": 0.4,
-          "connection": 0.0
-        },
-        "praise_count": 5,
-        "insights_size_bytes": 18000,
-        "redactions_applied": 0
-      },
-      "visions_captured": 0,
-      "started_at": "2026-02-19T00:00:00Z",
-      "updated_at": "2026-02-19T00:10:00Z"
-    },
-    {
-      "iteration": 3,
-      "state": "completed",
-      "sprint_plan_source": "findings",
-      "sprints_executed": 1,
-      "bridgebuilder": {
-        "total_findings": 14,
-        "by_severity": {
-          "critical": 0,
-          "high": 0,
-          "medium": 3,
-          "low": 4,
-          "vision": 0,
-          "praise": 7
-        },
-        "severity_weighted_score": 10,
-        "pr_comment_url": null
-      },
-      "enrichment": {
-        "persona_loaded": true,
-        "persona_validation": "valid",
-        "findings_format": "json_v2",
-        "field_fill_rates": {
-          "faang_parallel": 0.0,
-          "metaphor": 0.0,
-          "teachable_moment": 0.3,
-          "connection": 0.0
-        },
-        "praise_count": 7,
-        "insights_size_bytes": 12000,
-        "redactions_applied": 0
-      },
-      "visions_captured": 0,
-      "started_at": "2026-02-19T00:10:00Z",
-      "updated_at": "2026-02-19T00:15:00Z"
-    }
-  ],
+  "iterations": [],
   "flatline": {
-    "initial_score": 59,
-    "last_score": 10,
+    "initial_score": null,
+    "last_score": null,
     "consecutive_below_threshold": 0
   },
   "metrics": {
-    "total_sprints_executed": 12,
-    "total_files_changed": 67,
-    "total_findings_addressed": 15,
-    "total_visions_captured": 1
+    "total_sprints_executed": 0,
+    "total_files_changed": 0,
+    "total_findings_addressed": 0,
+    "total_visions_captured": 0
   },
   "finalization": {
-    "ground_truth_updated": true,
+    "ground_truth_updated": false,
     "rtfm_passed": true,
-    "pr_url": "https://github.com/0xHoneyJar/loa-finn/pull/82",
+    "pr_url": null,
     "butterfreezone_generated": true
   }
 }

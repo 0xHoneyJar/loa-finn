@@ -59,7 +59,7 @@ export async function initTracing(config?: TracingConfig): Promise<NodeTracerPro
 
   try {
     // Dynamic imports to avoid hard dependency when tracing is disabled
-    const { NodeTracerProvider: Provider, SimpleSpanProcessor, ConsoleSpanExporter } =
+    const { NodeTracerProvider: Provider, SimpleSpanProcessor, BatchSpanProcessor, ConsoleSpanExporter } =
       await import("@opentelemetry/sdk-trace-node")
     const { Resource } = await import("@opentelemetry/resources")
     const { ATTR_SERVICE_NAME } = await import("@opentelemetry/semantic-conventions")
@@ -73,10 +73,13 @@ export async function initTracing(config?: TracingConfig): Promise<NodeTracerPro
     const provider = new Provider({ resource })
 
     if (endpoint) {
+      // BatchSpanProcessor for remote OTLP: buffers spans and flushes in batches
+      // to avoid synchronous blocking on every span completion.
       const { OTLPTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-grpc")
-      provider.addSpanProcessor(new SimpleSpanProcessor(new OTLPTraceExporter({ url: endpoint })))
-      console.log(`[tracing] OTLP initialized: endpoint=${endpoint}`)
+      provider.addSpanProcessor(new BatchSpanProcessor(new OTLPTraceExporter({ url: endpoint })))
+      console.log(`[tracing] OTLP initialized: endpoint=${endpoint} (batch processor)`)
     } else {
+      // SimpleSpanProcessor for console: acceptable for local dev (no network I/O)
       provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()))
       console.log("[tracing] Console exporter initialized (no OTEL_EXPORTER_OTLP_ENDPOINT)")
     }
@@ -104,16 +107,24 @@ export async function initTracing(config?: TracingConfig): Promise<NodeTracerPro
  *   const span = tracer?.startSpan("x402.quote", { attributes: { quote_id } })
  *   try { ... } finally { span?.end() }
  */
-export function getTracer(name: string): ReturnType<typeof _getTracerInternal> {
+/** Minimal tracer interface for span creation (subset of @opentelemetry/api Tracer) */
+export interface MinimalTracer {
+  startSpan(name: string, options?: { attributes?: Record<string, string | number | boolean> }): {
+    setAttribute(key: string, value: string | number | boolean): void
+    end(): void
+  }
+}
+
+export function getTracer(name: string): MinimalTracer | null {
   if (!_enabled) return null
   return _getTracerInternal(name)
 }
 
-function _getTracerInternal(name: string): any | null {
+function _getTracerInternal(name: string): MinimalTracer | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { trace } = require("@opentelemetry/api")
-    return trace.getTracer(name)
+    return trace.getTracer(name) as MinimalTracer
   } catch {
     return null
   }

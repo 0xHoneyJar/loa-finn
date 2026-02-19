@@ -120,9 +120,8 @@ export class AlchemyNFTDetector {
       // Reset circuit breaker on success
       this.consecutiveFailures = 0
 
-      // Cache result
-      await this.redis.set(cacheKey, JSON.stringify(nfts))
-      await this.redis.expire(cacheKey, this.cacheTtl)
+      // Cache result atomically (SET with EX avoids TTL-less orphan on crash between set+expire)
+      await this.redis.set(cacheKey, JSON.stringify(nfts), "EX", this.cacheTtl)
 
       return { wallet: normalizedWallet, nfts, source: "alchemy", cached: false }
     } catch (err) {
@@ -165,19 +164,34 @@ export class AlchemyNFTDetector {
   }
 
   private async fetchFromAlchemy(wallet: string): Promise<DetectedNFT[]> {
-    const url = `${this.baseUrl}/getNFTsForOwner?owner=${wallet}&withMetadata=true&pageSize=100`
+    // Use contractAddresses[] filter to scope to known collections server-side.
+    // This avoids truncation for wallets with >100 total NFTs and reduces payload size.
+    const contractParams = [...this.collections]
+      .map(addr => `contractAddresses[]=${addr}`)
+      .join("&")
+    const allNfts: AlchemyNFT[] = []
+    let pageKey: string | undefined
 
-    const response = await fetch(url, {
-      headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(10_000),
-    })
+    // Paginate through results (100 per page)
+    do {
+      const pageParam = pageKey ? `&pageKey=${pageKey}` : ""
+      const url = `${this.baseUrl}/getNFTsForOwner?owner=${wallet}&withMetadata=true&pageSize=100&${contractParams}${pageParam}`
 
-    if (!response.ok) {
-      throw new Error(`Alchemy API returned ${response.status}: ${response.statusText}`)
-    }
+      const response = await fetch(url, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(10_000),
+      })
 
-    const data = (await response.json()) as AlchemyResponse
-    return this.filterKnownCollections(data.ownedNfts)
+      if (!response.ok) {
+        throw new Error(`Alchemy API returned ${response.status}: ${response.statusText}`)
+      }
+
+      const data = (await response.json()) as AlchemyResponse
+      allNfts.push(...data.ownedNfts)
+      pageKey = data.pageKey
+    } while (pageKey)
+
+    return this.filterKnownCollections(allNfts)
   }
 
   private filterKnownCollections(nfts: AlchemyNFT[]): DetectedNFT[] {

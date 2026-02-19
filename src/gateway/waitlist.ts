@@ -35,15 +35,16 @@ function generateNonce(): string {
 
 /**
  * Build CSP header with per-request nonce.
- * Report-Only mode by default — switch to enforcing after validation.
+ * Allows Tailwind CDN and its sub-resources (fonts, stylesheets loaded by the CDN script).
  */
-function buildCSPHeader(nonce: string, reportOnly: boolean): string {
+function buildCSPHeader(nonce: string): string {
   return [
     "default-src 'self'",
-    `style-src 'self' 'nonce-${nonce}'`,
-    `script-src 'self' 'nonce-${nonce}'`,
+    `style-src 'self' 'nonce-${nonce}' https://cdn.tailwindcss.com`,
+    `script-src 'self' 'nonce-${nonce}' https://cdn.tailwindcss.com`,
     "img-src 'self' data:",
-    "connect-src 'self'",
+    "connect-src 'self' https://cdn.tailwindcss.com",
+    "font-src 'self' https://fonts.gstatic.com",
     "frame-ancestors 'none'",
     "report-uri /api/v1/csp-report",
     "report-to csp-endpoint",
@@ -179,7 +180,7 @@ export function waitlistRoutes(config: WaitlistConfig): Hono {
 
   app.get("/", (c) => {
     const nonce = generateNonce()
-    const cspHeader = buildCSPHeader(nonce, CSP_REPORT_ONLY)
+    const cspHeader = buildCSPHeader(nonce)
     const headerName = CSP_REPORT_ONLY ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy"
 
     c.header(headerName, cspHeader)

@@ -137,13 +137,21 @@ export class SettlementService {
       let result: SettlementResult | null = null
 
       // Try facilitator first (if available and circuit not open)
+      let facilitatorError: Error | null = null
       if (this.submitToFacilitator && !this.facilitatorCB.isOpen) {
         try {
           result = await this.submitToFacilitator(auth)
           this.facilitatorCB.recordSuccess()
           span?.setAttribute("method", "facilitator")
-        } catch {
+        } catch (err) {
+          facilitatorError = err instanceof Error ? err : new Error(String(err))
           this.facilitatorCB.recordFailure()
+          console.warn(JSON.stringify({
+            metric: "settlement.facilitator.error",
+            error: facilitatorError.message,
+            circuit_state: this.facilitatorCB.currentState,
+            timestamp: Date.now(),
+          }))
           result = null
         }
       }
@@ -153,9 +161,10 @@ export class SettlementService {
         try {
           result = await this.submitDirect(auth)
           span?.setAttribute("method", "direct")
-        } catch {
+        } catch (err) {
+          const directError = err instanceof Error ? err : new Error(String(err))
           throw new X402Error(
-            "Settlement failed: both facilitator and direct submission failed",
+            `Settlement failed: facilitator=${facilitatorError?.message ?? "skipped"}, direct=${directError.message}`,
             "SETTLEMENT_FAILED",
             402,
           )

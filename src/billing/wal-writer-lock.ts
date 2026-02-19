@@ -117,8 +117,9 @@ export class WALWriterLock {
 
     const result = await this.redis.eval(
       script,
-      [LOCK_KEY, FENCE_KEY],
-      [this.instanceId, String(LOCK_TTL_SECONDS)],
+      2,
+      LOCK_KEY, FENCE_KEY,
+      this.instanceId, String(LOCK_TTL_SECONDS),
     )
 
     // Parse result — eval returns differ by Redis client
@@ -160,7 +161,7 @@ export class WALWriterLock {
       return 0
     `
 
-    await this.redis.eval(script, [LOCK_KEY], [this.instanceId])
+    await this.redis.eval(script, 1, LOCK_KEY, this.instanceId)
     this._isHolder = false
     this._fencingToken = null
   }
@@ -199,8 +200,9 @@ export class WALWriterLock {
     try {
       const result = await this.redis.eval(
         WAL_FENCING_CAS_SCRIPT,
-        [this.fencingCasKey],
-        [String(token)],
+        1,
+        this.fencingCasKey,
+        String(token),
       ) as string
 
       if (result === "STALE") {
@@ -219,14 +221,15 @@ export class WALWriterLock {
 
       return result as "OK" | "STALE" | "CORRUPT"
     } catch (err) {
-      // Redis failure during CAS — log but don't block WAL append
-      // (WAL is authoritative; next successful CAS re-establishes monotonicity)
-      console.warn(JSON.stringify({
+      // Redis failure during CAS — fail-closed to preserve single-writer invariant.
+      // A stale writer proceeding on Redis failure could violate monotonicity.
+      console.error(JSON.stringify({
         metric: "wal.fencing_token.redis_sync_failed",
         token,
         error: err instanceof Error ? err.message : "unknown",
+        severity: "critical",
       }))
-      return "OK" // Fail-open for Redis connectivity issues only
+      return "STALE" // Fail-closed: reject write when CAS cannot be verified
     }
   }
 
@@ -250,8 +253,9 @@ export class WALWriterLock {
 
         const result = await this.redis.eval(
           script,
-          [LOCK_KEY],
-          [this.instanceId, String(LOCK_TTL_SECONDS)],
+          1,
+          LOCK_KEY,
+          this.instanceId, String(LOCK_TTL_SECONDS),
         )
 
         if (result === 0 || result === null) {

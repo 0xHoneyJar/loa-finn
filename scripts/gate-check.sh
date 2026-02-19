@@ -64,14 +64,6 @@ check() {
   fi
 }
 
-run_cmd() {
-  if [[ "$DRY_RUN" == "true" ]]; then
-    echo "DRY_RUN"
-    return 0
-  fi
-  eval "$@" 2>/dev/null
-}
-
 output_results() {
   local gate_name="$1"
   local overall="PASS"
@@ -103,6 +95,7 @@ CLUSTER="honeyjar-${ENV}"
 SERVICE="loa-finn-${ENV}"
 HEALTH_URL="${HEALTH_ENDPOINT:-http://localhost:3000/health}"
 REGION="${AWS_REGION:-us-east-1}"
+BASE_URL="${HEALTH_URL%/health}"
 
 # ---------------------------------------------------------------------------
 # Gate 0: Smoke — Infrastructure Exists
@@ -116,7 +109,11 @@ gate_0() {
 
   # Check ECS service exists
   local ecs_result
-  ecs_result=$(run_cmd "aws ecs describe-services --cluster '$CLUSTER' --services '$SERVICE' --region '$REGION' --query 'services[0].status' --output text")
+  if [[ "$DRY_RUN" == "true" ]]; then
+    ecs_result="DRY_RUN"
+  else
+    ecs_result=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --region "$REGION" --query 'services[0].status' --output text 2>/dev/null) || ecs_result=""
+  fi
   if [[ "$ecs_result" == "ACTIVE" || "$DRY_RUN" == "true" ]]; then
     check "ECS service exists and ACTIVE" "PASS"
   else
@@ -125,7 +122,11 @@ gate_0() {
 
   # Check health endpoint
   local health_status
-  health_status=$(run_cmd "curl -s -o /dev/null -w '%{http_code}' '$HEALTH_URL'")
+  if [[ "$DRY_RUN" == "true" ]]; then
+    health_status="DRY_RUN"
+  else
+    health_status=$(curl -s -o /dev/null -w '%{http_code}' "$HEALTH_URL" 2>/dev/null) || health_status=""
+  fi
   if [[ "$health_status" == "200" || "$DRY_RUN" == "true" ]]; then
     check "Health endpoint returns 200" "PASS"
   else
@@ -134,7 +135,11 @@ gate_0() {
 
   # Check CloudWatch alarms exist
   local alarm_count
-  alarm_count=$(run_cmd "aws cloudwatch describe-alarms --alarm-name-prefix 'loa-finn-' --region '$REGION' --query 'length(MetricAlarms)' --output text")
+  if [[ "$DRY_RUN" == "true" ]]; then
+    alarm_count="DRY_RUN"
+  else
+    alarm_count=$(aws cloudwatch describe-alarms --alarm-name-prefix 'loa-finn-' --region "$REGION" --query 'length(MetricAlarms)' --output text 2>/dev/null) || alarm_count="0"
+  fi
   if [[ "$DRY_RUN" == "true" ]]; then
     check "CloudWatch alarms exist (>=5)" "PASS"
   elif [[ "$alarm_count" -ge 5 ]]; then
@@ -145,7 +150,11 @@ gate_0() {
 
   # Check SNS topic exists
   local sns_result
-  sns_result=$(run_cmd "aws sns list-topics --region '$REGION' --query \"Topics[?contains(TopicArn, 'loa-finn-alarms')].TopicArn | [0]\" --output text")
+  if [[ "$DRY_RUN" == "true" ]]; then
+    sns_result="DRY_RUN"
+  else
+    sns_result=$(aws sns list-topics --region "$REGION" --query "Topics[?contains(TopicArn, 'loa-finn-alarms')].TopicArn | [0]" --output text 2>/dev/null) || sns_result=""
+  fi
   if [[ -n "$sns_result" && "$sns_result" != "None" ]] || [[ "$DRY_RUN" == "true" ]]; then
     check "SNS alarm topic wired" "PASS"
   else
@@ -167,7 +176,11 @@ gate_1() {
 
   # Check billing state machine responds
   local billing_health
-  billing_health=$(run_cmd "curl -s '$HEALTH_URL'")
+  if [[ "$DRY_RUN" == "true" ]]; then
+    billing_health="DRY_RUN"
+  else
+    billing_health=$(curl -s "$HEALTH_URL" 2>/dev/null) || billing_health=""
+  fi
   if [[ "$DRY_RUN" == "true" ]] || echo "$billing_health" | grep -q '"status"'; then
     check "Billing state machine responds" "PASS"
   else
@@ -176,7 +189,11 @@ gate_1() {
 
   # Check quote generation works
   local quote_result
-  quote_result=$(run_cmd "curl -s -X POST '${HEALTH_URL%/health}/api/v1/x402/quote' -H 'Content-Type: application/json' -d '{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":100}'")
+  if [[ "$DRY_RUN" == "true" ]]; then
+    quote_result="DRY_RUN"
+  else
+    quote_result=$(curl -s -X POST "${BASE_URL}/api/v1/x402/quote" -H 'Content-Type: application/json' -d '{"model":"claude-sonnet-4-6","max_tokens":100}' 2>/dev/null) || quote_result=""
+  fi
   if [[ "$DRY_RUN" == "true" ]] || echo "$quote_result" | grep -q 'quote_id'; then
     check "Quote generation works" "PASS"
   else
@@ -185,7 +202,11 @@ gate_1() {
 
   # Check conservation guard healthy
   local metrics
-  metrics=$(run_cmd "curl -s '${HEALTH_URL%/health}/metrics'")
+  if [[ "$DRY_RUN" == "true" ]]; then
+    metrics="DRY_RUN"
+  else
+    metrics=$(curl -s "${BASE_URL}/metrics" 2>/dev/null) || metrics=""
+  fi
   if [[ "$DRY_RUN" == "true" ]] || echo "$metrics" | grep -q 'conservation_guard_state'; then
     check "Conservation guard healthy" "PASS"
   else
@@ -205,14 +226,12 @@ gate_2() {
     echo "==========================================="
   fi
 
-  local base_url="${HEALTH_URL%/health}"
-
   # Check NFT personality CRUD
   if [[ "$DRY_RUN" == "true" ]]; then
     check "NFT personality CRUD works" "PASS"
   else
     local nft_result
-    nft_result=$(run_cmd "curl -s '${base_url}/api/v1/personality/status'")
+    nft_result=$(curl -s "${BASE_URL}/api/v1/personality/status" 2>/dev/null) || nft_result=""
     if echo "$nft_result" | grep -qE '"status"|"ok"'; then
       check "NFT personality CRUD works" "PASS"
     else
@@ -225,7 +244,7 @@ gate_2() {
     check "Onboarding flow responds" "PASS"
   else
     local onboard_status
-    onboard_status=$(run_cmd "curl -s -o /dev/null -w '%{http_code}' '${base_url}/api/v1/onboarding/start' -X POST -H 'Content-Type: application/json' -d '{}'")
+    onboard_status=$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/onboarding/start" -X POST -H 'Content-Type: application/json' -d '{}' 2>/dev/null) || onboard_status=""
     if [[ "$onboard_status" =~ ^(200|401|403)$ ]]; then
       check "Onboarding flow responds" "PASS"
     else
@@ -238,7 +257,7 @@ gate_2() {
     check "Credit purchase works" "PASS"
   else
     local credit_status
-    credit_status=$(run_cmd "curl -s -o /dev/null -w '%{http_code}' '${base_url}/api/v1/credits/balance' -H 'Authorization: Bearer test'")
+    credit_status=$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/credits/balance" -H 'Authorization: Bearer test' 2>/dev/null) || credit_status=""
     if [[ "$credit_status" =~ ^(200|401|403)$ ]]; then
       check "Credit purchase endpoint responds" "PASS"
     else
@@ -259,14 +278,12 @@ gate_3() {
     echo "============================================="
   fi
 
-  local base_url="${HEALTH_URL%/health}"
-
   # Check BYOK validation endpoint
   if [[ "$DRY_RUN" == "true" ]]; then
     check "BYOK validation works" "PASS"
   else
     local byok_status
-    byok_status=$(run_cmd "curl -s -o /dev/null -w '%{http_code}' '${base_url}/api/v1/byok/validate' -X POST -H 'Content-Type: application/json' -d '{\"key\":\"test\"}'")
+    byok_status=$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/byok/validate" -X POST -H 'Content-Type: application/json' -d '{"key":"test"}' 2>/dev/null) || byok_status=""
     if [[ "$byok_status" =~ ^(200|400|401)$ ]]; then
       check "BYOK validation works" "PASS"
     else
@@ -279,7 +296,7 @@ gate_3() {
     check "Feature flags configurable" "PASS"
   else
     local flags_result
-    flags_result=$(run_cmd "curl -s '${base_url}/api/v1/admin/feature-flags'")
+    flags_result=$(curl -s "${BASE_URL}/api/v1/admin/feature-flags" 2>/dev/null) || flags_result=""
     if echo "$flags_result" | grep -qE '"flags"|"features"|401'; then
       check "Feature flags configurable" "PASS"
     else
@@ -300,14 +317,12 @@ gate_4() {
     echo "=========================================="
   fi
 
-  local base_url="${HEALTH_URL%/health}"
-
   # Check x402 flow completes
   if [[ "$DRY_RUN" == "true" ]]; then
     check "x402 payment flow operational" "PASS"
   else
     local x402_status
-    x402_status=$(run_cmd "curl -s -o /dev/null -w '%{http_code}' '${base_url}/api/v1/x402/quote' -X POST -H 'Content-Type: application/json' -d '{\"model\":\"claude-sonnet-4-6\"}'")
+    x402_status=$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/x402/quote" -X POST -H 'Content-Type: application/json' -d '{"model":"claude-sonnet-4-6"}' 2>/dev/null) || x402_status=""
     if [[ "$x402_status" == "200" ]]; then
       check "x402 payment flow operational" "PASS"
     else
@@ -320,7 +335,7 @@ gate_4() {
     check "Multi-model routing works" "PASS"
   else
     local models_result
-    models_result=$(run_cmd "curl -s '${base_url}/api/v1/models'")
+    models_result=$(curl -s "${BASE_URL}/api/v1/models" 2>/dev/null) || models_result=""
     if echo "$models_result" | grep -qE 'claude|model'; then
       check "Multi-model routing works" "PASS"
     else
@@ -333,7 +348,7 @@ gate_4() {
     check "All CloudWatch alarms green" "PASS"
   else
     local alarm_states
-    alarm_states=$(run_cmd "aws cloudwatch describe-alarms --alarm-name-prefix 'loa-finn-' --region '$REGION' --state-value ALARM --query 'length(MetricAlarms)' --output text")
+    alarm_states=$(aws cloudwatch describe-alarms --alarm-name-prefix 'loa-finn-' --region "$REGION" --state-value ALARM --query 'length(MetricAlarms)' --output text 2>/dev/null) || alarm_states="0"
     if [[ "$alarm_states" == "0" ]]; then
       check "All CloudWatch alarms green" "PASS"
     else

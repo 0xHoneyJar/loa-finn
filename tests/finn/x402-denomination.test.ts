@@ -34,9 +34,23 @@ function createMockRedis(): RedisCommandClient {
       return next
     }),
     expire: vi.fn(async () => true),
-    eval: vi.fn(async (_script: string, _numkeys: number, balanceKey: string, requiredAmount: string) => {
-      // Mock atomic Lua script for applyCreditNotes
-      const balanceStr = store.get(balanceKey as string)
+    eval: vi.fn(async (script: string, _numkeys: number, balanceKey: string, ...args: (string | number)[]) => {
+      // Detect which Lua script is being called by argument pattern:
+      // CREDIT_BALANCE_INCR_SCRIPT: (script, 1, balanceKey, delta, cap, ttl)
+      // APPLY_CREDIT_LUA: (script, 1, balanceKey, requiredAmount, ttl)
+      if (String(script).includes("INCRBY")) {
+        // CREDIT_BALANCE_INCR_SCRIPT — cap check + INCRBY
+        const delta = Number(args[0])
+        const cap = Number(args[1])
+        const current = Number(store.get(balanceKey) ?? "0")
+        if (current + delta > cap) return "CAP_EXCEEDED"
+        const newBalance = current + delta
+        store.set(balanceKey, String(newBalance))
+        return String(newBalance)
+      }
+      // APPLY_CREDIT_LUA — apply credits to reduce payment
+      const requiredAmount = String(args[0])
+      const balanceStr = store.get(balanceKey)
       if (!balanceStr) return ["0", "0"]
       const balance = Number(balanceStr)
       if (balance === 0) return ["0", "0"]
@@ -44,9 +58,9 @@ function createMockRedis(): RedisCommandClient {
       const creditUsed = Math.min(balance, required)
       const remaining = balance - creditUsed
       if (remaining > 0) {
-        store.set(balanceKey as string, String(remaining))
+        store.set(balanceKey, String(remaining))
       } else {
-        store.delete(balanceKey as string)
+        store.delete(balanceKey)
       }
       return [String(creditUsed), String(remaining)]
     }),

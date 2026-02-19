@@ -6,6 +6,7 @@
 // Double-entry: system:revenue -delta, system:credit_notes +delta
 
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
+import { randomBytes } from "node:crypto"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -74,7 +75,7 @@ export class CreditNoteService {
   constructor(deps: CreditNoteDeps) {
     this.redis = deps.redis
     this.walAppend = deps.walAppend
-    this.generateId = deps.generateId ?? (() => `cn_${Date.now().toString(36)}`)
+    this.generateId = deps.generateId ?? (() => `cn_${Date.now().toString(36)}_${randomBytes(4).toString("hex")}`)
   }
 
   /**
@@ -98,6 +99,29 @@ export class CreditNoteService {
     const now = Date.now()
     const expiresAt = now + CREDIT_NOTE_TTL * 1000
 
+    // Validate cap BEFORE storing note to prevent orphaned records
+    const balanceKey = `${CREDIT_NOTE_PREFIX}${walletAddress.toLowerCase()}:balance`
+    const safeDelta = Number(delta)
+    if (!Number.isSafeInteger(safeDelta) || safeDelta <= 0) {
+      throw new Error(`CreditNote delta exceeds safe integer range: ${delta}`)
+    }
+
+    const result = await this.redis.eval(
+      CREDIT_BALANCE_INCR_SCRIPT,
+      1,
+      balanceKey,
+      String(safeDelta), String(MAX_CREDIT_BALANCE), String(CREDIT_NOTE_TTL),
+    ) as string
+
+    if (result === "CAP_EXCEEDED") {
+      throw new Error(JSON.stringify({
+        error: "credit_note_cap_exceeded",
+        wallet: walletAddress.toLowerCase(),
+        delta: delta.toString(),
+        cap: String(MAX_CREDIT_BALANCE),
+      }))
+    }
+
     const note: CreditNote = {
       id: this.generateId(),
       wallet_address: walletAddress.toLowerCase(),
@@ -109,31 +133,9 @@ export class CreditNoteService {
       expires_at: expiresAt,
     }
 
-    // Store note (single command with TTL)
+    // Store note AFTER cap check passes (no orphans on CAP_EXCEEDED)
     const noteKey = `${CREDIT_NOTE_PREFIX}${walletAddress.toLowerCase()}:${note.id}`
     await this.redis.set(noteKey, JSON.stringify(note), "EX", CREDIT_NOTE_TTL)
-
-    // Update balance atomically with cap enforcement
-    const balanceKey = `${CREDIT_NOTE_PREFIX}${walletAddress.toLowerCase()}:balance`
-    const safeDelta = Number(delta)
-    if (!Number.isSafeInteger(safeDelta) || safeDelta <= 0) {
-      throw new Error(`CreditNote delta exceeds safe integer range: ${delta}`)
-    }
-
-    const result = await this.redis.eval(
-      CREDIT_BALANCE_INCR_SCRIPT,
-      [balanceKey],
-      [String(safeDelta), String(MAX_CREDIT_BALANCE), String(CREDIT_NOTE_TTL)],
-    ) as string
-
-    if (result === "CAP_EXCEEDED") {
-      throw new Error(JSON.stringify({
-        error: "credit_note_cap_exceeded",
-        wallet: walletAddress.toLowerCase(),
-        delta: delta.toString(),
-        cap: String(MAX_CREDIT_BALANCE),
-      }))
-    }
 
     // WAL audit — double-entry
     this.writeAudit("x402_credit_note", {

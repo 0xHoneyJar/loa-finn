@@ -100,6 +100,88 @@ describe("Alchemy NFT Detection (Task 13.1)", async () => {
     }
   })
 
+  it("uses contractAddresses[] filter and paginates results", async () => {
+    const redis = createMockRedis()
+
+    // Page 1 returns pageKey, page 2 returns no pageKey (end)
+    let callCount = 0
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+      callCount++
+      const urlStr = typeof url === "string" ? url : url.toString()
+      // Verify contractAddresses[] filter is present
+      expect(urlStr).toContain("contractAddresses[]=")
+
+      if (callCount === 1) {
+        return new Response(JSON.stringify({
+          ownedNfts: [
+            { contract: { address: COLLECTIONS[0] }, tokenId: "1", tokenType: "ERC721", title: "Bear #1", description: "" },
+          ],
+          totalCount: 2,
+          pageKey: "page2key",
+        }), { status: 200, headers: { "content-type": "application/json" } })
+      }
+      // Page 2 — verify pageKey param
+      expect(urlStr).toContain("pageKey=page2key")
+      return new Response(JSON.stringify({
+        ownedNfts: [
+          { contract: { address: COLLECTIONS[1] }, tokenId: "99", tokenType: "ERC721", title: "Honey #99", description: "" },
+        ],
+        totalCount: 2,
+      }), { status: 200, headers: { "content-type": "application/json" } })
+    }) as any
+
+    try {
+      const detector = new AlchemyNFTDetector({
+        apiKey: "test-key",
+        collections: COLLECTIONS,
+        redis: redis as any,
+      })
+
+      const result = await detector.detectNFTs("0xWALLET")
+      expect(result.nfts).toHaveLength(2)
+      expect(callCount).toBe(2) // Two pages fetched
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it("uses atomic SET...EX for caching (no separate expire call)", async () => {
+    const redis = createMockRedis()
+
+    const mockResponse = {
+      ownedNfts: [
+        { contract: { address: COLLECTIONS[0] }, tokenId: "1", tokenType: "ERC721", title: "Bear #1", description: "" },
+      ],
+      totalCount: 1,
+    }
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify(mockResponse), { status: 200, headers: { "content-type": "application/json" } }))
+
+    try {
+      const detector = new AlchemyNFTDetector({
+        apiKey: "test-key",
+        collections: COLLECTIONS,
+        redis: redis as any,
+      })
+
+      await detector.detectNFTs("0xWALLET")
+
+      // Verify SET was called with EX argument (atomic TTL)
+      expect(redis.set).toHaveBeenCalledWith(
+        expect.stringContaining("nft:detection:"),
+        expect.any(String),
+        "EX",
+        300,
+      )
+      // expire should NOT be called separately
+      expect(redis.expire).not.toHaveBeenCalled()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it("falls back to RPC when Alchemy API fails", async () => {
     const redis = createMockRedis()
     const fallbackCalled = vi.fn(async () => [
@@ -269,6 +351,9 @@ describe("CSP Hardening (Task 13.2)", async () => {
     expect(csp).toContain("'nonce-")
     expect(csp).not.toContain("'unsafe-inline'")
     expect(csp).not.toContain("'unsafe-eval'")
+
+    // Verify Tailwind CDN allowlisted in script-src and style-src
+    expect(csp).toContain("https://cdn.tailwindcss.com")
 
     // Verify report-uri and report-to directives
     expect(csp).toContain("report-uri /api/v1/csp-report")
