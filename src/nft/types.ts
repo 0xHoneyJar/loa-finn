@@ -96,6 +96,15 @@ export interface UpdatePersonalityRequest {
   voice?: VoiceType
   expertise_domains?: string[]
   custom_instructions?: string
+  // === Sprint 4 Task 4.3: Signal-V2 auto-upgrade fields ===
+  /** When provided, triggers auto-upgrade from legacy_v1 → signal_v2 (irreversible) */
+  signals?: SignalSnapshot
+  /** Derived 96-dial fingerprint (optional, can be computed externally) */
+  dapm?: DAPMFingerprint
+  /** Derived voice profile (optional, can be computed externally) */
+  voice_profile?: DerivedVoiceProfile
+  /** Wallet address performing the upgrade */
+  authored_by?: string
 }
 
 /** Personality API response */
@@ -107,6 +116,17 @@ export interface PersonalityResponse {
   custom_instructions: string
   created_at: number
   updated_at: number
+  // === Sprint 4 Task 4.2: Extended response fields ===
+  /** Full signal state — null for legacy_v1 personalities */
+  signals: SignalSnapshot | null
+  /** Derived 96-dial values — null for legacy_v1 personalities */
+  dapm: DAPMFingerprint | null
+  /** Emergent voice profile from signals — null for legacy_v1 personalities */
+  voice_profile: DerivedVoiceProfile | null
+  /** Compatibility mode: legacy_v1 or signal_v2 */
+  compatibility_mode: CompatibilityMode
+  /** Current version ID (ULID) — null if unversioned */
+  version_id: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +245,32 @@ export function validateUpdateRequest(body: unknown): UpdatePersonalityRequest {
       throw new NFTPersonalityError("INVALID_REQUEST", `custom_instructions must be at most ${MAX_CUSTOM_INSTRUCTIONS} characters`)
     }
     update.custom_instructions = b.custom_instructions
+  }
+
+  // Sprint 4 Task 4.3: Signal-V2 auto-upgrade fields (pass-through validation)
+  if (b.signals !== undefined) {
+    if (typeof b.signals !== "object" || b.signals === null) {
+      throw new NFTPersonalityError("INVALID_REQUEST", "signals must be a non-null object")
+    }
+    update.signals = b.signals as SignalSnapshot
+  }
+  if (b.dapm !== undefined) {
+    if (typeof b.dapm !== "object" || b.dapm === null) {
+      throw new NFTPersonalityError("INVALID_REQUEST", "dapm must be a non-null object")
+    }
+    update.dapm = b.dapm as DAPMFingerprint
+  }
+  if (b.voice_profile !== undefined) {
+    if (typeof b.voice_profile !== "object" || b.voice_profile === null) {
+      throw new NFTPersonalityError("INVALID_REQUEST", "voice_profile must be a non-null object")
+    }
+    update.voice_profile = b.voice_profile as DerivedVoiceProfile
+  }
+  if (b.authored_by !== undefined) {
+    if (typeof b.authored_by !== "string" || !b.authored_by.trim()) {
+      throw new NFTPersonalityError("INVALID_REQUEST", "authored_by must be a non-empty string")
+    }
+    update.authored_by = b.authored_by.trim()
   }
 
   if (Object.keys(update).length === 0) {

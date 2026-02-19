@@ -81,6 +81,12 @@ export {
   personalityRoutes,
   decodePersonality,
   type PersonalityServiceDeps,
+  // Sprint 4 Task 4.3b: V2 route handlers
+  registerPersonalityV2Routes,
+  handleCreateV2,
+  handleUpdateV2,
+  handleSynthesize,
+  type PersonalityV2Deps,
 } from "./personality.js"
 
 // Personality Version Service (Sprint 3 Tasks 3.1-3.3)
@@ -93,10 +99,17 @@ export {
   type PersonalityVersionServiceDeps,
 } from "./personality-version.js"
 
-// Personality Resolver (Task 4.3)
+// Legacy VoiceType → dAPM Mapping (Sprint 4 Task 4.1)
+export {
+  getLegacyDAPMOffsets,
+  LEGACY_VOICE_OFFSETS,
+} from "./dapm-tables.js"
+
+// Personality Resolver (Task 4.3 + 4.4)
 export {
   resolvePersonalityPrompt,
   composeSystemPrompt,
+  buildDAPMSummary,
   type PersonalityResolverDeps,
 } from "./personality-resolver.js"
 

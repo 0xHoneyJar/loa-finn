@@ -1,11 +1,16 @@
-// src/nft/personality-resolver.ts — NFT Personality → System Prompt Resolver (Sprint 4 Task 4.3)
+// src/nft/personality-resolver.ts — NFT Personality → System Prompt Resolver (Sprint 4 Tasks 4.3, 4.4)
 //
 // Resolves NFT personality BEAUVOIR.md into system prompt content for inference.
 // Wraps personality in <system-personality> delimiters for prompt boundary enforcement.
 // Missing personality → default BEAUVOIR.md (fail-safe, not error).
+//
+// Sprint 4 Task 4.4: signal_v2 mode composes dAPM dial summary into prompt.
+// Legacy_v1 mode uses the existing template-based path (BEAUVOIR.md only).
 
 import { DEFAULT_BEAUVOIR_MD } from "./beauvoir-template.js"
 import type { PersonalityService } from "./personality.js"
+import type { NFTPersonality } from "./types.js"
+import type { DAPMFingerprint } from "./signal-types.js"
 
 // ---------------------------------------------------------------------------
 // Sanitization
@@ -42,8 +47,12 @@ export interface PersonalityResolverDeps {
  * Returns the personality content wrapped in <system-personality> delimiters.
  * If no personality exists, returns the default BEAUVOIR.md content.
  *
+ * Sprint 4 Task 4.4: For signal_v2 personalities, composes a dAPM dial summary
+ * section into the prompt alongside the BEAUVOIR.md. For legacy_v1 personalities,
+ * uses the existing template-based path (BEAUVOIR.md only).
+ *
  * IMPORTANT: User input is NEVER interpolated into this template.
- * The personality content is fully determined by the stored BEAUVOIR.md.
+ * The personality content is fully determined by stored personality data.
  */
 export async function resolvePersonalityPrompt(
   service: PersonalityService,
@@ -57,8 +66,109 @@ export async function resolvePersonalityPrompt(
   }
 
   const [collection, tokenId] = parts
-  const beauvoirMd = await service.getBeauvoirMd(collection, tokenId)
-  return wrapPersonality(beauvoirMd)
+
+  // Task 4.4: Load full personality to check compatibility mode
+  const personality = await service.getRaw(collection, tokenId)
+
+  if (!personality) {
+    // No personality record — fall back to BEAUVOIR.md from R2 or default
+    const beauvoirMd = await service.getBeauvoirMd(collection, tokenId)
+    return wrapPersonality(beauvoirMd)
+  }
+
+  // Legacy_v1: template-based path (BEAUVOIR.md only)
+  if (personality.compatibility_mode !== "signal_v2") {
+    return wrapPersonality(personality.beauvoir_md)
+  }
+
+  // Signal_v2: compose dAPM dial summary alongside BEAUVOIR.md
+  return wrapSignalV2Personality(personality)
+}
+
+/**
+ * Compose a signal_v2 personality prompt with dAPM behavioral summary.
+ * The BEAUVOIR.md sets identity/voice, and the dAPM summary provides
+ * quantitative behavioral calibration for the inference engine.
+ */
+function wrapSignalV2Personality(personality: NFTPersonality): string {
+  const sections: string[] = []
+
+  // BEAUVOIR.md content (identity + voice)
+  sections.push(sanitizePersonalityContent(personality.beauvoir_md))
+
+  // dAPM dial summary (behavioral calibration)
+  if (personality.dapm) {
+    sections.push("")
+    sections.push("## Behavioral Calibration (dAPM)")
+    sections.push("")
+    sections.push(buildDAPMSummary(personality.dapm))
+  }
+
+  // Voice profile summary (if available)
+  if (personality.voice_profile) {
+    sections.push("")
+    sections.push("## Voice Profile")
+    sections.push(`Archetype influence: ${personality.voice_profile.archetype_voice}`)
+    sections.push(`Cultural framing: ${personality.voice_profile.cultural_voice}`)
+    sections.push(`Temporal register: ${personality.voice_profile.temporal_register}`)
+    sections.push(`Energy signature: ${personality.voice_profile.energy_signature}`)
+    sections.push(`Confidence level: ${personality.voice_profile.confidence.toFixed(2)}`)
+  }
+
+  return `<system-personality>\n${sections.join("\n")}\n</system-personality>`
+}
+
+// ---------------------------------------------------------------------------
+// dAPM Summary Builder (Task 4.4)
+// ---------------------------------------------------------------------------
+
+/** Category labels for dAPM dial groupings */
+const DAPM_CATEGORY_LABELS: Record<string, string> = {
+  sw: "Social Warmth",
+  cs: "Conversational Style",
+  as: "Assertiveness",
+  cg: "Cognitive Style",
+  ep: "Epistemic Behavior",
+  cr: "Creativity",
+  cv: "Convergence",
+  mo: "Motivation",
+  et: "Emotional Tone",
+  sc: "Social Cognition",
+  ag: "Agency",
+  id: "Identity",
+}
+
+/**
+ * Build a human-readable dAPM summary grouped by category.
+ * Each category shows the average dial value and a behavioral descriptor.
+ */
+export function buildDAPMSummary(fingerprint: DAPMFingerprint): string {
+  const categories: Record<string, number[]> = {}
+
+  for (const [dialId, value] of Object.entries(fingerprint.dials)) {
+    const prefix = dialId.split("_")[0]
+    if (!categories[prefix]) categories[prefix] = []
+    categories[prefix].push(value)
+  }
+
+  const lines: string[] = []
+  for (const [prefix, values] of Object.entries(categories)) {
+    const avg = values.reduce((a, b) => a + b, 0) / values.length
+    const label = DAPM_CATEGORY_LABELS[prefix] ?? prefix
+    const descriptor = describeLevel(avg)
+    lines.push(`- ${label}: ${descriptor} (${avg.toFixed(2)})`)
+  }
+
+  return lines.join("\n")
+}
+
+/** Map a 0-1 average to a human-readable behavioral descriptor */
+function describeLevel(avg: number): string {
+  if (avg >= 0.8) return "very high"
+  if (avg >= 0.65) return "high"
+  if (avg >= 0.45) return "moderate"
+  if (avg >= 0.3) return "low"
+  return "very low"
 }
 
 /**

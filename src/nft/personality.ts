@@ -189,6 +189,16 @@ export class PersonalityService {
     if (req.expertise_domains !== undefined) personality.expertise_domains = req.expertise_domains
     if (req.custom_instructions !== undefined) personality.custom_instructions = req.custom_instructions
 
+    // Sprint 4 Task 4.3: Signal-V2 auto-upgrade (irreversible)
+    // When update includes signals data, upgrade from legacy_v1 → signal_v2.
+    // Only triggers on explicit write with signal data — no silent migration.
+    if (req.signals !== undefined) {
+      personality.signals = req.signals
+      if (req.dapm !== undefined) personality.dapm = req.dapm
+      if (req.voice_profile !== undefined) personality.voice_profile = req.voice_profile
+      if (req.authored_by !== undefined) personality.authored_by = req.authored_by
+    }
+
     // Regenerate BEAUVOIR.md
     personality.beauvoir_md = generateBeauvoirMd(
       personality.name,
@@ -198,7 +208,8 @@ export class PersonalityService {
     )
     personality.updated_at = Date.now()
 
-    // Detect compatibility mode (Task 3.5)
+    // Detect compatibility mode (Task 3.5 + Task 4.3)
+    // Once upgraded to signal_v2, never reverts to legacy_v1
     const compatibilityMode: CompatibilityMode = personality.signals
       ? "signal_v2"
       : "legacy_v1"
@@ -257,7 +268,27 @@ export class PersonalityService {
       compatibility_mode: compatibilityMode,
     })
 
+    // Sprint 4 Task 4.3: Log auto-upgrade event when signals are provided
+    if (req.signals !== undefined) {
+      this.writeAudit("personality_upgrade_to_v2", id, {
+        from: "legacy_v1",
+        to: "signal_v2",
+        version_id: personality.version_id ?? null,
+        authored_by: req.authored_by ?? "system",
+      })
+    }
+
     return toResponse(personality)
+  }
+
+  /**
+   * Retrieve the full internal personality record (not the API response shape).
+   * Used by V2 route handlers and the personality resolver to access signal-era fields.
+   * Sprint 4 Task 4.3b / Task 4.4
+   */
+  async getRaw(collection: string, tokenId: string): Promise<NFTPersonality | null> {
+    const id = `${collection}:${tokenId}`
+    return this.loadPersonality(id)
   }
 
   // ---------------------------------------------------------------------------
@@ -326,6 +357,12 @@ function toResponse(p: NFTPersonality): PersonalityResponse {
     custom_instructions: p.custom_instructions,
     created_at: p.created_at,
     updated_at: p.updated_at,
+    // Sprint 4 Task 4.2: Extended response fields
+    signals: p.signals ?? null,
+    dapm: p.dapm ?? null,
+    voice_profile: p.voice_profile ?? null,
+    compatibility_mode: p.compatibility_mode ?? "legacy_v1",
+    version_id: p.version_id ?? null,
   }
 }
 
@@ -399,4 +436,163 @@ export function personalityRoutes(service: PersonalityService): Hono {
   })
 
   return app
+}
+
+// ---------------------------------------------------------------------------
+// V2 Route Handlers (Sprint 4 Task 4.3b)
+// ---------------------------------------------------------------------------
+
+import type { Context } from "hono"
+import type { BeauvoirSynthesizer } from "./beauvoir-synthesizer.js"
+import type { SignalSnapshot, DAPMFingerprint, DerivedVoiceProfile } from "./signal-types.js"
+
+/** Dependencies for V2 route registration */
+export interface PersonalityV2Deps {
+  service: PersonalityService
+  synthesizer?: BeauvoirSynthesizer
+}
+
+/**
+ * Pre-auth safety guard: V2 write endpoints return 503 SERVICE_UNAVAILABLE
+ * with "governance not configured" until Sprint 6 wires auth.
+ * Returns true if the guard blocked the request (caller should return early).
+ */
+function governanceGuard(c: Context): Response | null {
+  // Sprint 6 will replace this with actual auth check.
+  // Until then, all V2 write endpoints are blocked.
+  return c.json(
+    { error: "governance not configured", code: "SERVICE_UNAVAILABLE" },
+    503,
+  )
+}
+
+/**
+ * POST /:collection/:tokenId/personality/v2 — Create signal_v2 personality
+ * Pre-auth: returns 503 until governance is configured.
+ */
+export async function handleCreateV2(c: Context, deps: PersonalityV2Deps): Promise<Response> {
+  const guard = governanceGuard(c)
+  if (guard) return guard
+
+  // Unreachable until Sprint 6 removes the guard — placeholder for future implementation
+  const { collection, tokenId } = c.req.param()
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: "Invalid JSON body", code: "INVALID_REQUEST" }, 400)
+  }
+
+  if (typeof body !== "object" || body === null) {
+    return c.json({ error: "Request body must be a JSON object", code: "INVALID_REQUEST" }, 400)
+  }
+
+  const b = body as Record<string, unknown>
+  if (!b.signals || typeof b.signals !== "object") {
+    return c.json({ error: "signals is required for V2 personality creation", code: "INVALID_REQUEST" }, 400)
+  }
+
+  try {
+    const req = validateCreateRequest(body)
+    const result = await deps.service.create(collection, tokenId, req)
+    return c.json(result, 201)
+  } catch (e) {
+    if (e instanceof NFTPersonalityError) {
+      return c.json({ error: e.message, code: e.code }, e.httpStatus as 400)
+    }
+    throw e
+  }
+}
+
+/**
+ * PUT /:collection/:tokenId/personality/v2 — Update signal_v2 personality
+ * Pre-auth: returns 503 until governance is configured.
+ */
+export async function handleUpdateV2(c: Context, deps: PersonalityV2Deps): Promise<Response> {
+  const guard = governanceGuard(c)
+  if (guard) return guard
+
+  // Unreachable until Sprint 6 removes the guard — placeholder for future implementation
+  const { collection, tokenId } = c.req.param()
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: "Invalid JSON body", code: "INVALID_REQUEST" }, 400)
+  }
+
+  try {
+    const req = validateUpdateRequest(body)
+    const result = await deps.service.update(collection, tokenId, req)
+    return c.json(result)
+  } catch (e) {
+    if (e instanceof NFTPersonalityError) {
+      return c.json({ error: e.message, code: e.code }, e.httpStatus as 400)
+    }
+    throw e
+  }
+}
+
+/**
+ * POST /:collection/:tokenId/personality/synthesize — Trigger BEAUVOIR synthesis
+ * Pre-auth: returns 503 until governance is configured.
+ * When unblocked: synthesizes from stored signals, persists result + creates version.
+ */
+export async function handleSynthesize(c: Context, deps: PersonalityV2Deps): Promise<Response> {
+  const guard = governanceGuard(c)
+  if (guard) return guard
+
+  // Unreachable until Sprint 6 removes the guard — placeholder for future implementation
+  const { collection, tokenId } = c.req.param()
+
+  if (!deps.synthesizer) {
+    return c.json({ error: "Synthesizer not available", code: "SERVICE_UNAVAILABLE" }, 503)
+  }
+
+  const personality = await deps.service.getRaw(collection, tokenId)
+  if (!personality) {
+    return c.json({ error: "Personality not found", code: "PERSONALITY_NOT_FOUND" }, 404)
+  }
+
+  if (!personality.signals) {
+    return c.json(
+      { error: "Cannot synthesize: no signals data (legacy_v1 personality)", code: "INVALID_REQUEST" },
+      400,
+    )
+  }
+
+  try {
+    const beauvoirMd = await deps.synthesizer.synthesize(
+      personality.signals,
+      personality.dapm ?? null,
+    )
+
+    // Persist synthesized result
+    const result = await deps.service.update(collection, tokenId, {
+      custom_instructions: personality.custom_instructions,
+    })
+
+    // The synthesized beauvoir_md is stored via the update path
+    // Return the full response with synthesis confirmation
+    return c.json({
+      ...result,
+      synthesized: true,
+      beauvoir_md_preview: beauvoirMd.slice(0, 500),
+    })
+  } catch (e) {
+    if (e instanceof NFTPersonalityError) {
+      return c.json({ error: e.message, code: e.code }, e.httpStatus as 400)
+    }
+    return c.json({ error: "Synthesis failed", code: "SYNTHESIS_FAILED" }, 500)
+  }
+}
+
+/**
+ * Register V2 routes on a Hono app.
+ * Composable — can be mounted alongside the v1 personalityRoutes.
+ */
+export function registerPersonalityV2Routes(app: Hono, deps: PersonalityV2Deps): void {
+  app.post("/:collection/:tokenId/personality/v2", (c) => handleCreateV2(c, deps))
+  app.put("/:collection/:tokenId/personality/v2", (c) => handleUpdateV2(c, deps))
+  app.post("/:collection/:tokenId/personality/synthesize", (c) => handleSynthesize(c, deps))
 }
