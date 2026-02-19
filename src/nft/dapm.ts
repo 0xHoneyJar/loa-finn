@@ -23,6 +23,7 @@ import { DAPM_DIAL_IDS, SWAG_RANK_VALUES, ZODIAC_SIGNS } from "./signal-types.js
 import { getDAPMTables } from "./dapm-tables.js"
 import { loadCodexVersion, loadAncestors } from "./codex-data/loader.js"
 import type { AncestorEntry } from "./codex-data/loader.js"
+import type { KnowledgeGraph } from "./identity-graph.js"
 
 // ---------------------------------------------------------------------------
 // Ancestor Family Types & Mapping (Task 7.3)
@@ -98,16 +99,16 @@ export const ANCESTOR_TO_FAMILY: Record<string, AncestorFamily> = {
   german_idealist: "techno_modern",
 }
 
-// Placeholder type for future Sprint 9 knowledge graph integration
-export interface KnowledgeGraph {
-  readonly _brand: "KnowledgeGraph"
-}
+// KnowledgeGraph type re-exported from identity-graph.ts (Sprint 9)
+export type { KnowledgeGraph } from "./identity-graph.js"
 
 /**
  * Resolve an ancestor name to its family grouping.
  *
  * Without graph: direct table lookup, defaults to "mystical" for unknown ancestors.
- * With graph: stub returning "mystical" (Sprint 9 fills this in with graph traversal).
+ * With graph: table lookup first, then graph traversal fallback for unknown ancestors.
+ * Graph traversal finds edges from ancestor node to ancestor_family nodes,
+ * picks the one with highest weight, with lexicographic tie-breaking.
  *
  * @param ancestor - Ancestor ID string (e.g., "greek_philosopher")
  * @param graph - Optional knowledge graph for enhanced resolution (Sprint 9)
@@ -117,12 +118,38 @@ export function resolveAncestorFamily(
   ancestor: string,
   graph?: KnowledgeGraph | null,
 ): AncestorFamily {
-  // Sprint 9 stub: graph-based resolution not yet implemented
+  // Direct table lookup first (known ancestors)
+  const tableLookup = ANCESTOR_TO_FAMILY[ancestor]
+  if (tableLookup) return tableLookup
+
+  // Graph fallback: find ancestor node, look for edges to ancestor_family nodes,
+  // pick highest weight, lexicographic tie-breaking
   if (graph) {
-    return "mystical"
+    const ancestorNodeId = ancestor.startsWith("ancestor:") ? ancestor : `ancestor:${ancestor}`
+    const adjacent = graph.adjacency.get(ancestorNodeId) ?? []
+
+    let bestFamily: AncestorFamily | null = null
+    let bestWeight = -1
+
+    for (const edge of adjacent) {
+      if (edge.target.startsWith("ancestor_family:")) {
+        const familyName = edge.target.replace("ancestor_family:", "")
+        if (ANCESTOR_FAMILIES.includes(familyName as AncestorFamily)) {
+          if (
+            edge.weight > bestWeight ||
+            (edge.weight === bestWeight && bestFamily !== null && familyName < bestFamily)
+          ) {
+            bestWeight = edge.weight
+            bestFamily = familyName as AncestorFamily
+          }
+        }
+      }
+    }
+
+    if (bestFamily) return bestFamily
   }
 
-  return ANCESTOR_TO_FAMILY[ancestor] ?? "mystical"
+  return "mystical" // Ultimate fallback
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +209,15 @@ export function deriveAstrologyBlend(
 /** Clamp a value to [0, 1] */
 function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v))
+}
+
+/**
+ * Clamp a mode offset to the safe range [-0.3, +0.3].
+ * Mode deltas beyond this range could overwhelm the composition formula.
+ * Defense-in-depth: data files should already be capped, this enforces at runtime.
+ */
+export function clampModeOffset(v: number): number {
+  return Math.max(-0.3, Math.min(0.3, v))
 }
 
 /**
@@ -253,8 +289,8 @@ export function deriveDAPM(
     // Tier 3: (element + swag*scale + astrology*offset) / 3 (weight 0.15)
     const f3 = ((elementRow[dialId] ?? 0) + swagNorm * (swagScales[dialId] ?? 0) + astrologyBlend * (astrologyOffsets[dialId] ?? 0)) / 3
 
-    // Mode offset (weight 0.05)
-    const modeOffset = modeDeltas[dialId] ?? 0
+    // Mode offset (weight 0.05), clamped to [-0.3, +0.3] for safety
+    const modeOffset = clampModeOffset(modeDeltas[dialId] ?? 0)
 
     // Compose
     dials[dialId] = clamp01(0.5 + 0.50 * f1 + 0.30 * f2 + 0.15 * f3 + 0.05 * modeOffset)

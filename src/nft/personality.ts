@@ -13,8 +13,18 @@ import {
   type PersonalityResponse,
   NFTPersonalityError,
 } from "./types.js"
-import type { CompatibilityMode } from "./signal-types.js"
+import type { CompatibilityMode, AgentMode, DAPMFingerprint } from "./signal-types.js"
 import type { PersonalityVersionService } from "./personality-version.js"
+
+// ---------------------------------------------------------------------------
+// dAPM Mode Cache Constants (Sprint 8 Task 8.3)
+// ---------------------------------------------------------------------------
+
+/** All agent modes for cache key iteration */
+const AGENT_MODES: AgentMode[] = ["default", "brainstorm", "critique", "execute"]
+
+/** Cache TTL in seconds (1 hour) */
+const DAPM_CACHE_TTL_SECONDS = 3600
 
 // ---------------------------------------------------------------------------
 // Dependencies
@@ -219,6 +229,10 @@ export class PersonalityService {
     const key = `personality:${id}`
     await this.redis.set(key, JSON.stringify(personality))
 
+    // Invalidate dAPM mode cache (Sprint 8 Task 8.3)
+    // Any personality update could affect derivation inputs, so purge all mode variants.
+    await this.invalidateDAPMCache(collection, tokenId)
+
     // Create linked personality version (Task 3.4)
     if (this.versionService) {
       try {
@@ -289,6 +303,63 @@ export class PersonalityService {
   async getRaw(collection: string, tokenId: string): Promise<NFTPersonality | null> {
     const id = `${collection}:${tokenId}`
     return this.loadPersonality(id)
+  }
+
+  // ---------------------------------------------------------------------------
+  // dAPM Mode Cache (Sprint 8 Task 8.3)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get a cached dAPM fingerprint for a specific mode.
+   * Returns null on cache miss or Redis error.
+   *
+   * Cache key: `dapm:cache:{collection}:{tokenId}:{mode}`
+   */
+  async getDAPMCached(
+    collection: string,
+    tokenId: string,
+    mode: AgentMode,
+  ): Promise<DAPMFingerprint | null> {
+    const key = `dapm:cache:${collection}:${tokenId}:${mode}`
+    try {
+      const data = await this.redis.get(key)
+      if (!data) return null
+      return JSON.parse(data) as DAPMFingerprint
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Store a dAPM fingerprint in cache with 1h TTL.
+   *
+   * Cache key: `dapm:cache:{collection}:{tokenId}:{mode}`
+   */
+  async setDAPMCached(
+    collection: string,
+    tokenId: string,
+    mode: AgentMode,
+    fingerprint: DAPMFingerprint,
+  ): Promise<void> {
+    const key = `dapm:cache:${collection}:${tokenId}:${mode}`
+    try {
+      await this.redis.set(key, JSON.stringify(fingerprint), "EX", DAPM_CACHE_TTL_SECONDS)
+    } catch {
+      // Cache write failure is non-fatal
+    }
+  }
+
+  /**
+   * Invalidate ALL mode variants of the dAPM cache for an NFT.
+   * Iterates over all 4 modes (default, brainstorm, critique, execute) and deletes each key.
+   */
+  async invalidateDAPMCache(collection: string, tokenId: string): Promise<void> {
+    const keys = AGENT_MODES.map((mode) => `dapm:cache:${collection}:${tokenId}:${mode}`)
+    try {
+      await this.redis.del(...keys)
+    } catch {
+      // Cache invalidation failure is non-fatal
+    }
   }
 
   // ---------------------------------------------------------------------------

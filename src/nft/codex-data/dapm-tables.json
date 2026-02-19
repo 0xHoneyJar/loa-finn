@@ -2755,14 +2755,14 @@
   },
   "mode_deltas": {
     "brainstorm": {
-      "cr_divergent_thinking": 0.4,
-      "cr_originality_drive": 0.3,
+      "cr_divergent_thinking": 0.3,
+      "cr_originality_drive": 0.25,
       "cr_playfulness": 0.3,
-      "cr_experimentation_bias": 0.35,
+      "cr_experimentation_bias": 0.3,
       "cr_combination_skill": 0.25,
       "cr_constraint_affinity": -0.3,
       "cr_abstraction_comfort": 0.2,
-      "ep_speculation_comfort": 0.35,
+      "ep_speculation_comfort": 0.25,
       "ep_contrarian_tendency": 0.2,
       "ep_evidence_threshold": -0.25,
       "cv_scope_discipline": -0.3,
@@ -2774,7 +2774,7 @@
       "et_positivity_bias": 0.15
     },
     "critique": {
-      "ep_evidence_threshold": 0.4,
+      "ep_evidence_threshold": 0.3,
       "ep_source_attribution": 0.3,
       "ep_contrarian_tendency": 0.25,
       "ep_first_principles": 0.2,
@@ -2785,6 +2785,7 @@
       "as_correction_readiness": 0.25,
       "as_opinion_strength": 0.2,
       "cv_feasibility_weight": 0.25,
+      "cv_completeness_need": 0.2,
       "cv_pragmatism": 0.2,
       "cv_scope_discipline": 0.2,
       "cs_directness": 0.2,
@@ -2793,9 +2794,9 @@
       "et_composure_under_stress": 0.15
     },
     "execute": {
-      "cv_closure_drive": 0.35,
+      "cv_closure_drive": 0.3,
       "cv_pragmatism": 0.3,
-      "cv_feasibility_weight": 0.25,
+      "cv_feasibility_weight": 0.3,
       "cv_scope_discipline": 0.3,
       "cv_decision_speed": 0.25,
       "cv_prioritization_strictness": 0.2,

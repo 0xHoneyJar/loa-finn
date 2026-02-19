@@ -111,12 +111,13 @@ export {
   type PartialDialRecord,
 } from "./dapm-tables.js"
 
-// dAPM-96 Derivation Engine (Sprint 7 Tasks 7.1, 7.3-7.5)
+// dAPM-96 Derivation Engine (Sprint 7 Tasks 7.1, 7.3-7.5 + Sprint 8 Task 8.1)
 export {
   deriveDAPM,
   resolveAncestorFamily,
   normalizeSwag,
   deriveAstrologyBlend,
+  clampModeOffset,
   ANCESTOR_TO_FAMILY,
   ANCESTOR_FAMILIES,
   type AncestorFamily,
@@ -137,7 +138,7 @@ export {
   buildSynthesisPrompt,
   SynthesisError,
   type SynthesisRouter,
-  type IdentitySubgraph,
+  type IdentitySubgraph as BeauvoirIdentitySubgraph,
   type UserCustomInput,
   type SynthesisErrorCode,
   type BeauvoirSynthesizerConfig,
@@ -164,6 +165,33 @@ export {
   type TemporalViolation,
   type EraDomainDef,
 } from "./temporal-voice.js"
+
+// Safety Policy (Sprint 8 Task 8.2)
+export {
+  getSafetyPolicy,
+  getSafetyPolicyText,
+  type SafetyPolicy,
+  type SafetyRule,
+} from "./safety-policy.js"
+
+// Identity Graph — Knowledge Graph Integration (Sprint 9 Tasks 9.1-9.5)
+export {
+  KnowledgeGraphLoader,
+  extractSubgraph,
+  resolveCulturalReferences,
+  resolveAestheticPreferences,
+  resolvePhilosophicalFoundations,
+  IdentityGraphCache,
+  type KnowledgeGraph as IdentityKnowledgeGraph,
+  type GraphNode,
+  type GraphEdge,
+  type IdentitySubgraph,
+  type DerivedEdge,
+  type CulturalReference,
+  type AestheticPreference,
+  type PhilosophicalFoundation,
+  type IdentityGraphCacheConfig,
+} from "./identity-graph.js"
 
 // On-Chain Ownership Provider (Sprint 6 Task 6.0)
 export {
