@@ -209,3 +209,49 @@ export {
   type OwnershipErrorCode,
   type EthersOwnershipProviderConfig,
 } from "./chain-config.js"
+
+// Eval Harness (Sprint 12 Tasks 12.1-12.5)
+export {
+  // Providers
+  type EvalLLMProvider,
+  type EmbeddingProvider,
+  type JudgeProvider,
+  FakeEvalLLMProvider,
+  FakeEmbeddingProvider,
+  FakeJudgeProvider,
+  // Harness Runner
+  EvalRunner,
+  STANDARD_EVAL_PROMPTS,
+  type EvalConfig,
+  type EvalPrompt,
+  type EvalPersonality,
+  type EvalResponse,
+  type EvalRunResult,
+  // Distinctiveness Scorer
+  cosineSimilarity,
+  scoreDistinctiveness,
+  type DistinctivenessResult,
+  // Signal Fidelity Scorer
+  stripArchetypeLabels,
+  scoreFidelity,
+  type FidelityResult,
+  // Anti-Narration Batch Checker
+  checkAntiNarrationBatch,
+  type ANBatchResult,
+  // Temporal Consistency Scorer
+  scoreTemporalConsistency,
+  type TemporalResult,
+  // dAPM Behavioral Distinctiveness (Sprint 13 Task 13.1)
+  scoreDAPMDistinctiveness,
+  welchTTest,
+  extractBehavioralFeatures,
+  DAPM_DIMENSION_PREFIXES,
+  type DAPMEvalConfig,
+  type DAPMDimensionResult,
+  type DAPMEvalResult,
+  type DAPMDimensionPrefix,
+  // Aggregate Scorecard (Sprint 13 Task 13.2)
+  buildScorecards,
+  type EvalScorecard,
+  type AggregateScorecard,
+} from "./eval/index.js"
