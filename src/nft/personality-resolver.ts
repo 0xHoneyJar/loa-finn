@@ -10,8 +10,10 @@
 import { DEFAULT_BEAUVOIR_MD } from "./beauvoir-template.js"
 import type { PersonalityService } from "./personality.js"
 import type { NFTPersonality } from "./types.js"
-import type { DAPMFingerprint } from "./signal-types.js"
+import type { AgentMode, DAPMFingerprint } from "./signal-types.js"
+import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import { getSafetyPolicyText } from "./safety-policy.js"
+import { deriveDAPM } from "./dapm.js"
 
 // ---------------------------------------------------------------------------
 // Sanitization
@@ -40,6 +42,8 @@ function sanitizePersonalityContent(content: string): string {
 
 export interface PersonalityResolverDeps {
   personalityService: PersonalityService
+  /** Redis client for reading persisted agent mode (Sprint 15 Task 15.2) */
+  redis?: RedisCommandClient
 }
 
 /**
@@ -52,12 +56,17 @@ export interface PersonalityResolverDeps {
  * section into the prompt alongside the BEAUVOIR.md. For legacy_v1 personalities,
  * uses the existing template-based path (BEAUVOIR.md only).
  *
+ * Sprint 15 Task 15.2: When redis is provided, reads the persisted agent mode
+ * from `dapm:mode:{collection}:{tokenId}` and uses that mode's dAPM fingerprint
+ * for prompt composition. Falls back to "default" mode when no mode is persisted.
+ *
  * IMPORTANT: User input is NEVER interpolated into this template.
  * The personality content is fully determined by stored personality data.
  */
 export async function resolvePersonalityPrompt(
   service: PersonalityService,
   nftId: string,
+  redis?: RedisCommandClient,
 ): Promise<string> {
   // nftId format: "collection:tokenId"
   const parts = nftId.split(":")
@@ -82,7 +91,33 @@ export async function resolvePersonalityPrompt(
     return wrapPersonality(personality.beauvoir_md)
   }
 
-  // Signal_v2: compose dAPM dial summary alongside BEAUVOIR.md
+  // Sprint 15 Task 15.2: Read persisted mode from Redis for mode-aware dAPM selection
+  if (redis && personality.signals) {
+    try {
+      const modeKey = `dapm:mode:${collection}:${tokenId}`
+      const persistedMode = await redis.get(modeKey)
+
+      if (persistedMode && persistedMode !== "default") {
+        const agentMode = persistedMode as AgentMode
+        // Re-derive dAPM for the persisted mode
+        try {
+          const modeFingerprint = deriveDAPM(personality.signals, agentMode)
+          // Use a copy of the personality with mode-specific dAPM for prompt composition
+          const modePersonality: NFTPersonality = {
+            ...personality,
+            dapm: modeFingerprint,
+          }
+          return wrapSignalV2Personality(modePersonality)
+        } catch {
+          // dAPM derivation failure is non-fatal — fall through to default mode
+        }
+      }
+    } catch {
+      // Redis read failure is non-fatal — fall through to default mode
+    }
+  }
+
+  // Signal_v2: compose dAPM dial summary alongside BEAUVOIR.md (default mode)
   return wrapSignalV2Personality(personality)
 }
 
