@@ -127,6 +127,8 @@ export interface PersonalityResponse {
   compatibility_mode: CompatibilityMode
   /** Current version ID (ULID) — null if unversioned */
   version_id: string | null
+  /** Governance model: "holder" (enforced), "community", "dao" (accepted, not enforced) */
+  governance_model: "holder" | "community" | "dao"
 }
 
 // ---------------------------------------------------------------------------
@@ -138,12 +140,20 @@ export type NFTPersonalityErrorCode =
   | "PERSONALITY_NOT_FOUND"
   | "PERSONALITY_EXISTS"
   | "STORAGE_UNAVAILABLE"
+  | "CODEX_UNCHANGED"
+  | "MODE_INVALID"
+  | "VERSION_NOT_FOUND"
+  | "RATE_LIMITED"
 
 const CODE_TO_STATUS: Record<NFTPersonalityErrorCode, number> = {
   INVALID_REQUEST: 400,
   PERSONALITY_NOT_FOUND: 404,
   PERSONALITY_EXISTS: 409,
   STORAGE_UNAVAILABLE: 503,
+  CODEX_UNCHANGED: 409,
+  MODE_INVALID: 400,
+  VERSION_NOT_FOUND: 404,
+  RATE_LIMITED: 429,
 }
 
 export class NFTPersonalityError extends Error {

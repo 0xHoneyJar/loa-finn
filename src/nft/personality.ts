@@ -16,6 +16,7 @@ import {
 import type { CompatibilityMode, AgentMode, DAPMFingerprint, SignalSnapshot } from "./signal-types.js"
 import type { PersonalityVersionService } from "./personality-version.js"
 import { deriveDAPM } from "./dapm.js"
+import { loadCodexVersion } from "./codex-data/loader.js"
 
 // ---------------------------------------------------------------------------
 // dAPM Mode Cache Constants (Sprint 8 Task 8.3)
@@ -460,6 +461,8 @@ function toResponse(p: NFTPersonality): PersonalityResponse {
     voice_profile: p.voice_profile ?? null,
     compatibility_mode: p.compatibility_mode ?? "legacy_v1",
     version_id: p.version_id ?? null,
+    // Sprint 14 Task 14.3: Governance model in API response
+    governance_model: p.governance_model ?? "holder",
   }
 }
 
@@ -541,7 +544,7 @@ export function personalityRoutes(service: PersonalityService): Hono {
 
 import type { Context } from "hono"
 import type { BeauvoirSynthesizer } from "./beauvoir-synthesizer.js"
-import type { SignalSnapshot, DAPMFingerprint, DerivedVoiceProfile } from "./signal-types.js"
+import type { DerivedVoiceProfile } from "./signal-types.js"
 import type { OwnershipProvider } from "./chain-config.js"
 import type { OwnershipMiddlewareConfig } from "../gateway/siwe-ownership.js"
 import { requireNFTOwnership } from "../gateway/siwe-ownership.js"
@@ -556,6 +559,10 @@ export interface PersonalityV2Deps {
   ownershipProvider: OwnershipProvider
   /** JWT config for ownership middleware (Sprint 6) */
   ownershipMiddlewareConfig: OwnershipMiddlewareConfig
+  /** Version service for rollback support (Sprint 15 Task 15.3) */
+  versionService?: PersonalityVersionService
+  /** Redis client for mode persistence (Sprint 15 Task 15.2) */
+  redis?: RedisCommandClient
 }
 
 /**
@@ -709,12 +716,270 @@ export async function handleSynthesize(c: Context, deps: PersonalityV2Deps): Pro
   }
 }
 
+// ---------------------------------------------------------------------------
+// Sprint 15: Re-derive, Mode Switch, and Rollback Handlers
+// ---------------------------------------------------------------------------
+
+/** Valid agent modes for mode switch validation */
+const VALID_MODES: ReadonlySet<string> = new Set(["default", "brainstorm", "critique", "execute"])
+
+/**
+ * POST /:collection/:tokenId/personality/rederive — Re-derive dAPM from stored signals
+ * Protected by requireNFTOwnership middleware (Sprint 15 Task 15.1).
+ *
+ * Re-derives the dAPM fingerprint using the latest codex version.
+ * Returns 409 if the codex version hasn't changed (no re-derive needed).
+ * Returns 400 if the personality is legacy_v1 (no signals to derive from).
+ * Returns 404 if personality not found.
+ */
+export async function handleRederive(c: Context, deps: PersonalityV2Deps): Promise<Response> {
+  const { collection, tokenId } = c.req.param()
+
+  // Load personality
+  const personality = await deps.service.getRaw(collection, tokenId)
+  if (!personality) {
+    return c.json({ error: "Personality not found", code: "PERSONALITY_NOT_FOUND" }, 404)
+  }
+
+  // Must be signal_v2 with signals data
+  if (personality.compatibility_mode !== "signal_v2" || !personality.signals) {
+    return c.json(
+      { error: "Cannot re-derive: no signals data (legacy_v1 personality)", code: "INVALID_REQUEST" },
+      400,
+    )
+  }
+
+  // Load current codex version
+  let currentCodexVersion: string
+  try {
+    const codex = loadCodexVersion()
+    currentCodexVersion = codex.version
+  } catch {
+    return c.json({ error: "Failed to load codex version", code: "STORAGE_UNAVAILABLE" }, 503)
+  }
+
+  // Compare with personality's version chain latest codex_version
+  if (deps.versionService) {
+    try {
+      const latestVersion = await deps.versionService.getLatest(personality.id)
+      if (latestVersion && latestVersion.codex_version === currentCodexVersion) {
+        return c.json(
+          { error: "Codex version unchanged — no re-derive needed", code: "CODEX_UNCHANGED" },
+          409,
+        )
+      }
+    } catch {
+      // Version service lookup failure is non-fatal — proceed with re-derive
+    }
+  }
+
+  try {
+    // Re-derive dAPM from signals with default mode
+    const fingerprint = deriveDAPM(personality.signals, "default")
+
+    // Re-synthesize BEAUVOIR.md if synthesizer available
+    let synthesizedMd: string | undefined
+    if (deps.synthesizer) {
+      try {
+        // Extract identity subgraph for richer synthesis
+        let synthesisSubgraph: import("./beauvoir-synthesizer.js").IdentitySubgraph | undefined
+        if (deps.graphLoader) {
+          try {
+            const graph = deps.graphLoader.load()
+            const subgraph = extractSubgraph(
+              graph,
+              personality.signals.archetype,
+              personality.signals.ancestor,
+              personality.signals,
+            )
+            synthesisSubgraph = toSynthesisSubgraph(
+              subgraph,
+              graph,
+              personality.signals.archetype,
+              personality.signals.ancestor,
+              personality.signals.era,
+            )
+          } catch {
+            // Graph extraction failure is non-fatal
+          }
+        }
+
+        synthesizedMd = await deps.synthesizer.synthesize(
+          personality.signals,
+          fingerprint,
+          synthesisSubgraph,
+        )
+      } catch {
+        // Synthesis failure is non-fatal — proceed with re-derived dAPM only
+      }
+    }
+
+    // Update personality via service.update()
+    const result = await deps.service.update(collection, tokenId, {
+      signals: personality.signals,
+      dapm: fingerprint,
+      authored_by: personality.authored_by ?? "system",
+    })
+
+    return c.json({
+      ...result,
+      rederived: true,
+      codex_version: currentCodexVersion,
+      synthesized: !!synthesizedMd,
+    })
+  } catch (e) {
+    if (e instanceof NFTPersonalityError) {
+      return c.json({ error: e.message, code: e.code }, e.httpStatus as 400)
+    }
+    return c.json({ error: "Re-derive failed", code: "STORAGE_UNAVAILABLE" }, 503)
+  }
+}
+
+/**
+ * POST /:collection/:tokenId/mode — Switch agent mode
+ * Protected by requireNFTOwnership middleware (Sprint 15 Task 15.2).
+ *
+ * Persists active mode in Redis and warms the dAPM cache for the mode.
+ * Returns the updated DAPMFingerprint for the requested mode.
+ */
+export async function handleModeSwitch(c: Context, deps: PersonalityV2Deps): Promise<Response> {
+  const { collection, tokenId } = c.req.param()
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: "Invalid JSON body", code: "INVALID_REQUEST" }, 400)
+  }
+
+  if (typeof body !== "object" || body === null) {
+    return c.json({ error: "Request body must be a JSON object", code: "INVALID_REQUEST" }, 400)
+  }
+
+  const b = body as Record<string, unknown>
+  const mode = b.mode
+
+  // Validate mode
+  if (typeof mode !== "string" || !VALID_MODES.has(mode)) {
+    return c.json(
+      { error: "Invalid mode — must be one of: default, brainstorm, critique, execute", code: "MODE_INVALID" },
+      400,
+    )
+  }
+
+  const agentMode = mode as AgentMode
+
+  // Load personality (must exist, must be signal_v2)
+  const personality = await deps.service.getRaw(collection, tokenId)
+  if (!personality) {
+    return c.json({ error: "Personality not found", code: "PERSONALITY_NOT_FOUND" }, 404)
+  }
+
+  if (personality.compatibility_mode !== "signal_v2" || !personality.signals) {
+    return c.json(
+      { error: "Cannot switch mode: no signals data (legacy_v1 personality)", code: "INVALID_REQUEST" },
+      400,
+    )
+  }
+
+  try {
+    // Derive dAPM fingerprint for the new mode
+    const fingerprint = deriveDAPM(personality.signals, agentMode)
+
+    // Persist mode to Redis (no TTL — persists until changed)
+    const modeKey = `dapm:mode:${collection}:${tokenId}`
+    if (deps.redis) {
+      await deps.redis.set(modeKey, agentMode)
+    }
+
+    // Cache the fingerprint via setDAPMCached
+    await deps.service.setDAPMCached(collection, tokenId, agentMode, fingerprint)
+
+    return c.json({ mode: agentMode, dapm: fingerprint })
+  } catch (e) {
+    if (e instanceof NFTPersonalityError) {
+      return c.json({ error: e.message, code: e.code }, e.httpStatus as 400)
+    }
+    return c.json({ error: "Mode switch failed", code: "STORAGE_UNAVAILABLE" }, 503)
+  }
+}
+
+/**
+ * POST /:collection/:tokenId/personality/rollback/:versionId — Non-destructive rollback
+ * Protected by requireNFTOwnership middleware (Sprint 15 Task 15.3).
+ *
+ * Creates a NEW version with content from the specified historical version.
+ * Also updates the personality record in Redis with the rolled-back content.
+ */
+export async function handleRollback(c: Context, deps: PersonalityV2Deps): Promise<Response> {
+  const { collection, tokenId, versionId } = c.req.param()
+
+  // Extract wallet_address set by ownership middleware
+  const walletAddress: string = c.get("wallet_address") ?? "unknown"
+
+  if (!deps.versionService) {
+    return c.json({ error: "Version service not available", code: "STORAGE_UNAVAILABLE" }, 503)
+  }
+
+  // Load personality (must exist)
+  const personality = await deps.service.getRaw(collection, tokenId)
+  if (!personality) {
+    return c.json({ error: "Personality not found", code: "PERSONALITY_NOT_FOUND" }, 404)
+  }
+
+  const nftId = `${collection}:${tokenId}`
+
+  try {
+    // Call versionService.rollback — creates NEW version with old content
+    const newVersion = await deps.versionService.rollback(nftId, versionId, walletAddress)
+
+    // Update personality record with rolled-back content
+    const updateReq: UpdatePersonalityRequest = {}
+
+    // Restore signal fields from the rolled-back version
+    if (newVersion.signal_snapshot) {
+      updateReq.signals = newVersion.signal_snapshot
+    }
+    if (newVersion.dapm_fingerprint) {
+      updateReq.dapm = newVersion.dapm_fingerprint
+    }
+    updateReq.authored_by = walletAddress
+
+    // If there are fields to update, apply them via the service
+    if (Object.keys(updateReq).length > 0) {
+      await deps.service.update(collection, tokenId, updateReq)
+    }
+
+    // Return updated personality response
+    const updatedPersonality = await deps.service.get(collection, tokenId)
+
+    return c.json({
+      ...updatedPersonality,
+      rolled_back_to: versionId,
+      new_version_id: newVersion.version_id,
+    })
+  } catch (e) {
+    // Check if this is a "version not found" error from the version service
+    if (e instanceof Error && e.message.includes("Version not found")) {
+      return c.json(
+        { error: `Version not found: ${versionId}`, code: "VERSION_NOT_FOUND" },
+        404,
+      )
+    }
+    if (e instanceof NFTPersonalityError) {
+      return c.json({ error: e.message, code: e.code }, e.httpStatus as 400)
+    }
+    return c.json({ error: "Rollback failed", code: "STORAGE_UNAVAILABLE" }, 503)
+  }
+}
+
 /**
  * Register V2 routes on a Hono app.
  * Composable — can be mounted alongside the v1 personalityRoutes.
  *
  * Sprint 6: Write endpoints (POST, PUT, synthesize) are protected by
  * requireNFTOwnership middleware. Read endpoints remain public.
+ * Sprint 15: Re-derive, mode switch, and rollback endpoints added.
  */
 export function registerPersonalityV2Routes(app: Hono, deps: PersonalityV2Deps): void {
   const ownershipMiddleware = requireNFTOwnership(
@@ -726,6 +991,11 @@ export function registerPersonalityV2Routes(app: Hono, deps: PersonalityV2Deps):
   app.post("/:collection/:tokenId/personality/v2", ownershipMiddleware, (c) => handleCreateV2(c, deps))
   app.put("/:collection/:tokenId/personality/v2", ownershipMiddleware, (c) => handleUpdateV2(c, deps))
   app.post("/:collection/:tokenId/personality/synthesize", ownershipMiddleware, (c) => handleSynthesize(c, deps))
+
+  // Sprint 15: Re-derive, mode switch, and rollback endpoints
+  app.post("/:collection/:tokenId/personality/rederive", ownershipMiddleware, (c) => handleRederive(c, deps))
+  app.post("/:collection/:tokenId/mode", ownershipMiddleware, (c) => handleModeSwitch(c, deps))
+  app.post("/:collection/:tokenId/personality/rollback/:versionId", ownershipMiddleware, (c) => handleRollback(c, deps))
 }
 
 // ---------------------------------------------------------------------------
