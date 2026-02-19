@@ -109,3 +109,9 @@ npm run bridgebuilder
 - BridgeBuilder can only COMMENT on PRs, not APPROVE or REQUEST_CHANGES (`src/bridgebuilder/entry.ts:1`)
 
 <!-- ground-truth-meta: head_sha=689a777 generated_at=2026-02-11T01:06:00Z features_sha=689a777 limitations_sha=689a777 ride_sha=689a777 -->
+
+## License
+
+[AGPL-3.0](LICENSE.md) — Use, modify, distribute freely. Network service deployments must release source code.
+
+Commercial licenses are available for organizations that wish to use Loa without AGPL obligations.
