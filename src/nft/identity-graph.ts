@@ -352,6 +352,76 @@ export function resolvePhilosophicalFoundations(
 }
 
 // ---------------------------------------------------------------------------
+// Synthesis Subgraph Conversion (Sprint 11 Task 11.2)
+// ---------------------------------------------------------------------------
+
+/** Simplified subgraph format consumed by BeauvoirSynthesizer */
+export interface SynthesisSubgraph {
+  cultural_references: string[]
+  aesthetic_notes: string[]
+  philosophical_lineage: string[]
+}
+
+/**
+ * Convert a full IdentitySubgraph into the simplified format used by BeauvoirSynthesizer.
+ *
+ * Extracts labels from graph nodes by type:
+ * - Nodes with type containing "cultural" → cultural_references
+ * - Nodes with type containing "aesthetic" → aesthetic_notes
+ * - Nodes with type containing "philosoph" → philosophical_lineage
+ *
+ * Also merges resolved data from resolveCulturalReferences, resolveAestheticPreferences,
+ * and resolvePhilosophicalFoundations when a graph is provided.
+ */
+export function toSynthesisSubgraph(
+  subgraph: IdentitySubgraph,
+  graph?: KnowledgeGraph | null,
+  archetype?: string,
+  ancestor?: string,
+  era?: string,
+): SynthesisSubgraph {
+  const culturalRefs = new Set<string>()
+  const aestheticNotes = new Set<string>()
+  const philosophicalLineage = new Set<string>()
+
+  // Extract from subgraph nodes by type
+  for (const node of subgraph.nodes) {
+    if (node.type.includes("cultural")) {
+      culturalRefs.add(node.label)
+    } else if (node.type.includes("aesthetic")) {
+      aestheticNotes.add(node.label)
+    } else if (node.type.includes("philosoph")) {
+      philosophicalLineage.add(node.label)
+    }
+  }
+
+  // Enrich with resolved data from graph traversal if available
+  if (graph) {
+    if (ancestor) {
+      for (const ref of resolveCulturalReferences(graph, ancestor)) {
+        culturalRefs.add(ref.label)
+      }
+    }
+    if (archetype) {
+      for (const pref of resolveAestheticPreferences(graph, archetype)) {
+        aestheticNotes.add(pref.label)
+      }
+    }
+    if (era) {
+      for (const found of resolvePhilosophicalFoundations(graph, era)) {
+        philosophicalLineage.add(found.label)
+      }
+    }
+  }
+
+  return {
+    cultural_references: [...culturalRefs],
+    aesthetic_notes: [...aestheticNotes],
+    philosophical_lineage: [...philosophicalLineage],
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Redis Caching (Task 9.5)
 // ---------------------------------------------------------------------------
 

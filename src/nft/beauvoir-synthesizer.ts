@@ -8,6 +8,7 @@ import type { SignalSnapshot, DAPMFingerprint, Era } from "./signal-types.js"
 import { validateAntiNarration, type ANViolation } from "./anti-narration.js"
 import { checkTemporalVoice, type TemporalViolation } from "./temporal-voice.js"
 import { ERA_DOMAINS } from "./temporal-voice.js"
+import { getSafetyPolicyText } from "./safety-policy.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -258,6 +259,12 @@ export function buildSynthesisPrompt(
   sections.push("AN-6 (HIGHEST PRIORITY): Do NOT self-narrate identity. NEVER use patterns like \"as a [role/archetype/ancestor]\", \"I am a [identity]\", or \"being a [label]\". The personality must EMBODY traits without narrating what it is.")
   sections.push("")
   sections.push("AN-7: Do NOT recite zodiac placements. Never list sun/moon/rising signs or describe behavior as \"because of your Leo sun\". Zodiac influence should blend invisibly into emotional tone.")
+  sections.push("")
+
+  // --- Safety Constraints (Sprint 11 Task 11.2a) ---
+  sections.push("## SAFETY CONSTRAINTS")
+  sections.push("")
+  sections.push(getSafetyPolicyText())
   sections.push("")
 
   // --- Output Format ---

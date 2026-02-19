@@ -11,6 +11,7 @@ import { DEFAULT_BEAUVOIR_MD } from "./beauvoir-template.js"
 import type { PersonalityService } from "./personality.js"
 import type { NFTPersonality } from "./types.js"
 import type { DAPMFingerprint } from "./signal-types.js"
+import { getSafetyPolicyText } from "./safety-policy.js"
 
 // ---------------------------------------------------------------------------
 // Sanitization
@@ -102,6 +103,10 @@ function wrapSignalV2Personality(personality: NFTPersonality): string {
     sections.push("## Behavioral Calibration (dAPM)")
     sections.push("")
     sections.push(buildDAPMSummary(personality.dapm))
+    // Sprint 11 Task 11.3: Top 5 most distinctive dials
+    sections.push("")
+    sections.push("### Most Distinctive Traits")
+    sections.push(buildDistinctiveDialsSummary(personality.dapm))
   }
 
   // Voice profile summary (if available)
@@ -114,6 +119,12 @@ function wrapSignalV2Personality(personality: NFTPersonality): string {
     sections.push(`Energy signature: ${personality.voice_profile.energy_signature}`)
     sections.push(`Confidence level: ${personality.voice_profile.confidence.toFixed(2)}`)
   }
+
+  // Sprint 11 Task 11.2b: Safety policy constraints (signal_v2 only)
+  sections.push("")
+  sections.push("## Safety Constraints")
+  sections.push("")
+  sections.push(getSafetyPolicyText())
 
   return `<system-personality>\n${sections.join("\n")}\n</system-personality>`
 }
@@ -169,6 +180,56 @@ function describeLevel(avg: number): string {
   if (avg >= 0.45) return "moderate"
   if (avg >= 0.3) return "low"
   return "very low"
+}
+
+// ---------------------------------------------------------------------------
+// Distinctive Dials Summary (Sprint 11 Task 11.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a dial ID like "sw_approachability" into a human-readable descriptor
+ * like "Approachability". Strips the category prefix and converts underscores to spaces.
+ */
+function describeDialName(dialId: string): string {
+  // Remove category prefix (e.g., "sw_" from "sw_approachability")
+  const parts = dialId.split("_")
+  const nameparts = parts.slice(1)
+  // Capitalize first letter of each word
+  return nameparts
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ")
+}
+
+/**
+ * Build a summary of the top 5 most distinctive dials (highest deviation from 0.5 neutral).
+ * These represent the personality traits that diverge most from the baseline.
+ *
+ * Format:
+ * - Dial Name: value (category)
+ */
+export function buildDistinctiveDialsSummary(fingerprint: DAPMFingerprint): string {
+  const entries = Object.entries(fingerprint.dials) as Array<[string, number]>
+
+  // Sort by absolute deviation from 0.5 neutral, descending
+  const sorted = entries
+    .map(([dialId, value]) => ({
+      dialId,
+      value,
+      deviation: Math.abs(value - 0.5),
+    }))
+    .sort((a, b) => b.deviation - a.deviation)
+
+  // Take top 5
+  const top5 = sorted.slice(0, 5)
+
+  const lines = top5.map(({ dialId, value }) => {
+    const name = describeDialName(dialId)
+    const prefix = dialId.split("_")[0]
+    const category = DAPM_CATEGORY_LABELS[prefix] ?? prefix
+    return `- ${name}: ${value.toFixed(2)} (${category})`
+  })
+
+  return lines.join("\n")
 }
 
 /**
