@@ -2,6 +2,7 @@
 //
 // Personality authoring service with WAL audit trail and R2 backup.
 // Keyed by `collection:tokenId`. CRUD operations: create, get, update.
+// Sprint 3: Personality versioning integration + compatibility mode detection.
 
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import { generateBeauvoirMd, DEFAULT_BEAUVOIR_MD } from "./beauvoir-template.js"
@@ -12,6 +13,8 @@ import {
   type PersonalityResponse,
   NFTPersonalityError,
 } from "./types.js"
+import type { CompatibilityMode } from "./signal-types.js"
+import type { PersonalityVersionService } from "./personality-version.js"
 
 // ---------------------------------------------------------------------------
 // Dependencies
@@ -22,6 +25,7 @@ export interface PersonalityServiceDeps {
   walAppend?: (namespace: string, operation: string, key: string, payload: unknown) => string
   r2Put?: (key: string, content: string) => Promise<boolean>
   r2Get?: (key: string) => Promise<string | null>
+  versionService?: PersonalityVersionService
 }
 
 // ---------------------------------------------------------------------------
@@ -33,12 +37,14 @@ export class PersonalityService {
   private readonly walAppend: PersonalityServiceDeps["walAppend"]
   private readonly r2Put: PersonalityServiceDeps["r2Put"]
   private readonly r2Get: PersonalityServiceDeps["r2Get"]
+  private readonly versionService: PersonalityVersionService | undefined
 
   constructor(deps: PersonalityServiceDeps) {
     this.redis = deps.redis
     this.walAppend = deps.walAppend
     this.r2Put = deps.r2Put
     this.r2Get = deps.r2Get
+    this.versionService = deps.versionService
   }
 
   /**
@@ -58,6 +64,12 @@ export class PersonalityService {
     const beauvoirMd = generateBeauvoirMd(req.name, req.voice, req.expertise_domains, req.custom_instructions ?? "")
 
     const now = Date.now()
+
+    // Detect compatibility mode (Task 3.5)
+    const compatibilityMode: CompatibilityMode = (req as Record<string, unknown>).signals
+      ? "signal_v2"
+      : "legacy_v1"
+
     const personality: NFTPersonality = {
       id,
       name: req.name,
@@ -67,25 +79,63 @@ export class PersonalityService {
       beauvoir_md: beauvoirMd,
       created_at: now,
       updated_at: now,
+      compatibility_mode: compatibilityMode,
     }
 
     // Persist to Redis
     await this.redis.set(key, JSON.stringify(personality))
 
+    // Create initial personality version (Task 3.4)
+    if (this.versionService) {
+      try {
+        const version = await this.versionService.createVersion(id, {
+          beauvoir_md: beauvoirMd,
+          signals: (req as Record<string, unknown>).signals as NFTPersonality["signals"] ?? null,
+          dapm: (req as Record<string, unknown>).dapm as NFTPersonality["dapm"] ?? null,
+          authored_by: (req as Record<string, unknown>).authored_by as string ?? "system",
+        })
+        personality.version_id = version.version_id
+        personality.previous_version_id = null
+        // Re-persist with version_id
+        await this.redis.set(key, JSON.stringify(personality))
+      } catch (err) {
+        // Version creation failure is non-fatal — log via WAL
+        this.writeAudit("personality_version_error", id, {
+          error: err instanceof Error ? err.message : String(err),
+          phase: "create",
+        })
+      }
+    }
+
     // R2 backup for BEAUVOIR.md
     if (this.r2Put) {
       try {
         await this.r2Put(`beauvoir/${id}.md`, beauvoirMd)
-      } catch {
-        // Best-effort R2 backup
+        // Versioned R2 path (Task 3.4)
+        if (personality.version_id) {
+          await this.r2Put(`beauvoir/versions/${personality.version_id}.md`, beauvoirMd)
+        }
+      } catch (err) {
+        // R2 write failure is non-fatal (error logged + WAL event, Redis write NOT rolled back)
+        this.writeAudit("r2_backup_error", id, {
+          error: err instanceof Error ? err.message : String(err),
+          phase: "create",
+        })
       }
     }
 
-    // WAL audit
+    // WAL audit (original + v2 event)
     this.writeAudit("personality_create", id, {
       name: req.name,
       voice: req.voice,
       expertise_domains: req.expertise_domains,
+    })
+    this.writeAudit("personality_create_v2", id, {
+      name: req.name,
+      voice: req.voice,
+      expertise_domains: req.expertise_domains,
+      version_id: personality.version_id ?? null,
+      compatibility_mode: compatibilityMode,
     })
 
     return toResponse(personality)
@@ -148,22 +198,63 @@ export class PersonalityService {
     )
     personality.updated_at = Date.now()
 
+    // Detect compatibility mode (Task 3.5)
+    const compatibilityMode: CompatibilityMode = personality.signals
+      ? "signal_v2"
+      : "legacy_v1"
+    personality.compatibility_mode = compatibilityMode
+
     // Persist
     const key = `personality:${id}`
     await this.redis.set(key, JSON.stringify(personality))
+
+    // Create linked personality version (Task 3.4)
+    if (this.versionService) {
+      try {
+        const version = await this.versionService.createVersion(id, {
+          beauvoir_md: personality.beauvoir_md,
+          signals: personality.signals ?? null,
+          dapm: personality.dapm ?? null,
+          authored_by: personality.authored_by ?? "system",
+        })
+        personality.previous_version_id = personality.version_id ?? null
+        personality.version_id = version.version_id
+        // Re-persist with updated version_id
+        await this.redis.set(key, JSON.stringify(personality))
+      } catch (err) {
+        // Version creation failure is non-fatal
+        this.writeAudit("personality_version_error", id, {
+          error: err instanceof Error ? err.message : String(err),
+          phase: "update",
+        })
+      }
+    }
 
     // R2 backup
     if (this.r2Put) {
       try {
         await this.r2Put(`beauvoir/${id}.md`, personality.beauvoir_md)
-      } catch {
-        // Best-effort
+        // Versioned R2 path (Task 3.4)
+        if (personality.version_id) {
+          await this.r2Put(`beauvoir/versions/${personality.version_id}.md`, personality.beauvoir_md)
+        }
+      } catch (err) {
+        // R2 write failure is non-fatal
+        this.writeAudit("r2_backup_error", id, {
+          error: err instanceof Error ? err.message : String(err),
+          phase: "update",
+        })
       }
     }
 
-    // WAL audit
+    // WAL audit (original + v2 event)
     this.writeAudit("personality_update", id, {
       updated_fields: Object.keys(req),
+    })
+    this.writeAudit("personality_update_v2", id, {
+      updated_fields: Object.keys(req),
+      version_id: personality.version_id ?? null,
+      compatibility_mode: compatibilityMode,
     })
 
     return toResponse(personality)
@@ -178,7 +269,7 @@ export class PersonalityService {
     const data = await this.redis.get(key)
     if (!data) return null
     try {
-      return JSON.parse(data) as NFTPersonality
+      return decodePersonality(JSON.parse(data))
     } catch {
       return null
     }
@@ -196,6 +287,30 @@ export class PersonalityService {
       // Best-effort — never throw from audit
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Decode / Compatibility (Task 3.5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Decode a raw personality record, normalizing undefined → null for optional
+ * signal-era fields. Handles legacy records that predate the signal_v2 schema.
+ */
+export function decodePersonality(raw: Record<string, unknown>): NFTPersonality {
+  const p = raw as NFTPersonality
+  // Normalize undefined → null for signal-era fields
+  if (p.signals === undefined) p.signals = null
+  if (p.dapm === undefined) p.dapm = null
+  if (p.voice_profile === undefined) p.voice_profile = null
+  if (p.version_id === undefined) p.version_id = undefined
+  if (p.previous_version_id === undefined) p.previous_version_id = null
+  if (p.compatibility_mode === undefined) {
+    // Infer from presence of signals
+    p.compatibility_mode = p.signals ? "signal_v2" : "legacy_v1"
+  }
+  if (p.governance_model === undefined) p.governance_model = "holder"
+  return p
 }
 
 // ---------------------------------------------------------------------------

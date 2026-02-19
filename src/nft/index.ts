@@ -79,8 +79,19 @@ export {
 export {
   PersonalityService,
   personalityRoutes,
+  decodePersonality,
   type PersonalityServiceDeps,
 } from "./personality.js"
+
+// Personality Version Service (Sprint 3 Tasks 3.1-3.3)
+export {
+  PersonalityVersionService,
+  VersionConflictError,
+  generateUlid,
+  type CreateVersionData,
+  type VersionHistoryPage,
+  type PersonalityVersionServiceDeps,
+} from "./personality-version.js"
 
 // Personality Resolver (Task 4.3)
 export {
@@ -88,3 +99,37 @@ export {
   composeSystemPrompt,
   type PersonalityResolverDeps,
 } from "./personality-resolver.js"
+
+// BEAUVOIR Synthesizer (Sprint 2 Tasks 2.1-2.3, 2.6)
+export {
+  BeauvoirSynthesizer,
+  buildSynthesisPrompt,
+  SynthesisError,
+  type SynthesisRouter,
+  type IdentitySubgraph,
+  type UserCustomInput,
+  type SynthesisErrorCode,
+  type BeauvoirSynthesizerConfig,
+} from "./beauvoir-synthesizer.js"
+
+// Anti-Narration Framework (Sprint 2 Task 2.4)
+export {
+  validateAntiNarration,
+  checkAN1,
+  checkAN2,
+  checkAN3,
+  checkAN4,
+  checkAN5,
+  checkAN6,
+  checkAN7,
+  type ANViolation,
+  type ANConstraintId,
+} from "./anti-narration.js"
+
+// Temporal Voice Domain Checker (Sprint 2 Task 2.5)
+export {
+  checkTemporalVoice,
+  ERA_DOMAINS,
+  type TemporalViolation,
+  type EraDomainDef,
+} from "./temporal-voice.js"
