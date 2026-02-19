@@ -4,7 +4,8 @@
 // Supports auto mode (zero user input) and guided mode (user-provided overrides).
 // Includes circuit breaker, anti-narration validation, and retry with violation feedback.
 
-import type { SignalSnapshot, DAMPFingerprint, Era } from "./signal-types.js"
+import { createHmac } from "node:crypto"
+import type { SignalSnapshot, DAMPFingerprint, DAMPDialId, Era } from "./signal-types.js"
 import { validateAntiNarration, type ANViolation } from "./anti-narration.js"
 import { checkTemporalVoice, type TemporalViolation } from "./temporal-voice.js"
 import { ERA_DOMAINS } from "./temporal-voice.js"
@@ -163,6 +164,7 @@ export function buildSynthesisPrompt(
   fingerprint: DAMPFingerprint | null,
   subgraph?: IdentitySubgraph,
   userCustom?: UserCustomInput,
+  personalitySeed?: string | null,
 ): string {
   const sections: string[] = []
 
@@ -229,6 +231,14 @@ export function buildSynthesisPrompt(
     if (userCustom.custom_instructions) {
       sections.push(`Custom instructions: ${userCustom.custom_instructions}`)
     }
+    sections.push("")
+  }
+
+  // --- Sprint 20 Task 20.1: Seed-based personality variation ---
+  if (personalitySeed) {
+    sections.push("## PERSONALITY SEED (uniqueness variation)")
+    sections.push("")
+    sections.push(`Personality seed: ${personalitySeed.slice(0, 16)}... — use this as inspiration for unique stylistic choices, idiosyncratic phrasings, and distinctive behavioral details that make this agent feel like an individual rather than a type.`)
     sections.push("")
   }
 
@@ -333,6 +343,38 @@ function buildRetryPrompt(
 }
 
 // ---------------------------------------------------------------------------
+// Sprint 20 Task 20.1: Seed-based dAMP dial jitter (±2%)
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply deterministic jitter to dAMP dials based on personality seed.
+ * Each dial gets ±2% jitter derived from HMAC of the seed + dial ID.
+ * Results are clamped to [0.0, 1.0].
+ */
+function applyDialJitter(fingerprint: DAMPFingerprint, seed: string): DAMPFingerprint {
+  const jitteredDials = { ...fingerprint.dials } as Record<DAMPDialId, number>
+  const MAX_JITTER = 0.02 // ±2%
+
+  for (const dialId of Object.keys(fingerprint.dials) as DAMPDialId[]) {
+    const hmac = createHmac("sha256", seed)
+    hmac.update(dialId)
+    const hash = hmac.digest()
+    // Map first 2 bytes to [-MAX_JITTER, +MAX_JITTER]
+    const raw = hash.readUInt16BE(0) / 65535 // 0-1
+    const jitter = (raw * 2 - 1) * MAX_JITTER // -0.02 to +0.02
+    jitteredDials[dialId] = Math.max(0, Math.min(1, fingerprint.dials[dialId] + jitter))
+  }
+
+  return {
+    ...fingerprint,
+    dials: jitteredDials,
+  }
+}
+
+/** Exported for testing */
+export { applyDialJitter as _applyDialJitter_test }
+
+// ---------------------------------------------------------------------------
 // BeauvoirSynthesizer (Tasks 2.1, 2.3, 2.6)
 // ---------------------------------------------------------------------------
 
@@ -398,6 +440,7 @@ export class BeauvoirSynthesizer {
     fingerprint: DAMPFingerprint | null,
     subgraph?: IdentitySubgraph,
     userCustom?: UserCustomInput,
+    personalitySeed?: string | null,
   ): Promise<string> {
     // Circuit breaker check
     if (isCircuitOpen(this.circuitBreaker)) {
@@ -407,7 +450,12 @@ export class BeauvoirSynthesizer {
       )
     }
 
-    const basePrompt = buildSynthesisPrompt(snapshot, fingerprint, subgraph, userCustom)
+    // Sprint 20 Task 20.1: Apply seed-based jitter to dAMP dials
+    const jitteredFingerprint = fingerprint && personalitySeed
+      ? applyDialJitter(fingerprint, personalitySeed)
+      : fingerprint
+
+    const basePrompt = buildSynthesisPrompt(snapshot, jitteredFingerprint, subgraph, userCustom, personalitySeed)
     const systemPrompt = buildSystemPrompt()
     let currentPrompt = basePrompt
 

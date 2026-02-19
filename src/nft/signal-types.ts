@@ -289,4 +289,20 @@ export interface PersonalityVersion {
   created_at: number
   /** Human-readable summary of what changed */
   change_summary: string
+
+  // === Sprint 20 Task 20.3: Entropy ceremony & synthesis audit fields ===
+  /** HKDF-derived personality seed from entropy ceremony (null if no ceremony) */
+  personality_seed?: string | null
+  /** Client entropy commitment hash (null if no ceremony) */
+  entropy_commitment?: string | null
+  /** Server-provided entropy (null if no ceremony) */
+  server_entropy?: string | null
+  /** LLM model used for BEAUVOIR synthesis */
+  llm_model?: string | null
+  /** LLM provider used for synthesis */
+  llm_provider?: string | null
+  /** SHA-256 hash of the synthesis prompt template version */
+  prompt_version_hash?: string | null
+  /** Agent's first-contact introduction message */
+  first_contact_message?: string | null
 }
