@@ -154,8 +154,7 @@ export class PaymentVerifier {
     const key = `x402:payment:${paymentId}`
     const now = Math.floor(Date.now() / 1000)
     const ttl = Math.max(validBefore - now, 60)
-    await this.redis.set(key, JSON.stringify({ restored: true, timestamp: Date.now() }))
-    await this.redis.expire(key, ttl)
+    await this.redis.set(key, JSON.stringify({ restored: true, timestamp: Date.now() }), "EX", ttl)
   }
 
   /**

@@ -238,20 +238,20 @@ export class OnboardingService {
     }
 
     if (personalityConfig) {
-      const nftId = `${state.selected_nft.collection}:${state.selected_nft.token_id}`
+      const collection = state.selected_nft.collection
+      const tokenId = state.selected_nft.token_id
       try {
-        await this.personality.get(nftId)
+        await this.personality.get(collection, tokenId)
         // Personality exists — update it
-        await this.personality.update(nftId, {
-          voice: personalityConfig.voice,
+        await this.personality.update(collection, tokenId, {
+          voice: personalityConfig.voice as "analytical" | "creative" | "witty" | "sage",
           expertise_domains: personalityConfig.expertise_domains,
           custom_instructions: personalityConfig.custom_instructions,
         })
       } catch {
         // No existing personality — create one
-        await this.personality.create({
-          nft_id: nftId,
-          name: `Agent ${state.selected_nft.token_id}`,
+        await this.personality.create(collection, tokenId, {
+          name: `Agent ${tokenId}`,
           voice: (personalityConfig.voice as "analytical" | "creative" | "witty" | "sage") ?? "analytical",
           expertise_domains: personalityConfig.expertise_domains ?? [],
           custom_instructions: personalityConfig.custom_instructions ?? "",

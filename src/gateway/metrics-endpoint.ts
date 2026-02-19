@@ -80,7 +80,13 @@ class MetricRegistry {
   private serializeLabels(labels: Record<string, string>): string {
     const entries = Object.entries(labels)
     if (entries.length === 0) return ""
-    return entries.map(([k, v]) => `${k}="${v}"`).join(",")
+    return entries.map(([k, v]) => {
+      const escaped = v
+        .replace(/\\/g, "\\\\")
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, "\\n")
+      return `${k}="${escaped}"`
+    }).join(",")
   }
 }
 

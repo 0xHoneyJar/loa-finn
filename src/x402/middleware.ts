@@ -3,6 +3,7 @@
 // Returns 402 Payment Required with deterministic price quote.
 // Authenticated requests (JWT or credit balance) bypass x402.
 
+import { randomUUID } from "node:crypto"
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import {
   type X402Quote,
@@ -10,7 +11,6 @@ import {
   BASE_CHAIN_ID,
   USDC_BASE_ADDRESS,
   QUOTE_TTL_SECONDS,
-  QUOTE_CACHE_TTL_SECONDS,
   DEFAULT_MAX_TOKENS,
 } from "./types.js"
 
@@ -51,24 +51,17 @@ export class QuoteService {
     this.treasuryAddress = deps.treasuryAddress
     this.ratePerToken = deps.ratePerToken
     this.markupFactor = deps.markupFactor ?? 1.0
-    this.generateId = deps.generateId ?? (() => `q_${Date.now().toString(36)}`)
+    this.generateId = deps.generateId ?? (() => `q_${randomUUID()}`)
     this.walAppend = deps.walAppend
   }
 
   /**
-   * Generate a deterministic price quote for the given model and token count.
-   * Cached in Redis for 60s per (model, max_tokens) tuple.
+   * Generate a price quote for the given model and token count.
+   * Each call produces a fresh quote with a unique ID to prevent cross-user leakage.
    */
   async generateQuote(params: QuoteParams): Promise<X402Quote> {
     const model = params.model
     const maxTokens = params.max_tokens ?? DEFAULT_MAX_TOKENS[model] ?? 4096
-
-    // Check cache
-    const cacheKey = `x402:quote:${model}:${maxTokens}`
-    const cached = await this.redis.get(cacheKey)
-    if (cached) {
-      return JSON.parse(cached) as X402Quote
-    }
 
     // Calculate max_cost: max_tokens × rate × markup, ceil to nearest 1 MicroUSDC
     const rate = BigInt(this.ratePerToken[model] ?? "15")
@@ -90,14 +83,9 @@ export class QuoteService {
       quote_id: quoteId,
     }
 
-    // Cache the quote
-    await this.redis.set(cacheKey, JSON.stringify(quote))
-    await this.redis.expire(cacheKey, QUOTE_CACHE_TTL_SECONDS)
-
-    // Also store by quote_id for verification lookup
+    // Store by quote_id for verification lookup
     const quoteKey = `x402:quote_id:${quoteId}`
-    await this.redis.set(quoteKey, JSON.stringify(quote))
-    await this.redis.expire(quoteKey, QUOTE_TTL_SECONDS)
+    await this.redis.set(quoteKey, JSON.stringify(quote), "EX", QUOTE_TTL_SECONDS)
 
     this.writeAudit("x402_quote", { quote_id: quoteId, model, max_tokens: maxTokens, max_cost: maxCost.toString() })
 

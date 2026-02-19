@@ -383,7 +383,7 @@ export class DLQProcessor {
   private async readPendingEntries(count: number): Promise<Array<{ streamId: string; entry: DLQEntry }>> {
     // XREADGROUP to claim pending entries
     const raw = await this.deps.redis.eval(
-      `return redis.call('XREADGROUP', 'GROUP', ARGV[1], ARGV[2], 'COUNT', ARGV[3], 'BLOCK', '0', 'STREAMS', KEYS[1], '>')`,
+      `return redis.call('XREADGROUP', 'GROUP', ARGV[1], ARGV[2], 'COUNT', ARGV[3], 'BLOCK', '5000', 'STREAMS', KEYS[1], '>')`,
       1,
       DLQ_STREAM,
       DLQ_CONSUMER_GROUP,

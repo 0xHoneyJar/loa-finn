@@ -4,6 +4,16 @@
 # Prometheus metrics served by application at /metrics.
 
 # ---------------------------------------------------------------------------
+# Variables
+# ---------------------------------------------------------------------------
+
+variable "alarm_sns_topic_arn" {
+  type        = string
+  default     = ""
+  description = "SNS topic ARN for CloudWatch alarm notifications. Empty disables alarm actions."
+}
+
+# ---------------------------------------------------------------------------
 # CloudWatch Alarms — Application Health
 # ---------------------------------------------------------------------------
 
@@ -17,7 +27,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   statistic           = "Average"
   threshold           = 80
   alarm_description   = "WARNING: loa-finn CPU > 80%"
-  alarm_actions       = [] # SNS topic ARN
+  alarm_actions       = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
 
   dimensions = {
     ClusterName = "honeyjar-${var.environment}"
@@ -40,7 +50,7 @@ resource "aws_cloudwatch_metric_alarm" "memory_high" {
   statistic           = "Average"
   threshold           = 80
   alarm_description   = "WARNING: loa-finn memory > 80%"
-  alarm_actions       = [] # SNS topic ARN
+  alarm_actions       = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
 
   dimensions = {
     ClusterName = "honeyjar-${var.environment}"
@@ -79,7 +89,7 @@ resource "aws_cloudwatch_metric_alarm" "error_5xx_rate" {
   statistic           = "Sum"
   threshold           = 10
   alarm_description   = "CRITICAL: loa-finn 5xx error rate > 1% (>10 in 5min)"
-  alarm_actions       = [] # PagerDuty SNS topic ARN
+  alarm_actions       = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
 
   tags = {
     Environment = var.environment
@@ -113,7 +123,7 @@ resource "aws_cloudwatch_metric_alarm" "billing_pending_high" {
   statistic           = "Sum"
   threshold           = 10
   alarm_description   = "CRITICAL: billing pending reconciliation > 10. Manual investigation required."
-  alarm_actions       = [] # PagerDuty SNS topic ARN
+  alarm_actions       = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
 
   tags = {
     Environment = var.environment

@@ -27,7 +27,12 @@ function createMockRedis(): RedisCommandClient {
       return "OK"
     }),
     del: vi.fn(async (key: string) => { store.delete(key); return 1 }),
-    incrby: vi.fn(async () => 1),
+    incrby: vi.fn(async (key: string, val: number) => {
+      const curr = parseInt(store.get(key) ?? "0", 10)
+      const next = curr + val
+      store.set(key, String(next))
+      return next
+    }),
     expire: vi.fn(async () => true),
     eval: vi.fn(async (_script: string, _numkeys: number, balanceKey: string, requiredAmount: string) => {
       // Mock atomic Lua script for applyCreditNotes

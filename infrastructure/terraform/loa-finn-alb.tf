@@ -108,12 +108,3 @@ resource "aws_route53_record" "loa_finn" {
   }
 }
 
-# ---------------------------------------------------------------------------
-# ECS Service → Target Group Attachment
-# ---------------------------------------------------------------------------
-
-resource "aws_ecs_service" "loa_finn_lb" {
-  # This is configured in loa-finn-ecs.tf via load_balancer block
-  # Referencing here for documentation — actual attachment is in the service resource
-  depends_on = [aws_lb_listener_rule.loa_finn]
-}

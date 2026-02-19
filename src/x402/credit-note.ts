@@ -88,16 +88,13 @@ export class CreditNoteService {
       expires_at: expiresAt,
     }
 
-    // Store note
+    // Store note (single command with TTL)
     const noteKey = `${CREDIT_NOTE_PREFIX}${walletAddress.toLowerCase()}:${note.id}`
-    await this.redis.set(noteKey, JSON.stringify(note))
-    await this.redis.expire(noteKey, CREDIT_NOTE_TTL)
+    await this.redis.set(noteKey, JSON.stringify(note), "EX", CREDIT_NOTE_TTL)
 
-    // Update balance
+    // Update balance atomically
     const balanceKey = `${CREDIT_NOTE_PREFIX}${walletAddress.toLowerCase()}:balance`
-    const currentBalance = BigInt(await this.redis.get(balanceKey) ?? "0")
-    const newBalance = currentBalance + delta
-    await this.redis.set(balanceKey, newBalance.toString())
+    await this.redis.incrby(balanceKey, Number(delta))
     await this.redis.expire(balanceKey, CREDIT_NOTE_TTL)
 
     // WAL audit — double-entry

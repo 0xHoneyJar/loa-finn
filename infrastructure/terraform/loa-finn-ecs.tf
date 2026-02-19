@@ -257,6 +257,14 @@ resource "aws_ecs_service" "loa_finn" {
   desired_count   = 1 # WAL single-writer invariant — DO NOT change
   launch_type     = "FARGATE"
 
+  load_balancer {
+    target_group_arn = aws_lb_target_group.loa_finn.arn
+    container_name   = "loa-finn"
+    container_port   = 3000
+  }
+
+  depends_on = [aws_lb_listener_rule.loa_finn]
+
   network_configuration {
     subnets          = var.private_subnet_ids
     security_groups  = [aws_security_group.ecs_tasks.id]
@@ -301,7 +309,7 @@ resource "aws_cloudwatch_metric_alarm" "ecs_desired_count_drift" {
   statistic           = "Maximum"
   threshold           = 1
   alarm_description   = "CRITICAL: loa-finn desired count > 1. WAL single-writer invariant violated."
-  alarm_actions       = [] # PagerDuty SNS topic ARN
+  alarm_actions       = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
 
   dimensions = {
     ClusterName = "honeyjar-${var.environment}"

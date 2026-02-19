@@ -96,10 +96,11 @@ describe("QuoteService", () => {
     expect(quote.quote_id).toBe("q_1")
   })
 
-  it("caches quote per model+max_tokens tuple", async () => {
+  it("each call generates a unique quote (no cross-user cache sharing)", async () => {
     const q1 = await quoteService.generateQuote({ model: "claude-sonnet-4-6", max_tokens: 4096 })
     const q2 = await quoteService.generateQuote({ model: "claude-sonnet-4-6", max_tokens: 4096 })
-    expect(q1.quote_id).toBe(q2.quote_id) // Same cached quote
+    expect(q1.quote_id).not.toBe(q2.quote_id) // Each call gets a unique quote_id
+    expect(q1.max_cost).toBe(q2.max_cost) // Same pricing
   })
 
   it("different max_tokens produces different quote", async () => {
