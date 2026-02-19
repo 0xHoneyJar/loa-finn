@@ -1,0 +1,487 @@
+{
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "archetype:freetekno",
+      "type": "archetype",
+      "label": "Freetekno",
+      "properties": {}
+    },
+    {
+      "id": "archetype:milady",
+      "type": "archetype",
+      "label": "Milady",
+      "properties": {}
+    },
+    {
+      "id": "ancestor:greek_philosopher",
+      "type": "ancestor",
+      "label": "Greek Philosopher",
+      "properties": {
+        "family": "hellenic"
+      }
+    },
+    {
+      "id": "ancestor:buddhist_monk",
+      "type": "ancestor",
+      "label": "Buddhist Monk",
+      "properties": {
+        "family": "dharmic"
+      }
+    },
+    {
+      "id": "ancestor:cypherpunk",
+      "type": "ancestor",
+      "label": "Cypherpunk",
+      "properties": {
+        "family": "techno_modern"
+      }
+    },
+    {
+      "id": "ancestor:sufi_mystic",
+      "type": "ancestor",
+      "label": "Sufi Mystic",
+      "properties": {
+        "family": "mystical"
+      }
+    },
+    {
+      "id": "ancestor:rave_shaman",
+      "type": "ancestor",
+      "label": "Rave Shaman",
+      "properties": {
+        "family": "techno_modern"
+      }
+    },
+    {
+      "id": "era:ancient",
+      "type": "era",
+      "label": "Ancient",
+      "properties": {}
+    },
+    {
+      "id": "era:contemporary",
+      "type": "era",
+      "label": "Contemporary",
+      "properties": {}
+    },
+    {
+      "id": "element:fire",
+      "type": "element",
+      "label": "Fire",
+      "properties": {}
+    },
+    {
+      "id": "element:water",
+      "type": "element",
+      "label": "Water",
+      "properties": {}
+    },
+    {
+      "id": "ancestor_family:hellenic",
+      "type": "ancestor_family",
+      "label": "Hellenic",
+      "properties": {}
+    },
+    {
+      "id": "ancestor_family:dharmic",
+      "type": "ancestor_family",
+      "label": "Dharmic",
+      "properties": {}
+    },
+    {
+      "id": "ancestor_family:mystical",
+      "type": "ancestor_family",
+      "label": "Mystical",
+      "properties": {}
+    },
+    {
+      "id": "ancestor_family:techno_modern",
+      "type": "ancestor_family",
+      "label": "Techno-Modern",
+      "properties": {}
+    },
+    {
+      "id": "cultural_reference:socratic_method",
+      "type": "cultural_reference",
+      "label": "Socratic Method",
+      "properties": {
+        "ancestor": "greek_philosopher"
+      }
+    },
+    {
+      "id": "cultural_reference:platonic_forms",
+      "type": "cultural_reference",
+      "label": "Platonic Forms",
+      "properties": {
+        "ancestor": "greek_philosopher"
+      }
+    },
+    {
+      "id": "cultural_reference:four_noble_truths",
+      "type": "cultural_reference",
+      "label": "Four Noble Truths",
+      "properties": {
+        "ancestor": "buddhist_monk"
+      }
+    },
+    {
+      "id": "cultural_reference:mindfulness_practice",
+      "type": "cultural_reference",
+      "label": "Mindfulness Practice",
+      "properties": {
+        "ancestor": "buddhist_monk"
+      }
+    },
+    {
+      "id": "cultural_reference:zero_knowledge_proofs",
+      "type": "cultural_reference",
+      "label": "Zero-Knowledge Proofs",
+      "properties": {
+        "ancestor": "cypherpunk"
+      }
+    },
+    {
+      "id": "cultural_reference:whirling_meditation",
+      "type": "cultural_reference",
+      "label": "Whirling Meditation",
+      "properties": {
+        "ancestor": "sufi_mystic"
+      }
+    },
+    {
+      "id": "cultural_reference:bass_communion",
+      "type": "cultural_reference",
+      "label": "Bass Communion",
+      "properties": {
+        "ancestor": "rave_shaman"
+      }
+    },
+    {
+      "id": "aesthetic_preference:diy_aesthetics",
+      "type": "aesthetic_preference",
+      "label": "DIY Aesthetics",
+      "properties": {
+        "archetype": "freetekno"
+      }
+    },
+    {
+      "id": "aesthetic_preference:sound_system_culture",
+      "type": "aesthetic_preference",
+      "label": "Sound System Culture",
+      "properties": {
+        "archetype": "freetekno"
+      }
+    },
+    {
+      "id": "aesthetic_preference:kawaii_maximalism",
+      "type": "aesthetic_preference",
+      "label": "Kawaii Maximalism",
+      "properties": {
+        "archetype": "milady"
+      }
+    },
+    {
+      "id": "aesthetic_preference:digital_glamour",
+      "type": "aesthetic_preference",
+      "label": "Digital Glamour",
+      "properties": {
+        "archetype": "milady"
+      }
+    },
+    {
+      "id": "philosophical_foundation:classical_philosophy",
+      "type": "philosophical_foundation",
+      "label": "Classical Philosophy",
+      "properties": {
+        "era": "ancient"
+      }
+    },
+    {
+      "id": "philosophical_foundation:oral_tradition",
+      "type": "philosophical_foundation",
+      "label": "Oral Tradition",
+      "properties": {
+        "era": "ancient"
+      }
+    },
+    {
+      "id": "philosophical_foundation:post_modern_plurality",
+      "type": "philosophical_foundation",
+      "label": "Post-Modern Plurality",
+      "properties": {
+        "era": "contemporary"
+      }
+    },
+    {
+      "id": "philosophical_foundation:digital_consciousness",
+      "type": "philosophical_foundation",
+      "label": "Digital Consciousness",
+      "properties": {
+        "era": "contemporary"
+      }
+    },
+    {
+      "id": "molecule:psilocybin",
+      "type": "molecule",
+      "label": "Psilocybin",
+      "properties": {}
+    },
+    {
+      "id": "molecule:dmt",
+      "type": "molecule",
+      "label": "DMT",
+      "properties": {}
+    },
+    {
+      "id": "ancestor:quantum_mystic",
+      "type": "ancestor",
+      "label": "Quantum Mystic",
+      "properties": {
+        "family": "techno_modern"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "ancestor:greek_philosopher",
+      "target": "archetype:freetekno",
+      "type": "belongs_to",
+      "weight": 0.3
+    },
+    {
+      "source": "ancestor:greek_philosopher",
+      "target": "archetype:milady",
+      "type": "belongs_to",
+      "weight": 0.2
+    },
+    {
+      "source": "ancestor:buddhist_monk",
+      "target": "archetype:milady",
+      "type": "belongs_to",
+      "weight": 0.4
+    },
+    {
+      "source": "ancestor:cypherpunk",
+      "target": "archetype:freetekno",
+      "type": "belongs_to",
+      "weight": 0.6
+    },
+    {
+      "source": "ancestor:sufi_mystic",
+      "target": "archetype:milady",
+      "type": "belongs_to",
+      "weight": 0.35
+    },
+    {
+      "source": "ancestor:rave_shaman",
+      "target": "archetype:freetekno",
+      "type": "belongs_to",
+      "weight": 0.7
+    },
+    {
+      "source": "ancestor:greek_philosopher",
+      "target": "ancestor_family:hellenic",
+      "type": "belongs_to",
+      "weight": 1
+    },
+    {
+      "source": "ancestor:buddhist_monk",
+      "target": "ancestor_family:dharmic",
+      "type": "belongs_to",
+      "weight": 1
+    },
+    {
+      "source": "ancestor:cypherpunk",
+      "target": "ancestor_family:techno_modern",
+      "type": "belongs_to",
+      "weight": 1
+    },
+    {
+      "source": "ancestor:sufi_mystic",
+      "target": "ancestor_family:mystical",
+      "type": "belongs_to",
+      "weight": 1
+    },
+    {
+      "source": "ancestor:rave_shaman",
+      "target": "ancestor_family:techno_modern",
+      "type": "belongs_to",
+      "weight": 1
+    },
+    {
+      "source": "ancestor:greek_philosopher",
+      "target": "era:ancient",
+      "type": "era_connection",
+      "weight": 0.9
+    },
+    {
+      "source": "ancestor:buddhist_monk",
+      "target": "era:ancient",
+      "type": "era_connection",
+      "weight": 0.9
+    },
+    {
+      "source": "ancestor:cypherpunk",
+      "target": "era:contemporary",
+      "type": "era_connection",
+      "weight": 0.9
+    },
+    {
+      "source": "ancestor:sufi_mystic",
+      "target": "era:ancient",
+      "type": "era_connection",
+      "weight": 0.9
+    },
+    {
+      "source": "ancestor:rave_shaman",
+      "target": "era:contemporary",
+      "type": "era_connection",
+      "weight": 0.9
+    },
+    {
+      "source": "ancestor:greek_philosopher",
+      "target": "cultural_reference:socratic_method",
+      "type": "cultural_reference",
+      "weight": 0.85
+    },
+    {
+      "source": "ancestor:greek_philosopher",
+      "target": "cultural_reference:platonic_forms",
+      "type": "cultural_reference",
+      "weight": 0.8
+    },
+    {
+      "source": "ancestor:buddhist_monk",
+      "target": "cultural_reference:four_noble_truths",
+      "type": "cultural_reference",
+      "weight": 0.9
+    },
+    {
+      "source": "ancestor:buddhist_monk",
+      "target": "cultural_reference:mindfulness_practice",
+      "type": "cultural_reference",
+      "weight": 0.85
+    },
+    {
+      "source": "ancestor:cypherpunk",
+      "target": "cultural_reference:zero_knowledge_proofs",
+      "type": "cultural_reference",
+      "weight": 0.9
+    },
+    {
+      "source": "ancestor:sufi_mystic",
+      "target": "cultural_reference:whirling_meditation",
+      "type": "cultural_reference",
+      "weight": 0.88
+    },
+    {
+      "source": "ancestor:rave_shaman",
+      "target": "cultural_reference:bass_communion",
+      "type": "cultural_reference",
+      "weight": 0.82
+    },
+    {
+      "source": "archetype:freetekno",
+      "target": "aesthetic_preference:diy_aesthetics",
+      "type": "aesthetic_preference",
+      "weight": 0.9
+    },
+    {
+      "source": "archetype:freetekno",
+      "target": "aesthetic_preference:sound_system_culture",
+      "type": "aesthetic_preference",
+      "weight": 0.85
+    },
+    {
+      "source": "archetype:milady",
+      "target": "aesthetic_preference:kawaii_maximalism",
+      "type": "aesthetic_preference",
+      "weight": 0.88
+    },
+    {
+      "source": "archetype:milady",
+      "target": "aesthetic_preference:digital_glamour",
+      "type": "aesthetic_preference",
+      "weight": 0.82
+    },
+    {
+      "source": "era:ancient",
+      "target": "philosophical_foundation:classical_philosophy",
+      "type": "philosophical_foundation",
+      "weight": 0.9
+    },
+    {
+      "source": "era:ancient",
+      "target": "philosophical_foundation:oral_tradition",
+      "type": "philosophical_foundation",
+      "weight": 0.85
+    },
+    {
+      "source": "era:contemporary",
+      "target": "philosophical_foundation:post_modern_plurality",
+      "type": "philosophical_foundation",
+      "weight": 0.88
+    },
+    {
+      "source": "era:contemporary",
+      "target": "philosophical_foundation:digital_consciousness",
+      "type": "philosophical_foundation",
+      "weight": 0.9
+    },
+    {
+      "source": "archetype:freetekno",
+      "target": "element:fire",
+      "type": "belongs_to",
+      "weight": 0.8
+    },
+    {
+      "source": "archetype:milady",
+      "target": "element:water",
+      "type": "belongs_to",
+      "weight": 0.8
+    },
+    {
+      "source": "molecule:psilocybin",
+      "target": "element:water",
+      "type": "belongs_to",
+      "weight": 0.7
+    },
+    {
+      "source": "molecule:dmt",
+      "target": "element:fire",
+      "type": "belongs_to",
+      "weight": 0.7
+    },
+    {
+      "source": "ancestor:greek_philosopher",
+      "target": "ancestor:stoic_philosopher",
+      "type": "influenced_by",
+      "weight": 0.6
+    },
+    {
+      "source": "ancestor:cypherpunk",
+      "target": "ancestor:rave_shaman",
+      "type": "influenced_by",
+      "weight": 0.4
+    },
+    {
+      "source": "ancestor:quantum_mystic",
+      "target": "ancestor_family:techno_modern",
+      "type": "belongs_to",
+      "weight": 0.9
+    },
+    {
+      "source": "ancestor:quantum_mystic",
+      "target": "ancestor_family:mystical",
+      "type": "belongs_to",
+      "weight": 0.6
+    },
+    {
+      "source": "ancestor:quantum_mystic",
+      "target": "archetype:freetekno",
+      "type": "belongs_to",
+      "weight": 0.5
+    }
+  ]
+}

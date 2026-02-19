@@ -359,9 +359,11 @@ describe("resolveAncestorFamily (Task 7.3)", () => {
     expect(resolveAncestorFamily("")).toBe("mystical")
   })
 
-  it("graph stub returns mystical", () => {
-    const fakeGraph = { _brand: "KnowledgeGraph" as const }
-    expect(resolveAncestorFamily("greek_philosopher", fakeGraph)).toBe("mystical")
+  it("known ancestor with graph still uses table lookup (Sprint 9)", () => {
+    // With Sprint 9, resolveAncestorFamily does table lookup first, then graph fallback.
+    // Known ancestors always resolve via table even when a graph is provided.
+    const fakeGraph = { nodes: new Map(), edges: [], adjacency: new Map() }
+    expect(resolveAncestorFamily("greek_philosopher", fakeGraph as any)).toBe("hellenic")
   })
 
   it("null graph uses table lookup", () => {

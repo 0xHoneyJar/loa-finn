@@ -244,6 +244,12 @@ registerArtifact(
   "dapm-tables.json.sha256",
 )
 
+registerArtifact(
+  "knowledge-graph",
+  "graph.json",
+  "graph.json.sha256",
+)
+
 // ---------------------------------------------------------------------------
 // Convenience Accessors
 // ---------------------------------------------------------------------------
