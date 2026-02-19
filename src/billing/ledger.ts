@@ -6,6 +6,7 @@
 import type { BrandedMicroUSD as MicroUSD } from "@0xhoneyjar/loa-hounfour"
 import { parseMicroUSD } from "../hounfour/wire-boundary.js"
 import type { BillingEntryId, BillingEventType } from "./types.js"
+import { getTracer } from "../tracing/otlp.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,11 +66,24 @@ export class Ledger {
       return
     }
 
-    // Zero-sum invariant: SUM(all postings) === 0n
-    this.validatePostings(entry.postings)
+    const tracer = getTracer("x402")
+    const span = tracer?.startSpan("x402.ledger", {
+      attributes: {
+        event_type: entry.event_type,
+        posting_count: entry.postings.length,
+        billing_entry_id: entry.billing_entry_id,
+      },
+    })
 
-    this.entries.push(entry)
-    this.seenIds.add(dedupeKey)
+    try {
+      // Zero-sum invariant: SUM(all postings) === 0n
+      this.validatePostings(entry.postings)
+
+      this.entries.push(entry)
+      this.seenIds.add(dedupeKey)
+    } finally {
+      span?.end()
+    }
   }
 
   /**

@@ -119,6 +119,9 @@ metrics.registerCounter("loa_finn_x402_quotes_total", "x402 payment quotes issue
 metrics.registerCounter("loa_finn_x402_payments_verified_total", "x402 payments verified")
 metrics.registerCounter("loa_finn_x402_nonce_replays_blocked_total", "x402 nonce replay attempts blocked")
 
+// Settlement circuit breaker metrics
+metrics.registerGauge("loa_finn_settlement_circuit_state", "Settlement circuit breaker state (1=current)")
+
 // Connection metrics
 metrics.registerGauge("loa_finn_ws_connections_active", "Active WebSocket connections")
 metrics.registerGauge("loa_finn_onboarding_sessions_active", "Active onboarding sessions")

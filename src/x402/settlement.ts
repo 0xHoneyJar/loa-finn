@@ -6,6 +6,7 @@
 
 import type { EIP3009Authorization, SettlementResult } from "./types.js"
 import { X402Error } from "./types.js"
+import { getTracer } from "../tracing/otlp.js"
 
 // ---------------------------------------------------------------------------
 // Circuit Breaker
@@ -13,24 +14,32 @@ import { X402Error } from "./types.js"
 
 type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN"
 
-class CircuitBreaker {
+export class CircuitBreaker {
   private state: CircuitState = "CLOSED"
   private failureCount = 0
   private lastFailureTime = 0
   private readonly failureThreshold: number
   private readonly failureWindowMs: number
   private readonly halfOpenDelayMs: number
+  private readonly onStateChange?: (from: CircuitState, to: CircuitState, failureCount: number) => void
 
-  constructor(opts?: { threshold?: number; windowMs?: number; halfOpenMs?: number }) {
+  constructor(opts?: {
+    threshold?: number
+    windowMs?: number
+    halfOpenMs?: number
+    onStateChange?: (from: CircuitState, to: CircuitState, failureCount: number) => void
+  }) {
     this.failureThreshold = opts?.threshold ?? 3
     this.failureWindowMs = opts?.windowMs ?? 60_000
     this.halfOpenDelayMs = opts?.halfOpenMs ?? 30_000
+    this.onStateChange = opts?.onStateChange
   }
 
   get currentState(): CircuitState {
     if (this.state === "OPEN") {
       const elapsed = Date.now() - this.lastFailureTime
       if (elapsed >= this.halfOpenDelayMs) {
+        this.emitStateChange(this.state, "HALF_OPEN")
         this.state = "HALF_OPEN"
       }
     }
@@ -42,8 +51,12 @@ class CircuitBreaker {
   }
 
   recordSuccess(): void {
+    const prev = this.state
     this.failureCount = 0
     this.state = "CLOSED"
+    if (prev !== "CLOSED") {
+      this.emitStateChange(prev, "CLOSED")
+    }
   }
 
   recordFailure(): void {
@@ -57,9 +70,22 @@ class CircuitBreaker {
     this.failureCount++
     this.lastFailureTime = now
 
-    if (this.failureCount >= this.failureThreshold) {
+    if (this.failureCount >= this.failureThreshold && this.state !== "OPEN") {
+      const prev = this.state
       this.state = "OPEN"
+      this.emitStateChange(prev, "OPEN")
     }
+  }
+
+  private emitStateChange(from: CircuitState, to: CircuitState): void {
+    console.log(JSON.stringify({
+      metric: "settlement.circuit.state_change",
+      from,
+      to,
+      failure_count: this.failureCount,
+      timestamp: Date.now(),
+    }))
+    this.onStateChange?.(from, to, this.failureCount)
   }
 }
 
@@ -102,66 +128,79 @@ export class SettlementService {
    * Execute settlement: facilitator primary, direct fallback.
    */
   async settle(auth: EIP3009Authorization, quoteId: string): Promise<SettlementResult> {
-    let result: SettlementResult | null = null
+    const tracer = getTracer("x402")
+    const span = tracer?.startSpan("x402.settle")
 
-    // Try facilitator first (if available and circuit not open)
-    if (this.submitToFacilitator && !this.facilitatorCB.isOpen) {
-      try {
-        result = await this.submitToFacilitator(auth)
-        this.facilitatorCB.recordSuccess()
-      } catch {
-        this.facilitatorCB.recordFailure()
-        result = null
+    try {
+      span?.setAttribute("circuit_state", this.facilitatorCB.currentState)
+
+      let result: SettlementResult | null = null
+
+      // Try facilitator first (if available and circuit not open)
+      if (this.submitToFacilitator && !this.facilitatorCB.isOpen) {
+        try {
+          result = await this.submitToFacilitator(auth)
+          this.facilitatorCB.recordSuccess()
+          span?.setAttribute("method", "facilitator")
+        } catch {
+          this.facilitatorCB.recordFailure()
+          result = null
+        }
       }
-    }
 
-    // Fallback to direct submission
-    if (!result && this.submitDirect) {
-      try {
-        result = await this.submitDirect(auth)
-      } catch {
+      // Fallback to direct submission
+      if (!result && this.submitDirect) {
+        try {
+          result = await this.submitDirect(auth)
+          span?.setAttribute("method", "direct")
+        } catch {
+          throw new X402Error(
+            "Settlement failed: both facilitator and direct submission failed",
+            "SETTLEMENT_FAILED",
+            402,
+          )
+        }
+      }
+
+      if (!result) {
         throw new X402Error(
-          "Settlement failed: both facilitator and direct submission failed",
-          "SETTLEMENT_FAILED",
+          "Settlement failed: no settlement method available",
+          "SETTLEMENT_UNAVAILABLE",
           402,
         )
       }
-    }
 
-    if (!result) {
-      throw new X402Error(
-        "Settlement failed: no settlement method available",
-        "SETTLEMENT_UNAVAILABLE",
-        402,
-      )
-    }
+      span?.setAttribute("tx_hash", result.tx_hash)
 
-    // Verify receipt on-chain
-    if (this.verifyReceipt) {
-      const verified = await this.verifyReceipt(
-        result.tx_hash,
-        this.treasuryAddress,
-        auth.value,
-      )
-      if (!verified) {
-        throw new X402Error(
-          "Settlement verification failed: funds not confirmed at treasury",
-          "SETTLEMENT_VERIFICATION_FAILED",
-          402,
+      // Verify receipt on-chain
+      if (this.verifyReceipt) {
+        const verified = await this.verifyReceipt(
+          result.tx_hash,
+          this.treasuryAddress,
+          auth.value,
         )
+        if (!verified) {
+          throw new X402Error(
+            "Settlement verification failed: funds not confirmed at treasury",
+            "SETTLEMENT_VERIFICATION_FAILED",
+            402,
+          )
+        }
       }
+
+      // WAL record
+      this.writeAudit("x402_settlement", {
+        quote_id: quoteId,
+        tx_hash: result.tx_hash,
+        block_number: result.block_number,
+        method: result.method,
+        amount: result.amount,
+      })
+
+      return result
+    } finally {
+      span?.end()
     }
-
-    // WAL record
-    this.writeAudit("x402_settlement", {
-      quote_id: quoteId,
-      tx_hash: result.tx_hash,
-      block_number: result.block_number,
-      method: result.method,
-      amount: result.amount,
-    })
-
-    return result
   }
 
   private writeAudit(operation: string, payload: Record<string, unknown>): void {

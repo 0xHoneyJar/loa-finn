@@ -6,6 +6,7 @@
 
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import type { BillingEntryId } from "./types.js"
+import { getTracer } from "../tracing/otlp.js"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -96,6 +97,15 @@ export class DLQProcessor {
     correlationId: string,
     reason: string,
   ): Promise<void> {
+    const tracer = getTracer("x402")
+    const span = tracer?.startSpan("x402.finalize", {
+      attributes: {
+        billing_entry_id: billingEntryId,
+        attempt: 0,
+        correlation_id: correlationId,
+      },
+    })
+
     const now = new Date()
     const entry: DLQEntry = {
       billing_entry_id: billingEntryId,
@@ -132,6 +142,9 @@ export class DLQProcessor {
       entry.created_at,
       entry.next_retry_at,
     )
+
+    span?.setAttribute("next_retry_at", entry.next_retry_at)
+    span?.end()
   }
 
   /**

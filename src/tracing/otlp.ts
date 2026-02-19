@@ -1,50 +1,149 @@
-// src/tracing/otlp.ts — Non-fatal OTLP tracing setup (SDD §7, cycle-024 T4)
-// Initializes OpenTelemetry with OTLP gRPC exporter. Never crashes the service.
+// src/tracing/otlp.ts — OpenTelemetry Tracing Setup (Sprint 12 Task 12.1)
+//
+// Feature-flagged: OTEL_ENABLED=true to activate (default off).
+// Console exporter by default, OTLP when OTEL_EXPORTER_OTLP_ENDPOINT env var set.
+// getTracer(name) helper for creating spans in business logic.
+// correlation_id from billing entries attached as span attribute.
 
 import type { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 export interface TracingConfig {
-  /** OTLP gRPC endpoint (e.g., "http://tempo.local:4317"). If unset, tracing disabled. */
+  /** OTLP endpoint (e.g., "http://tempo.local:4317"). If unset, uses console exporter. */
   endpoint?: string
   /** Deployment environment label (e.g., "production", "staging") */
   environment?: string
+  /** Service version (e.g., "1.0.0") */
+  version?: string
 }
 
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+let _provider: NodeTracerProvider | null = null
+let _enabled = false
+
+/** Check if tracing is currently active. */
+export function isTracingEnabled(): boolean {
+  return _enabled
+}
+
+// ---------------------------------------------------------------------------
+// Initialization
+// ---------------------------------------------------------------------------
+
 /**
- * Initialize OpenTelemetry tracing with OTLP gRPC exporter.
+ * Initialize OpenTelemetry tracing with NodeTracerProvider.
+ *
+ * Feature-flagged: only activates when OTEL_ENABLED=true.
+ * Console exporter when no OTLP endpoint configured; OTLP gRPC when
+ * OTEL_EXPORTER_OTLP_ENDPOINT env var is set.
+ *
+ * Resource attributes: service.name = "loa-finn", service.version,
+ * deployment.environment.
  *
  * Returns the provider on success, null if disabled or on failure.
  * NEVER throws — tracing is optional infrastructure, not a boot dependency.
  */
-export async function initTracing(config: TracingConfig): Promise<NodeTracerProvider | null> {
-  if (!config.endpoint) {
-    console.log("[tracing] OTLP_ENDPOINT not set — tracing disabled")
+export async function initTracing(config?: TracingConfig): Promise<NodeTracerProvider | null> {
+  if (process.env.OTEL_ENABLED !== "true") {
+    console.log("[tracing] OTEL_ENABLED not set — tracing disabled")
     return null
   }
 
+  const endpoint = config?.endpoint ?? process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+
   try {
     // Dynamic imports to avoid hard dependency when tracing is disabled
-    const { NodeTracerProvider: Provider } = await import("@opentelemetry/sdk-trace-node")
-    const { SimpleSpanProcessor } = await import("@opentelemetry/sdk-trace-node")
-    const { OTLPTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-grpc")
+    const { NodeTracerProvider: Provider, SimpleSpanProcessor, ConsoleSpanExporter } =
+      await import("@opentelemetry/sdk-trace-node")
     const { Resource } = await import("@opentelemetry/resources")
     const { ATTR_SERVICE_NAME } = await import("@opentelemetry/semantic-conventions")
-    const { ATTR_DEPLOYMENT_ENVIRONMENT_NAME } = await import("@opentelemetry/semantic-conventions/incubating")
 
     const resource = new Resource({
       [ATTR_SERVICE_NAME]: "loa-finn",
-      [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: config.environment ?? "unknown",
+      "service.version": config?.version ?? process.env.npm_package_version ?? "unknown",
+      "deployment.environment": config?.environment ?? process.env.NODE_ENV ?? "unknown",
     })
 
-    const exporter = new OTLPTraceExporter({ url: config.endpoint })
     const provider = new Provider({ resource })
-    provider.addSpanProcessor(new SimpleSpanProcessor(exporter))
-    provider.register()
 
-    console.log(`[tracing] OTLP initialized: endpoint=${config.endpoint}`)
+    if (endpoint) {
+      const { OTLPTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-grpc")
+      provider.addSpanProcessor(new SimpleSpanProcessor(new OTLPTraceExporter({ url: endpoint })))
+      console.log(`[tracing] OTLP initialized: endpoint=${endpoint}`)
+    } else {
+      provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()))
+      console.log("[tracing] Console exporter initialized (no OTEL_EXPORTER_OTLP_ENDPOINT)")
+    }
+
+    provider.register()
+    _provider = provider
+    _enabled = true
     return provider
   } catch (err) {
-    console.warn(`[tracing] OTLP initialization failed (non-fatal): ${(err as Error).message}`)
+    console.warn(`[tracing] Initialization failed (non-fatal): ${(err as Error).message}`)
     return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tracer Helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Get a named tracer for creating spans in business logic.
+ * Returns null if tracing is disabled or @opentelemetry/api is not installed.
+ *
+ * Usage:
+ *   const tracer = getTracer("x402")
+ *   const span = tracer?.startSpan("x402.quote", { attributes: { quote_id } })
+ *   try { ... } finally { span?.end() }
+ */
+export function getTracer(name: string): ReturnType<typeof _getTracerInternal> {
+  if (!_enabled) return null
+  return _getTracerInternal(name)
+}
+
+function _getTracerInternal(name: string): any | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { trace } = require("@opentelemetry/api")
+    return trace.getTracer(name)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Set correlation_id on the currently active span (if any).
+ * Links billing correlation_id to trace context for cross-referencing.
+ */
+export function setCorrelationId(correlationId: string): void {
+  if (!_enabled) return
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { trace } = require("@opentelemetry/api")
+    const span = trace.getActiveSpan()
+    if (span) {
+      span.setAttribute("correlation_id", correlationId)
+    }
+  } catch {
+    // Non-fatal
+  }
+}
+
+/**
+ * Shutdown the trace provider (graceful teardown).
+ */
+export async function shutdownTracing(): Promise<void> {
+  if (_provider) {
+    await _provider.shutdown()
+    _provider = null
+    _enabled = false
   }
 }

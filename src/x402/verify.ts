@@ -7,6 +7,7 @@ import { createHash } from "node:crypto"
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import type { X402Quote, PaymentProof, EIP3009Authorization } from "./types.js"
 import { X402Error } from "./types.js"
+import { getTracer } from "../tracing/otlp.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,88 +54,100 @@ export class PaymentVerifier {
    * Verify payment proof against a quote.
    */
   async verify(proof: PaymentProof, quote: X402Quote): Promise<VerificationResult> {
-    const auth = proof.authorization
-    const paymentId = this.computePaymentId(auth, proof.chain_id)
+    const tracer = getTracer("x402")
+    const span = tracer?.startSpan("x402.verify")
 
-    // Verify recipient is treasury
-    if (auth.to.toLowerCase() !== this.treasuryAddress.toLowerCase()) {
-      throw new X402Error(
-        "Payment recipient must be treasury address",
-        "INVALID_RECIPIENT",
-        402,
-      )
-    }
+    try {
+      const auth = proof.authorization
+      const paymentId = this.computePaymentId(auth, proof.chain_id)
 
-    // Verify amount >= quoted max_cost
-    const paymentAmount = BigInt(auth.value)
-    const quotedCost = BigInt(quote.max_cost)
-    if (paymentAmount < quotedCost) {
-      throw new X402Error(
-        `Insufficient payment: ${auth.value} < ${quote.max_cost}`,
-        "INSUFFICIENT_PAYMENT",
-        402,
-      )
-    }
+      span?.setAttribute("payment_id", paymentId)
+      span?.setAttribute("wallet_address", auth.from)
+      span?.setAttribute("is_replay", false)
 
-    // Verify not expired
-    const now = Math.floor(Date.now() / 1000)
-    if (auth.valid_before < now) {
-      throw new X402Error(
-        "Payment authorization expired",
-        "PAYMENT_EXPIRED",
-        402,
-      )
-    }
+      // Verify recipient is treasury
+      if (auth.to.toLowerCase() !== this.treasuryAddress.toLowerCase()) {
+        throw new X402Error(
+          "Payment recipient must be treasury address",
+          "INVALID_RECIPIENT",
+          402,
+        )
+      }
 
-    // Verify signature (EOA first, then EIP-1271 if available)
-    let signatureValid = await this.verifyEOA(auth)
-    if (!signatureValid && this.verifyContract) {
-      signatureValid = await this.verifyContract(auth)
-    }
-    if (!signatureValid) {
-      throw new X402Error(
-        "Invalid payment signature",
-        "INVALID_SIGNATURE",
-        402,
-      )
-    }
+      // Verify amount >= quoted max_cost
+      const paymentAmount = BigInt(auth.value)
+      const quotedCost = BigInt(quote.max_cost)
+      if (paymentAmount < quotedCost) {
+        throw new X402Error(
+          `Insufficient payment: ${auth.value} < ${quote.max_cost}`,
+          "INSUFFICIENT_PAYMENT",
+          402,
+        )
+      }
 
-    // Atomic nonce replay protection via SETNX (fixes TOCTOU race)
-    // If the key already exists, this is an idempotent replay.
-    // If it does not exist, atomically set it with TTL.
-    const existingKey = `x402:payment:${paymentId}`
-    const ttl = Math.max(auth.valid_before - now, 60) // At least 60s
-    const paymentData = JSON.stringify({
-      quote_id: proof.quote_id,
-      from: auth.from,
-      amount: auth.value,
-      timestamp: Date.now(),
-    })
-    const setResult = await this.redis.set(existingKey, paymentData, "EX", ttl, "NX")
-    if (setResult === null) {
-      // Key already existed — idempotent replay
+      // Verify not expired
+      const now = Math.floor(Date.now() / 1000)
+      if (auth.valid_before < now) {
+        throw new X402Error(
+          "Payment authorization expired",
+          "PAYMENT_EXPIRED",
+          402,
+        )
+      }
+
+      // Verify signature (EOA first, then EIP-1271 if available)
+      let signatureValid = await this.verifyEOA(auth)
+      if (!signatureValid && this.verifyContract) {
+        signatureValid = await this.verifyContract(auth)
+      }
+      if (!signatureValid) {
+        throw new X402Error(
+          "Invalid payment signature",
+          "INVALID_SIGNATURE",
+          402,
+        )
+      }
+
+      // Atomic nonce replay protection via SETNX (fixes TOCTOU race)
+      // If the key already exists, this is an idempotent replay.
+      // If it does not exist, atomically set it with TTL.
+      const existingKey = `x402:payment:${paymentId}`
+      const ttl = Math.max(auth.valid_before - now, 60) // At least 60s
+      const paymentData = JSON.stringify({
+        quote_id: proof.quote_id,
+        from: auth.from,
+        amount: auth.value,
+        timestamp: Date.now(),
+      })
+      const setResult = await this.redis.set(existingKey, paymentData, "EX", ttl, "NX")
+      if (setResult === null) {
+        // Key already existed — idempotent replay
+        span?.setAttribute("is_replay", true)
+        return {
+          valid: true,
+          payment_id: paymentId,
+          authorization: auth,
+          idempotent_replay: true,
+        }
+      }
+
+      // WAL authoritative record
+      this.writeAudit("x402_payment", {
+        payment_id: paymentId,
+        quote_id: proof.quote_id,
+        from: auth.from,
+        amount: auth.value,
+        chain_id: proof.chain_id,
+      })
+
       return {
         valid: true,
         payment_id: paymentId,
         authorization: auth,
-        idempotent_replay: true,
+        idempotent_replay: false,
       }
-    }
-
-    // WAL authoritative record
-    this.writeAudit("x402_payment", {
-      payment_id: paymentId,
-      quote_id: proof.quote_id,
-      from: auth.from,
-      amount: auth.value,
-      chain_id: proof.chain_id,
-    })
-
-    return {
-      valid: true,
-      payment_id: paymentId,
-      authorization: auth,
-      idempotent_replay: false,
+    } finally {
+      span?.end()
     }
   }
 

@@ -150,3 +150,37 @@ resource "aws_cloudwatch_metric_alarm" "billing_pending_high" {
     Service     = "loa-finn"
   }
 }
+
+# ---------------------------------------------------------------------------
+# CloudWatch Metric Filter — Settlement Circuit Breaker Open (Task 12.3)
+# ---------------------------------------------------------------------------
+
+resource "aws_cloudwatch_log_metric_filter" "settlement_circuit_open" {
+  name           = "loa-finn-settlement-circuit-open-${var.environment}"
+  pattern        = "{ $.metric = \"settlement.circuit.state_change\" && $.to = \"OPEN\" }"
+  log_group_name = aws_cloudwatch_log_group.loa_finn.name
+
+  metric_transformation {
+    name      = "SettlementCircuitOpenCount"
+    namespace = "LoaFinn/${var.environment}"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "settlement_circuit_open" {
+  alarm_name          = "loa-finn-settlement-circuit-open-${var.environment}"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "SettlementCircuitOpenCount"
+  namespace           = "LoaFinn/${var.environment}"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "P1: Settlement circuit breaker OPEN — facilitator failing, all payments falling back to direct settlement."
+  alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
+
+  tags = {
+    Environment = var.environment
+    Service     = "loa-finn"
+  }
+}

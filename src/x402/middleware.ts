@@ -13,6 +13,7 @@ import {
   QUOTE_TTL_SECONDS,
   DEFAULT_MAX_TOKENS,
 } from "./types.js"
+import { getTracer } from "../tracing/otlp.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,36 +61,47 @@ export class QuoteService {
    * Each call produces a fresh quote with a unique ID to prevent cross-user leakage.
    */
   async generateQuote(params: QuoteParams): Promise<X402Quote> {
-    const model = params.model
-    const maxTokens = params.max_tokens ?? DEFAULT_MAX_TOKENS[model] ?? 4096
+    const tracer = getTracer("x402")
+    const span = tracer?.startSpan("x402.quote")
 
-    // Calculate max_cost: max_tokens × rate × markup, ceil to nearest 1 MicroUSDC
-    const rate = BigInt(this.ratePerToken[model] ?? "15")
-    const rawCost = BigInt(maxTokens) * rate
-    const markupBips = BigInt(Math.ceil(this.markupFactor * 10000))
-    const maxCost = (rawCost * markupBips + 9999n) / 10000n // ceil division
+    try {
+      const model = params.model
+      const maxTokens = params.max_tokens ?? DEFAULT_MAX_TOKENS[model] ?? 4096
 
-    const quoteId = this.generateId()
-    const now = Math.floor(Date.now() / 1000)
+      // Calculate max_cost: max_tokens × rate × markup, ceil to nearest 1 MicroUSDC
+      const rate = BigInt(this.ratePerToken[model] ?? "15")
+      const rawCost = BigInt(maxTokens) * rate
+      const markupBips = BigInt(Math.ceil(this.markupFactor * 10000))
+      const maxCost = (rawCost * markupBips + 9999n) / 10000n // ceil division
 
-    const quote: X402Quote = {
-      max_cost: maxCost.toString(),
-      max_tokens: maxTokens,
-      model,
-      payment_address: this.treasuryAddress,
-      chain_id: BASE_CHAIN_ID,
-      valid_until: now + QUOTE_TTL_SECONDS,
-      token_address: USDC_BASE_ADDRESS,
-      quote_id: quoteId,
+      const quoteId = this.generateId()
+      const now = Math.floor(Date.now() / 1000)
+
+      const quote: X402Quote = {
+        max_cost: maxCost.toString(),
+        max_tokens: maxTokens,
+        model,
+        payment_address: this.treasuryAddress,
+        chain_id: BASE_CHAIN_ID,
+        valid_until: now + QUOTE_TTL_SECONDS,
+        token_address: USDC_BASE_ADDRESS,
+        quote_id: quoteId,
+      }
+
+      span?.setAttribute("quote_id", quoteId)
+      span?.setAttribute("model", model)
+      span?.setAttribute("max_cost", maxCost.toString())
+
+      // Store by quote_id for verification lookup
+      const quoteKey = `x402:quote_id:${quoteId}`
+      await this.redis.set(quoteKey, JSON.stringify(quote), "EX", QUOTE_TTL_SECONDS)
+
+      this.writeAudit("x402_quote", { quote_id: quoteId, model, max_tokens: maxTokens, max_cost: maxCost.toString() })
+
+      return quote
+    } finally {
+      span?.end()
     }
-
-    // Store by quote_id for verification lookup
-    const quoteKey = `x402:quote_id:${quoteId}`
-    await this.redis.set(quoteKey, JSON.stringify(quote), "EX", QUOTE_TTL_SECONDS)
-
-    this.writeAudit("x402_quote", { quote_id: quoteId, model, max_tokens: maxTokens, max_cost: maxCost.toString() })
-
-    return quote
   }
 
   /**
