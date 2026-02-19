@@ -16,6 +16,7 @@ import {
 import type { CompatibilityMode, AgentMode, DAMPFingerprint, SignalSnapshot } from "./signal-types.js"
 import type { PersonalityVersionService } from "./personality-version.js"
 import { deriveDAMP } from "./damp.js"
+import { nameKDF } from "./name-derivation.js"
 import { loadCodexVersion } from "./codex-data/loader.js"
 
 // ---------------------------------------------------------------------------
@@ -105,6 +106,36 @@ export class PersonalityService {
         this.writeAudit("damp_derivation_error", id, {
           phase: "create",
         })
+      }
+
+      // Sprint 18 Task 18.3: Self-derived canonical name via NameKDF
+      try {
+        const canonicalName = nameKDF(
+          signals.archetype,
+          signals.ancestor,
+          signals.era,
+          signals.molecule,
+          signals.element,
+          tokenId,
+          collection,
+        )
+        // Store user-provided name as display_name, replace name with canonical
+        personality.display_name = req.name
+        personality.name = canonicalName
+
+        // Enforce uniqueness: check Redis index for canonical name collision
+        const nameKey = `personality:name:${collection}:${canonicalName}`
+        const existingName = await this.redis.get(nameKey)
+        if (existingName) {
+          // Name collision — extremely unlikely but handle gracefully
+          this.writeAudit("name_collision", id, { canonical_name: canonicalName })
+        } else {
+          // Set the unique name index
+          await this.redis.set(nameKey, id)
+        }
+      } catch {
+        // NameKDF failure is non-fatal — keep user-provided name
+        this.writeAudit("name_derivation_error", id, { phase: "create" })
       }
     }
 
@@ -450,6 +481,7 @@ function toResponse(p: NFTPersonality): PersonalityResponse {
   return {
     id: p.id,
     name: p.name,
+    display_name: p.display_name ?? null,
     voice: p.voice,
     expertise_domains: p.expertise_domains,
     custom_instructions: p.custom_instructions,

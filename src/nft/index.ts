@@ -289,6 +289,15 @@ export {
   type IdentityErrorLogEntry,
 } from "./logger.js"
 
+// Self-Derived Agent Naming (Sprint 18 Tasks 18.1-18.2)
+export {
+  nameKDF,
+  getNameCorpus,
+  validateCorpusCoverage,
+  type NameComponent,
+  type NameCorpus,
+} from "./name-derivation.js"
+
 // Identity Health Check (Sprint 16 Task 16.3)
 export {
   getIdentityHealth,

@@ -38,8 +38,10 @@ export interface NFTPersonality {
   // === PRESERVED: Existing fields (unchanged shape) ===
   /** Composite key: `${collection}:${tokenId}` */
   id: string
-  /** Display name for the agent */
+  /** Canonical self-derived name (immutable, from NameKDF). Falls back to user-provided name for legacy_v1. */
   name: string
+  /** Optional user-assigned display name (mutable, overrides canonical for UI) */
+  display_name?: string | null
   /** Voice archetype (populated in both modes for API compat) */
   voice: VoiceType
   /** Expertise domains (up to 5) */
@@ -111,6 +113,7 @@ export interface UpdatePersonalityRequest {
 export interface PersonalityResponse {
   id: string
   name: string
+  display_name: string | null
   voice: VoiceType
   expertise_domains: string[]
   custom_instructions: string
