@@ -65,3 +65,13 @@ export {
   type EvalScorecard,
   type AggregateScorecard,
 } from "./scorecard.js"
+
+// Personality Drift Analysis (Sprint 16 Task 16.4)
+export {
+  computeDrift,
+  getTopChangedDials,
+  analyzeDrift,
+  type DialChange,
+  type DriftResult,
+  type VersionChainDrift,
+} from "./drift.js"

@@ -92,6 +92,10 @@ export {
   registerIdentityReadRoutes,
   type IdentityReadDeps,
   type IdentityGraphResponse,
+  // Sprint 15: Re-derive, mode switch, rollback handlers
+  handleRederive,
+  handleModeSwitch,
+  handleRollback,
 } from "./personality.js"
 
 // Personality Version Service (Sprint 3 Tasks 3.1-3.3)
@@ -254,4 +258,40 @@ export {
   buildScorecards,
   type EvalScorecard,
   type AggregateScorecard,
+  // Personality Drift Analysis (Sprint 16 Task 16.4)
+  computeDrift,
+  getTopChangedDials,
+  analyzeDrift,
+  type DialChange,
+  type DriftResult,
+  type VersionChainDrift,
 } from "./eval/index.js"
+
+// Transfer Listener (Sprint 14 Task 14.1)
+export {
+  TransferListener,
+  type TransferListenerConfig,
+  type EventWatcherClient,
+} from "./transfer-listener.js"
+
+// Rate Limiter (Sprint 16 Task 16.1)
+export {
+  createRateLimiter,
+  type RateLimiterConfig,
+} from "./rate-limiter.js"
+
+// Structured Identity Logger (Sprint 16 Task 16.2)
+export {
+  createIdentityLogger,
+  type IdentityLogger,
+  type IdentityOperation,
+  type IdentityLogEntry,
+  type IdentityErrorLogEntry,
+} from "./logger.js"
+
+// Identity Health Check (Sprint 16 Task 16.3)
+export {
+  getIdentityHealth,
+  type IdentityHealthDeps,
+  type IdentityHealthStatus,
+} from "./health.js"

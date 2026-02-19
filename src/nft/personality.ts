@@ -548,6 +548,8 @@ import type { DerivedVoiceProfile } from "./signal-types.js"
 import type { OwnershipProvider } from "./chain-config.js"
 import type { OwnershipMiddlewareConfig } from "../gateway/siwe-ownership.js"
 import { requireNFTOwnership } from "../gateway/siwe-ownership.js"
+import type { RateLimiterConfig } from "./rate-limiter.js"
+import { createRateLimiter } from "./rate-limiter.js"
 
 /** Dependencies for V2 route registration */
 export interface PersonalityV2Deps {
@@ -563,6 +565,8 @@ export interface PersonalityV2Deps {
   versionService?: PersonalityVersionService
   /** Redis client for mode persistence (Sprint 15 Task 15.2) */
   redis?: RedisCommandClient
+  /** Rate limiter config for LLM-calling endpoints (Sprint 16 Task 16.1) */
+  rateLimiterConfig?: Partial<RateLimiterConfig>
 }
 
 /**
@@ -980,6 +984,7 @@ export async function handleRollback(c: Context, deps: PersonalityV2Deps): Promi
  * Sprint 6: Write endpoints (POST, PUT, synthesize) are protected by
  * requireNFTOwnership middleware. Read endpoints remain public.
  * Sprint 15: Re-derive, mode switch, and rollback endpoints added.
+ * Sprint 16: Rate limiter on LLM-calling endpoints (synthesize, rederive).
  */
 export function registerPersonalityV2Routes(app: Hono, deps: PersonalityV2Deps): void {
   const ownershipMiddleware = requireNFTOwnership(
@@ -987,13 +992,27 @@ export function registerPersonalityV2Routes(app: Hono, deps: PersonalityV2Deps):
     deps.ownershipMiddlewareConfig,
   )
 
+  // Sprint 16 Task 16.1: Rate limiter for LLM-calling endpoints
+  // Only applied to synthesize and rederive (endpoints that trigger LLM calls).
+  // Requires deps.redis for sliding window tracking.
+  const rateLimiter = deps.redis
+    ? createRateLimiter(deps.redis, deps.rateLimiterConfig)
+    : undefined
+
   // Write endpoints — ownership-protected
   app.post("/:collection/:tokenId/personality/v2", ownershipMiddleware, (c) => handleCreateV2(c, deps))
   app.put("/:collection/:tokenId/personality/v2", ownershipMiddleware, (c) => handleUpdateV2(c, deps))
-  app.post("/:collection/:tokenId/personality/synthesize", ownershipMiddleware, (c) => handleSynthesize(c, deps))
 
-  // Sprint 15: Re-derive, mode switch, and rollback endpoints
-  app.post("/:collection/:tokenId/personality/rederive", ownershipMiddleware, (c) => handleRederive(c, deps))
+  // LLM-calling endpoints — ownership-protected + rate-limited
+  if (rateLimiter) {
+    app.post("/:collection/:tokenId/personality/synthesize", ownershipMiddleware, rateLimiter, (c) => handleSynthesize(c, deps))
+    app.post("/:collection/:tokenId/personality/rederive", ownershipMiddleware, rateLimiter, (c) => handleRederive(c, deps))
+  } else {
+    app.post("/:collection/:tokenId/personality/synthesize", ownershipMiddleware, (c) => handleSynthesize(c, deps))
+    app.post("/:collection/:tokenId/personality/rederive", ownershipMiddleware, (c) => handleRederive(c, deps))
+  }
+
+  // Sprint 15: Mode switch and rollback endpoints (no rate limiting — no LLM calls)
   app.post("/:collection/:tokenId/mode", ownershipMiddleware, (c) => handleModeSwitch(c, deps))
   app.post("/:collection/:tokenId/personality/rollback/:versionId", ownershipMiddleware, (c) => handleRollback(c, deps))
 }
