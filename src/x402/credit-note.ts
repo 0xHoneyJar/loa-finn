@@ -14,6 +14,27 @@ import type { RedisCommandClient } from "../hounfour/redis/client.js"
 const CREDIT_NOTE_PREFIX = "x402:credit:"
 const CREDIT_NOTE_TTL = 7 * 24 * 3600 // 7 days
 
+// Hard cap on accumulated credit note balance per wallet (1M USDC in base units).
+// Well within JS safe integer range (2^53-1 ≈ 9×10^15) and Redis int64 range.
+// Enforced atomically in Lua to prevent unbounded accumulation.
+const MAX_CREDIT_BALANCE = 1_000_000_000_000 // 1M USDC (6 decimals)
+
+// Lua script: atomically validate cap, increment balance, set expiry.
+// Returns new balance on success, "CAP_EXCEEDED" if cap would be breached.
+const CREDIT_BALANCE_INCR_SCRIPT = `
+  local key = KEYS[1]
+  local delta = tonumber(ARGV[1])
+  local cap = tonumber(ARGV[2])
+  local ttl = tonumber(ARGV[3])
+  local current = tonumber(redis.call('GET', key) or '0')
+  if current + delta > cap then
+    return "CAP_EXCEEDED"
+  end
+  local new_balance = redis.call('INCRBY', key, delta)
+  redis.call('EXPIRE', key, ttl)
+  return tostring(new_balance)
+`
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -92,10 +113,27 @@ export class CreditNoteService {
     const noteKey = `${CREDIT_NOTE_PREFIX}${walletAddress.toLowerCase()}:${note.id}`
     await this.redis.set(noteKey, JSON.stringify(note), "EX", CREDIT_NOTE_TTL)
 
-    // Update balance atomically
+    // Update balance atomically with cap enforcement
     const balanceKey = `${CREDIT_NOTE_PREFIX}${walletAddress.toLowerCase()}:balance`
-    await this.redis.incrby(balanceKey, Number(delta))
-    await this.redis.expire(balanceKey, CREDIT_NOTE_TTL)
+    const safeDelta = Number(delta)
+    if (!Number.isSafeInteger(safeDelta) || safeDelta <= 0) {
+      throw new Error(`CreditNote delta exceeds safe integer range: ${delta}`)
+    }
+
+    const result = await this.redis.eval(
+      CREDIT_BALANCE_INCR_SCRIPT,
+      [balanceKey],
+      [String(safeDelta), String(MAX_CREDIT_BALANCE), String(CREDIT_NOTE_TTL)],
+    ) as string
+
+    if (result === "CAP_EXCEEDED") {
+      throw new Error(JSON.stringify({
+        error: "credit_note_cap_exceeded",
+        wallet: walletAddress.toLowerCase(),
+        delta: delta.toString(),
+        cap: String(MAX_CREDIT_BALANCE),
+      }))
+    }
 
     // WAL audit — double-entry
     this.writeAudit("x402_credit_note", {

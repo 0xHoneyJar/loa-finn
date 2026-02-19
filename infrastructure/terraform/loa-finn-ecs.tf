@@ -44,6 +44,16 @@ variable "elasticache_security_group_id" {
   description = "ElastiCache security group ID for outbound rules"
 }
 
+variable "kms_key_arn" {
+  type        = string
+  description = "KMS key ARN for JWT signing. Must be scoped to the specific key — Resource:* is prohibited (Bridgebuilder finding medium-7, Gate 0 blocker)."
+
+  validation {
+    condition     = can(regex("^arn:aws:kms:", var.kms_key_arn))
+    error_message = "kms_key_arn must be a valid KMS key ARN (arn:aws:kms:...)."
+  }
+}
+
 # ---------------------------------------------------------------------------
 # IAM — Task Execution Role
 # ---------------------------------------------------------------------------
@@ -105,6 +115,8 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
         Resource = "arn:aws:ssm:*:*:parameter/loa-finn/${var.environment}/*"
       },
       {
+        # Scoped to specific JWT signing key — Resource:* removed per Bridgebuilder
+        # finding medium-7 (Gate 0 blocker). See PR #82 Deep Review §VIII.1.
         Sid    = "KMSDecrypt"
         Effect = "Allow"
         Action = [
@@ -112,7 +124,7 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
           "kms:Sign",
           "kms:GetPublicKey"
         ]
-        Resource = "*"
+        Resource = var.kms_key_arn
       },
       {
         Sid    = "CloudWatchLogs"
@@ -309,7 +321,7 @@ resource "aws_cloudwatch_metric_alarm" "ecs_desired_count_drift" {
   statistic           = "Maximum"
   threshold           = 1
   alarm_description   = "CRITICAL: loa-finn desired count > 1. WAL single-writer invariant violated."
-  alarm_actions       = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+  alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   dimensions = {
     ClusterName = "honeyjar-${var.environment}"

@@ -111,7 +111,7 @@ Directory structure:
 
 - **GET** `/.well-known/jwks.json` (`src/gateway/server.ts:133`)
 - **GET** `/` (`src/gateway/jwks.ts:76`)
-- **GET** `/` (`src/gateway/metrics-endpoint.ts:127`)
+- **GET** `/` (`src/gateway/metrics-endpoint.ts:133`)
 - **GET** `/` (`src/gateway/server.ts:57`)
 - **GET** `/` (`src/gateway/waitlist.ts:105`)
 - **GET** `/api/dashboard/activity` (`src/gateway/server.ts:314`)
@@ -246,14 +246,14 @@ export ANTHROPIC_API_KEY=sk-ant-...
 npm run dev
 ```
 <!-- ground-truth-meta
-head_sha: f5499bd754162da46da164b3a0b33f5ea3b8b05b
-generated_at: 2026-02-18T23:32:22Z
+head_sha: bb7bd41f5a0cbefe79970c31f9c0fe7e87f64c28
+generated_at: 2026-02-19T00:49:38Z
 generator: butterfreezone-gen v1.0.0
 sections:
   agent_context: 90fb840550f5415b42aedaed74f81068ce3bdc434075510002272e28b4211aa8
   capabilities: ab2576b1f2e7e8141f0e93e807d26ed2b7b155e21c96d787507a3ba933bb9795
   architecture: a21d131d443b047022164bb0549e70871489992ec1ab56980def458b3c63a628
-  interfaces: bb3ac5cec327a39930657fbb94d982a04df1ea0af034848956c5ba63e5691231
+  interfaces: 266bda39095e0c03d61b1f922e518a40bc3b7eea69474eb332cd6eeed9f36c30
   module_map: 39a9cd9dae7272b08df421bb4cc4a1371c2b31c4da79f08bc45990cd251f60eb
   verification: e35027536594be81d2e43806f2dd24da8fe03e554544feef175737d6296a896f
   agents: ca263d1e05fd123434a21ef574fc8d76b559d22060719640a1f060527ef6a0b6

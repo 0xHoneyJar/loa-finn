@@ -7,10 +7,30 @@
 # Variables
 # ---------------------------------------------------------------------------
 
-variable "alarm_sns_topic_arn" {
+variable "alarm_email" {
   type        = string
   default     = ""
-  description = "SNS topic ARN for CloudWatch alarm notifications. Empty disables alarm actions."
+  description = "Email address for alarm notifications. Subscription will remain PendingConfirmation until manually confirmed out-of-band."
+}
+
+# ---------------------------------------------------------------------------
+# SNS Topic — Alarm Notifications (Task 11.2, Bridgebuilder Deep Review §VIII)
+# ---------------------------------------------------------------------------
+
+resource "aws_sns_topic" "loa_finn_alarms" {
+  name = "loa-finn-alarms-${var.environment}"
+
+  tags = {
+    Environment = var.environment
+    Service     = "loa-finn"
+  }
+}
+
+resource "aws_sns_topic_subscription" "alarm_email" {
+  count     = var.alarm_email != "" ? 1 : 0
+  topic_arn = aws_sns_topic.loa_finn_alarms.arn
+  protocol  = "email"
+  endpoint  = var.alarm_email
 }
 
 # ---------------------------------------------------------------------------
@@ -27,7 +47,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   statistic           = "Average"
   threshold           = 80
   alarm_description   = "WARNING: loa-finn CPU > 80%"
-  alarm_actions       = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+  alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   dimensions = {
     ClusterName = "honeyjar-${var.environment}"
@@ -50,7 +70,7 @@ resource "aws_cloudwatch_metric_alarm" "memory_high" {
   statistic           = "Average"
   threshold           = 80
   alarm_description   = "WARNING: loa-finn memory > 80%"
-  alarm_actions       = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+  alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   dimensions = {
     ClusterName = "honeyjar-${var.environment}"
@@ -89,7 +109,7 @@ resource "aws_cloudwatch_metric_alarm" "error_5xx_rate" {
   statistic           = "Sum"
   threshold           = 10
   alarm_description   = "CRITICAL: loa-finn 5xx error rate > 1% (>10 in 5min)"
-  alarm_actions       = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+  alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   tags = {
     Environment = var.environment
@@ -123,7 +143,7 @@ resource "aws_cloudwatch_metric_alarm" "billing_pending_high" {
   statistic           = "Sum"
   threshold           = 10
   alarm_description   = "CRITICAL: billing pending reconciliation > 10. Manual investigation required."
-  alarm_actions       = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+  alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   tags = {
     Environment = var.environment

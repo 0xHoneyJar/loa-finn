@@ -240,15 +240,16 @@ export class OnboardingService {
     if (personalityConfig) {
       const collection = state.selected_nft.collection
       const tokenId = state.selected_nft.token_id
-      try {
-        await this.personality.get(collection, tokenId)
+      const existing = await this.personality.get(collection, tokenId)
+
+      if (existing) {
         // Personality exists — update it
         await this.personality.update(collection, tokenId, {
           voice: personalityConfig.voice as "analytical" | "creative" | "witty" | "sage",
           expertise_domains: personalityConfig.expertise_domains,
           custom_instructions: personalityConfig.custom_instructions,
         })
-      } catch {
+      } else {
         // No existing personality — create one
         await this.personality.create(collection, tokenId, {
           name: `Agent ${tokenId}`,
