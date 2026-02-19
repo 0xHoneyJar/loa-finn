@@ -110,6 +110,29 @@ export interface CodexVersionData {
 }
 
 // ---------------------------------------------------------------------------
+// DAPM Tables Types (Sprint 7 Task 7.2)
+// ---------------------------------------------------------------------------
+
+import type { DAPMDialId } from "../signal-types.js"
+
+/** Full 96-dial offset record */
+export type DialOffsetRecord = Record<DAPMDialId, number>
+
+/** Partial dial overrides for mode deltas */
+export type PartialDialRecord = Partial<Record<DAPMDialId, number>>
+
+export interface DAPMTablesData {
+  archetype_offsets: Record<string, DialOffsetRecord>
+  ancestor_family_offsets: Record<string, DialOffsetRecord>
+  era_offsets: Record<string, DialOffsetRecord>
+  element_offsets: Record<string, DialOffsetRecord>
+  tarot_suit_scales: Record<string, DialOffsetRecord>
+  swag_dial_scales: DialOffsetRecord
+  astrology_dial_offsets: DialOffsetRecord
+  mode_deltas: Record<string, PartialDialRecord>
+}
+
+// ---------------------------------------------------------------------------
 // Loader
 // ---------------------------------------------------------------------------
 
@@ -215,6 +238,12 @@ registerArtifact(
   "codex-version.json.sha256",
 )
 
+registerArtifact(
+  "dapm-tables",
+  "dapm-tables.json",
+  "dapm-tables.json.sha256",
+)
+
 // ---------------------------------------------------------------------------
 // Convenience Accessors
 // ---------------------------------------------------------------------------
@@ -242,4 +271,9 @@ export function loadArchetypeAffinity(): ArchetypeAffinityData {
 /** Load the codex version info */
 export function loadCodexVersion(): CodexVersionData {
   return loadArtifact<CodexVersionData>("codex-version").data
+}
+
+/** Load the dAPM offset tables (Sprint 7 Task 7.2) */
+export function loadDAPMTables(): DAPMTablesData {
+  return loadArtifact<DAPMTablesData>("dapm-tables").data
 }

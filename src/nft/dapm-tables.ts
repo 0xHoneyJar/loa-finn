@@ -1,12 +1,17 @@
-// src/nft/dapm-tables.ts — Legacy VoiceType → dAPM Dial Mapping (SDD §3.1, Sprint 4 Task 4.1)
+// src/nft/dapm-tables.ts — dAPM Dial Tables (SDD §3.1, Sprint 4 Task 4.1 + Sprint 7 Task 7.2)
 //
-// Maps the 4 legacy VoiceType archetypes to fixed dAPM dial offsets.
-// Only conversational_style (cs_*) and emotional_tone (et_*) dials are offset;
-// all other 80 dials are set to 0.5 (neutral baseline) in legacy mode.
+// Legacy mode: Maps the 4 legacy VoiceType archetypes to fixed dAPM dial offsets.
+// Signal mode: Loads full offset tables from dapm-tables.json via codex loader.
 
 import type { VoiceType } from "./types.js"
 import type { DAPMDialId } from "./signal-types.js"
 import { DAPM_DIAL_IDS } from "./signal-types.js"
+import {
+  loadDAPMTables,
+  type DAPMTablesData,
+  type DialOffsetRecord,
+  type PartialDialRecord,
+} from "./codex-data/loader.js"
 
 // ---------------------------------------------------------------------------
 // Neutral Baseline
@@ -96,3 +101,26 @@ export function getLegacyDAPMOffsets(voice: VoiceType): Record<DAPMDialId, numbe
 
   return result
 }
+
+// ---------------------------------------------------------------------------
+// Signal-Mode Tables (Sprint 7 Task 7.2) — loaded from dapm-tables.json
+// ---------------------------------------------------------------------------
+
+/** Lazy-cached tables instance */
+let _tables: DAPMTablesData | null = null
+
+/** Get the full dAPM offset tables (lazy-loaded, cached) */
+export function getDAPMTables(): DAPMTablesData {
+  if (!_tables) {
+    _tables = loadDAPMTables()
+  }
+  return _tables
+}
+
+/** Clear the cached tables (useful for testing) */
+export function resetDAPMTablesCache(): void {
+  _tables = null
+}
+
+// Re-export types for convenience
+export type { DAPMTablesData, DialOffsetRecord, PartialDialRecord }
