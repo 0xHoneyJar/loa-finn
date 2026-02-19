@@ -1,9 +1,11 @@
-// src/gateway/waitlist.ts — Static Waitlist Page (Sprint 6 Task 6.4)
+// src/gateway/waitlist.ts — Static Waitlist Page (Sprint 6 Task 6.4, Sprint 13 Task 13.2)
 //
 // Serves "Coming Soon" page for non-allowlisted users.
-// Static HTML with CSP headers. No JS required.
+// Static HTML with hardened CSP headers (nonce-based, no unsafe-inline).
+// CSP violation reporting endpoint at /api/v1/csp-report.
 
 import { Hono } from "hono"
+import { randomBytes } from "node:crypto"
 
 // ---------------------------------------------------------------------------
 // XSS Prevention
@@ -19,17 +21,37 @@ function escapeHtml(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// CSP Header
+// CSP Nonce Generation
 // ---------------------------------------------------------------------------
 
-const CSP_HEADER = [
-  "default-src 'self'",
-  "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com",
-  "script-src 'self' https://cdn.tailwindcss.com",
-  "img-src 'self' data:",
-  "connect-src 'self'",
-  "frame-ancestors 'none'",
-].join("; ")
+/** Generate a cryptographically random nonce for CSP */
+function generateNonce(): string {
+  return randomBytes(16).toString("base64")
+}
+
+// ---------------------------------------------------------------------------
+// CSP Header Builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build CSP header with per-request nonce.
+ * Report-Only mode by default — switch to enforcing after validation.
+ */
+function buildCSPHeader(nonce: string, reportOnly: boolean): string {
+  return [
+    "default-src 'self'",
+    `style-src 'self' 'nonce-${nonce}'`,
+    `script-src 'self' 'nonce-${nonce}'`,
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "report-uri /api/v1/csp-report",
+    "report-to csp-endpoint",
+  ].join("; ")
+}
+
+/** Whether to use Report-Only mode (set to false after validation) */
+const CSP_REPORT_ONLY = process.env.CSP_ENFORCE === "true" ? false : true
 
 // ---------------------------------------------------------------------------
 // Waitlist Page Renderer
@@ -42,7 +64,7 @@ export interface WaitlistConfig {
   contactEmail?: string
 }
 
-function renderWaitlistPage(config: WaitlistConfig): string {
+function renderWaitlistPage(config: WaitlistConfig, nonce: string): string {
   const name = escapeHtml(config.projectName)
   const desc = escapeHtml(config.projectDescription)
   const email = config.contactEmail ? escapeHtml(config.contactEmail) : null
@@ -53,7 +75,10 @@ function renderWaitlistPage(config: WaitlistConfig): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${name} — Coming Soon</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script nonce="${nonce}" src="https://cdn.tailwindcss.com"></script>
+  <style nonce="${nonce}">
+    body { font-family: system-ui, -apple-system, sans-serif; }
+  </style>
 </head>
 <body class="bg-gray-950 text-white min-h-screen flex items-center justify-center">
   <div class="max-w-lg mx-auto text-center px-6">
@@ -96,6 +121,56 @@ function renderWaitlistPage(config: WaitlistConfig): string {
 }
 
 // ---------------------------------------------------------------------------
+// CSP Violation Report Handler
+// ---------------------------------------------------------------------------
+
+/** Max payload size for CSP reports: 10KB */
+const MAX_CSP_REPORT_SIZE = 10 * 1024
+
+export function cspReportRoutes(): Hono {
+  const app = new Hono()
+
+  app.post("/", async (c) => {
+    // Check content type
+    const contentType = c.req.header("content-type") ?? ""
+    if (!contentType.includes("application/csp-report") && !contentType.includes("application/json")) {
+      return c.text("Unsupported content type", 415)
+    }
+
+    // Check content length
+    const contentLength = parseInt(c.req.header("content-length") ?? "0", 10)
+    if (contentLength > MAX_CSP_REPORT_SIZE) {
+      return c.text("Payload too large", 413)
+    }
+
+    try {
+      const body = await c.req.text()
+      if (body.length > MAX_CSP_REPORT_SIZE) {
+        return c.text("Payload too large", 413)
+      }
+
+      const report = JSON.parse(body)
+      const violation = report["csp-report"] ?? report
+
+      // Log structured event
+      console.log(JSON.stringify({
+        metric: "csp.violation",
+        document_uri: violation["document-uri"] ?? violation.documentURL ?? "unknown",
+        violated_directive: violation["violated-directive"] ?? violation.effectiveDirective ?? "unknown",
+        blocked_uri: violation["blocked-uri"] ?? violation.blockedURL ?? "unknown",
+        timestamp: Date.now(),
+      }))
+
+      return c.body(null, 204)
+    } catch {
+      return c.text("Invalid report", 400)
+    }
+  })
+
+  return app
+}
+
+// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
@@ -103,10 +178,15 @@ export function waitlistRoutes(config: WaitlistConfig): Hono {
   const app = new Hono()
 
   app.get("/", (c) => {
-    c.header("Content-Security-Policy", CSP_HEADER)
+    const nonce = generateNonce()
+    const cspHeader = buildCSPHeader(nonce, CSP_REPORT_ONLY)
+    const headerName = CSP_REPORT_ONLY ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy"
+
+    c.header(headerName, cspHeader)
+    c.header("Reporting-Endpoints", 'csp-endpoint="/api/v1/csp-report"')
     c.header("X-Content-Type-Options", "nosniff")
     c.header("X-Frame-Options", "DENY")
-    return c.html(renderWaitlistPage(config))
+    return c.html(renderWaitlistPage(config, nonce))
   })
 
   return app

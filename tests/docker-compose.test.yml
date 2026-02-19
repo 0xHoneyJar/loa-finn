@@ -1,0 +1,22 @@
+# tests/docker-compose.test.yml — Redis Integration Test Stack (Sprint 13 Task 13.3)
+#
+# Provides real Redis 7.x for integration tests that need Lua scripts,
+# MULTI/EXEC, Streams (XREADGROUP/XACK), and SETNX fencing.
+#
+# Usage:
+#   ./scripts/test-integration.sh           # Start, run tests, teardown
+#   docker compose -f tests/docker-compose.test.yml up -d   # Manual start
+#   docker compose -f tests/docker-compose.test.yml down -v  # Manual teardown
+
+services:
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+    tmpfs:
+      - /data
