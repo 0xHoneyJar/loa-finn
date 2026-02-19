@@ -110,8 +110,15 @@ npm run bridgebuilder
 
 <!-- ground-truth-meta: head_sha=689a777 generated_at=2026-02-11T01:06:00Z features_sha=689a777 limitations_sha=689a777 ride_sha=689a777 -->
 
+## Maintainer
+
+[@janitooor](https://github.com/janitooor)
+
 ## License
 
 [AGPL-3.0](LICENSE.md) — Use, modify, distribute freely. Network service deployments must release source code.
 
 Commercial licenses are available for organizations that wish to use Loa without AGPL obligations.
+
+
+Ridden with [Loa](https://github.com/0xHoneyJar/loa)
