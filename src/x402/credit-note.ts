@@ -171,6 +171,11 @@ export class CreditNoteService {
   ): Promise<{ reducedAmount: string; creditUsed: string; remainingCredit: string }> {
     const balanceKey = `${CREDIT_NOTE_PREFIX}${walletAddress.toLowerCase()}:balance`
 
+    const safeRequired = Number(requiredAmount)
+    if (!Number.isSafeInteger(safeRequired) || safeRequired < 0) {
+      throw new Error(`CreditNote requiredAmount exceeds safe integer range: ${requiredAmount}`)
+    }
+
     // Atomic Lua script: read balance, compute credit used, write new balance
     // Returns [creditUsed, remainingCredit] as strings
     const APPLY_CREDIT_LUA = `
