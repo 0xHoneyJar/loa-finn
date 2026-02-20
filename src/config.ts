@@ -88,6 +88,22 @@ export interface FinnConfig {
     pepper: string
   }
 
+  /** SIWE authentication (Sprint 4) */
+  siwe: {
+    enabled: boolean
+    /** JWT signing secret (HS256) — must be at least 32 chars */
+    jwtSecret: string
+    /** Expected SIWE domain (e.g., "finn.honeyjar.xyz") */
+    domain: string
+    /** Expected SIWE URI (e.g., "https://finn.honeyjar.xyz") */
+    uri: string
+    /** Expected chain ID (8453 for Base) */
+    chainId: number
+  }
+
+  /** Static personality config path (Sprint 4) */
+  personalityConfigPath: string
+
   /** PostgreSQL database (Sprint 1 — finn schema) */
   postgres: {
     enabled: boolean
@@ -259,6 +275,16 @@ export function loadConfig(): FinnConfig {
       enabled: process.env.FINN_API_KEYS_ENABLED === "true",
       pepper: process.env.FINN_API_KEY_PEPPER ?? "",
     },
+
+    siwe: {
+      enabled: process.env.FINN_SIWE_ENABLED === "true",
+      jwtSecret: process.env.FINN_SIWE_JWT_SECRET ?? "",
+      domain: process.env.FINN_SIWE_DOMAIN ?? "finn.honeyjar.xyz",
+      uri: process.env.FINN_SIWE_URI ?? "https://finn.honeyjar.xyz",
+      chainId: parseIntEnv("FINN_SIWE_CHAIN_ID", "8453"),
+    },
+
+    personalityConfigPath: process.env.FINN_PERSONALITY_CONFIG ?? "config/personalities.json",
 
     postgres: {
       enabled: process.env.FINN_POSTGRES_ENABLED === "true",
