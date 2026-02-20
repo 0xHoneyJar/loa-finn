@@ -1,0 +1,84 @@
+# .github/workflows/e2e.yml — E2E test pipeline (Sprint 1 T1.7)
+# Builds finn + postgres + redis, runs migrations, executes E2E tests.
+
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env.docker
+        run: |
+          cat > .env.docker << 'ENVEOF'
+          ANTHROPIC_API_KEY=sk-ant-test-placeholder
+          POSTGRES_PASSWORD=postgres_ci
+          FINN_APP_PASSWORD=finn_app_ci
+          FINN_MIGRATE_PASSWORD=finn_migrate_ci
+          FINN_POSTGRES_ENABLED=true
+          MODEL=claude-opus-4-6
+          THINKING_LEVEL=medium
+          FINN_AUTH_TOKEN=ci-test-token
+          FINN_CORS_ORIGINS=localhost:*
+          SANDBOX_MODE=disabled
+          CHEVAL_MODE=mock
+          DATA_DIR=/data
+          ENVEOF
+
+      - name: Build and start services
+        run: |
+          docker compose -f docker-compose.dev.yml up -d --build postgres redis
+          docker compose -f docker-compose.dev.yml run --rm finn-migrate
+          docker compose -f docker-compose.dev.yml up -d finn
+
+      - name: Wait for finn healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3001/health > /dev/null 2>&1; then
+              echo "Finn healthy after $((i * 2))s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Finn failed to become healthy within 60s"
+          docker compose -f docker-compose.dev.yml logs finn
+          exit 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: corepack enable && pnpm install --frozen-lockfile
+
+      - name: Run E2E tests
+        run: npx vitest run --config vitest.config.e2e.ts
+        env:
+          FINN_URL: http://localhost:3001
+
+      - name: Collect logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color > e2e-logs.txt
+
+      - name: Upload logs artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: e2e-logs.txt
+          retention-days: 7
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
