@@ -81,6 +81,13 @@ export interface FinnConfig {
     minConfirmations: number
   }
 
+  /** API key configuration (Sprint 3) */
+  apiKeys: {
+    enabled: boolean
+    /** Server-side pepper for HMAC lookup hash — must be at least 16 chars */
+    pepper: string
+  }
+
   /** PostgreSQL database (Sprint 1 — finn schema) */
   postgres: {
     enabled: boolean
@@ -246,6 +253,11 @@ export function loadConfig(): FinnConfig {
       alchemyApiKey: process.env.ALCHEMY_API_KEY ?? "",
       rpcUrls: (process.env.X402_RPC_URLS ?? "").split(",").filter(Boolean),
       minConfirmations: parseIntEnv("X402_MIN_CONFIRMATIONS", "10"),
+    },
+
+    apiKeys: {
+      enabled: process.env.FINN_API_KEYS_ENABLED === "true",
+      pepper: process.env.FINN_API_KEY_PEPPER ?? "",
     },
 
     postgres: {

@@ -1,428 +1,359 @@
-# Sprint Plan: Bridgebuilder Findings — Complete Hardening
+# Sprint Plan: Launch Execution — From Built to Operable
 
-> **Version**: 2.0.0
-> **Date**: 2026-02-19
-> **Cycle**: cycle-027 (continued — sprints 68-77 implemented via bridge loop on PR #82)
-> **Source**: Bridge iteration 3 deferred findings + Bridgebuilder Deep Review (PR #82 comments)
-> **PR**: [#82](https://github.com/0xHoneyJar/loa-finn/pull/82)
-> **Deep Review**: [Part I](https://github.com/0xHoneyJar/loa-finn/pull/82#issuecomment-3923996225) | [Part II](https://github.com/0xHoneyJar/loa-finn/pull/82#issuecomment-3924002180)
-> **Launch Gaps**: [Issue #66 Gap Map](https://github.com/0xHoneyJar/loa-finn/issues/66#issuecomment-3924004401)
-> **Global Sprint IDs**: 78–80
-> **Developer**: Claude Opus 4.6 (autonomous via `/run sprint-plan`)
+> **Version**: 1.0.0
+> **Date**: 2026-02-20
+> **Cycle**: cycle-029
+> **PRD**: `grimoires/loa/prd.md` v1.2.0
+> **SDD**: `grimoires/loa/sdd.md` v1.1.0
+> **Sprints**: 7 (49 tasks)
+> **Global IDs**: 111–117
+> **Team**: 1 agent (Claude Opus 4.6)
 
 ---
 
 ## Sprint Overview
 
-| Sprint | Global ID | Label | Goal | Tasks |
-|--------|-----------|-------|------|-------|
-| sprint-11 | 78 | Security & Infrastructure Hardening | Gate 0 blockers: KMS scoping, SNS wiring, fencing token, code fixes | 5 |
-| sprint-12 | 79 | Observability & Testing | Distributed tracing, circuit breaker metrics, E2E test, gate automation | 5 |
-| sprint-13 | 80 | Scalability & Quality | NFT batch API, CSP hardening, Docker Redis tests, load test foundation | 4 |
+| Sprint | Global ID | Label | Phase | Tracks | Tasks | Dependencies |
+|--------|-----------|-------|-------|--------|-------|-------------|
+| 1 | 111 | Infrastructure Foundation | P0 MVP | Track 0 | 7 | None |
+| 2 | 112 | x402 HMAC + Receipt Verification | P0 MVP | Track 1B (core) | 9 | Sprint 1 |
+| 3 | 113 | Payment Decision Tree + API Keys | P0 MVP | Track 1B (integration) | 8 | Sprint 2 |
+| 4 | 114 | Static Personality + SIWE Auth | P0 MVP | Track 2a + Auth | 7 | Sprint 1 |
+| 5 | 115 | On-Chain Signals + Persistence | P1 Post-MVP | Track 2b + 2c | 6 | Sprint 1, 4 |
+| 6 | 116 | Observability + Metrics | P1 Post-MVP | Track 4 | 6 | Sprint 1 |
+| 7 | 117 | OpenAPI + SDK + Discovery | P1 Post-MVP | Track 5 + 3 | 6 | Sprint 3, 4 |
 
-**Total**: 14 tasks across 3 sprints (13 unique findings → 13 finding-mapped tasks + 1 enabler; deepreview-otel decomposed into 2 tasks, medium-7/deepreview-kms merged as same finding)
+### Dependency Graph
 
-**Dependencies**: Sprint 11 has no dependencies (all standalone fixes). Sprint 12 depends on Sprint 11 (SNS wiring needed for circuit breaker alarm). Sprint 13 is independent of 12. Task 13.4 depends on Task 13.3 (Docker Redis harness).
+```
+Sprint 1 (Infra) ──┬── Sprint 2 (x402 Core) ── Sprint 3 (Payment + Keys)
+                    │                                      │
+                    ├── Sprint 4 (Personality + SIWE) ─────┤
+                    │              │                        │
+                    │              └── Sprint 5 (Signals)   └── Sprint 7 (SDK + Discovery)
+                    │
+                    └── Sprint 6 (Observability)
+```
 
-**Finding Sources**:
-- Bridge iter3 deferred: medium-2, medium-6, medium-7, low-3
-- Bridge iter3 new: new-low-1, new-low-2
-- Bridgebuilder Deep Review: KMS (elevated), fencing token, distributed tracing, circuit breaker observability, gate automation, E2E integration test, SNS wiring
+### MVP Gate
 
-**Test Baseline**: All existing tests must continue passing. Each task adds targeted tests.
+**Sprints 1–4 are the P0 MVP.** After sprint 4, the system satisfies:
+- **L-1**: Container runs, health check passes
+- **L-2**: Agent responds with personality-conditioned output
+- **L-3**: x402 processes real USDC for a paid request
+- **L-8**: Static personality from config
 
----
-
-## Sprint 11: Security & Infrastructure Hardening (Global ID: 78)
-
-**Objective**: Address all Gate 0 blockers identified in the Bridgebuilder review: scope KMS IAM, wire SNS notifications, add WAL fencing token monotonicity, and fix two code-level findings from bridge iteration 3.
-
-**Gate Impact**: Unblocks Gate 0 → Gate 1 promotion. KMS scoping required before any real value flows.
-
-**Rollback**: Individual Terraform changes can be reverted independently. Code fixes are backward-compatible.
-
-### Task 11.1: Scope KMS IAM to Specific Key ARN (medium-7 / Gate 0 Blocker)
-
-**Description**: Replace `Resource: "*"` in the KMS IAM policy with a scoped reference to the specific KMS key used for JWT signing. Create a `kms_key_arn` variable with validation, and reference it in the `KMSDecrypt` policy statement. This is the most critical security finding — `Resource: *` grants Decrypt/Sign on ANY KMS key in the AWS account.
-
-**Finding**: medium-7 (bridge deferred) + Bridgebuilder Deep Review §VIII.1
-
-**Files modified**:
-- `infrastructure/terraform/loa-finn-ecs.tf` — Replace `Resource = "*"` with `var.kms_key_arn`
-
-**Acceptance criteria**:
-- [ ] New variable `kms_key_arn` with type `string` and validation (must match `arn:aws:kms:*` pattern)
-- [ ] `KMSDecrypt` statement `Resource` references `var.kms_key_arn` instead of `"*"`
-- [ ] Backward compatible: variable has no default (forces explicit ARN at apply time)
-- [ ] `terraform validate` passes
-- [ ] Comment explains why wildcard was removed (Bridgebuilder finding reference)
+Sprints 5–7 add depth (P1): persistence, on-chain signals, metrics, SDK, discovery.
 
 ---
 
-### Task 11.2: Create SNS Topic + Wire to All CloudWatch Alarms
+## Sprint 1: Infrastructure Foundation
 
-**Description**: Create an SNS topic resource in the monitoring Terraform and wire it to all 5 CloudWatch alarms. Currently `alarm_sns_topic_arn` defaults to empty, meaning alarms exist but don't notify anyone. Alarms without actions are dashboards, not monitoring.
+> **Global ID**: 111 | **Track**: 0 | **Priority**: P0 | **Dependencies**: None
+> **Goal**: Container runs, database ready, E2E harness works, CI green.
+> **Issue**: [#84](https://github.com/0xHoneyJar/loa-finn/issues/84)
 
-**Finding**: Bridgebuilder Deep Review §VIII (Issue #66 Gap Map — Gate 0 gap)
+### Tasks
 
-**Files modified**:
-- `infrastructure/terraform/loa-finn-monitoring.tf` — Add `aws_sns_topic` resource, update `alarm_actions`
+| ID | Task | Acceptance Criteria |
+|----|------|-------------------|
+| T1.1 | Docker Compose service definition for loa-finn | `docker compose -f docker-compose.dev.yml up finn` starts loa-finn on :3001. Service depends_on postgres (healthy) and redis (healthy). Uses `.env.docker`. |
+| T1.2 | PostgreSQL role provisioning via Docker entrypoint | `docker-entrypoint-initdb.d/01-finn-roles.sql` creates `finn_app` and `finn_migrate` roles. Passwords sourced from `FINN_APP_PASSWORD` / `FINN_MIGRATE_PASSWORD` env vars in `.env.docker`. No literal passwords in any migration file. |
+| T1.3 | Drizzle schema + initial migration | `CREATE SCHEMA IF NOT EXISTS finn`. Migration creates tables: `finn_billing_events`, `finn_api_keys`, `finn_verification_failures`. Includes `updated_at` trigger. Runs idempotently. Migration runner uses runtime stage + compiled entrypoint (`dist/drizzle/migrate.js`). |
+| T1.4 | Database startup validation gate | On boot (when `FINN_POSTGRES_ENABLED=true`), finn queries for required tables. If any missing, process exits with code 1 and clear error message. Test: remove a table, verify boot fails. |
+| T1.5 | Graceful shutdown handler | SIGTERM → stop accepting connections → drain inflight requests (30s timeout) → stop intervals/timers → flush DLQ → close DB pool → close Redis → exit 0. Test: send SIGTERM during request, verify response completes. |
+| T1.6 | E2E test harness skeleton | Vitest config for `tests/e2e/`. Uses Docker Compose (postgres + redis + finn-migrate + finn). First test: `GET /health` returns 200 with `{ status: "ok" }`. Testcontainers or Compose-based runner. |
+| T1.7 | CI GitHub Actions workflow | `.github/workflows/e2e.yml`: checkout → build → `docker compose up` → run migrations → run E2E tests → cleanup. Runs on push and PR. Reports status. |
 
-**Acceptance criteria**:
-- [ ] New `aws_sns_topic.loa_finn_alarms` resource with `name = "loa-finn-alarms-${var.environment}"`
-- [ ] New `aws_sns_topic_subscription` resource for email (configurable via `alarm_email` variable)
-- [ ] All 5 alarm resources (`cpu_high`, `memory_high`, `error_5xx_rate`, `billing_pending_high`, `ecs_desired_count_drift`) have `alarm_actions` pointing to `aws_sns_topic.loa_finn_alarms.arn`
-- [ ] Remove conditional `var.alarm_sns_topic_arn != "" ? ...` pattern — SNS is always present
-- [ ] `alarm_sns_topic_arn` variable removed (replaced by resource reference)
-- [ ] `terraform validate` passes
-- [ ] **Completion note**: Email subscription will remain in `PendingConfirmation` state until manually confirmed out-of-band — this is expected and does NOT block sprint completion. The acceptance criterion is `alarm_actions` wiring to the SNS topic ARN, not email delivery. For non-prod environments, an HTTPS webhook endpoint may be used instead of email to enable auto-confirmation.
+### Testing
 
----
-
-### Task 11.3: WAL Fencing Token Monotonicity Validation
-
-**Description**: Add monotonic fencing token validation to the WAL append path. Currently `validateFencingToken()` in `wal-writer-lock.ts:119-122` only checks equality (`token === this._fencingToken`). After Redis failover (ElastiCache Multi-AZ), two instances could hold valid-looking tokens from different Redis primaries. The WAL storage layer must reject writes with `fencing_token <= last_accepted_token` (Kleppmann's Redlock analysis).
-
-**Finding**: Bridgebuilder Deep Review §II (fencing token gap)
-
-**Files modified**:
-- `src/billing/wal-writer-lock.ts` — Add atomic CAS Lua script for `lastAcceptedToken`
-- `src/billing/state-machine.ts` — Call CAS validation before every WAL append
-
-**Implementation approach**: Atomic compare-and-set via Redis Lua script. Fencing tokens are monotonically increasing integers bounded to `<= 2^53 - 1` (JS safe integer range). This bound is enforced at token issuance time in `acquireLock()` and validated in the CAS script. The Lua script uses `tonumber()` which is safe within this bound (IEEE-754 doubles represent all integers up to 2^53 exactly). Tokens are stored as decimal strings in Redis for consistency.
-
-**Why 2^53 bound is sufficient**: Fencing tokens increment by 1 per lock acquisition. At 1 acquisition per second (far above realistic load), exhausting 2^53 tokens takes ~285 million years. If a future system needs higher tokens, the CAS script must be upgraded to string comparison — but this is not a realistic concern for this system.
-
-**Key namespace**: `wal:writer:last_accepted:{environment}` (per-environment isolation).
-
-**Acceptance criteria**:
-- [ ] New Redis Lua script `WAL_FENCING_CAS` that atomically: (1) reads `wal:writer:last_accepted:{env}` — if key missing, treat stored as `0`; (2) validates stored value: if non-numeric, negative, or `> 9007199254740991` (2^53-1), returns `"CORRUPT"` immediately (fail-closed); (3) parses both stored and incoming token with `tonumber()` (safe because both are validated `<= 2^53-1`); (4) if `incoming > stored` then `SET` to incoming value and returns `"OK"`, else returns `"STALE"` — all in one `EVAL` call (no WATCH/MULTI race window)
-- [ ] **Corrupt state handling**: If CAS returns `"CORRUPT"`, caller rejects WAL append (fail-closed), logs `{ metric: "wal.fencing_token.corrupt", stored_value, severity: "critical" }`, and emits alert. Manual operator intervention required to reset the key.
-- [ ] Fencing tokens stored as **decimal strings** in Redis for readability and future extensibility
-- [ ] **Token issuance bound**: `acquireLock()` validates `Number.isSafeInteger(newToken)` before issuing. If token exceeds 2^53-1, lock acquisition fails with `wal.fencing_token.overflow` error (this is a system-level alert, not a recoverable condition)
-- [ ] **CAS input bound**: `validateAndAdvanceFencingToken(token)` validates `Number.isSafeInteger(token)` before calling Lua. Rejects non-safe-integer tokens before they reach Redis.
-- [ ] `BillingStateMachine` calls `validateAndAdvanceFencingToken(token)` before every WAL append. If `"STALE"` returned: reject write, do NOT append to WAL, log `{ metric: "wal.fencing_token.stale", token, lastAccepted }`.
-- [ ] **Failure semantics**: If WAL append succeeds but Redis CAS update fails (network partition), the write is still valid (WAL is authoritative). Log warning `wal.fencing_token.redis_sync_failed` — next successful CAS will re-establish monotonicity since the token only advances.
-- [ ] **Failure semantics**: If Redis CAS succeeds but WAL append fails, this is safe — the token advanced but no data was written. Next writer with a higher token proceeds normally.
-- [ ] Tests: stale token rejected (CAS returns STALE), fresh token accepted (CAS returns OK), equal token rejected (must be strictly greater), concurrent writers simulated via sequential CAS calls with interleaved tokens
-- [ ] Test: token exceeding `Number.MAX_SAFE_INTEGER` rejected at issuance with `wal.fencing_token.overflow`
-- [ ] Test: corrupt stored token in Redis (e.g., `"9007199254740993"` or `"abc"`) → CAS returns `"CORRUPT"`, WAL append rejected, critical metric emitted
+- `docker compose up` starts all services, health check returns 200
+- `docker compose run finn-migrate` exits 0, tables exist in `finn` schema
+- E2E test suite passes in CI
+- Graceful shutdown test: SIGTERM during inflight request completes gracefully
 
 ---
 
-### Task 11.4: CreditNote BigInt Consistency Fix (new-low-2)
+## Sprint 2: x402 HMAC + Receipt Verification
 
-**Description**: Replace `Number(delta)` in `redis.incrby()` call at `src/x402/credit-note.ts:97` with a safe integer path. The rest of the file handles BigInt with discipline; this one conversion breaks that discipline.
+> **Global ID**: 112 | **Track**: 1B (core) | **Priority**: P0 | **Dependencies**: Sprint 1
+> **Goal**: x402 challenge issuance and on-chain receipt verification work end-to-end.
+> **Issue**: [#85](https://github.com/0xHoneyJar/loa-finn/issues/85)
 
-**Finding**: new-low-2 (bridge iteration 3)
+### Tasks
 
-**Design decision**: Credit note deltas and balances represent USDC amounts in base units (6 decimals). The system enforces a hard cap of `MAX_CREDIT_BALANCE = 1_000_000_000_000` (1M USDC) on accumulated credit note balances per wallet. This cap is well within JS safe integer range (2^53-1 ≈ 9×10^15) and Redis int64 range. The cap is enforced atomically in a Lua script that reads the current balance, checks `balance + delta <= cap`, and only then increments. Individual deltas are bounded by the capped risk limit (currently 100 USDC = 100_000_000 base units) and also validated with `Number.isSafeInteger()`.
+| ID | Task | Acceptance Criteria |
+|----|------|-------------------|
+| T2.1 | X402Challenge interface + HMAC canonicalization | `src/x402/hmac.ts`: X402Challenge type, `canonicalize()` (alphabetical, pipe-delimited), `signChallenge()`, request_binding v1 = SHA-256(token_id \| model \| max_tokens). Unit tests: deterministic output for same inputs. |
+| T2.2 | HMAC verification with constant-time comparison | `verifyChallenge()`: validate 64 hex chars, `Buffer.from(hex, 'hex')`, length guard before `timingSafeEqual`. Returns false (never throws) on invalid input. Unit tests: valid HMAC passes, tampered HMAC fails, non-hex input fails. |
+| T2.3 | Challenge issuance (402 response) | Paid endpoint without payment headers → 402 with signed X402Challenge JSON body. Challenge stored in Redis with 5-min TTL keyed by nonce. Test: request without headers → 402 + valid challenge JSON with all fields. |
+| T2.4 | Receipt verification core with challenge binding | `src/x402/verify.ts`: `verifyReceipt()` — (1) load challenge from Redis by nonce, (2) verify HMAC integrity + expiry + request_binding, (3) viem `getTransactionReceipt`, (4) status check (receipt.status===1), (5) confirmation depth (≥`X402_MIN_CONFIRMATIONS`, default 10), (6) Transfer log parsing (strict: emitter=USDC, to=challenge.recipient, value=challenge.amount, exactly ONE matching Transfer log — payer identity NOT bound to tx.from to support smart contract wallets/relayers), (7) atomic Lua script: consume nonce + set tx_hash replay key. Receipt MUST match the specific challenge: amount, recipient, chain_id, and request_binding enforced. Payer binding: if challenge includes `payer_address`, verify Transfer.from matches; otherwise accept any sender. Test: valid receipt passes; wrong amount/recipient fails; receipt reused for different challenge fails (402); smart contract wallet payment (tx.from ≠ Transfer.from) passes when payer_address not required. |
+| T2.5 | RPC pool with multi-provider circuit breaker | `src/x402/rpc-pool.ts`: RpcPool with Alchemy (primary) + public Base RPC (fallback). Per-provider circuit breaker (closed/open/half-open, 5 failures in 30s → open, 15s probe). Test: primary fails → falls to fallback. Both fail → `rpc_unreachable`. |
+| T2.6 | Atomic Redis Lua script | `x402_verify_atomic.lua`: single script that checks nonce exists, checks replay, consumes nonce, sets replay key. Returns 0=success, 1=nonce not found, 2=replay, 3=race lost. Integration test with real Redis. |
+| T2.7 | Verification failure recording | Failed verifications logged to `finn_verification_failures` table: tx_hash, reason, timestamp, metadata. Test: RPC failure → row in table with reason `rpc_unreachable`. |
+| T2.8 | HMAC secret rotation | Accept both current and previous secret during 10-min grace window. Config: `X402_CHALLENGE_SECRET` + `X402_CHALLENGE_SECRET_PREVIOUS`. Test: challenge signed with old secret validates during grace, fails after. |
+| T2.9 | Pricing configuration (Flatline IMP-010) | `src/x402/pricing.ts`: Define flat-fee pricing model. `X402_REQUEST_COST_MICRO` env var (integer, micro-USDC units, e.g. 100000 = $0.10). `getRequestCost(tokenId, model, maxTokens)` returns cost in micro-USDC — v1 returns flat fee from env var (model-based pricing deferred to post-MVP). Challenge issuance (T2.3) calls `getRequestCost()` to populate `amount` field. Test: env var read correctly; default value documented; challenge amount matches configured cost. |
 
-**Files modified**:
-- `src/x402/credit-note.ts` — Replace `Number(delta)` with atomic Lua script that enforces cap + safe integer guard
+### Testing
 
-**Acceptance criteria**:
-- [ ] New constant `MAX_CREDIT_BALANCE = 1_000_000_000_000n` (1M USDC in base units) — well within safe integer range
-- [ ] Line 97: `redis.incrby(balanceKey, Number(delta))` replaced with Lua script: reads current balance, validates `balance + delta <= MAX_CREDIT_BALANCE`, if valid performs `INCRBY` + `EXPIRE`, returns new balance; if cap exceeded returns `"CAP_EXCEEDED"`
-- [ ] **Delta guard**: Before calling Lua, TypeScript validates `Number.isSafeInteger(Number(delta))` — rejects deltas outside safe integer range
-- [ ] **Cap enforcement**: If accumulated balance would exceed `MAX_CREDIT_BALANCE`, credit note issuance is rejected with structured error `{ error: "credit_note_cap_exceeded", balance, delta, cap }` — prevents unbounded accumulation
-- [ ] Balance key still expires with `CREDIT_NOTE_TTL` (set via `EXPIRE` inside the Lua script, atomic with INCRBY)
-- [ ] Test: issue credit note with normal delta (e.g., 5_000_000 = 5 USDC), verify balance incremented correctly
-- [ ] Test: multiple sequential issuances accumulate correctly
-- [ ] Test: delta exceeding `Number.MAX_SAFE_INTEGER` rejected before reaching Redis
-- [ ] Test: accumulated balance exceeding `MAX_CREDIT_BALANCE` returns `CAP_EXCEEDED`, balance unchanged
-
----
-
-### Task 11.5: Onboarding Personality Null-Check Fix (new-low-1)
-
-**Description**: Replace the try/catch pattern in `src/nft/onboarding.ts:243-259` with a null check. `PersonalityService.get()` returns `null` when no personality exists — it doesn't throw. The current code takes an unnecessary error path (two function calls + one exception throw/catch) instead of a simple null check. The code works by accident, not by design.
-
-**Finding**: new-low-1 (bridge iteration 3)
-
-**Files modified**:
-- `src/nft/onboarding.ts` — Replace try/catch with null check
-
-**Acceptance criteria**:
-- [ ] Lines 243-259: `try { get(); update() } catch { create() }` replaced with `const existing = await get(); if (existing) { update() } else { create() }`
-- [ ] Personality is created correctly for new NFTs (same behavior, cleaner path)
-- [ ] Personality is updated correctly for existing NFTs
-- [ ] No exception thrown during normal flow
-- [ ] Test: new NFT onboarding creates personality via null-check path
-- [ ] Test: existing NFT onboarding updates personality without exception
+- Full x402 flow: request → 402 → (mock payment) → receipt → verified → 200
+- **Challenge-receipt binding**: receipt from challenge A cannot satisfy challenge B (different nonce/amount/request_binding) → 402
+- Replay rejection: same tx_hash twice → second returns 402
+- Tampered HMAC → 402
+- RPC failure → 503 + verification_failures row
+- Lua script atomicity: concurrent verification attempts don't race
+- **Dual-mode x402 E2E testing** (Flatline SKP-003):
+  - **Hermetic mode** (CI default): Local mock USDC contract deployed to anvil (no fork, no external RPC). Contract emits deterministic Transfer logs. Fast, reliable, zero external dependencies. `ANVIL_MODE=local` in CI env.
+  - **Fork mode** (nightly/optional): Anvil forks Base mainnet at pinned block for realistic end-to-end. `ANVIL_MODE=fork` with `BASE_RPC_URL` and `ANVIL_FORK_BLOCK`. Retries on RPC failure (3 attempts).
+  - Both modes exercise real `getTransactionReceipt` parsing via viem test client — NOT mocked.
 
 ---
 
-## Sprint 12: Observability & Testing (Global ID: 79)
+## Sprint 3: Payment Decision Tree + API Keys
 
-**Objective**: Add distributed tracing through the x402 payment flow, circuit breaker state observability, a full E2E integration test, and gate promotion automation. These are Gate 1-2 readiness requirements.
+> **Global ID**: 113 | **Track**: 1B (integration) | **Priority**: P0 | **Dependencies**: Sprint 2
+> **Goal**: Full payment middleware stack operational. API keys work. Rate limiting enforced.
+> **Issue**: [#85](https://github.com/0xHoneyJar/loa-finn/issues/85)
 
-**Gate Impact**: Enables operational debugging of payment flows. Required for Gate 2 (Warmup) where real value flows and failures must be traceable.
+### Tasks
 
-**Depends on**: Sprint 11 (SNS topic for circuit breaker alarm)
+| ID | Task | Acceptance Criteria |
+|----|------|-------------------|
+| T3.1 | PaymentDecisionMiddleware | `src/gateway/payment-decision.ts`: Hono middleware implementing strict decision tree (SDD §4.1). Free endpoints → allow. Both headers → 400. dk_ header → API key path. X-Payment-Receipt → x402 path. No headers → 402 challenge. Attaches PaymentDecision to context. Test: all 5 branches with assertions. |
+| T3.2 | Mixed credentials rejection | When BOTH `Authorization: Bearer dk_...` AND `X-Payment-Receipt` are present → 400 with `{ error: "ambiguous_payment", message: "..." }`. Test: request with both headers → 400. |
+| T3.3 | API key manager (create + validate) | `src/gateway/api-keys.ts`: `create()` generates `dk_{keyId}.{secret}`, stores bcrypt hash + HMAC lookup hash. `validate()` does O(1) indexed lookup by HMAC, then bcrypt verify. Redis cache (5-min TTL). Test: create key → validate succeeds. Invalid key → null. Revoked key → null. |
+| T3.4 | API key revocation | `revoke()` sets `revoked_at`, invalidates Redis cache entry (sets to "revoked"). `DELETE /api/v1/keys/{key_id}` endpoint. Test: revoke → immediate 401 on next use. |
+| T3.5 | Multi-tier rate limiter | `src/gateway/rate-limit.ts`: Redis sliding window. Free: 60/min per IP. x402: 30/min per wallet, 120/min per IP for challenge generation. API key: configurable per tier (default 60/min). Returns 429 with `Retry-After`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`. Test: exceed limit → 429. Under limit → passes. |
+| T3.6 | Billing events recording | Every paid request → INSERT into `finn_billing_events`: request_id, payment_method (x402\|api_key\|free), amount_micro, tx_hash (if x402), api_key_id (if key), timestamp, response_status. Test: successful x402 request → row with tx_hash. API key request → row with api_key_id. |
+| T3.7 | 401/402 invariant enforcement | 401 ALWAYS means auth failure (bad/missing/revoked key). 402 ALWAYS means payment required. These are never conflated. Test: revoked key → 401 (not 402). Exhausted credits → 402 with x402 challenge + `X-Payment-Upgrade: x402`. No headers → 402. |
+| T3.8 | API key credit model + atomic debit | `finn_api_keys.balance_micro` column (bigint, default 0). Atomic debit via SQL `UPDATE finn_api_keys SET balance_micro = balance_micro - $cost WHERE id = $id AND balance_micro >= $cost RETURNING balance_micro`. If 0 rows affected → insufficient credits → 402 with x402 upgrade. Idempotent: debit keyed by `request_id` (idempotency key in `finn_billing_events` with unique constraint). Tests: concurrent requests cannot overspend (run 10 parallel debits against balance=5 → exactly 5 succeed). Retry with same request_id doesn't double-debit. Exhausted key → 402 with `X-Payment-Upgrade: x402`. |
 
-### Task 12.1: OpenTelemetry SDK Setup + Base Configuration
+### Testing
 
-**Description**: Add `@opentelemetry/sdk-node` with console exporter (swappable for OTLP in production). Configure trace provider, span processor, and resource attributes. The existing `correlation_id` field in billing entries should be linked to trace context.
-
-**Finding**: Bridgebuilder Deep Review §VIII.3
-
-**Files created**:
-- `src/telemetry/tracing.ts` — OTel setup, trace provider, resource attributes
-
-**Acceptance criteria**:
-- [ ] `@opentelemetry/sdk-node`, `@opentelemetry/api`, `@opentelemetry/exporter-trace-otlp-http` as dependencies
-- [ ] `initTracing()` function creates `NodeTracerProvider` with `service.name = "loa-finn"`, `service.version`, `deployment.environment`
-- [ ] Console exporter by default, OTLP exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` env var set
-- [ ] `getTracer(name)` helper for creating spans in business logic
-- [ ] `correlation_id` from billing entries attached as span attribute
-- [ ] Feature-flagged: `OTEL_ENABLED=true` to activate (default off)
-- [ ] Test: tracer initializes without error, span creation works
-
----
-
-### Task 12.2: Trace Context Propagation Through x402 Payment Flow
-
-**Description**: Instrument the full payment pipeline with OpenTelemetry spans: quote generation → payment verification → settlement → DLQ enqueue → finalize → ledger entry. Each stage creates a child span linked to the root `x402.transaction` span. The `correlation_id` already in `DLQEntry` is the natural trace context carrier.
-
-**Finding**: Bridgebuilder Deep Review §VIII.3
-
-**Files modified**:
-- `src/x402/middleware.ts` — Root span `x402.quote`
-- `src/x402/verify.ts` — Child span `x402.verify`
-- `src/x402/settlement.ts` — Child span `x402.settle` with circuit breaker state attribute
-- `src/billing/dlq.ts` — Child span `x402.finalize` per DLQ entry
-- `src/billing/ledger.ts` — Child span `x402.ledger` per journal append
-
-**Acceptance criteria**:
-- [ ] Root span created in middleware with `quote_id`, `model`, `max_cost` attributes
-- [ ] Verify span includes `payment_id`, `wallet_address`, `is_replay` attributes
-- [ ] Settlement span includes `method` (facilitator/direct), `circuit_state`, `tx_hash` attributes
-- [ ] DLQ span includes `attempt`, `billing_entry_id`, `next_retry_at` attributes
-- [ ] Ledger span includes `event_type`, `posting_count`, `balance_after` attributes
-- [ ] Spans are linked parent→child via context propagation
-- [ ] No spans created when `OTEL_ENABLED` is false (zero overhead)
-- [ ] Test: mock tracer verifies span hierarchy
+- Full API key lifecycle: create → use → debit credits → exhaust → 402 upgrade → revoke → 401
+- Rate limiting: exceed each tier → 429 with correct headers
+- Decision tree: all branches tested (free, api_key, x402, no-auth, mixed)
+- Billing audit trail: every request has a corresponding billing event
 
 ---
 
-### Task 12.3: Circuit Breaker State Metrics + CloudWatch Alarm
+## Sprint 4: Static Personality + SIWE Auth
 
-**Description**: Add Prometheus gauge for settlement circuit breaker state and a CloudWatch alarm that triggers when the circuit opens. When the circuit breaker trips CLOSED → OPEN, this is a P1 operational event (all payments falling back to direct settlement).
+> **Global ID**: 114 | **Track**: 2a + Auth | **Priority**: P0 | **Dependencies**: Sprint 1
+> **Goal**: Agents have personality from static config. SIWE auth enables key management.
+> **Issue**: [#88](https://github.com/0xHoneyJar/loa-finn/issues/88)
 
-**Finding**: Bridgebuilder Deep Review §VIII.4
+### Tasks
 
-**Files modified**:
-- `src/x402/settlement.ts` — Add state change callbacks and metric emission
-- `src/gateway/metrics-endpoint.ts` — Add `settlement_circuit_state` gauge
-- `infrastructure/terraform/loa-finn-monitoring.tf` — Add log metric filter + alarm
+| ID | Task | Acceptance Criteria |
+|----|------|-------------------|
+| T4.1 | Static personality config schema | `config/personalities.json`: maps token IDs to personality configs. Each entry: `token_id`, `archetype` (Freetekno\|Milady\|Chicago\|Acidhouse), `voice_description`, `behavioral_traits[]`, `expertise_domains[]`, `beauvoir_template` (system prompt). 4 archetype templates minimum. Validated with JSON schema. |
+| T4.2 | PersonalityProvider interface | `src/nft/personality-provider.ts`: `interface PersonalityProvider { get(tokenId: string): Promise<PersonalityConfig \| null> }`. Minimal abstraction — static loader is v1 provider, signal engine becomes v2. |
+| T4.3 | StaticPersonalityLoader | `src/nft/static-personality-loader.ts`: reads `config/personalities.json` at boot, implements PersonalityProvider. Unknown tokenId → returns null. Config file missing → fail at boot with clear error. Test: valid config → all personalities accessible. Missing file → boot fails. |
+| T4.4 | Anti-narration validation at boot | On startup, every personality template is checked against `checkAntiNarration()` (69 forbidden terms from `src/nft/reviewer-adapter.ts`). Any violation → fail at boot with specific term + template identified. Test: inject forbidden term → boot fails. |
+| T4.5 | SIWE authentication flow (hardened) | `src/gateway/siwe-auth.ts`: nonce endpoint (`GET /api/v1/auth/nonce` → returns nonce stored in Redis with 5-min TTL, single-use via atomic consume). Verify endpoint (`POST /api/v1/auth/verify` → validates SIWE message: domain, uri, chainId, nonce, issuedAt, expirationTime, recovers wallet address from signature → returns session JWT). JWT: HS256, exp=15min, aud=loa-finn, sub=wallet_address, clock skew tolerance=30s. Middleware rejects missing/invalid/expired JWT with 401. Negative tests: reused nonce → 401; wrong domain/uri/chainId → 401; expired SIWE message → 401; tampered JWT → 401; expired JWT → 401. |
+| T4.6 | API key lifecycle endpoints | `POST /api/v1/keys` (requires SIWE session JWT) → creates key, returns plaintext once. `DELETE /api/v1/keys/{key_id}` (requires SIWE session JWT, must own key). `GET /api/v1/keys/{key_id}/balance` → returns credit balance. Test: create key → use key → check balance → revoke key. |
+| T4.7 | Agent chat route with personality | `POST /api/v1/agent/chat` → resolves tokenId → loads personality via PersonalityProvider → injects as systemPrompt into HounfourRouter.route() → returns personality-conditioned response. Test: request with valid tokenId → response reflects archetype personality. Unknown tokenId → 404. |
 
-**Acceptance criteria**:
-- [ ] `CircuitBreaker` emits structured log on state change: `{ metric: "settlement.circuit.state_change", from, to, failure_count, timestamp }`
-- [ ] Prometheus gauge `settlement_circuit_state` with labels `{state="closed|open|half_open"}` (1 = current state)
-- [ ] CloudWatch log metric filter for `"settlement.circuit.state_change"` where `to = "OPEN"`
-- [ ] CloudWatch alarm `settlement-circuit-open` triggers on `> 0` in 60s period
-- [ ] Alarm action: SNS topic from Task 11.2
-- [ ] Test: record 3 failures → circuit opens → metric emitted → structured log output
+### Testing
 
----
-
-### Task 12.4: E2E-Lite Integration Test — Payment Flow (Orchestration + Conservation)
-
-**Description**: Create an integration test that validates the complete payment pipeline orchestration: quote generation → payment verification → settlement → finalize → ledger entry. Validates end-to-end correlation and conservation invariants using mocked Redis. This test validates what mocks CAN faithfully simulate (orchestration flow, ledger math, correlation). Behavioral properties requiring real Redis (Lua atomicity, XREADGROUP semantics, nonce replay under concurrency) are validated in Task 13.3 (Docker Redis harness).
-
-**Finding**: Bridgebuilder Deep Review §VIII (Issue #66 Gap Map — Gate 1 gap)
-
-**Files created**:
-- `tests/finn/x402-e2e-lite.test.ts` — Payment flow orchestration integration test
-
-**Acceptance criteria**:
-- [ ] Test scenario: generate quote → construct EIP-3009 auth → verify payment → mock settlement → trigger finalize → verify ledger entry
-- [ ] Validates quote_id flows through entire pipeline (correlation)
-- [ ] Validates credit note issuance on overpayment (delta = quoted - actual)
-- [ ] Validates conservation invariant: `SUM(all postings) === 0n` after complete flow
-- [ ] Validates DLQ enqueue on settlement failure (mock failure → entry appears in DLQ)
-- [ ] Uses mock Redis (ioredis-mock) — no Docker dependency
-- [ ] **Explicitly NOT tested here** (deferred to Task 13.3 Docker Redis tests): nonce replay atomicity under concurrency, Lua script execution, XREADGROUP + XACK DLQ retry flow, WAL fencing CAS atomicity
-- [ ] Test passes in CI (<10s)
+- Static config loads 4 archetypes, each accessible by tokenId
+- Anti-narration catches forbidden terms at boot
+- SIWE: nonce → sign → verify → session JWT → create API key → use key
+- Agent chat returns personality-conditioned response (archetype voice visible)
+- **MVP gate**: After this sprint, L-1 + L-2 + L-3 + L-8 are all demonstrable
 
 ---
 
-### Task 12.5: Gate Promotion Validation Script
+## Sprint 5: On-Chain Signals + Persistence
 
-**Description**: Create a script that validates gate readiness criteria against actual system state. Issue #66 defines Gates 0-4 with clear criteria, but the gate *validation* is manual. This script codifies each gate's pass/fail conditions.
+> **Global ID**: 115 | **Track**: 2b + 2c | **Priority**: P1 | **Dependencies**: Sprint 1, Sprint 4
+> **Goal**: Personality survives restarts. On-chain signal reader operational.
+> **Issue**: [#86](https://github.com/0xHoneyJar/loa-finn/issues/86), [#87](https://github.com/0xHoneyJar/loa-finn/issues/87)
 
-**Finding**: Bridgebuilder Deep Review §VIII.5
+### Tasks
 
-**Files created**:
-- `scripts/gate-check.sh` — Gate validation script
+| ID | Task | Acceptance Criteria |
+|----|------|-------------------|
+| T5.1 | On-chain signal reader | `src/nft/on-chain-reader.ts`: viem public client for Base chain. Reads finnNFT contract: `tokenURI(tokenId)`, `ownerOf(tokenId)`, metadata parsing (archetype, ancestor, era, element). Uses RPC pool from Sprint 2 (T2.5). Test: mock contract responses → valid SignalSnapshot. |
+| T5.2 | Redis caching layer for signals | Signal snapshots cached in Redis with 24h TTL. Key: `finn:signal:{tokenId}`. On cache miss: call on-chain reader → cache → return. `ownerOf` refresh on miss (ownership verification). Test: first call hits RPC, second call hits cache. TTL expiry → re-fetches. |
+| T5.3 | Personality persistence migration | Drizzle migration: `finn_personalities` (id, token_id, archetype, current_version_id, created_at, updated_at) + `finn_personality_versions` (id, personality_id, version_number, beauvoir_template, damp_fingerprint, epoch_number, created_at). Unique constraint on (personality_id, epoch_number). |
+| T5.4 | Write-through persistence strategy | PersonalityService writes to both Redis and Postgres. Read path: Redis first → Postgres fallback → on-chain reader fallback. Static config is seed data written to Postgres at first boot. Test: write personality → restart container → personality survives. |
+| T5.5 | Background reconciler | Every 5 minutes: check recent `finn_billing_events` (last 1 hour) against on-chain state. Reorged transactions flagged with `status: reorged`. Logs warning. No automatic revocation in v1. Test: mock reorged tx → status updated, warning logged. |
+| T5.6 | PersonalityService provider chain | Existing PersonalityService modified: `addProvider(provider)` method. Provider chain: StaticPersonalityLoader → Redis → Postgres. First non-null result wins. Test: provider chain falls through correctly. |
 
-**Acceptance criteria**:
-- [ ] `./scripts/gate-check.sh 0` validates Gate 0 (Smoke): ECS service exists, health endpoint returns 200, CloudWatch alarms exist, SNS topic wired
-- [ ] `./scripts/gate-check.sh 1` validates Gate 1 (Ignition): billing state machine responds, quote generation works, conservation guard healthy
-- [ ] `./scripts/gate-check.sh 2` validates Gate 2 (Warmup): NFT personality CRUD works, onboarding flow completes, credit purchase works
-- [ ] `./scripts/gate-check.sh 3` validates Gate 3 (Idle): BYOK validation works, feature flags configurable
-- [ ] `./scripts/gate-check.sh 4` validates Gate 4 (Launch): x402 flow completes, multi-model routing works, all alarms green
-- [ ] Each gate check outputs PASS/FAIL with specific failed criteria
-- [ ] `--json` flag for machine-readable output
-- [ ] Requires `aws` CLI and `curl` — no other dependencies
-- [ ] Test: `gate-check.sh 0 --dry-run` validates script logic without AWS calls
+### Testing
 
----
-
-## Sprint 13: Scalability & Quality (Global ID: 80)
-
-**Objective**: Address the remaining deferred findings: NFT batch detection, CSP hardening, Docker-based Redis tests, and load test foundation. These are Gate 3-4 readiness requirements.
-
-**Gate Impact**: NFT batch API required before Gate 3 (>100 users). CSP required for production waitlist. Load tests validate system behavior under stress.
-
-**Independent**: Can run in parallel with Sprint 12.
-
-### Task 13.1: NFT Detection Batch API via Alchemy (medium-2)
-
-**Description**: Replace the O(100×C) per-collection RPC loop with Alchemy's `getNFTsForOwner` batch API. Currently, detecting NFT ownership requires 100 collection checks × N tokens per collection = potentially thousands of RPC calls. Alchemy's API resolves all NFTs for a wallet in 1-2 calls regardless of collection count.
-
-**Finding**: medium-2 (bridge deferred) + Bridgebuilder Deep Review §VIII.2
-
-**Files modified**:
-- `src/nft/detection.ts` (or equivalent) — Replace RPC loop with Alchemy batch API
-
-**Acceptance criteria**:
-- [ ] New `AlchemyNFTDetector` class implementing the same interface as existing detection
-- [ ] Uses Alchemy `getNFTsForOwner` endpoint: single API call returns all NFTs for a wallet
-- [ ] Filters response by known collection addresses (maintained in config)
-- [ ] Falls back to existing RPC-based detection if Alchemy API unavailable (circuit breaker)
-- [ ] `ALCHEMY_API_KEY` env var required; detection disabled if not set
-- [ ] Response cached in Redis with 5-minute TTL (NFT ownership doesn't change frequently)
-- [ ] Test: mock Alchemy response → correct NFTs detected
-- [ ] Test: Alchemy down → fallback to RPC detection
-- [ ] Performance: O(1) API calls per wallet instead of O(100×C)
+- L-4: Stop container → restart → personality data intact in Postgres
+- On-chain reader: valid contract interaction → SignalSnapshot populated
+- Cache: hit/miss/expiry all work correctly
+- Reconciler: detects reorged transactions and flags them
 
 ---
 
-### Task 13.2: Waitlist CSP Nonce/Hash Hardening + Violation Reporting (medium-6)
+## Sprint 6: Observability + Metrics
 
-**Description**: Replace `unsafe-inline` in the Content-Security-Policy header for the waitlist page with nonce-based or hash-based CSP. Currently Tailwind's inline styles trigger the CSP violation. The fix requires either build-time Tailwind compilation (extracting styles to a CSS file) or nonce-based CSP with per-request nonce injection. Additionally, implement a CSP violation report endpoint so violations are logged rather than silently dropped.
+> **Global ID**: 116 | **Track**: 4 | **Priority**: P1 | **Dependencies**: Sprint 1
+> **Goal**: Prometheus metrics visible. Conservation violations trigger alerts.
+> **Issue**: [#90](https://github.com/0xHoneyJar/loa-finn/issues/90)
 
-**Finding**: medium-6 (bridge deferred)
+### Tasks
 
-**Files modified**:
-- `src/gateway/waitlist.ts` (or equivalent) — CSP header update with `report-to` directive
-- Build config — Tailwind compilation to CSS file (if nonce approach not used)
+| ID | Task | Acceptance Criteria |
+|----|------|-------------------|
+| T6.1 | Prometheus metrics setup | `src/metrics/prometheus.ts`: prom-client registry. `GET /metrics` endpoint returns Prometheus text format. Requires `Authorization: Bearer {METRICS_BEARER_TOKEN}` in production (SDD §4.7). NOT in FREE_ENDPOINTS. Test: authenticated request → metrics text. Unauthenticated → 401. |
+| T6.2 | Conservation guard metrics | Counters/gauges: `finn_conservation_violations_total`, `finn_credits_by_state{state}`, `finn_escrow_balance_total`, `finn_settlement_total{status}`. Wired into existing conservation guard code. Test: trigger violation → counter increments. |
+| T6.3 | Payment metrics | `finn_agent_requests_total{archetype, payment_method}`, `finn_x402_verifications_total{result}`, `finn_rpc_requests_total{provider, result}`, `finn_rate_limit_hits_total{tier}`. Label cardinality enforced: no user-controlled values (no wallet, tokenId, tx_hash, request_path in labels). Test: request → metrics increment with correct labels. |
+| T6.4 | Request latency histograms | `finn_request_duration_seconds{route, method}` histogram with standard buckets. `finn_x402_verification_duration_seconds` histogram. Test: request → histogram observation recorded. |
+| T6.5 | Grafana dashboard JSON | `deploy/grafana/finn-dashboard.json`: importable dashboard showing conservation health panel, credit flow panel, payment method breakdown, agent usage by archetype, x402 verification success rate, RPC health. |
+| T6.6 | Alert rules | `deploy/prometheus/alert-rules.yml`: conservation violation rate > 0 for 5 minutes → critical alert. x402 verification failure rate > 50% for 5 minutes → warning. RPC circuit breaker open for 5 minutes → warning. Format compatible with Alertmanager/PagerDuty/Discord webhook. |
 
-**Files created**:
-- `src/gateway/csp-report.ts` — CSP violation report handler endpoint
+### Testing
 
-**Acceptance criteria**:
-- [ ] CSP header no longer contains `'unsafe-inline'` for `style-src`
-- [ ] Either: (a) Tailwind styles compiled to external CSS file referenced in CSP, or (b) nonce-based CSP with per-request `nonce` attribute on `<style>` tags
-- [ ] `script-src` also tightened (no `unsafe-inline` or `unsafe-eval`)
-- [ ] Waitlist page renders correctly with new CSP
-- [ ] **CSP report endpoint** `/api/v1/csp-report` implemented: accepts `application/csp-report` JSON POST, validates schema (reject payloads > 10KB), logs structured event `{ metric: "csp.violation", document_uri, violated_directive, blocked_uri }`, returns 204 No Content
-- [ ] CSP header uses `report-to` directive with `Reporting-Endpoints` header (modern standard), plus `report-uri` fallback for older browsers: `report-uri /api/v1/csp-report; report-to csp-endpoint`
-- [ ] `Reporting-Endpoints` header: `csp-endpoint="/api/v1/csp-report"`
-- [ ] **Deploy in report-only first**: Use `Content-Security-Policy-Report-Only` header initially to validate no breakage, with a comment/flag to switch to enforcing `Content-Security-Policy` after validation
-- [ ] Test: page loads without CSP violations in browser console
-- [ ] Test: CSP header present in response with correct directives
-- [ ] Test: POST to `/api/v1/csp-report` with valid violation JSON returns 204
-- [ ] Test: POST with oversized payload (>10KB) returns 413
+- L-6: Conservation violation → `finn_conservation_violations_total` increments → alert fires
+- `/metrics` requires auth (401 without token)
+- Dashboard imports into Grafana without errors
+- Label cardinality: no high-cardinality labels in any metric
 
 ---
 
-### Task 13.3: Docker-Based Redis Integration Test Harness (low-3)
+## Sprint 7: OpenAPI + SDK + Discovery
 
-**Description**: Create a Docker Compose test harness that runs a real Redis instance for integration testing. Current tests use mocked Redis, which doesn't catch behavioral differences (Lua script execution, MULTI/EXEC, pub/sub). The harness enables running billing, DLQ, and WAL tests against a real Redis.
+> **Global ID**: 117 | **Track**: 5 + 3 | **Priority**: P1 | **Dependencies**: Sprint 3, Sprint 4
+> **Goal**: Developers can discover and integrate with the agent API.
+> **Issue**: [#91](https://github.com/0xHoneyJar/loa-finn/issues/91), [#89](https://github.com/0xHoneyJar/loa-finn/issues/89)
 
-**Finding**: low-3 (bridge deferred)
+### Tasks
 
-**Files created**:
-- `tests/docker-compose.test.yml` — Redis + test runner services
-- `tests/helpers/redis-integration.ts` — Helper for connecting to Docker Redis
-- `scripts/test-integration.sh` — Script to run Docker-based tests
+| ID | Task | Acceptance Criteria |
+|----|------|-------------------|
+| T7.1 | OpenAPI 3.1 specification | Generated from Zod schemas via `@asteasolutions/zod-to-openapi`. Covers: `/api/v1/agent/chat`, `/api/v1/keys`, `/api/v1/auth/nonce`, `/api/v1/auth/verify`, `/health`, `/metrics` (auth required), `/llms.txt`, `/agents.md`. Includes x402 error responses (402 with challenge schema). `GET /openapi.json` serves the spec. Test: spec validates with openapi-schema-validator. |
+| T7.2 | TypeScript SDK generation | `packages/finn-sdk/`: generated from OpenAPI spec. Typed request/response objects. Published as `@honeyjar/finn-sdk`. Includes `FinnClient` class with `chat()`, `createKey()`, `revokeKey()`, `getBalance()`. Test: SDK compiles, types match spec. |
+| T7.3 | x402 payment helper in SDK | `FinnClient.payAndChat()`: handles full 402 flow — gets challenge, prompts for payment callback, submits receipt. Utility: `parseX402Challenge()`, `formatReceiptHeaders()`. Test: mock flow with payAndChat → successful response. |
+| T7.4 | llms.txt endpoint | `GET /llms.txt` returns agent capability manifest per llms.txt convention. Lists: agent name, capabilities, supported models, pricing (x402), contact. Free endpoint (no auth). Test: response matches llms.txt format spec. |
+| T7.5 | agents.md endpoint | `GET /agents.md` returns human-readable agent directory in Markdown. Lists all agents from personality config with archetype, capabilities, interaction link. Free endpoint. Test: response is valid Markdown, lists all configured agents. |
+| T7.6 | Per-agent homepage | `GET /agent/:tokenId` returns HTML page with personality summary, archetype badge, capabilities, "Chat" CTA, x402 pricing info. Free endpoint. Unknown tokenId → 404. Test: valid tokenId → 200 HTML. Invalid → 404. |
 
-**Acceptance criteria**:
-- [ ] `docker-compose.test.yml` defines Redis 7.x service + test runner service
-- [ ] `redis-integration.ts` provides `getTestRedis()` returning real ioredis client
-- [ ] `test-integration.sh` starts compose, runs tagged tests, tears down
-- [ ] At least 3 integration tests run against real Redis: (1) DLQ XREADGROUP + XACK flow, (2) WAL writer lock SETNX + fencing, (3) credit note Lua script atomicity
-- [ ] Tests tagged with `@integration` (skipped in normal `vitest run`)
-- [ ] CI workflow runs integration tests in separate job (with Docker)
-- [ ] Test suite completes in < 30s
-- [ ] Teardown is idempotent (handles partial failures)
+### Testing
 
----
-
-### Task 13.4: Load Test Foundation — Concurrent Payment Scenarios
-
-**Description**: Create a load test that exercises the billing pipeline under concurrent load. Validates circuit breaker behavior, conservation invariant under stress, DLQ backpressure, and capped risk limits. Uses the Docker Redis harness from Task 13.3.
-
-**Finding**: low-3 (bridge deferred, extended scope)
-
-**Files created**:
-- `tests/load/billing-concurrent.test.ts` — Concurrent payment load test
-
-**Acceptance criteria**:
-- [ ] Scenario 1: 50 concurrent reserve→commit flows — all complete, conservation holds
-- [ ] Scenario 2: 50 concurrent reserves with 5 settlement failures — DLQ processes retries, capped risk enforced
-- [ ] Scenario 3: Circuit breaker trip under load — settlement falls back to direct, no lost payments
-- [ ] Scenario 4: 100 concurrent quote generations — all get unique quote_ids, no collisions
-- [ ] Conservation invariant validated after each scenario: `SUM(all postings) === 0n`
-- [ ] Tagged `@load` (separate from unit and integration tests)
-- [ ] Uses Docker Redis from Task 13.3
-- [ ] Completes in < 60s
-- [ ] Results include: throughput (ops/sec), P50/P95/P99 latency, error rate
+- L-5: `curl /llms.txt` returns valid agent manifest
+- L-7: `npm install @honeyjar/finn-sdk` → TypeScript compiles → `FinnClient.chat()` works
+- OpenAPI spec validates
+- Agent homepage renders for valid token IDs
 
 ---
 
-## Traceability Matrix
+## Environment Variables (New)
 
-> **Canonical Finding List (14 findings)**:
->
-> Bridge iter3 deferred (4): medium-2 (NFT O(100×C) RPC), medium-6 (CSP unsafe-inline), medium-7 (KMS Resource:*), low-3 (load tests)
-> Bridge iter3 new (2): new-low-1 (onboarding try/catch), new-low-2 (BigInt Number() conversion)
-> Bridgebuilder Deep Review (8): deepreview-kms (== medium-7, elevated to Gate 0), deepreview-fencing (Kleppmann gap), deepreview-sns (SNS wiring), deepreview-otel (distributed tracing — decomposed into setup + propagation = 2 tasks for 1 finding), deepreview-circuit (circuit breaker observability), deepreview-e2e (E2E integration test), deepreview-gate (gate promotion automation)
->
-> **Count**: 4 + 2 + 8 = 14, but `deepreview-kms` == `medium-7` (same finding elevated), so **13 unique findings → 13 finding-mapped tasks + 1 enabler task = 14 total tasks**.
+All new environment variables required by this cycle:
 
-| Finding ID | Severity | Source | Sprint | Task | Notes |
-|------------|----------|--------|--------|------|-------|
-| medium-7 / deepreview-kms | MEDIUM→CRITICAL | Bridge iter3 deferred + Deep Review §VIII.1 | 11 | 11.1 | Same finding — medium-7 elevated to Gate 0 blocker by Deep Review |
-| deepreview-sns | HIGH | Deep Review §VIII | 11 | 11.2 | |
-| deepreview-fencing | HIGH | Deep Review §II | 11 | 11.3 | |
-| new-low-2 | LOW | Bridge iter3 | 11 | 11.4 | |
-| new-low-1 | LOW | Bridge iter3 | 11 | 11.5 | |
-| deepreview-otel | HIGH | Deep Review §VIII.3 | 12 | 12.1 + 12.2 | Single finding decomposed into 2 tasks (setup + propagation) |
-| deepreview-circuit | MEDIUM | Deep Review §VIII.4 | 12 | 12.3 | |
-| deepreview-e2e | MEDIUM | Deep Review §VIII / #66 | 12 | 12.4 | |
-| deepreview-gate | MEDIUM | Deep Review §VIII.5 | 12 | 12.5 | |
-| medium-2 | MEDIUM | Bridge iter3 deferred | 13 | 13.1 | |
-| medium-6 | MEDIUM | Bridge iter3 deferred | 13 | 13.2 | |
-| low-3 | LOW | Bridge iter3 deferred | 13 | 13.4 | |
-
-**Enabler tasks** (not mapped to findings — implementation dependencies):
-
-| Task | Purpose | Required by |
-|------|---------|-------------|
-| 13.3 (Docker Redis harness) | Provides real Redis for integration + load tests | 13.4 (load tests), 12.4 deferred assertions |
-
-**Reconciliation**: 13 unique findings mapped to 14 tasks (deepreview-otel decomposed into 2, medium-7/deepreview-kms merged as same finding). All 14 original finding references are accounted for.
+| Variable | Sprint | Required | Description |
+|----------|--------|----------|-------------|
+| `FINN_POSTGRES_ENABLED` | 1 | Yes | Enable Postgres persistence + startup validation |
+| `FINN_APP_PASSWORD` | 1 | Dev only | Password for finn_app DB role (Docker entrypoint) |
+| `FINN_MIGRATE_PASSWORD` | 1 | Dev only | Password for finn_migrate DB role (Docker entrypoint) |
+| `X402_WALLET_ADDRESS` | 2 | Yes | USDC recipient address on Base |
+| `X402_CHALLENGE_SECRET` | 2 | Yes | HMAC secret for challenge signing (32+ bytes) |
+| `X402_CHALLENGE_SECRET_PREVIOUS` | 2 | No | Previous secret during rotation (10-min grace) |
+| `X402_USDC_ADDRESS` | 2 | Yes | USDC contract address on Base |
+| `X402_CHAIN_ID` | 2 | Yes | Chain ID (8453 for Base mainnet) |
+| `ALCHEMY_BASE_RPC_URL` | 2 | Prod | Alchemy RPC URL for Base chain |
+| `X402_MIN_CONFIRMATIONS` | 2 | No | Confirmation depth (default: 10 prod, 1 dev) |
+| `X402_KEY_PEPPER` | 3 | Yes | Server-side pepper for API key lookup hash |
+| `SIWE_JWT_SECRET` | 4 | Yes | Secret for SIWE session JWTs |
+| `FINN_NFT_CONTRACT` | 5 | Yes | finnNFT contract address on Base |
+| `METRICS_BEARER_TOKEN` | 6 | Prod | Bearer token for /metrics authentication |
 
 ---
 
-## Risk Assessment
+## Operational Addenda
 
-| Risk | Impact | Mitigation |
-|------|--------|-----------|
-| KMS key ARN not available at plan time | Sprint 11.1 blocked | Use `data "aws_kms_key"` to look up by alias, or accept variable with no default |
-| Alchemy API rate limits | Sprint 13.1 degraded | Circuit breaker with RPC fallback; Redis caching reduces call volume |
-| OpenTelemetry overhead in production | Sprint 12 performance | Feature-flagged (`OTEL_ENABLED`); console exporter has near-zero overhead |
-| Docker not available in CI | Sprint 13.3-13.4 blocked | Tests tagged separately; CI job with Docker support runs them |
+> *Flatline IMP-001 (HIGH_CONSENSUS, avg 720): Release strategy + migration rollback*
 
-## Success Metrics
+### Release & Rollback Strategy
 
-- All 14 findings addressed with code + tests
-- Zero regression on existing test suite
-- KMS `Resource: *` eliminated (Gate 0 unblocked)
-- SNS wired to all alarms (operational visibility)
-- E2E payment flow test passing
-- NFT detection reduced from O(100×C) to O(1)
+- **Feature flags**: All new subsystems (x402 verification, Postgres persistence, rate limiting) are behind config flags. Disabling a flag reverts to the existing behavior (in-memory/Redis fallbacks).
+- **Migration rollback**: Every Drizzle migration has a corresponding `down` migration. Rollback procedure: `npx drizzle-kit migrate rollback` → verify tables dropped → restart. Data-destructive rollbacks (dropping tables with data) require explicit operator confirmation.
+- **De-scope triggers**: If a sprint blocks for >1 iteration, the minimum shippable subset is: Sprint 1 (infra) + Sprint 2 (x402 core) + Sprint 4 (personality). Sprint 3 (API keys, rate limiting) can be deferred by disabling the API key code path and shipping x402-only.
+
+> *Flatline IMP-002 (HIGH_CONSENSUS, avg 825): Configurable confirmation depth*
+
+### Confirmation Depth Configuration
+
+Sprint 2 T2.4: confirmation depth (currently hardcoded at 10) MUST be configurable via `X402_MIN_CONFIRMATIONS` env var (default: 10 for production, 1 for development/testing). Rationale: Base L2 has ~2s block time; 10 confirmations ≈ 20s, sufficient for finality. Test environments need lower values for fast iteration. Add test: confirmation depth respected (set to 1 in test, verify acceptance at 1 block).
+
+> *Flatline IMP-003 (HIGH_CONSENSUS, avg 855): DLQ design clarification*
+
+### DLQ Scope
+
+Sprint 1 T1.5 references "flush DLQ" during graceful shutdown. The DLQ is the existing `DLQStore` interface (implemented in cycle-023, `src/hounfour/dlq/`). It stores failed billing finalization attempts. During shutdown, pending DLQ entries are flushed to Redis (via `RedisDLQAdapter`). No new DLQ design is needed — the reference is to the existing infrastructure. Sprint 1 AC updated: graceful shutdown flushes the existing `DLQStore` (if entries exist), not a new subsystem.
+
+> *Flatline IMP-004 (HIGH_CONSENSUS, avg 815): Redis infrastructure expectations*
+
+### Redis Configuration Requirements
+
+Redis is a shared critical dependency across: x402 challenges (TTL), replay prevention, rate limiting, API key cache, SIWE nonces, signal cache.
+
+- **Persistence**: Redis MUST be configured with AOF persistence (`appendonly yes`) in production. RDB snapshots alone risk losing recent nonces/replay keys on crash.
+- **Eviction policy**: `noeviction` for production (reject writes when full rather than silently dropping keys). Development: `allkeys-lru` is acceptable.
+- **Degradation strategy per feature**:
+  - x402 nonces: fail-closed (503) — cannot verify without nonce
+  - Rate limiting: degrade to in-memory sliding window (Sprint 3 T3.5)
+  - API key cache: degrade to direct DB lookup (Sprint 3 T3.3)
+  - SIWE nonces: fail-closed (401) — cannot verify without nonce
+  - Signal cache: degrade to direct RPC call (Sprint 5 T5.2)
+- **HA**: For MVP, single Redis instance is acceptable. Production: Redis Sentinel or ElastiCache (already available in freeside Terraform).
+
+> *Flatline SKP-004 (BLOCKER, 740): Secrets management playbook*
+
+### Secrets Management
+
+| Secret | Storage (Prod) | Storage (Dev) | Rotation Cadence | Rotation Procedure |
+|--------|---------------|--------------|-----------------|-------------------|
+| `X402_CHALLENGE_SECRET` | AWS Secrets Manager | `.env` file | Quarterly | Deploy new secret as `_PREVIOUS`, update primary, wait 10-min grace, remove `_PREVIOUS` |
+| `X402_CHALLENGE_SECRET_PREVIOUS` | AWS Secrets Manager | `.env` file | N/A (auto-cleared) | Populated during rotation only |
+| `X402_KEY_PEPPER` | AWS Secrets Manager | `.env` file | Never (changing invalidates all lookup hashes) | If compromised: re-hash all keys with new pepper (migration task) |
+| `SIWE_JWT_SECRET` | AWS Secrets Manager | `.env` file | Quarterly | Deploy new secret; existing sessions expire within 15 minutes (JWT exp). No grace needed. |
+| `METRICS_BEARER_TOKEN` | AWS Secrets Manager | `.env` file | Annually | Update Prometheus scrape config, then rotate token. Brief metrics gap acceptable. |
+| `S2S_ES256_PRIVATE_KEY` | AWS Secrets Manager / Docker Secrets | `.env` file | Annually | Key rotation procedure in PRD §5.2.1 (kid versioning, 24h grace). |
+| `FINN_APP_PASSWORD` | Terraform `aws_db_user` | Docker entrypoint | Annually | Terraform apply with new password; restart services. |
+| `FINN_MIGRATE_PASSWORD` | Terraform `aws_db_user` | Docker entrypoint | Annually | Terraform apply; run migration runner with new creds. |
+
+**Emergency revoke/rotate playbook**:
+1. Identify compromised secret
+2. Generate replacement secret
+3. Deploy to AWS Secrets Manager / update .env
+4. Restart affected services (ECS force-deploy / `docker compose restart`)
+5. For HMAC: old challenges become invalid (clients get new 402 challenges)
+6. For JWT: existing sessions expire within 15 minutes
+7. For pepper: emergency migration to re-hash all API keys (manual, documented)
+8. Post-incident: rotate all secrets that share the same access path
+
+---
+
+## Risk Register
+
+| Risk | Sprint | Probability | Impact | Mitigation |
+|------|--------|------------|--------|------------|
+| Alchemy API key not available | 2 | Medium | Blocks on-chain verification | Public fallback RPC in pool; aggressive caching |
+| SIWE wallet signing complexity | 4 | Low | Blocks key management | Session JWT alternative; per-request SIWE optional |
+| Drizzle migration conflicts with freeside | 1 | Low | Blocks deployment | Separate `finn` schema; CI validates isolation |
+| Docker Compose port conflicts | 1 | Low | Can't run both services | Fixed ports: freeside=3000, finn=3001 |
+| prom-client memory overhead | 6 | Low | OOM in small containers | Default histogram buckets; bounded label sets |
+| Redis outage cascading to all features | All | Medium | Payment verification, auth, rate limiting fail | Per-feature degradation strategy (see Redis section above) |
+| Single-agent delivery bottleneck | All | Medium | Integration issues cascade | Feature flags enable partial shipping; de-scope triggers defined |
+
+---
+
+## Success Criteria (Cycle-Level)
+
+| Metric | Target | Sprint |
+|--------|--------|--------|
+| L-1: Container runs | `docker compose up` → health 200 | Sprint 1 |
+| L-2: E2E request flow | POST /agent/chat → personality response | Sprint 4 |
+| L-3: Payment collection | x402 USDC transfer verified on Base | Sprint 2–3 |
+| L-4: Personality persistence | Survives container restart | Sprint 5 |
+| L-5: Agent discovery | /llms.txt returns manifest | Sprint 7 |
+| L-6: Observability | Conservation violation → alert | Sprint 6 |
+| L-7: SDK exists | npm install + TypeScript compiles | Sprint 7 |
+| L-8: Static personality | Archetype-appropriate voice | Sprint 4 |
