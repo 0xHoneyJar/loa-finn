@@ -21,6 +21,14 @@ export interface VerifyDeps {
   /** Verify EIP-1271 smart wallet signature */
   verifyContractSignature?: (authorization: EIP3009Authorization) => Promise<boolean>
   walAppend?: (namespace: string, operation: string, key: string, payload: unknown) => string
+  /**
+   * Maximum payment amount in micro-USDC (Bridge medium-7).
+   * Payments exceeding this ceiling are rejected.
+   * Default: 100_000_000 (= $100 USDC).
+   * Set to 0 to disable ceiling check.
+   * Configurable via X402_MAX_PAYMENT_AMOUNT env var.
+   */
+  maxPaymentAmount?: number
 }
 
 export interface VerificationResult {
@@ -42,12 +50,15 @@ export class PaymentVerifier {
   private readonly verifyContract: ((auth: EIP3009Authorization) => Promise<boolean>) | undefined
   private readonly walAppend: VerifyDeps["walAppend"]
 
+  private readonly maxPaymentAmount: bigint
+
   constructor(deps: VerifyDeps) {
     this.redis = deps.redis
     this.treasuryAddress = deps.treasuryAddress
     this.verifyEOA = deps.verifyEOASignature ?? (async () => false)
     this.verifyContract = deps.verifyContractSignature
     this.walAppend = deps.walAppend
+    this.maxPaymentAmount = BigInt(deps.maxPaymentAmount ?? 100_000_000)
   }
 
   /**
@@ -81,6 +92,15 @@ export class PaymentVerifier {
         throw new X402Error(
           `Insufficient payment: ${auth.value} < ${quote.max_cost}`,
           "INSUFFICIENT_PAYMENT",
+          402,
+        )
+      }
+
+      // Payment ceiling check (Bridge medium-7)
+      if (this.maxPaymentAmount > 0n && paymentAmount > this.maxPaymentAmount) {
+        throw new X402Error(
+          `Payment ${auth.value} exceeds ceiling ${this.maxPaymentAmount.toString()}`,
+          "PAYMENT_EXCEEDS_CEILING",
           402,
         )
       }
