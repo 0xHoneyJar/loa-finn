@@ -12,8 +12,8 @@ capability_requirements:
   - git: read_write
   - shell: execute
   - github_api: read_write (scope: external)
-version: v1.28.0
-trust_level: L2-verified
+version: v1.29.0
+trust_level: L3-hardened
 -->
 
 # loa-finn
@@ -29,24 +29,24 @@ The project exposes 15 key entry points across its public API surface.
 
 ### .claude/adapters
 
-- **_build_provider_config** — Build ProviderConfig from merged hounfour config. (`.claude/adapters/cheval.py:149`)
-- **_error_json** — Format error as JSON for stderr (SDD §4.2.2 Error Taxonomy). (`.claude/adapters/cheval.py:74`)
-- **_load_persona** — Load persona.md for the given agent with optional system merge (SDD §4.3.2). (`.claude/adapters/cheval.py:93`)
-- **cmd_invoke** — Main invocation: resolve agent → call provider → return response. (`.claude/adapters/cheval.py:177`)
-- **cmd_print_config** — Print effective merged config with source annotations. (`.claude/adapters/cheval.py:326`)
-- **cmd_validate_bindings** — Validate all agent bindings. (`.claude/adapters/cheval.py:337`)
-- **main** — CLI entry point. (`.claude/adapters/cheval.py:351`)
+- **_build_provider_config** — Build ProviderConfig from merged hounfour config. (`.claude/adapters/cheval.py:152`)
+- **_check_feature_flags** — Check feature flags. (`.claude/adapters/cheval.py:192`)
+- **_error_json** — Format error as JSON for stderr (SDD §4.2.2 Error Taxonomy). (`.claude/adapters/cheval.py:77`)
+- **_load_persona** — Load persona.md for the given agent with optional system merge (SDD §4.3.2). (`.claude/adapters/cheval.py:96`)
+- **cmd_cancel** — Cancel a Deep Research interaction. (`.claude/adapters/cheval.py:511`)
+- **cmd_invoke** — Main invocation: resolve agent → call provider → return response. (`.claude/adapters/cheval.py:211`)
+- **cmd_poll** — Poll a Deep Research interaction. (`.claude/adapters/cheval.py:467`)
+- **cmd_print_config** — Print effective merged config with source annotations. (`.claude/adapters/cheval.py:442`)
+- **cmd_validate_bindings** — Validate all agent bindings. (`.claude/adapters/cheval.py:453`)
+- **main** — CLI entry point. (`.claude/adapters/cheval.py:547`)
 
 ### .claude/adapters/loa_cheval/config
 
 - **LazyValue** — Deferred interpolation token. (`.claude/adapters/loa_cheval/config/interpolation.py:41`)
 - **_check_env_allowed** — Check if env var name is in the allowlist. (`.claude/adapters/loa_cheval/config/interpolation.py:122`)
 - **_check_file_allowed** — Validate and resolve a file path for secret reading. (`.claude/adapters/loa_cheval/config/interpolation.py:133`)
-- **_deep_merge** — Deep merge overlay into base. (`.claude/adapters/loa_cheval/config/loader.py:53`)
-- **_find_project_root** — Walk up from cwd to find project root (contains .loa.config.yaml or .claude/). (`.claude/adapters/loa_cheval/config/loader.py:64`)
 - **_get_credential_provider** — Get the credential provider chain (lazily initialized, thread-safe). (`.claude/adapters/loa_cheval/config/interpolation.py:192`)
 - **_matches_lazy_path** — Check if a dotted config key path matches any lazy path pattern. (`.claude/adapters/loa_cheval/config/interpolation.py:275`)
-- **_reset_credential_provider** — Reset credential provider cache. (`.claude/adapters/loa_cheval/config/interpolation.py:205`)
 
 ## Architecture
 <!-- provenance: DERIVED -->
@@ -58,7 +58,7 @@ graph TD
     docs[docs]
     evals[evals]
     grimoires[grimoires]
-    packages[packages]
+    infrastructure[infrastructure]
     public[public]
     schemas[schemas]
     Root[Project Root]
@@ -67,7 +67,7 @@ graph TD
     Root --> docs
     Root --> evals
     Root --> grimoires
-    Root --> packages
+    Root --> infrastructure
     Root --> public
     Root --> schemas
 ```
@@ -78,13 +78,16 @@ Directory structure:
 ./adapters/fixtures
 ./deploy
 ./deploy/k8s
+./deploy/terraform
 ./deploy/vllm
+./deploy/workflows
 ./dist
 ./docs
 ./docs/adr
 ./docs/architecture
 ./docs/archive
 ./docs/modules
+./docs/runbooks
 ./evals
 ./evals/baselines
 ./evals/fixtures
@@ -97,27 +100,30 @@ Directory structure:
 ./grimoires
 ./grimoires/bridgebuilder
 ./grimoires/loa
+./grimoires/oracle
 ./grimoires/pub
-./packages
-./packages/loa-hounfour
-./public
-./schemas
-./scripts
+./infrastructure
 ```
 
 ## Interfaces
 <!-- provenance: DERIVED -->
 ### HTTP Routes
 
-- **GET** `/.well-known/jwks.json` (`src/gateway/server.ts:72`)
-- **GET** `/` (`src/gateway/server.ts:37`)
-- **GET** `/api/dashboard/activity` (`src/gateway/server.ts:179`)
-- **GET** `/api/sessions/:id` (`src/gateway/server.ts:164`)
-- **GET** `/api/sessions` (`src/gateway/server.ts:159`)
-- **GET** `/dashboard` (`src/gateway/server.ts:62`)
-- **GET** `/health` (`src/gateway/server.ts:47`)
-- **POST** `/api/sessions/:id/message` (`src/gateway/server.ts:113`)
-- **POST** `/api/sessions` (`src/gateway/server.ts:95`)
+- **GET** `/.well-known/jwks.json` (`src/gateway/server.ts:133`)
+- **GET** `/` (`src/gateway/jwks.ts:76`)
+- **GET** `/` (`src/gateway/metrics-endpoint.ts:133`)
+- **GET** `/` (`src/gateway/server.ts:57`)
+- **GET** `/` (`src/gateway/waitlist.ts:105`)
+- **GET** `/api/dashboard/activity` (`src/gateway/server.ts:314`)
+- **GET** `/api/sessions/:id` (`src/gateway/server.ts:299`)
+- **GET** `/api/sessions` (`src/gateway/server.ts:294`)
+- **GET** `/api/v1/usage` (`src/gateway/server.ts:215`)
+- **GET** `/dashboard` (`src/gateway/server.ts:123`)
+- **GET** `/feature-flags` (`src/gateway/feature-flags.ts:144`)
+- **GET** `/health` (`src/gateway/server.ts:69`)
+- **POST** `/allowlist` (`src/gateway/feature-flags.ts:114`)
+- **POST** `/api/sessions/:id/message` (`src/gateway/server.ts:248`)
+- **POST** `/api/sessions` (`src/gateway/server.ts:230`)
 
 ### Skill Commands
 
@@ -157,22 +163,22 @@ Directory structure:
 | Module | Files | Purpose | Documentation |
 |--------|-------|---------|---------------|
 | `adapters/` | 47 | Adapters | \u2014 |
-| `deploy/` | 9 | Infrastructure and deployment | \u2014 |
-| `docs/` | 31 | Documentation | \u2014 |
+| `deploy/` | 22 | Infrastructure and deployment | \u2014 |
+| `docs/` | 34 | Documentation | \u2014 |
 | `evals/` | 122 | Benchmarking and regression framework for the Loa agent development system. Ensures framework changes don't degrade agent behavior through | [evals/README.md](evals/README.md) |
-| `grimoires/` | 467 | Home to all grimoire directories for the Loa | [grimoires/README.md](grimoires/README.md) |
-| `packages/` | 2191 | Packages | \u2014 |
-| `public/` | 2 | Static assets | \u2014 |
+| `grimoires/` | 630 | Home to all grimoire directories for the Loa | [grimoires/README.md](grimoires/README.md) |
+| `infrastructure/` | 5 | Infrastructure | \u2014 |
+| `public/` | 5 | Static assets | \u2014 |
 | `schemas/` | 3 | Schemas | \u2014 |
-| `scripts/` | 2 | Utility scripts | \u2014 |
-| `src/` | 135 | Source code | \u2014 |
-| `tests/` | 314 | Test suites | \u2014 |
+| `scripts/` | 5 | Utility scripts | \u2014 |
+| `src/` | 194 | Source code | \u2014 |
+| `tests/` | 374 | Test suites | \u2014 |
 
 ## Verification
 <!-- provenance: CODE-FACTUAL -->
-- Trust Level: **L2 — CI Verified**
-- 328 test files across 1 suite
-- CI/CD: GitHub Actions (8 workflows)
+- Trust Level: **L3 — Property-Based**
+- 389 test files across 1 suite
+- CI/CD: GitHub Actions (10 workflows)
 - Type safety: TypeScript
 - Security: SECURITY.md present
 
@@ -194,16 +200,19 @@ The project defines 1 specialized agent persona.
 - `@mariozechner/pi-ai`
 - `@mariozechner/pi-coding-agent`
 - `@sinclair/typebox`
+- `@types/json-stable-stringify`
 - `@types/node`
 - `@types/ws`
 - `croner`
+- `eslint`
+- `fast-check`
 - `hono`
 - `jose`
+- `json-stable-stringify`
+- `siwe`
 - `tsx`
 - `typescript`
-- `ulid`
-- `vitest`
-- `ws`
+- `typescript-eslint`
 
 ## Known Limitations
 <!-- provenance: DERIVED -->
@@ -237,18 +246,18 @@ export ANTHROPIC_API_KEY=sk-ant-...
 npm run dev
 ```
 <!-- ground-truth-meta
-head_sha: c40a0aebe40b9dad2acc39b6206e616480925a3f
-generated_at: 2026-02-16T00:22:36Z
+head_sha: bb7bd41f5a0cbefe79970c31f9c0fe7e87f64c28
+generated_at: 2026-02-19T00:49:38Z
 generator: butterfreezone-gen v1.0.0
 sections:
-  agent_context: 6232de120f1c1a42640332e3f3f9a49b70ccfcddb425e67203b51bac1ff3d5b1
-  capabilities: 7ac5066c6290b2bd238aba0cebe80e6c24d2c32ecc6b066842a065eb8c2300c1
-  architecture: 31cfd4aae33e17e78d468f1935345f16d6489a52ce22aeb52cdd9e044baba30a
-  interfaces: e8ee50bdb7114c90b334f82060fcf43db16057722a4bad0a8540ba9a116f1970
-  module_map: e9631b688b8b80942a1bc9e6a4d68ff3cd17bf793adf2f1e641a3ce742016e89
-  verification: 9bdefcdd2581bfab7c5bef01c01683115981bc3712e0a9cc34ecacd377246527
+  agent_context: 90fb840550f5415b42aedaed74f81068ce3bdc434075510002272e28b4211aa8
+  capabilities: ab2576b1f2e7e8141f0e93e807d26ed2b7b155e21c96d787507a3ba933bb9795
+  architecture: a21d131d443b047022164bb0549e70871489992ec1ab56980def458b3c63a628
+  interfaces: 266bda39095e0c03d61b1f922e518a40bc3b7eea69474eb332cd6eeed9f36c30
+  module_map: 39a9cd9dae7272b08df421bb4cc4a1371c2b31c4da79f08bc45990cd251f60eb
+  verification: e35027536594be81d2e43806f2dd24da8fe03e554544feef175737d6296a896f
   agents: ca263d1e05fd123434a21ef574fc8d76b559d22060719640a1f060527ef6a0b6
-  ecosystem: 1079bb47981c389209c5f37ca756e5960e102c134d91385d5aef93a72b47b755
+  ecosystem: 5152b7042ef4e7999fcac4c74249ddf663cd5e9a7ff55551e9f5e58bd20889ba
   limitations: 5dbb86bb1798604cdafad4930eb8e2265e99837ad33674f99e66de49dad71bfd
   quick_start: d1b43139021ae877a9f5d45f030c06b6eb84d4f84bebcf89343117dd668a4b53
 -->

@@ -745,11 +745,13 @@
     },
     {
       "label": "Protocol Convergence — loa-hounfour v5.0.0 → v7.0.0",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-18T00:00:00Z",
+      "archived": "2026-02-19T03:00:00Z",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Sprint-1 completed. Sprints 2-3 superseded by cycle-027 Full Stack Launch which subsumes remaining protocol convergence work into its broader scope.",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -762,18 +764,132 @@
           "local_id": "sprint-2",
           "global_id": 66,
           "label": "Type Adoption — Branded Types + Evaluator",
-          "status": "pending",
-          "tasks": 10
+          "status": "superseded",
+          "tasks": 10,
+          "notes": "Superseded by cycle-027 Sprint 1-2 (billing + credit denomination)"
         },
         {
           "local_id": "sprint-3",
           "global_id": 67,
           "label": "Knowledge + Hardening",
+          "status": "superseded",
+          "tasks": 6,
+          "notes": "Superseded by cycle-027 Sprint 3 (conservation guard hardening)"
+        }
+      ]
+    },
+    {
+      "label": "Full Stack Launch — Build Everything, Then Ship",
+      "status": "active",
+      "started": "2026-02-19T03:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Cycle-027. PRD v1.2.0: GPT-5.2 APPROVED (iteration 3), Flatline APPROVED. SDD v2.0.0: GPT-5.2 APPROVED (iteration 3), Flatline APPROVED. Sprint v1.0.0: GPT-5.2 APPROVED (iteration 2, 8 blocking issues resolved). 10 sprints, 59 tasks. Builds all product features before onboarding real users as closed beta.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 68,
+          "label": "E2E Billing Loop + Conservation Hardening",
+          "status": "completed",
+          "tasks": 11,
+          "notes": "Implemented via bridge loop iteration 1 (PR #82)"
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 69,
+          "label": "Credit Denomination + Purchase Flow",
+          "status": "completed",
+          "tasks": 7,
+          "notes": "Implemented via bridge loop iteration 1 (PR #82)"
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 70,
+          "label": "Credit Deduction + BYOK",
+          "status": "completed",
+          "tasks": 5,
+          "notes": "Implemented via bridge loop iteration 1 (PR #82)"
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 71,
+          "label": "NFT Personality Authoring",
+          "status": "completed",
+          "tasks": 4,
+          "notes": "Implemented via bridge loop iteration 1 (PR #82)"
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 72,
+          "label": "Agent Homepage + Web Chat",
+          "status": "completed",
+          "tasks": 6,
+          "notes": "Implemented via bridge loop iteration 1 (PR #82)"
+        },
+        {
+          "local_id": "sprint-6",
+          "global_id": 73,
+          "label": "Onboarding + Invite System",
+          "status": "completed",
+          "tasks": 5,
+          "notes": "Implemented via bridge loop iteration 1 (PR #82)"
+        },
+        {
+          "local_id": "sprint-7",
+          "global_id": 74,
+          "label": "Production Deployment + Monitoring",
+          "status": "completed",
+          "tasks": 7,
+          "notes": "Implemented via bridge loop iteration 1 (PR #82)"
+        },
+        {
+          "local_id": "sprint-8",
+          "global_id": 75,
+          "label": "x402 Middleware + Payment Verification",
+          "status": "completed",
+          "tasks": 5,
+          "notes": "Implemented via bridge loop iteration 1 (PR #82)"
+        },
+        {
+          "local_id": "sprint-9",
+          "global_id": 76,
+          "label": "x402 Denomination + Guard Integration",
+          "status": "completed",
+          "tasks": 4,
+          "notes": "Implemented via bridge loop iteration 1 (PR #82)"
+        },
+        {
+          "local_id": "sprint-10",
+          "global_id": 77,
+          "label": "Integration Testing + Staged Rollout",
+          "status": "completed",
+          "tasks": 5,
+          "notes": "Implemented via bridge loop iteration 1 (PR #82)"
+        },
+        {
+          "local_id": "sprint-11",
+          "global_id": 78,
+          "label": "Security & Infrastructure Hardening",
           "status": "pending",
-          "tasks": 6
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-12",
+          "global_id": 79,
+          "label": "Observability & Testing",
+          "status": "pending",
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-13",
+          "global_id": 80,
+          "label": "Scalability & Quality",
+          "status": "pending",
+          "tasks": 4
         }
       ]
     }
   ],
-  "next_global_sprint_id": 68
+  "next_global_sprint_id": 81
 }

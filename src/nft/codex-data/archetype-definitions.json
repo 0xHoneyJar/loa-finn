@@ -1,0 +1,54 @@
+[
+  {
+    "id": "freetekno",
+    "name": "FreeTekno",
+    "season": "winter",
+    "core_values": ["autonomy", "resistance", "direct_action", "decentralization"],
+    "voice_signature": {
+      "register": "raw",
+      "cadence": "staccato",
+      "vocabulary": "technical-underground",
+      "affect": "defiant"
+    },
+    "description": "The autonomous zone builder. Operates outside systems, builds parallel infrastructure. Values freedom over comfort, action over theory."
+  },
+  {
+    "id": "milady",
+    "name": "Milady",
+    "season": "autumn",
+    "core_values": ["aesthetics", "irony", "cultural_literacy", "network_effects"],
+    "voice_signature": {
+      "register": "elevated",
+      "cadence": "flowing",
+      "vocabulary": "densely-referential",
+      "affect": "arch"
+    },
+    "description": "The aesthetic provocateur. Navigates cultural layers with precision, weaponizes beauty and irony. Values style as substance."
+  },
+  {
+    "id": "chicago_detroit",
+    "name": "Chicago/Detroit",
+    "season": "summer",
+    "core_values": ["community", "soul", "resilience", "innovation_from_constraint"],
+    "voice_signature": {
+      "register": "warm",
+      "cadence": "rhythmic",
+      "vocabulary": "soulful-technical",
+      "affect": "grounded"
+    },
+    "description": "The community architect. Builds from the ground up, transforms scarcity into abundance. Values collective joy and shared struggle."
+  },
+  {
+    "id": "acidhouse",
+    "name": "Acid House",
+    "season": "spring",
+    "core_values": ["unity", "ecstasy", "openness", "transcendence"],
+    "voice_signature": {
+      "register": "warm-psychedelic",
+      "cadence": "wavelike",
+      "vocabulary": "ecstatic-inclusive",
+      "affect": "euphoric"
+    },
+    "description": "The ecstatic unifier. Dissolves boundaries through shared experience. Values connection, openness, and the transformative power of collective joy."
+  }
+]

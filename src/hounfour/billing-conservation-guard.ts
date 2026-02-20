@@ -60,6 +60,10 @@ const CONSTRAINT_EXPRESSIONS = {
   // Evaluator returns "bypassed" for this invariant; ad-hoc assertMicroUSDFormat() does real validation.
   // The lattice still enforces fail-closed via the ad-hoc result.
   micro_usd_format: null,
+  // Sprint 3: Entitlement state check — ad-hoc only (state enum, not numeric expression)
+  entitlement_valid: null,
+  // Sprint 3: Rate consistency — ad-hoc only (floating-point comparison not in constraint language)
+  rate_consistency: null,
 } as const
 
 type InvariantId = keyof typeof CONSTRAINT_EXPRESSIONS
@@ -85,6 +89,7 @@ export class BillingConservationGuard {
   private compiled = false
   private state: GuardState = "uninitialized"
   private bypassed = false
+  private recoveryStopped = false // BB-026-iter2-002: state-based recovery control
   private readonly deps: GuardDeps
   private readonly metrics: GuardMetrics
   private recoveryTimer: ReturnType<typeof setTimeout> | null = null
@@ -188,6 +193,7 @@ export class BillingConservationGuard {
   startRecoveryTimer(intervalMs: number = DEFAULT_RECOVERY_INTERVAL_MS): void {
     if (this.recoveryTimer) return
     if (this.state !== "degraded") return
+    if (this.recoveryStopped) return // BB-026-iter2-002: no retry after explicit stop
 
     let currentInterval = intervalMs
     const maxInterval = intervalMs * 10 // Cap at 10x base (e.g., 10 min if base is 60s)
@@ -231,6 +237,7 @@ export class BillingConservationGuard {
       clearTimeout(this.recoveryTimer)
       this.recoveryTimer = null
     }
+    this.recoveryStopped = true // BB-026-iter2-002: prevent re-start after explicit stop
   }
 
   // === INVARIANT CHECKS ===
@@ -272,6 +279,28 @@ export class BillingConservationGuard {
       adhoc = "fail"
     }
     return this.runCheck("micro_usd_format", { value }, adhoc)
+  }
+
+  /**
+   * Check that BYOK entitlement state is valid for inference (Sprint 3 Task 3.3).
+   * Valid states: ACTIVE, PAST_DUE. Invalid: GRACE_EXPIRED, CANCELLED.
+   */
+  checkEntitlementValid(state: string): InvariantResult {
+    const validStates = new Set(["ACTIVE", "PAST_DUE"])
+    const adhoc = validStates.has(state) ? "pass" : "fail" as const
+    return this.runCheck("entitlement_valid", { state }, adhoc)
+  }
+
+  /**
+   * Check that COMMIT uses the frozen rate from RESERVE, not a different rate (Sprint 3 Task 3.3).
+   * Verifies rate consistency per billing_entry_id across the Reserve→Commit lifecycle.
+   */
+  checkRateConsistency(commitRate: number, reserveRate: number): InvariantResult {
+    const adhoc = commitRate === reserveRate ? "pass" : "fail" as const
+    return this.runCheck("rate_consistency", {
+      commit_rate: String(commitRate),
+      reserve_rate: String(reserveRate),
+    }, adhoc)
   }
 
   // === PRIVATE ===
@@ -430,12 +459,14 @@ export class BillingConservationGuard {
     adhocResult: "pass" | "fail",
   ): void {
     // Sanitize input to numeric billing fields only (no PII)
-    const allowedKeys = new Set(["spent", "limit", "cost", "zero", "reserve", "allocation", "value"])
+    const allowedKeys = new Set(["spent", "limit", "cost", "zero", "reserve", "allocation", "value", "state", "commit_rate", "reserve_rate"])
+    // Safe enum values that are allowed through (non-numeric but not PII)
+    const safeEnumValues = new Set(["ACTIVE", "PAST_DUE", "GRACE_EXPIRED", "CANCELLED"])
     const inputSummary: Record<string, string> = {}
     for (const [k, v] of Object.entries(context)) {
       if (!allowedKeys.has(k)) continue
       const s = String(v)
-      if (/^-?\d+$/.test(s)) {
+      if (/^-?\d+(\.\d+)?$/.test(s) || safeEnumValues.has(s)) {
         inputSummary[k] = s
       }
     }

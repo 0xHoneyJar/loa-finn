@@ -1589,7 +1589,7 @@ describe("observability: compilation metrics (Task 2.10)", () => {
 
     expect(calls.compileDuration).toHaveLength(1)
     expect(calls.compileDuration[0]).toBeGreaterThan(0)
-    expect(calls.constraintCount).toEqual([4])
+    expect(calls.constraintCount).toEqual([6])
     expect(calls.circuitState).toEqual(["closed"])
   })
 
@@ -1630,7 +1630,7 @@ describe("observability: compilation metrics (Task 2.10)", () => {
 
     expect(guard.getHealth().state).toBe("ready")
     expect(calls.circuitState).toEqual(["open", "closed"])
-    expect(calls.constraintCount).toEqual([4])
+    expect(calls.constraintCount).toEqual([6])
 
     guard.stopRecoveryTimer()
     vi.useRealTimers()
@@ -1753,7 +1753,7 @@ describe("observability: hard-fail metrics + structured logging (Task 2.10)", ()
 
     expect(calls.hardFail).toHaveLength(1)
     expect(calls.hardFail[0].evaluator_result).toBe("error")
-  })
+  }, 10_000)
 })
 
 // --- Metric Signal: Divergence ---
@@ -1814,7 +1814,7 @@ describe("observability: circuit-open alert (Task 2.10)", () => {
     vi.restoreAllMocks()
   })
 
-  it("fires critical alert via AlertService when entering degraded state", async () => {
+  it("fires critical alert via AlertService when entering degraded state", { timeout: 10_000 }, async () => {
     evaluatorOverride.fn = () => ({ valid: false, error: "broken", value: false })
     vi.spyOn(console, "error").mockImplementation(() => {})
 

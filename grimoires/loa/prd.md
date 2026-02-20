@@ -1,43 +1,68 @@
-# PRD: Protocol Convergence — loa-hounfour v5.0.0 → v7.0.0
+# PRD: Full Stack Launch — Build Everything, Then Ship
 
-> **Version**: 1.1.0 (Flatline-integrated)
-> **Date**: 2026-02-18
-> **Author**: @janitooor + Claude Opus 4.6
-> **Status**: Draft
-> **Cycle**: cycle-026
+> **Version**: 1.2.0
+> **Date**: 2026-02-19
+> **Author**: @janitooor + Claude Opus 4.6 (Bridgebuilder)
+> **Status**: Draft — GPT-5.2 APPROVED (iteration 3) · Flatline APPROVED (5 HIGH_CONSENSUS + 5 BLOCKERS integrated)
+> **Cycle**: cycle-027
 > **Command Center**: [#66](https://github.com/0xHoneyJar/loa-finn/issues/66)
-> **Source**: [#66 Protocol Convergence Update](https://github.com/0xHoneyJar/loa-finn/issues/66#issuecomment-3914427997)
-> **Cross-references**: [loa-hounfour v7.0.0](https://github.com/0xHoneyJar/loa-hounfour/releases/tag/v7.0.0) · [loa-hounfour PR #14](https://github.com/0xHoneyJar/loa-hounfour/pull/14) · [MIGRATION.md](https://github.com/0xHoneyJar/loa-hounfour/blob/main/MIGRATION.md) · [Issue #13 (extraction tracker, CLOSED)](https://github.com/0xHoneyJar/loa-hounfour/issues/13)
-> **Grounding**: `src/hounfour/` (33 files), `packages/loa-hounfour/` (1,158 LOC, stale v1.0.0), `tests/finn/` (200 tests, 15 suites), `grimoires/oracle/` (20 knowledge sources)
-> **Predecessor**: cycle-025 "The Oracle" (v1.29.0, PR #75 merged), cycle-021 "S2S Billing" (v5.0.0 adoption, PR #68 merged)
+> **Command Deck**: [Round 1](https://github.com/0xHoneyJar/loa-finn/issues/66#issuecomment-3919495664)
+> **Deep Review**: [Bridgebuilder on PR #79](https://github.com/0xHoneyJar/loa-finn/pull/79#issuecomment-3919440062)
+> **GTM Plan**: [arrakis PR #74](https://github.com/0xHoneyJar/arrakis/pull/74)
+> **Competitive Intel**: [Issue #80 (Conway)](https://github.com/0xHoneyJar/loa-finn/issues/80) · [Issue #37 (Nanobot)](https://github.com/0xHoneyJar/loa-finn/issues/37) · [Issue #46 (Hive)](https://github.com/0xHoneyJar/loa-finn/issues/46)
+> **Predecessor**: cycle-026 "Protocol Convergence v7" (PR #79, bridge complete, JACKED_OUT)
+> **Grounding**: `src/hounfour/` (33 files), `src/gateway/` (17 files), `grimoires/loa/reality/` (6 spokes), `tests/` (2101 passing)
 
 ---
 
 ## 1. Problem Statement
 
-### The Protocol Gap
+### The Product Gap
 
-loa-finn's shared protocol package (`@0xhoneyjar/loa-hounfour`) is pinned to a commit corresponding to **v5.0.0**. The canonical version is now **v7.0.0** — three major versions ahead, shipping 87+ schemas, 31 evaluator builtins, and 147 constraints across 40 constraint files.
+52 global sprints across 26 development cycles have produced a world-class inference engine. The infrastructure scorecard ([Issue #66 comment](https://github.com/0xHoneyJar/loa-finn/issues/66)):
 
-The gap creates three problems:
+```
+Infrastructure (the "Terraform")           90%  READY
+Product Experience (the "Vercel")          25%  NOT READY
+```
 
-**Type safety erosion.** loa-finn uses local equivalents for types that now have canonical protocol definitions. `MicroUSD` is a string pattern in local code but a branded type in the protocol. `PoolId` is a union literal that could drift from the canonical vocabulary. Local and canonical types coexist with no guarantee of compatibility.
+Multi-model routing, budget conservation, pool enforcement, BYOK redaction, JWT auth, ensemble strategies, protocol contract (loa-hounfour v7) — all production-grade. But no user can buy credits, no agent has a homepage, no NFT personality can be authored, and no value flows through the system.
 
-**Conservation blind spot.** The protocol now includes 14 conservation invariants with LTL formalization and a constraint evaluation system. loa-finn's billing pipeline (`billing-finalize-client.ts`, `cost-arithmetic.ts`, `budget.ts`) enforces invariants through ad-hoc checks rather than the canonical evaluator. If a billing invariant is added to the protocol, loa-finn won't know.
+### The Timing Window
 
-**Knowledge staleness.** The Oracle (PR #75) has knowledge sources grounded in v5.x protocol reality. `code-reality-hounfour.md` describes a protocol that no longer exists. Users asking the Oracle about the protocol will get outdated answers.
+Three market signals demand immediate action:
 
-### What's Changed (v5.0.0 → v7.0.0)
+1. **Conway Terminal** ([Issue #80](https://github.com/0xHoneyJar/loa-finn/issues/80)) launched Feb 18 — sovereign agent infrastructure with x402 payments. 2M views on announcement. Proves market demand for agent economic autonomy.
+2. **x402 adoption** — 75M+ transactions on Coinbase. Google AP2 announced. HTTP-native machine payments are standardizing NOW.
+3. **ERC-7857** (Intelligent NFTs) in draft — trade agents with intelligence intact. Our Soul/Inbox architecture ([Issue #27](https://github.com/0xHoneyJar/loa-finn/issues/27)) anticipated this.
 
-| Version | Breaking Change | Impact on loa-finn |
-|---------|----------------|-------------------|
-| v5.5.0 | None (additive) | New: ConservationPropertyRegistry, branded types, AgentIdentity, JWT boundary spec |
-| v6.0.0 | `AgentIdentity.trust_level` → `trust_scopes` | **Low** — loa-finn doesn't use `AgentIdentity` directly. Uses JWT `Tier` (different concept). |
-| v7.0.0 | `RegistryBridge` gains required `transfer_protocol` | **None** — loa-finn doesn't use `RegistryBridge` yet. |
+### The Strategy: Build Everything, Then Ship
 
-**Key insight**: Neither breaking change affects existing loa-finn code *based on current import analysis* (11 files import from loa-hounfour; none use `AgentIdentity` or `RegistryBridge`). However, shared schemas used indirectly (validators, vocabularies, TypeBox defaults) may have changed in ways not visible from import analysis alone. **Sprint 1 must include an explicit schema audit** — diff every imported symbol and every runtime-validated schema between v5.0.0 and v7.0.0, verifying no new required fields appear on wire-format schemas. See FR-1 acceptance criteria.
+The user's mandate is explicit: **build all killer features before onboarding real users.** Ship as closed beta with invite-only access. Internal testing first with real value flowing. Focus QA on the running system, not concurrent feature shipping.
 
-> Source: [MIGRATION.md](https://github.com/0xHoneyJar/loa-hounfour/blob/main/MIGRATION.md), [CHANGELOG.md](https://github.com/0xHoneyJar/loa-hounfour/blob/main/CHANGELOG.md), codebase exploration (11 files with hounfour imports)
+This PRD defines the complete scope for that strategy.
+
+### Staged Rollout Gates (Flatline SKP-001)
+
+"Build everything, then ship" does NOT mean flip one switch. Each track has a feature flag and an explicit release gate:
+
+| Gate | Tracks Enabled | Users | Value Flow |
+|------|---------------|-------|------------|
+| **Gate 0: Smoke** | E2E loop only | Engineers only | Fake money (test credits) |
+| **Gate 1: Ignition** | + Credit packs + Denominations | Internal team (3-5) | Real USDC → real credits |
+| **Gate 2: Warmup** | + NFT experience + Onboarding | Internal + 5 invited | Real agents, real conversations |
+| **Gate 3: Idle** | + BYOK | Expanded beta (10-20) | Subscription path validated |
+| **Gate 4: Launch** | + x402 + Multi-model review | Full closed beta | All revenue paths live |
+
+Each gate requires:
+- All acceptance criteria for included tracks pass
+- Conservation guard verified with real (or test) value at that gate
+- Feature flags for subsequent gates are OFF (kill-switch per track)
+- Rollback plan documented: disable feature flag → previous gate behavior
+
+Feature flags stored in Redis (`feature:{track_name}:enabled`), toggled via admin API.
+
+> Source: User directive 2026-02-19, Issue #66 gap analysis §6, Command Deck Round 1
 
 ---
 
@@ -47,487 +72,647 @@ The gap creates three problems:
 
 | Objective | Success Metric |
 |-----------|---------------|
-| Protocol convergence | loa-finn imports from `@0xhoneyjar/loa-hounfour` at v7.0.0 tag |
-| Type safety | Zero local type definitions that shadow canonical protocol types |
-| Conservation coverage | Billing invariants validated by canonical evaluator builtins |
-| Knowledge freshness | Oracle knowledge sources reflect v7.0.0 protocol reality |
-| Local package removal | `packages/loa-hounfour/` directory deleted, all imports from external package |
-| Test parity | 187+ tests passing (no regression from current baseline) |
+| End-to-end value flow | A credit purchase → inference request → credit deduction completes with conservation guard verification |
+| Closed beta operational | Invite-only access active, 5+ internal testers using real credits |
+| All revenue paths wired | PAYG (credit packs), BYOK ($5/mo platform fee), and x402 (per-request USDC) all functional |
+| NFT agent experience | A finnNFT holder can create an agent personality, chat via web, and see usage |
+| Cross-system E2E | Docker compose starts arrakis + loa-finn, runs full inference→billing→credit flow |
+| Multi-model review | Bridge iterations produce findings from 2+ models with deduplicated severity ranking |
+| Zero-regression deployment | All 2101+ existing tests pass, no new test failures |
 
 ### Non-Goals
 
-- **Arrakis upgrade** — different repo, parallel work stream (Phase 3 in the convergence plan)
-- **Cross-system E2E** — requires both consumers at v7.0.0 (Phase 4, blocked on arrakis)
-- **npm publish** — loa-hounfour npm publishing is a separate concern; we use git tag pin
-- **New protocol features** — no new features built on v7.0.0 schemas (sagas, governance, etc.) — just adoption of existing canonical types and evaluator
+- **Public launch** — this cycle builds for closed beta only, not general availability
+- **Mobile apps** — web chat is sufficient for beta; native apps are post-launch
+- **Voice interaction** — text-only for beta (Whisper integration deferred)
+- **Agent social network** — inter-NFT messaging deferred (Issue #27 Phase 4)
+- **On-chain autonomous actions** — ERC-6551 TBA integration deferred (Issue #27 Phase 4)
+- **WhatsApp/Slack/additional channels** — Discord + Telegram + web chat sufficient for beta
 
 ---
 
 ## 3. User & Stakeholder Context
 
-### Primary Stakeholders
+### Primary Persona: The NFT Holder (Closed Beta)
 
-| Stakeholder | Concern | Impact |
-|-------------|---------|--------|
-| **loa-finn developers** | Type safety, import clarity | All hounfour imports resolve to single canonical source |
-| **Oracle users** | Accurate protocol knowledge | Knowledge sources reflect current protocol reality |
-| **arrakis team** | Wire format compatibility | No wire format changes — JWT claims, stream events unchanged |
-| **loa-hounfour maintainers** | Consumer adoption feedback | First consumer at v7.0.0 provides validation |
+Invite-only testers who hold a finnNFT (or any NFT from a supported collection). They want to:
+- Create a personality for their NFT agent
+- Chat with their agent via web (and optionally Discord/Telegram)
+- See how much they've spent and what's left
+- Optionally bring their own API key (BYOK) for cheaper inference
 
-### User Stories
+### Secondary Persona: The Community Admin
 
-1. **As a developer**, I want all protocol types to come from one package, so I don't have to guess which `PoolId` definition to use.
-2. **As a developer**, I want billing invariants validated by the protocol's evaluator, so new conservation properties are automatically enforced.
-3. **As an Oracle user**, I want accurate answers about the protocol, so I can understand how the system works.
-4. **As a CI pipeline**, I want the protocol version to be verifiable, so I can detect drift automatically.
+Manages a community on arrakis (Discord/Telegram). They want to:
+- Set community-wide budget limits
+- See aggregate usage across community members
+- Control which model tiers are available to which conviction levels
+
+### Tertiary Persona: The Permissionless Agent
+
+An autonomous agent (potentially Conway-powered) that wants to:
+- Pay for a single inference request via x402 USDC header
+- No account, no credit balance, just money-in → inference-out
+- Conservation guard verifies the payment covers the cost
+
+### Stakeholder: The Engineering Team
+
+Needs the closed beta to:
+- Validate the conservation guard with real money flowing
+- Identify edge cases in the billing pipeline under real usage
+- Prove the branded type system prevents denomination mixing in production
+- Build confidence before public launch
+
+> Source: Issue #66 §3, Issue #27 (finnNFT architecture), Command Deck §I (Conway persona)
 
 ---
 
 ## 4. Functional Requirements
 
-### FR-1: Version Bump & Dependency Cleanup
+### Track 1: E2E Billing Loop (P0 — Everything Else Depends on This)
 
-**Remove local package (comprehensive gate):**
-- Delete `packages/loa-hounfour/` directory (1,158 LOC across 15 files)
-- Remove any workspace references in root `package.json` or `tsconfig.json`
-- Search for ALL references: workspace protocol entries, tsconfig `paths`, `file:` references, deep imports (`@0xhoneyjar/loa-hounfour/dist/...`), and any compiled JS containing `packages/loa-hounfour` strings
-- Verify `node -e "console.log(require.resolve('@0xhoneyjar/loa-hounfour/package.json'))"` resolves to `node_modules/`, not `packages/`
+**FR-1.1: Wire loa-finn → arrakis finalize endpoint**
 
-**Bump external dependency:**
-- Change `package.json` from git commit pin to: `"@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#v7.0.0"`
-- Run `npm install` to update lockfile
-- Verify `tsc --noEmit` compiles cleanly
+The billing finalize call must flow from loa-finn to arrakis after every inference request.
 
-**Schema audit gate (Sprint 1 prerequisite for FR-2/FR-3):**
-- Enumerate every symbol imported from `@0xhoneyjar/loa-hounfour` in loa-finn today
-- For each imported schema used in runtime validation (`JwtClaimsSchema`, `InvokeResponseSchema`, `StreamEventSchema`, `RoutingPolicySchema`, `CostBreakdownSchema`): diff v5.0.0 vs v7.0.0 field definitions
-- **TypeBox peer dependency alignment**: Verify loa-finn's TypeBox version is compatible with loa-hounfour v7.0.0's peer dependency. Mismatched TypeBox versions can cause silent schema validation differences.
-- Verify: no new **required** fields on any wire-format schema (JWT claims, stream events, invoke request/response)
-- Document any additive optional fields and their defaults
+- loa-finn calls `POST /api/internal/billing/finalize?format=loh` with S2S JWT
+- Request body contains `BillingEntry` protocol type (loa-hounfour v7 schema)
+- Response validates against `billing-entry` JSON Schema via Ajv
+- Conservation guard's `budget_conservation` invariant fires on the finalize response
 
-**Comprehensive audit checklist** (each wire-format schema must be checked for ALL of these):
+**Billing State Machine (4 states):**
+1. **RESERVE** — Before inference: check credits sufficient, hold estimated amount
+2. **COMMIT** — After inference: finalize with actual cost via arrakis endpoint
+3. **RELEASE** — On failure: release held reserve, no charge
+4. **VOID** — On partial failure: compensating entry to reverse committed charge
 
-| Dimension | What to Check | Failure Mode if Missed |
-|-----------|--------------|----------------------|
-| Required fields | New required fields added | Request rejection |
-| Optional fields + defaults | Changed defaults or new optionals with non-undefined defaults | Silent behavior change |
-| Patterns/regex | Tightened or changed string patterns | Validation rejection of previously valid values |
-| Enum/vocabulary members | Added, removed, or renamed members | Unhandled variants or rejected values |
-| `additionalProperties` | Changed from `true`/absent to `false` | Previously accepted extra fields rejected |
-| Nullable/union changes | Narrowed unions or removed `null` | Runtime type errors |
-| Numeric bounds | Changed min/max/multipleOf constraints | Value rejection |
-| Validator strictness | TypeBox `additionalProperties`, `$ref` resolution, default mode | Entire schema behavior change |
-| TypeBox version | Peer dependency compatibility | Subtle validation differences |
+**Preflight Finalize Health Check** (Flatline SKP-002): Before starting inference, loa-finn checks arrakis finalize endpoint health via a lightweight ping (`GET /api/internal/billing/health`). If unhealthy, the request is rejected immediately with HTTP 503 `{ "error": "billing_service_unavailable", "retry_after": 30 }`. This prevents streaming responses that can never be committed.
 
-**Audit artifact**: Produce a `schema-audit-v5-v7.json` with per-schema diff results, checked into `grimoires/loa/a2a/` as a sprint gate artifact.
+**Response Gating Rule**: If finalize COMMIT fails *after* streaming has begun (transient failure during inference), the model response is still delivered, but the account enters `PENDING_RECONCILIATION` state. Further requests are blocked until DLQ replay commits the pending charge, auto-release at 24h (NFR-6), or admin releases it. This avoids "paid but no answer" incidents while preventing unbounded debt accumulation.
 
-**Acceptance criteria:**
-- [ ] `packages/loa-hounfour/` directory does not exist
-- [ ] No path aliases, workspace refs, or deep imports reference the deleted local package
-- [ ] All imports from `@0xhoneyjar/loa-hounfour` resolve to v7.0.0 in `node_modules/`
-- [ ] `tsc --noEmit` passes with zero errors
-- [ ] Schema audit documents every wire-format schema diff (v5→v7) with "no new required fields" confirmation
-- [ ] Existing 187+ tests still pass
+**Bounded Reconciliation** (Flatline SKP-002): To prevent mass account lockout if arrakis goes down:
+- Circuit breaker on finalize endpoint: after 5 consecutive failures in 60s, trip breaker → reject new requests at preflight (not after streaming)
+- Max concurrent PENDING_RECONCILIATION accounts: 50 (configurable). If exceeded, new requests denied until queue drains.
+- Prometheus alert: `billing_pending_reconciliation_count > 10` triggers PagerDuty
 
-### FR-2: Canonical Branded Type Adoption
+**Acceptance Criteria:**
+- [ ] S2S JWT signed with ES256 via vetted library (jose/jsonwebtoken), includes `sub: "loa-finn"`, `aud: "arrakis"`, `req_hash`
+- [ ] `req_hash` compared with `timingSafeEqual` (not JWT signature verification itself — ECDSA uses constant-time math internally)
+- [ ] `BillingEntry` serialized through `serializeMicroUSD()` (branded type, not raw string)
+- [ ] Conservation guard dual-path verification passes (evaluator + ad-hoc) on RESERVE
+- [ ] Finalize endpoint is idempotent: `billing_entry_id` (ULID) ensures exactly-once commit
+- [ ] Failed finalize triggers DLQ entry with replay capability; account enters PENDING_RECONCILIATION
+- [ ] DLQ replay test: simulate finalize failure, verify account blocks new requests, replay succeeds, account unblocks
+- [ ] Negative tests: invalid JWT signature, wrong `aud`/`sub`, expired token, wrong `req_hash` — all rejected
 
-Replace local type equivalents with canonical branded types from loa-hounfour v5.5.0+:
+**FR-1.2: Protocol handshake at startup**
 
-| Local Pattern | Canonical Type | Files Affected |
-|--------------|----------------|----------------|
-| `string` for micro-USD amounts | `MicroUSD` (branded string) | `src/hounfour/billing-finalize-client.ts`, `cost-arithmetic.ts`, `budget.ts` |
-| `number` for basis points | `BasisPoints` (branded number) | `src/hounfour/budget.ts`, pricing config |
-| `string` for account IDs | `AccountId` (branded string) | JWT auth, billing client |
-| Local `PoolId` union literal | Canonical `PoolId` from vocabulary | Already imported — verify canonical |
+The handshake validates a single contract domain: the `loa_hounfour_billing_contract` version. loa-finn declares its minimum supported version (`4.0.0`); arrakis declares its implemented version (`4.6.0`). The check is: `arrakis_version >= finn_min_supported`.
 
-**Wire format stability contract:**
+- Contract domain: `loa_hounfour_billing_contract` (not loa-hounfour package version or arrakis app version)
+- loa-finn declares `FINN_MIN_SUPPORTED_BILLING_CONTRACT = '4.0.0'`
+- arrakis responds with `billing_contract_version: '4.6.0'` in handshake response
+- Handshake failure prevents service startup (fail-closed)
 
-For each branded type used at any boundary (JWT claims, HTTP bodies, WS messages, stream events):
+**Acceptance Criteria:**
+- [ ] `compatibility.ts` handshake runs during boot sequence using `billing_contract_version` field
+- [ ] Incompatible versions produce a clear error message: "loa-finn requires billing contract >= 4.0.0, arrakis reports 3.x.x"
+- [ ] Health endpoint reflects handshake status
+- [ ] Test matrix: compatible pairs (4.0.0/4.6.0, 4.0.0/5.0.0) pass, incompatible pairs (4.0.0/3.9.9) fail
 
-| Branded Type | Wire Type | Canonical Format | Conversion Points |
-|-------------|-----------|-----------------|-------------------|
-| `MicroUSD` | `string` | `^[0-9]+$` (unsigned) or `^-?[0-9]+$` (signed, v4.0.0+) | Parse: `string → MicroUSD` at request boundary. Serialize: `MicroUSD → string` at response boundary. Internal: BigInt arithmetic. |
-| `BasisPoints` | `number` | Integer, 0–10000 | Parse: `number → BasisPoints` at config load. Internal only (not on wire). |
-| `AccountId` | `string` | `^[a-zA-Z0-9_-]+$` | Parse: `string → AccountId` at JWT validation. Serialize: `AccountId → string` at billing finalize. |
-| `PoolId` | `string` | Union literal from vocabulary | Already canonical — verify no vocabulary changes between v5 and v7. See drift contingency below. |
+**FR-1.3: Docker Compose full stack**
 
-**PoolId vocabulary drift contingency:**
-The `PoolId` union literal is the most heavily used type (31+ occurrences across 5 source files). If the vocabulary changed between v5 and v7:
-1. **Detection**: Schema audit (FR-1) must diff PoolId vocabulary members between v5 and v7
-2. **If unchanged**: No action needed — verify with vocabulary snapshot test
-3. **If members added**: Backward-compatible — existing code handles known members, new members fall through to default handling
-4. **If members removed or renamed**: Breaking — pin v5 vocabulary as an alias set, add backward-compatible parsing that maps old names to new, and flag for arrakis coordination
+- Single `docker compose up` starts arrakis + loa-finn + Redis
+- Real ES256 keypair shared via Docker volume (generated by `e2e-keygen.sh`)
+- Test sends inference request through full stack: arrakis → loa-finn → model → budget → finalize → credit deduction
 
-**Golden wire fixtures (Sprint 1 pre-bump, Sprint 2 post-migration gate):**
-- Add JSON snapshot tests for: billing request body, billing response body, JWT claims payload, stream event envelope
-- These fixtures must remain byte-for-byte stable across the branded type migration
-- Any fixture change requires explicit justification and arrakis compatibility review
+**Acceptance Criteria:**
+- [ ] `npm run test:e2e` in arrakis repo passes with both services running
+- [ ] Credit balance decrements by expected MicroUSD amount after inference
+- [ ] DLQ replay recovers from simulated finalize failure
 
-**Fixture determinism requirements:**
+### Track 2: Denomination System (P0)
 
-| Element | Rule | Rationale |
-|---------|------|-----------|
-| JWT signing key | Fixed ES256 test keypair committed to test fixtures | Deterministic signatures |
-| Timestamps (`iat`, `exp`) | Fixed epoch values (e.g., `1700000000`) | Reproducible across runs |
-| Nonce/JTI | Fixed test values (`test-jti-001`) | Deterministic token body |
-| JSON key order | Canonical key ordering (alphabetical or schema-defined) | Byte-for-byte comparison |
-| Whitespace | Compact JSON (`JSON.stringify` with no indent) | No formatting drift |
-| `req_hash` | Computed from fixed request body, verified end-to-end | Catches hash algorithm changes |
+**FR-2.1: CreditUnit branded type**
 
-**Normalization boundaries**: Byte-for-byte match required for JSON body payloads. JWT header/signature segments may vary only if signing key changes (which is gated). The fixture harness must replay signing and verification end-to-end, not just compare pre-signed tokens.
+New branded type in `wire-boundary.ts` for pre-loaded credit balances. Follows the `parseMicroUSD` template: strict constructor, lenient reader with normalization metrics, serializer.
 
-**MicroUSD canonical normalization rules:**
+**Acceptance Criteria:**
+- [ ] `CreditUnit` branded type exported from `wire-boundary.ts`
+- [ ] `parseCreditUnit()` with same 3-layer enforcement (type, lint, runtime)
+- [ ] `MAX_CREDIT_UNIT_LENGTH` constant shared with MicroUSD (symmetric DoS bounds)
+- [ ] CreditUnit ↔ MicroUSD conversion function with explicit exchange rate parameter
 
-| Edge Case | Canonical Behavior | Example |
-|-----------|-------------------|---------|
-| Leading zeros | Strip — `"007"` → `"7"` | Normalizer rejects or strips |
-| Negative values | Allowed (signed, v4.0.0+) — `"-100"` is valid | Pattern: `^-?[1-9][0-9]*$\|^0$` |
-| Plus sign | Reject — `"+100"` is invalid | Parse boundary rejects |
-| Empty string | Reject — `""` is invalid | Validator rejects at boundary |
-| Zero representation | Canonical `"0"`, not `"-0"` or `"00"` | Normalizer maps `-0` → `0` |
-| Overflow | No upper bound in protocol (BigInt) | Application-level budget limits apply |
+**FR-2.2: Credit pack purchase flow**
 
-Fixtures must include edge-case vectors for each rule above. Both validator (parse boundary) and serializer (response boundary) must enforce the same normalization.
+Users purchase credit packs ($5, $10, $25) that mint a credit balance.
 
-**Acceptance criteria:**
-- [ ] No local type aliases that shadow canonical protocol types
-- [ ] Type narrowing/validation uses canonical validators where available
-- [ ] All branded type conversions are explicit (no silent coercion)
-- [ ] Golden wire fixtures pass: billing request/response, JWT claims, stream events remain byte-for-byte stable
-- [ ] MicroUSD signed/unsigned pattern documented and consistent with arrakis expectations
+**Closed Beta Payment Rail**: Base USDC transfer (single rail for beta simplicity). Stripe deferred to post-beta.
 
-### FR-3: Conservation Evaluator Integration
+**Payment Proof Schema:**
+```typescript
+interface CreditPurchaseRequest {
+  pack_size: 500 | 1000 | 2500  // CreditUnit amounts (= $5, $10, $25 at 100 CU/$1)
+  payment_proof: {
+    tx_hash: string              // Base L2 transaction hash
+    chain_id: 8453               // Base mainnet
+    token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'  // USDC on Base
+    sender: string               // Payer wallet address (must match authenticated wallet)
+    amount_micro_usdc: string    // MicroUSDC amount (6 decimals)
+  }
+  idempotency_key: string        // Client-generated ULID, prevents double-mint
+}
+```
 
-Wire the canonical conservation evaluator for billing invariants:
+**Verification Steps** (Flatline SKP-003 — event-log level):
+1. Fetch transaction receipt for `tx_hash` on Base RPC
+2. Parse USDC `Transfer(address,address,uint256)` event logs from receipt:
+   - Verify `token` matches USDC contract address (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)
+   - Verify `to` matches treasury address (`TREASURY_ADDRESS` env var)
+   - Verify `value` matches expected `amount_micro_usdc` for the pack size
+   - Record `log_index` for uniqueness: idempotency key is `(tx_hash, log_index)` not just `tx_hash`
+3. Verify `from` matches authenticated wallet — **with smart wallet support**:
+   - If `from == authenticated_wallet` → EOA match, proceed
+   - If `from != authenticated_wallet` → check if `authenticated_wallet` is an authorized signer via EIP-1271 `isValidSignature()` on the `from` contract. If valid, proceed. If not, reject.
+   - This supports Safe{Wallet}, Argent, and other smart contract wallets
+4. Require 12+ L2 confirmations (finality on Base)
+5. Check `(tx_hash, log_index)` against WAL — if seen, return existing mint result (exactly-once)
+6. Mint credit balance: double-entry ledger produces entries per posting rules above
+7. Conservation guard verifies `budget_conservation` post-mint
 
-| Billing Invariant | Evaluator Builtin | Current Enforcement |
-|-------------------|-------------------|---------------------|
-| Budget conservation (spent ≤ limit) | `bigint_lte` | Ad-hoc check in `budget.ts` |
-| Cost non-negative | `bigint_gte` (vs 0) | Ad-hoc check in `cost-arithmetic.ts` |
-| Reserve ≤ allocation | `bigint_lte` | Ad-hoc check in `billing-finalize-client.ts` |
-| Micro-USD string format | `string_matches_pattern` | TypeBox schema validation |
+**Double-Entry Ledger Rules:**
 
-**Approach**: Import `EVALUATOR_BUILTIN_SPECS` and individual builtins from `@0xhoneyjar/loa-hounfour`. Create a `BillingConservationGuard` that wraps existing checks with evaluator-backed validation.
+The ledger is the **source of truth** for all credit balances. Balance is derived, not stored:
+```
+balance(account) = SUM(credits WHERE account_id = account) - SUM(debits WHERE account_id = account)
+```
 
-**Evaluator lifecycle (performance contract):**
-1. **Startup**: Load and compile constraint registry once at process boot (`BillingConservationGuard.init()`)
-2. **Cache**: Compiled constraint ASTs stored in memory — no per-request parsing
-3. **Execute**: Only billing-relevant builtins invoked per request (4 builtins, not full 31-builtin suite)
-4. **Benchmark**: CI microbenchmark harness on representative payloads; build fails if p95 > 1ms per invariant
+| Event | Debit Account | Credit Account | Amount | Idempotency Key |
+|-------|--------------|----------------|--------|-----------------|
+| Credit purchase | `treasury:usdc_received` | `user:{id}:credit_balance` | pack_size CU | `idempotency_key` from request |
+| Inference RESERVE | `user:{id}:credit_balance` | `system:reserves_held` | estimated CU | `billing_entry_id` |
+| Inference COMMIT | `system:reserves_held` | `system:revenue_earned` | actual CU | `billing_entry_id` |
+| Reserve RELEASE | `system:reserves_held` | `user:{id}:credit_balance` | (estimated - actual) CU | `billing_entry_id` |
+| VOID | `system:revenue_earned` | `user:{id}:credit_balance` | voided CU | `billing_entry_id` |
 
-**Fail-closed invariant classification:**
+**Reconciliation**: Daily automated reconciliation sums all ledger entries by account. If derived balance != cached Redis balance, alert fires and Redis is re-derived from WAL. All posting rules use the `billing_entry_id` as idempotency key — replayed entries produce no additional ledger effect.
 
-| Invariant | Classification | On Failure |
-|-----------|---------------|------------|
-| Budget conservation (spent ≤ limit) | **HARD-FAIL** | Reject request, return 402 |
-| Cost non-negative | **HARD-FAIL** | Reject request, log alert |
-| Reserve ≤ allocation | **HARD-FAIL** | Reject finalize, return 409 |
-| Micro-USD string format | **HARD-FAIL** | Reject at validation boundary |
+**Failure Modes (fail-closed):**
+- Tx not found or pending → reject, return "payment not confirmed"
+- Tx found but wrong amount/recipient → reject, return "payment mismatch"
+- Tx already used (idempotency hit) → return original mint result
+- Chain RPC unavailable → reject, return "verification unavailable, retry later"
 
-All billing/ledger invariants are **fail-closed**. There is no fail-open mode for economic safety controls. If the evaluator itself fails to load at startup, the process must refuse to serve billing requests (circuit-open state).
+**Acceptance Criteria:**
+- [ ] Credit pack endpoint: `POST /api/v1/credits/purchase` with schema above
+- [ ] On-chain verification via Base RPC (viem or ethers): tx status, recipient, amount, confirmations
+- [ ] Credit balance minted as CreditUnit branded value with double-entry WAL entries
+- [ ] Idempotency: same `idempotency_key` returns identical response, no double-mint
+- [ ] Conservation guard `budget_conservation` wired to credit balance (limit = credit balance, spent = accumulated cost)
+- [ ] WAL audit entry for every credit mint and deduction
+- [ ] Negative tests: wrong amount, wrong recipient, insufficient confirmations, replay — all rejected
 
-**Startup failure recovery model:**
+**FR-2.3: Credit deduction on inference**
 
-| Failure Mode | Behavior | Recovery |
-|-------------|----------|----------|
-| Constraint registry compilation fails | Process starts but billing endpoints return 503 (circuit-open) | Retry compilation with exponential backoff (3 attempts, 1s/2s/4s) |
-| Compilation succeeds after retry | Circuit closes, billing endpoints become available | Health check transitions to READY |
-| All retries exhausted | Process remains up, non-billing endpoints available, billing returns 503 | Alert fires, requires deploy fix or manual restart |
-| Runtime constraint evaluation throws | Individual request fails with HARD-FAIL | Log, alert, but do not circuit-open (isolated failure) |
+Every inference request deducts from the user's credit balance using the billing state machine defined in FR-1.1.
 
-**Health endpoint integration**: `/health` returns `{ "billing": "ready" | "degraded" | "unavailable", "evaluator_compiled": true | false }`. Kubernetes readiness probe gates on `billing: "ready"` for billing-serving pods. Non-billing pods can serve without evaluator.
+**Deduction Flow (maps to FR-1.1 state machine):**
+1. **RESERVE**: Estimate cost from model + max_tokens + pool tier. Convert MicroUSD estimate to CreditUnit. Hold `estimated_credit_cost` against user balance. If insufficient → HTTP 402 immediately.
+2. **Inference executes**: Model generates response (streaming may begin).
+3. **COMMIT**: Compute `actual_cost` from realized tokens. Call arrakis finalize with `billing_entry_id`. On success, convert committed MicroUSD to CreditUnit and deduct from balance. Release any excess reserve (`estimated - actual`).
+4. **On finalize failure**: Account enters `PENDING_RECONCILIATION` (FR-1.1 gating rule). Reserve remains held. DLQ entry created for replay.
 
-**CI preflight gate**: Sprint 2 CI must include a step that compiles the evaluator constraint registry in the same Node version and container base image as production. This catches environment-sensitive compilation failures before deploy.
+**Exactly-once guarantee**: The `billing_entry_id` (ULID, generated at RESERVE) is the idempotency key for the entire deduction. Retried finalizes with the same ID produce the same ledger effect.
 
-**Emergency evaluator bypass** (break-glass only):
-- Environment variable `EVALUATOR_BYPASS=true` disables evaluator and falls back to existing ad-hoc checks
-- **NOT** a feature flag — requires deploy with explicit env override
-- When active: all billing requests logged with `{ "evaluator_bypassed": true }` for post-incident audit
-- Requires incident ticket reference in deploy notes
-- Ad-hoc checks (the pre-migration billing guards) must be preserved as fallback code paths, not deleted during evaluator integration
+**Concurrency Control** (prevents overdraft from parallel requests):
+- **Per-wallet sequencing**: RESERVE operations for the same `account_id` are serialized via Redis Lua script that atomically checks balance and holds reserve. No two RESERVEs for the same account can interleave.
+- **Lua script** (pseudocode): `if balance - active_reserves >= estimated_cost then INCR active_reserves; return OK else return INSUFFICIENT end`
+- **Optimistic concurrency on COMMIT**: COMMIT includes the `reserve_amount` from RESERVE. If the reserve was already released (e.g., timeout), COMMIT fails gracefully and the response is still delivered (PENDING_RECONCILIATION path).
+- **Reserve TTL**: Reserves expire after 5 minutes (configurable via `RESERVE_TTL_SECONDS`). Expired reserves are auto-released by Redis TTL + WAL cleanup job.
 
-**Acceptance criteria:**
-- [ ] Billing invariants enforced via canonical evaluator builtins
-- [ ] All billing invariants are fail-closed (no fail-open fallback)
-- [ ] Evaluator failures produce structured error with invariant ID
-- [ ] Evaluator compiled once at startup, cached — zero per-request compilation
-- [ ] Existing billing tests pass with evaluator wired in
-- [ ] CI microbenchmark: p95 evaluator overhead < 1ms per invariant on representative payloads
+**Acceptance Criteria:**
+- [ ] Inference cost estimated in MicroUSD at RESERVE, actual cost computed at COMMIT
+- [ ] CreditUnit conversion uses explicit exchange rate (`CREDIT_UNITS_PER_USD`, initially 100)
+- [ ] **Rate frozen per billing_entry_id** (Flatline SKP-005): the exchange rate at RESERVE time is persisted in the WAL entry and used for COMMIT and RELEASE — no rate drift between operations on the same entry
+- [ ] Canonical rounding: RESERVE rounds UP (ceil, user pays slightly more), COMMIT rounds DOWN (floor, user pays slightly less), RELEASE returns exact delta — net effect: user never overpays by more than 1 CU
+- [ ] RESERVE holds estimated amount; COMMIT deducts actual; excess released atomically
+- [ ] Failed COMMIT → account enters PENDING_RECONCILIATION, reserve held, DLQ entry created
+- [ ] Insufficient credits at RESERVE returns HTTP 402 with `{ balance_cu, estimated_cost_cu, deficit_cu }`
+- [ ] Conservation guard `budget_conservation` verified at both RESERVE (estimate) and COMMIT (actual)
+- [ ] Usage dashboard shows remaining credits, per-request cost breakdown, and any pending reconciliations
+- [ ] Test: reserve 100 CU, inference costs 80 CU → 20 CU released, balance reduced by 80 CU
+- [ ] Test: reserve 100 CU, finalize fails → balance still shows 100 CU held, account blocked until DLQ replay
 
-### FR-4: Protocol Handshake Update
+**FR-2.4: BYOK platform fee**
 
-Update `src/hounfour/protocol-handshake.ts` to handle v7.0.0:
+BYOK users pay a flat monthly platform fee ($5/mo) for platform access. BYOK is **entitlement-gated**, not conservation-gated — the conservation guard does not check per-request cost against a budget. Instead, the guard checks `entitlement_valid` (is the subscription active?).
 
-- Update `CONTRACT_VERSION` to `'7.0.0'`
-- **DO NOT** set `MIN_SUPPORTED_VERSION` to `'6.0.0'` — arrakis is at v4.6.0 and would be rejected. Set to `'4.0.0'` (or keep current value) until arrakis upgrades.
-- Verify `validateCompatibility()` from v7.0.0 package works with existing handshake flow
-- Handle the `trust_scopes` field in any protocol metadata exchange
+**BYOK Entitlement State Machine (4 states):**
+1. **ACTIVE** — Subscription current, inference allowed. Checked on every request.
+2. **PAST_DUE** — Payment failed or expired. Grace period begins (72 hours). Inference still allowed.
+3. **GRACE_EXPIRED** — Grace period elapsed without payment. Inference denied. Account shows "Subscription expired — reactivate to continue."
+4. **CANCELLED** — User explicitly cancelled. Inference denied immediately (no grace).
 
-**Explicit interoperability contract:**
+**Per-request check** (replaces `budget_conservation` for BYOK):
+```
+if (account.byok_entitlement !== 'ACTIVE' && account.byok_entitlement !== 'PAST_DUE') {
+  deny("BYOK subscription inactive")
+}
+```
 
-| Field | Value | Who Validates | On Mismatch |
-|-------|-------|---------------|-------------|
-| `contract_version` (advertised by loa-finn) | `'7.0.0'` | Peer consumer (arrakis) | arrakis currently ignores — no rejection expected |
-| `min_supported_version` (enforced by loa-finn) | `'4.0.0'` | loa-finn on inbound | Reject with `CONTRACT_VERSION_MISMATCH` (400) |
-| arrakis contract version | `'4.6.0'` (vendored) | loa-finn via `validateCompatibility()` | Accept — within loa-finn's `min_supported` range |
+**Abuse controls**: Rate limit of 1000 requests/day per BYOK account (configurable via `BYOK_DAILY_RATE_LIMIT`). Prevents unlimited usage on flat fee.
 
-**Version negotiation behavior:**
-- loa-finn advertises v7.0.0 but accepts peers ≥ v4.0.0
-- When arrakis upgrades to v7.0.0, `min_supported` can be raised to v6.0.0
-- Feature detection: `trust_scopes` presence indicates v6.0.0+ peer; absence indicates v4.x/v5.x peer
-- **Interop test required**: loa-finn(v7) handshake against arrakis(v4.6.0) fixture must not reject
+**Acceptance Criteria:**
+- [ ] BYOK monthly fee: `BYOK_MONTHLY_FEE_MICRO_USD` env var (default: `5000000` = $5.00)
+- [ ] Entitlement state machine: ACTIVE → PAST_DUE (on payment failure) → GRACE_EXPIRED (after 72h) → requires reactivation
+- [ ] CANCELLED state on explicit cancellation (no grace period)
+- [ ] Per-request entitlement check replaces conservation guard `budget_conservation` for BYOK accounts
+- [ ] BYOK inference requests metered for usage reporting (token count, model, cost-equivalent) but not charged per-request
+- [ ] Rate limit: 1000 req/day per BYOK account (configurable), returns HTTP 429 when exceeded
+- [ ] Proration: mid-month activation charges `(remaining_days / 30) * monthly_fee`
+- [ ] WAL audit entry for every entitlement state transition
+- [ ] Test: ACTIVE account → inference succeeds, metered but not charged
+- [ ] Test: GRACE_EXPIRED account → inference denied with reactivation message
+- [ ] Test: Rate limit exceeded → HTTP 429 with reset time
 
-**Handshake verification approach (two-tier):**
-1. **Synthetic fixture** (Sprint 1, required): Simulated arrakis v4.6.0 handshake request constructed from arrakis source code analysis. Document the exact arrakis code path and commit SHA that constructs/validates the handshake. Link to arrakis source in audit artifact.
-2. **Captured traffic replay** (Sprint 1, best-effort): If staging environment is available, capture a real arrakis→loa-finn handshake at current v5.0.0, then replay against v7.0.0 and diff. If staging unavailable, document as a risk and require manual verification before production deploy.
+### Track 3: x402 Agent Payments (P1)
 
-**Arrakis behavioral evidence**: The synthetic fixture must reference the specific arrakis code (file + line + commit) that handles `contract_version`. If arrakis has no validation logic for this field, cite the absence as evidence. Do not assert "arrakis ignores X" without a code reference.
+**FR-3.1: x402 middleware**
 
-**Acceptance criteria:**
-- [ ] Protocol handshake advertises v7.0.0
-- [ ] `MIN_SUPPORTED_VERSION` set to `'4.0.0'` — arrakis at v4.6.0 is within range
-- [ ] Interop fixture test: simulate arrakis v4.6.0 handshake, verify acceptance
-- [ ] Arrakis handshake behavior documented with source code reference (file:line:commit)
-- [ ] Captured traffic replay attempted; if unavailable, risk documented with manual verification gate
-- [ ] Feature detection for `trust_scopes` (present = v6.0.0+ peer, absent = v4.x/v5.x)
-- [ ] Health check includes protocol version in response
+Hono middleware that returns `402 Payment Required` with a **fixed price quote** for unauthenticated requests. The quote is a deterministic upper bound, not an estimate.
 
-### FR-5: Oracle Knowledge Corpus Update
+**Pricing Model**: Fixed price quote per request. The client receives a `max_cost` that is the absolute maximum they will pay. loa-finn enforces `max_tokens` bounds to guarantee the actual cost never exceeds the quote.
 
-Update Oracle knowledge sources to reflect v7.0.0 reality:
+**Credit-Note Refund** (Flatline SKP-004): If `actual_cost < quoted_max_cost`, the delta is issued as an off-chain credit note to a wallet-bound x402 balance. This balance can be applied to future x402 requests (reducing the required payment amount). Credit notes expire after 7 days. This avoids user-hostile overcharging while keeping settlement simple (no on-chain refund transfers).
 
-| Knowledge Source | Update Needed |
-|-----------------|---------------|
-| `code-reality-hounfour.md` | Complete rewrite — v5.x → v7.0.0 (87+ schemas, 31 builtins, constraint system) |
-| `architecture.md` | Update protocol layer description |
-| `capabilities.md` | Add conservation evaluator, branded types, liveness properties |
+**Per-request receipt**: Every x402 response includes `X-Receipt` header with JSON: `{ "quoted": <max_cost>, "actual": <actual_cost>, "credit_note": <delta>, "credit_balance": <total_x402_credits> }`.
 
-**Acceptance criteria:**
-- [ ] Oracle gold-set questions about the protocol return v7.0.0-accurate answers
-- [ ] No knowledge source references v5.x-specific concepts without noting migration
-- [ ] Gold-set passes at 100% (20/20 baseline from cycle-025)
+**Quote Calculation**:
+```
+max_cost = model_rate_per_token × max_tokens × markup_factor
+```
+Where `max_tokens` is capped at the request's `max_tokens` parameter (or model default if omitted), and `markup_factor` accounts for platform overhead (initially 1.0).
+
+**Acceptance Criteria:**
+- [ ] Unauthenticated `POST /api/v1/invoke` returns 402 with `X-Payment-Required` header
+- [ ] Header includes: `max_cost` (MicroUSDC), `max_tokens`, `model`, `payment_address`, `chain_id: 8453`, `valid_until` (Unix timestamp, 5 min TTL)
+- [ ] `max_cost` is a deterministic upper bound computed from `max_tokens × rate`
+- [ ] Authenticated requests (JWT or credit balance) bypass x402 flow
+- [ ] Quote is cached per `(model, max_tokens)` tuple for 60s to prevent price manipulation
+
+**FR-3.2: x402 payment verification**
+
+Verify `X-Payment` header contains valid USDC transfer authorization where `paid_amount >= quoted_max_cost`.
+
+**Payment Invariant**: `paid_amount >= quoted_max_cost` (not `paid_amount >= estimated_cost`). The quote is the contract — if the client pays the quoted amount, service is guaranteed.
+
+**Acceptance Criteria:**
+- [ ] Parse EIP-3009 `transferWithAuthorization` from `X-Payment` header
+- [ ] Verify: signature valid, `amount >= quoted_max_cost`, `validBefore >= now`, nonce unused
+- [ ] Enforce `max_tokens` from the quote — request cannot exceed the token bound that produced the price
+- [ ] Settlement via openx402.ai facilitator (primary) or direct on-chain verification (fallback)
+- [ ] Rounding: all MicroUSDC amounts ceil to nearest 1 MicroUSDC (no fractional units)
+- [ ] Nonce replay protection: store used nonces in Redis with TTL matching `validBefore`
+- [ ] Test: payment of exact `max_cost` → inference succeeds
+- [ ] Test: payment less than `max_cost` → rejected with "insufficient payment" and required amount
+- [ ] Test: expired `validBefore` → rejected
+- [ ] Test: replayed nonce → rejected
+
+**FR-3.3: MicroUSDC branded type**
+
+Wire boundary type for on-chain USDC settlement amounts. Conversion between internal ledger (MicroUSD) and on-chain settlement (MicroUSDC) uses an explicit, auditable rate.
+
+**Acceptance Criteria:**
+- [ ] `MicroUSDC` branded type in `wire-boundary.ts` (6-decimal USDC precision, matches USDC contract decimals)
+- [ ] `parseMicroUSDC()` / `serializeMicroUSDC()` with same 3-layer enforcement pattern
+- [ ] `convertMicroUSDtoMicroUSDC(amount: MicroUSD, rate: USDtoUSDCRate): MicroUSDC` — explicit rate parameter
+- [ ] Rate initially `1.0` but configurable via `USD_USDC_EXCHANGE_RATE` env var
+- [ ] **Rate frozen per billing_entry_id** (Flatline SKP-005): conversion rate at quote time persisted in WAL; settlement uses same rate regardless of env var changes between quote and settlement
+- [ ] Rounding: `Math.ceil()` on MicroUSDC conversions (platform bears sub-unit loss, not user)
+- [ ] Rate and rounding logged in WAL for audit trail
+- [ ] Reconciliation report: daily job sums rounding deltas by denomination, alerts if cumulative drift exceeds threshold (configurable, default 1000 MicroUSD)
+
+### Track 4: NFT Agent Experience (P0)
+
+**FR-4.1: Per-NFT personality authoring**
+
+Each finnNFT gets a unique BEAUVOIR.md personality file.
+
+**Acceptance Criteria:**
+- [ ] `POST /api/v1/nft/:tokenId/personality` creates personality from template + user preferences
+- [ ] Preferences: name, voice (analytical/creative/witty/sage), expertise domains, custom instructions
+- [ ] Personality stored in persistence layer (WAL → R2), keyed by `collection:tokenId`
+- [ ] NFTRoutingConfig updated to route this personality → appropriate task → pool mapping
+- [ ] Personality hot-reloadable (FileWatcher or config update endpoint)
+
+**FR-4.2: Agent homepage (web chat)**
+
+Each NFT gets a URL that serves a chat interface.
+
+**Acceptance Criteria:**
+- [ ] `GET /agent/:collection/:tokenId` serves agent homepage with personality info + chat widget
+- [ ] Chat widget connects via WebSocket for streaming responses
+- [ ] Wallet connect (MetaMask, WalletConnect) for authentication
+- [ ] Session resume across page reloads (existing session management)
+- [ ] Usage display: credits remaining, messages sent, model used
+
+**FR-4.3: Conversation persistence**
+
+User conversations stored per-NFT with session continuity.
+
+**Access Model**: Conversations are **bound to the wallet address at creation time** (not transferable with NFT). If the NFT is transferred to a new owner, the new owner starts fresh conversations. The previous owner retains read-only access to their historical conversations but cannot create new ones for the transferred NFT.
+
+This is the simpler, more private model for closed beta. On-trade conversation transfer (re-encryption for new owner) is deferred to post-beta as part of Soul/Inbox Phase 2 (Issue #27).
+
+**Ownership Verification**: On each API call, verify `msg.sender == conversation.owner_address`. No on-chain ownership check required for conversation access — ownership was verified at creation time. NFT ownership is only checked when creating a NEW conversation (to confirm the wallet holds the NFT).
+
+**Acceptance Criteria:**
+- [ ] Conversation thread model: `conversation_id`, `nft_id`, `owner_address`, `messages[]`, `created_at`
+- [ ] `owner_address` set at conversation creation time from authenticated wallet
+- [ ] Access check: `request.wallet_address === conversation.owner_address` (constant-time comparison)
+- [ ] NFT ownership verified via on-chain read (Base RPC, 1 confirmation) only at conversation creation
+- [ ] New owner of a transferred NFT can create new conversations but cannot access previous owner's
+- [ ] Conversations stored in Redis (hot) with WAL backup (warm) and R2 archive (cold)
+- [ ] Conversation list API: `GET /api/v1/nft/:tokenId/conversations` — filtered by authenticated wallet
+- [ ] Conversation survives session eviction (SessionRouter's 30min idle / 100 max cache)
+- [ ] Test: wallet A creates conversation, NFT transfers to wallet B → B cannot read A's conversations
+- [ ] Test: wallet B creates new conversation for same NFT after transfer → succeeds
+
+### Track 5: Onboarding & Access Control (P0)
+
+**FR-5.1: Invite-only access**
+
+Closed beta restricted to invited wallet addresses.
+
+**Allowlist Storage**: For closed beta, store **plaintext normalized addresses** in Redis set (`beta:allowlist`). Hashing deferred — with < 100 beta addresses, the privacy benefit of hashing doesn't justify the implementation complexity. If beta scales beyond 1000 addresses, migrate to `keccak256(lowercase_address)` with no salt (deterministic lookup).
+
+**Normalization**: All addresses normalized to lowercase before storage and lookup. EIP-55 mixed-case checksums are stripped — comparison is case-insensitive hex.
+
+**Lookup**: `SISMEMBER beta:allowlist <lowercase_address>` — O(1) Redis set membership check.
+
+**Acceptance Criteria:**
+- [ ] Allowlist stored as Redis set (`beta:allowlist`) with plaintext lowercase addresses
+- [ ] Address normalization: strip `0x` prefix optionally, lowercase, validate 40 hex chars, re-add `0x`
+- [ ] `SISMEMBER` lookup on every authenticated request (< 1ms with Redis)
+- [ ] Non-allowlisted wallets get HTTP 403 with JSON `{ "error": "beta_access_required", "waitlist_url": "..." }`
+- [ ] Admin endpoint: `POST /api/v1/admin/allowlist` (add/remove addresses), protected by admin JWT
+- [ ] Admin JWT requires `role: "admin"` claim (not just any valid JWT)
+- [ ] Allowlist bypass: addresses in `BETA_BYPASS_ADDRESSES` env var always pass (internal testing)
+- [ ] Rate limiting on allowlist check endpoint to prevent enumeration (10 req/min per IP)
+- [ ] WAL audit entry for every allowlist add/remove operation
+- [ ] Test: allowlisted address → access granted
+- [ ] Test: non-allowlisted address → 403 with waitlist URL
+- [ ] Test: mixed-case address matches lowercase entry in allowlist
+
+**FR-5.2: Onboarding flow**
+
+From wallet connect to first agent message.
+
+**Acceptance Criteria:**
+- [ ] Step 1: Connect wallet → detect NFTs (via arrakis NativeReader or direct chain query)
+- [ ] Step 2: Select NFT → show as agent avatar
+- [ ] Step 3: Configure personality (name, voice, expertise)
+- [ ] Step 4: Purchase credits (or activate BYOK)
+- [ ] Step 5: Agent goes live → redirect to agent homepage
+- [ ] Step 6: First message → streaming response → credit deducted → usage updated
+- [ ] Complete flow works end-to-end with real value (even if small amounts for testing)
+
+### Track 6: Multi-Model Review (P1)
+
+**FR-6.1: Bridge + Flatline unification**
+
+Bridge iterations invoke Flatline Protocol for multi-model findings.
+
+**Acceptance Criteria:**
+- [ ] Bridge iteration N triggers Flatline with PR diff as content
+- [ ] Opus reviews architecture, GPT reviews implementation
+- [ ] Findings merged, deduplicated by location + description similarity
+- [ ] Severity ranking reflects multi-model consensus (HIGH_CONSENSUS, DISPUTED)
+- [ ] Sprint plan generated from consensus findings only
+
+### Track 7: Operational Hardening (P0)
+
+**FR-7.1: Production deployment**
+
+loa-finn deployed to cloud with monitoring.
+
+**Treasury Security:**
+- Treasury address for credit pack payments MUST be a multisig (Safe{Wallet} 2-of-3 or similar)
+- Key custody: keys held by 3 separate team members, no single point of compromise
+- Treasury address configured via `TREASURY_ADDRESS` env var (not hardcoded)
+- Monitoring: alert if treasury receives unexpected token types or amounts outside pack sizes
+- Rotation: if treasury is compromised, update `TREASURY_ADDRESS` + invalidate all pending payment proofs + alert all users
+- Incident response: documented runbook for treasury compromise (freeze credit mints, rotate address, audit recent mints)
+
+**Acceptance Criteria:**
+- [ ] Fly.io (or Railway) deployment with health checks
+- [ ] Prometheus metrics endpoint (`/metrics`)
+- [ ] Grafana dashboard: request rate, latency, error rate, credit balance distribution, conservation guard results
+- [ ] JWKS key rotation with production keys (not dev keys)
+- [ ] Rate limiting tuned for beta traffic (conservative initially)
+- [ ] Treasury address is multisig with 2-of-3 signing requirement
+- [ ] Treasury monitoring: alert on unexpected transfers or amounts
+- [ ] Treasury rotation runbook documented and tested
+
+**FR-7.2: Conservation guard remaining suggestions**
+
+Address non-blocking items from PR #79 bridge review.
+
+**Acceptance Criteria:**
+- [ ] `recoveryStopped` flag (BB-026-iter2-002) — state-based recovery
+- [ ] `MAX_MICRO_USD_LENGTH` shared constant (BB-026-iter2-003) — symmetric DoS bounds
+- [ ] `"ensemble-untraced"` extracted to constant (BB-026-iter2-004)
+- [ ] `native-runtime-adapter.ts:416` trace_id fixed (BB-026-iter2-005)
+- [ ] Full backoff sequence test (BB-026-iter2-007)
 
 ---
 
 ## 5. Technical & Non-Functional Requirements
 
-### NFR-1: Zero Wire Format Changes
+### NFR-1: Conservation Guarantee
 
-The JWT claims schema, stream event schemas, and invoke request/response schemas must remain wire-compatible. Arrakis at v4.6.0 must continue to interoperate with loa-finn at v7.0.0.
+Every financial operation MUST be verified by the BillingConservationGuard's dual-path lattice. This is the constitutional constraint ([Deep Review §II](https://github.com/0xHoneyJar/loa-finn/pull/79#issuecomment-3919440062)).
 
-**Verification (independent of pre-existing test failures):**
+- Evaluator result AND ad-hoc result must both pass
+- Divergence between evaluator and ad-hoc triggers alert
+- Bypassed evaluator (null expression) defers to ad-hoc only
+- All invariant results logged to WAL
 
-The pre-existing `s2s-jwt.test.ts` failures mean we cannot rely solely on current tests as the wire-compat canary. Verification requires:
+### NFR-2: Branded Type Safety
 
-1. **New deterministic wire fixtures** (Sprint 1): Golden JSON snapshots for signed JWT vectors (ES256 + req_hash), representative billing request/response payloads, and stream event envelopes. These fixtures are created BEFORE the version bump and must pass AFTER.
-2. **Interop handshake fixture** (Sprint 1): Simulated arrakis v4.6.0 request → loa-finn v7.0.0 response cycle, asserting no rejection.
-3. **Existing passing tests** remain passing (187 baseline).
-4. **Pre-existing JWT test failure**: Either fix `s2s-jwt.test.ts` as part of Sprint 1 (preferred — it's a safety gate for this migration) or document why the failure is unrelated to wire format and create an independent JWT wire fixture that covers the same surface.
+All financial values MUST flow through wire-boundary branded types. No raw bigint or string for monetary values.
 
-### NFR-2: Performance Budget
+- MicroUSD for internal ledger
+- CreditUnit for user balances
+- MicroUSDC for on-chain settlement
+- BasisPoints for percentage calculations
+- ESLint rule bans `as MicroUSD` (only `parseMicroUSD()` can construct)
 
-Conservation evaluator integration must not add measurable latency:
-- Evaluator call overhead: < 1ms per invariant check
-- Total billing pipeline overhead: < 5ms per request (current: ~2ms)
+### NFR-3: Fail-Closed by Default
 
-### NFR-3: Import Path Cleanliness
+Every new subsystem MUST default to denying operations when uncertain.
 
-After migration, there must be exactly ONE source for protocol types:
-- `@0xhoneyjar/loa-hounfour` (root barrel) for most imports
-- `@0xhoneyjar/loa-hounfour/composition` for v7.0.0 composition types (if needed)
-- Zero imports from `packages/loa-hounfour/` (deleted)
-- Zero local type redefinitions that shadow canonical types
+- Missing credit balance → deny (not "assume unlimited")
+- Missing personality → use default BEAUVOIR.md (not blank)
+- x402 payment verification failure → deny (not "serve anyway")
+- Unknown denomination → deny (not "treat as MicroUSD")
 
-### NFR-4: Test Baseline
+### NFR-4: Audit Trail
 
-- Pre-migration: 200 tests, 187 passing, 13 pre-existing failures
-- Post-migration: ≥ 187 passing, zero new failures
-- Pre-existing failures in `reconciliation-e2e.test.ts`, `s2s-jwt.test.ts`, `usage-handler.test.ts` are separate concerns
+Every state-changing operation MUST produce a WAL entry.
 
-### NFR-5: Observability for Fail-Closed Components
+- Credit mint, deduction, refund
+- Personality creation, update
+- x402 payment verification (success and failure)
+- Conservation guard results (pass, fail, divergence)
+- Allowlist changes
 
-The conservation evaluator is fail-closed for all billing invariants (FR-3). This requires observability to ensure failures are diagnosable and don't silently block billing:
+### NFR-5: Performance
 
-| Signal | Metric | Alert Threshold | Dashboard |
-|--------|--------|----------------|-----------|
-| Evaluator compilation | `evaluator.compile.duration_ms` | > 500ms or failure | Startup health |
-| Invariant check latency | `evaluator.check.p95_ms` per invariant ID | > 1ms (NFR-2 budget) | Billing pipeline |
-| HARD-FAIL rate | `evaluator.hard_fail.count` by invariant ID | > 0 for new invariant failures | Billing alerts |
-| Circuit-open state | `evaluator.circuit.state` | Any transition to OPEN | PagerDuty |
-| Constraint registry size | `evaluator.registry.constraint_count` | Drift from expected count | Deployment |
+- Inference latency: < 200ms overhead from loa-finn (excluding model response time)
+- Credit check: < 5ms (Redis lookup)
+- x402 verification: < 500ms (on-chain or facilitator)
+- Conservation guard: < 1ms per invariant (4 invariants = < 4ms total)
 
-**Structured logging**: Every HARD-FAIL must emit a structured log with `{invariant_id, input_summary, expected, actual, timestamp}`. No PII in billing logs.
+### NFR-6: Persistence & Recovery
 
-**SLO**: Evaluator availability ≥ 99.9% (measured as % of requests where evaluator is compilated and responsive). Circuit-open state counts against this SLO.
+Three-tier persistence (Redis → WAL → R2) requires explicit failure mode handling:
+
+| Tier | RPO | RTO | Failure Mode | Behavior |
+|------|-----|-----|-------------|----------|
+| Redis (hot) | 0 (in-memory) | < 1s (reconnect) | Redis down | Fail-closed: deny new requests, serve no stale balances |
+| WAL (warm) | 0 (append-only) | < 5s (reopen) | WAL write failure | Fail-closed: deny operation, do not ack to caller |
+| R2 (cold) | ≤ 5min (async sync) | < 30s (re-sync) | R2 unavailable | Degrade: continue with Redis+WAL, queue R2 sync, alert |
+
+**DLQ Specification** (supports FR-1.1 PENDING_RECONCILIATION):
+
+- **Backend**: Redis Streams (`billing:dlq` stream) with consumer group per service instance
+- **Retry policy**: Exponential backoff (1s, 2s, 4s, 8s, 16s), max 5 retries
+- **Poison message**: After max retries, move to `billing:dlq:poison` stream, alert admin
+- **Manual resolution**: Admin API endpoint `POST /api/v1/admin/reconcile/:billing_entry_id` with RELEASE or FORCE_COMMIT actions
+- **Max pending duration**: 24 hours. After 24h, auto-release reserve and log `auto_release_timeout` WAL entry. Account unblocked with warning.
+- **Monitoring**: Prometheus gauge `billing_pending_reconciliation_count`, alert if > 10
+
+### NFR-7: Security
+
+- **JWT verification**: Use a vetted JWT library (jose or jsonwebtoken) for ES256 ECDSA signature verification. ECDSA verification is inherently constant-time — do NOT add manual timing-safe comparison to the signature check itself. Apply `timingSafeEqual` to fixed-length secret comparisons: `req_hash` validation, API key comparison, webhook signature verification.
+- **BYOK keys**: Never stored by loa-finn (proxy-only, deny-by-default redaction via existing `byok-redaction-filter.ts`)
+- **x402 nonces**: EIP-3009 nonces stored in Redis with TTL matching `validBefore` — prevents replay attacks
+- **Allowlist**: Plaintext normalized lowercase addresses for beta (< 100 users). Migrate to `keccak256(address)` if scaling beyond 1000. See FR-5.1.
+- **Rate limiting**: Per wallet address (anti-abuse), configurable per tier (credit, BYOK, x402)
+- **Negative test requirements**: Invalid JWT signature, wrong `aud`/`sub`, expired token, wrong `req_hash` — all must be rejected with appropriate HTTP status codes and no information leakage
 
 ---
 
 ## 6. Scope & Prioritization
 
-### In Scope (This Cycle)
+### What's In Scope (Closed Beta)
 
-| Priority | Item | Effort |
-|----------|------|--------|
-| **P0** | FR-1: Version bump + local package removal | ~0.5 sprint |
-| **P0** | FR-4: Protocol handshake update | ~0.5 sprint |
-| **P1** | FR-2: Canonical branded type adoption | ~1 sprint |
-| **P1** | FR-3: Conservation evaluator integration | ~1 sprint |
-| **P2** | FR-5: Oracle knowledge corpus update | ~0.5 sprint |
+| Track | Priority | Sprints Est. |
+|-------|----------|-------------|
+| Track 1: E2E Billing Loop | P0 | 1 |
+| Track 2: Denomination System | P0 | 2 |
+| Track 4: NFT Agent Experience | P0 | 2 |
+| Track 5: Onboarding & Access | P0 | 1 |
+| Track 7: Operational Hardening | P0 | 1 |
+| Track 3: x402 Agent Payments | P1 | 1-2 |
+| Track 6: Multi-Model Review | P1 | 1 |
 
-**Total estimated: 3–4 sprints**
+**Total estimated: 9-10 sprints (Global IDs 68-77)**
 
-### Explicitly Out of Scope
+### What's Out of Scope
 
-| Item | Why | Where It Lives |
-|------|-----|----------------|
-| npm publish of loa-hounfour | Different repo | loa-hounfour repo |
-| Arrakis upgrade to v7.0.0 | Different repo | arrakis repo, Phase 3 |
-| Cross-system E2E on v7.0.0 | Blocked on arrakis | Phase 4, future cycle |
-| Adoption of v7.0.0 composition schemas (sagas, governance, etc.) | Feature work, not convergence | Future cycle |
-| Adoption of `trust_scopes` in JWT flow | arrakis doesn't send it yet | Future cycle (after arrakis v7.0.0) |
-| Fixing pre-existing test failures (13 tests) | Separate concern | Bug triage |
+- Public launch / general availability
+- Mobile native apps
+- Voice interaction (Whisper)
+- Agent social network / inter-NFT messaging
+- On-chain autonomous actions (ERC-6551 TBA)
+- WhatsApp, Slack, additional channels
+- Goal-driven agent generation (Hive-style)
+- Full Soul/Inbox with on-trade transfer (Issue #27 Phase 2+)
+
+### Sprint Sequencing
+
+```
+Sprint 1: E2E Loop + Conservation Hardening     (Track 1 + Track 7.2)
+Sprint 2: Credit Denomination + Purchase Flow    (Track 2.1-2.2)
+Sprint 3: Credit Deduction + BYOK Fee           (Track 2.3-2.4)
+Sprint 4: NFT Personality Authoring              (Track 4.1)
+Sprint 5: Agent Homepage + Web Chat              (Track 4.2-4.3)
+Sprint 6: Onboarding Flow + Invite System        (Track 5)
+Sprint 7: Production Deployment + Monitoring     (Track 7.1)
+Sprint 8: x402 Middleware + Payment Verification (Track 3.1-3.2)
+Sprint 9: x402 Denomination + Guard Integration  (Track 3.3)
+Sprint 10: Multi-Model Review + Polish           (Track 6 + integration testing)
+```
 
 ---
 
 ## 7. Risks & Dependencies
 
-### Risks
+### Technical Risks
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| **v7.0.0 package has undocumented breaking changes** | Low | High | Schema audit gate in Sprint 1: diff every imported symbol v5→v7, verify no new required wire-format fields. `tsc --noEmit` as first compile check. |
-| **Local package removal breaks hidden imports** | Medium | Medium | Comprehensive search: workspace refs, tsconfig paths, `file:` protocol, deep imports, compiled JS strings. CI check that `require.resolve` points to `node_modules/`. |
-| **Conservation evaluator performance** | Low | Medium | Evaluator compiled once at startup, cached. CI microbenchmark harness on representative payloads — build fails if p95 > 1ms. All billing invariants are **fail-closed** (no fail-open). |
-| **Oracle knowledge regression** | Low | Low | Gold-set 20/20 must pass before merge |
-| **Wire format incompatibility with arrakis** | Low | High | Independent golden wire fixtures (JWT, billing, stream events) created BEFORE bump, verified AFTER. Interop handshake fixture for arrakis v4.6.0. Pre-existing `s2s-jwt.test.ts` failure to be fixed or independently covered in Sprint 1. |
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| x402 facilitator (openx402.ai) unreliable | x402 payments fail | Fall back to direct on-chain verification; credit packs as primary path |
+| Conservation guard performance under load | Latency increase | Benchmark early (Sprint 1); constraint evaluation is < 1ms per invariant |
+| Arrakis billing schema drift | E2E tests fail | Strangler Fig pattern (`?format=loh`) allows gradual migration |
+| WebSocket scaling (in-memory sessions) | Beta user limit | Redis-backed sessions for horizontal scaling (Track 7) |
+| Pi SDK stability for headless sessions | Agent failures | NativeRuntimeAdapter spike needed; fallback to direct model calls |
 
-### Dependencies
+### External Dependencies
 
-| Dependency | Status | Blocking? |
-|-----------|--------|-----------|
-| loa-hounfour v7.0.0 tag | Published (2026-02-17) | No — ready |
-| loa-hounfour MIGRATION.md | Exists | No — ready |
-| arrakis upgrade | Not started | **Not blocking** — wire format unchanged |
-| npm publish | Not done | **Not blocking** — using git tag pin |
+| Dependency | Status | Risk |
+|------------|--------|------|
+| `@0xhoneyjar/loa-hounfour` v7.0.0 | MERGED (PR #79) | Low — pinned to release tag |
+| arrakis billing E2E scaffold | SCAFFOLDED (PR #63) | Low — 14 assertions passing |
+| arrakis GTM plan | DRAFTED (PR #74) | Medium — 7 decisions pending |
+| openx402.ai facilitator | LIVE (external) | Medium — third-party dependency |
+| Fly.io or Railway deployment | AVAILABLE | Low — standard deployment |
+| MetaMask / WalletConnect | STABLE | Low — well-established libraries |
 
-### Dependency Graph
+### PR #74 Decision Dependencies
 
-```
-loa-hounfour v7.0.0 tag ──► FR-1: Version bump
-                               │
-                               ├──► FR-4: Protocol handshake
-                               │
-                               ├──► FR-2: Branded types (after bump compiles)
-                               │
-                               ├──► FR-3: Conservation evaluator (after types adopted)
-                               │
-                               └──► FR-5: Oracle KB (after code changes finalized)
-```
+7 decisions from the GTM plan affect this PRD:
 
----
-
-## 8. Affected Files (Estimated)
-
-### Source Files (Modify)
-
-| File | Change Type | FR |
-|------|-----------|-----|
-| `package.json` | Bump dependency, remove workspace ref | FR-1 |
-| `tsconfig.json` | Remove packages/ path mapping (if any) | FR-1 |
-| `src/hounfour/protocol-handshake.ts` | Version + compatibility | FR-4 |
-| `src/hounfour/tier-bridge.ts` | Canonical PoolId, branded types | FR-2 |
-| `src/hounfour/pool-enforcement.ts` | Canonical PoolId, branded types | FR-2 |
-| `src/hounfour/pool-registry.ts` | Canonical PoolId | FR-2 |
-| `src/hounfour/jwt-auth.ts` | Canonical types | FR-2 |
-| `src/hounfour/nft-routing-config.ts` | Canonical PoolId | FR-2 |
-| `src/hounfour/billing-finalize-client.ts` | MicroUSD branded type, evaluator | FR-2, FR-3 |
-| `src/hounfour/cost-arithmetic.ts` | MicroUSD branded type, evaluator | FR-2, FR-3 |
-| `src/hounfour/budget.ts` | BasisPoints branded type, evaluator | FR-2, FR-3 |
-| `src/config.ts` | Protocol version in config | FR-4 |
-
-### Source Files (Delete)
-
-| File | Reason | FR |
-|------|--------|-----|
-| `packages/loa-hounfour/` (entire directory) | Replaced by external package | FR-1 |
-
-### Test Files (Modify)
-
-| File | Change Type | FR |
-|------|-----------|-----|
-| `tests/finn/pool-enforcement.test.ts` | Update imports | FR-1, FR-2 |
-| `tests/finn/budget-accounting.test.ts` | Branded type assertions | FR-2, FR-3 |
-| `tests/finn/jwt-roundtrip.test.ts` | Verify wire compatibility | FR-4 |
-| `tests/finn/pool-registry.test.ts` | Update imports | FR-1 |
-
-### Knowledge Files (Rewrite)
-
-| File | Change Type | FR |
-|------|-----------|-----|
-| `grimoires/oracle/code-reality-hounfour.md` | Complete rewrite for v7.0.0 | FR-5 |
-| `grimoires/oracle/sources.json` | Update checksum | FR-5 |
+| Decision | This PRD's Assumption | If Different |
+|----------|----------------------|-------------|
+| D1: Auth model | Hybrid (API key for S2S, wallet connect for users) | Adjust FR-5.2 |
+| D2: Account hierarchy | Account → Project → optional Community | Adjust FR-2.2 credit scoping |
+| D3: Billing primitive | Prepaid (credit packs) | Adjust Track 2 entirely |
+| D4: Dogfood entry gate | Public API MVP before Pillar 2 | Adjust sprint order |
+| D5: API contract source | Zod → OpenAPI → SDK | Affects FR-4.2 API design |
+| D6: SLA definition | SLO targets only for beta | No impact on beta |
+| D7: BYOK metering | Proxy with token metering | Confirms FR-2.4 |
 
 ---
 
-## 9. Implementation Strategy
+## 8. The Philosophical Frame
 
-### Sprint Sequencing
+### From the Deep Review
 
-```
-Sprint 1: Foundation — Bump + Cleanup + Safety Gates
-├── Create golden wire fixtures BEFORE bump (JWT, billing, stream events)
-├── Delete packages/loa-hounfour/ (comprehensive search for hidden refs)
-├── Bump dep to v7.0.0 tag
-├── Schema audit: diff every imported symbol v5→v7, confirm no new required wire fields
-├── Fix compile errors (tsc --noEmit)
-├── Fix or independently cover s2s-jwt.test.ts wire-compat surface
-├── Update protocol handshake (v7.0.0 advertised, MIN_SUPPORTED=4.0.0)
-├── Add interop handshake fixture (arrakis v4.6.0 simulation)
-├── Verify golden wire fixtures still pass AFTER bump
-├── Run full test suite — verify ≥187 passing
-└── Independently shippable checkpoint
+The [Bridgebuilder deep review](https://github.com/0xHoneyJar/loa-finn/pull/79#issuecomment-3919440062) reframed what we're building:
 
-Sprint 2: Type Adoption — Branded Types + Evaluator
-├── Replace local MicroUSD/BasisPoints/AccountId with canonical
-├── Add golden wire snapshot tests (billing req/res, JWT, streams)
-├── Verify wire fixtures byte-for-byte stable after type migration
-├── Wire conservation evaluator (compile once at startup, cache)
-├── All billing invariants fail-closed — no fail-open mode
-├── Add evaluator-backed invariant tests
-├── CI microbenchmark: p95 evaluator overhead < 1ms
-└── Independently shippable checkpoint
+> *"Is this a billing system, or is it an economic protocol?"*
 
-Sprint 3: Knowledge + Hardening
-├── Rewrite Oracle knowledge sources for v7.0.0
-├── Update gold-set test vectors
-├── Verify 20/20 gold-set pass rate
-├── Protocol version drift detection in CI
-└── Final integration pass
-```
+This PRD answers: **it's an economic protocol** for a token-gated capability market. The conservation guard is constitutional law. The branded types are denominations. The evaluator lattice is the constraint that makes the market sustainable.
 
-### Rollback Strategy
+### From web4
 
-Each sprint is independently shippable. If any sprint introduces regressions:
-1. Revert the sprint's commits
-2. Prior sprint's state is valid and tested
-3. Git tag pin can be reverted to old commit SHA trivially
+> *"Money must be scarce, but monies can be infinite."*
 
-**Rollback runbook (per sprint):**
+Track 2 (denominations) implements the plurality of monies: MicroUSD, CreditUnit, MicroUSDC, BYOKCost. Track 1 (conservation guard) implements the scarcity constraint: you cannot spend more than you have, regardless of which denomination you're using.
 
-| Trigger | Signal | Owner | Action | RTO |
-|---------|--------|-------|--------|-----|
-| Wire-compat fixture failure post-deploy | Golden fixture test fails in staging | On-call engineer | Revert PR, re-pin to previous commit SHA | < 15 min |
-| Billing invariant violation in production | Evaluator HARD-FAIL alert rate > 0 for new failure modes | On-call engineer | Circuit-open billing endpoints, revert evaluator wiring | < 10 min |
-| arrakis handshake rejection | `CONTRACT_VERSION_MISMATCH` errors from arrakis | On-call engineer | Revert `CONTRACT_VERSION` to previous value | < 10 min |
-| Test regression > 2 failures beyond baseline | CI red, new failures not in pre-existing 13 | Sprint author | Block merge, fix or revert | Before merge |
+### From Conway
 
-**Verification after rollback**: Golden wire fixtures pass, test count ≥ 187, arrakis handshake fixture passes, evaluator health check returns OK.
+Conway proves agents can sustain themselves. We prove communities can govern their agents. The closed beta is where these two ideas meet: real agents, real money, real governance — but in a controlled environment where we can observe, learn, and iterate before opening the doors.
 
-### Deployment Strategy
+### The Cambrian Moment
 
-**Canary deployment** for each sprint merge:
-1. Deploy to staging with full test suite + golden wire fixtures
-2. Shadow traffic: replay 10 min of production billing requests against staging, compare responses byte-for-byte
-3. Canary: route 5% of production traffic for 30 min, monitor evaluator latency + error rate
-4. Full rollout only after canary shows zero new errors and p95 latency within budget
-5. Rollback hook: automated revert if error rate exceeds 0.1% during canary window
+loa-hounfour v7 is the skeletal structure. This PRD defines the first organisms that evolve on that skeleton: credit packs, x402 payments, NFT personalities, agent homepages. The closed beta is the Ediacaran period — the first complex life, visible but not yet explosive. Public launch is the Cambrian Explosion.
+
+---
+
+*PRD: Full Stack Launch — Build Everything, Then Ship*
+*Cycle 027 | Command Center: [#66](https://github.com/0xHoneyJar/loa-finn/issues/66)*
+*"The question is no longer 'does this work?' It is 'what does this make possible?'"*

@@ -1,0 +1,119 @@
+name: Deploy to ECS
+
+# Sprint 7 Task 7.4 — ECS Fargate deployment on merge to main
+# Build Docker image → push to ECR → update ECS service (rolling update)
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: loa-finn
+  ECS_CLUSTER: honeyjar-production
+  ECS_SERVICE: loa-finn-production
+
+jobs:
+  # ===========================================================================
+  # Build + Test
+  # ===========================================================================
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npx vitest run
+
+  # ===========================================================================
+  # Deploy to ECS
+  # ===========================================================================
+  deploy:
+    name: Deploy to ECS Fargate
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      - name: Build and push Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition loa-finn-production \
+            --query 'taskDefinition' \
+            --output json > task-definition.json
+
+      - name: Update task definition with new image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@9666dc9a3bf790a3a7a3a3ce7d1a8600100b0ad2 # v1.7.2
+        with:
+          task-definition: task-definition.json
+          container-name: loa-finn
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy to ECS (rolling update)
+        uses: aws-actions/amazon-ecs-deploy-task-definition@3e7310352de28fdb25b55df7a1dfd15a5ddeb369 # v2.3.1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+          # Rollback: previous revision auto-reverts on health check failure
+          # via deployment_circuit_breaker in Terraform
+
+      - name: Run production smoke tests
+        env:
+          SMOKE_TEST_URL: https://loa-finn.honeyjar.xyz
+        run: |
+          # Health check
+          curl -sf "$SMOKE_TEST_URL/health" || exit 1
+
+          # JWKS endpoint
+          curl -sf "$SMOKE_TEST_URL/.well-known/jwks.json" | jq '.keys | length > 0' || exit 1
+
+          # Metrics endpoint
+          curl -sf "$SMOKE_TEST_URL/metrics" | grep -q "loa_finn_http_requests_total" || exit 1
+
+          echo "Smoke tests passed"

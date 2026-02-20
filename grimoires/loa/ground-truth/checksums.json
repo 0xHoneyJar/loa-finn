@@ -1,12 +1,15 @@
 {
-  "generated_at": "2026-02-15T12:39:27Z",
-  "git_sha": "968ee310d8606f06b3e06973e44e511913a1fff9",
+  "generated_at": "2026-02-19T03:32:46Z",
+  "git_sha": "95620344816eb6580171697f5d67ba72f1ec4159",
   "algorithm": "sha256",
   "files": {
-    "grimoires/loa/ground-truth/architecture.md": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "grimoires/loa/ground-truth/behaviors.md": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "grimoires/loa/ground-truth/api-surface.md": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "grimoires/loa/ground-truth/index.md": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "grimoires/loa/ground-truth/contracts.md": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    "grimoires/loa/reality/background-jobs.md": "2dd051442bad3501d973a08f44b8e0504723f6b8150296d90f07dab63a81aeed",
+    "grimoires/loa/reality/auth.md": "30b22c47f75a295c84a1ab18c4106f12611cd3de25783a241243f091d2f273dd",
+    "grimoires/loa/reality/dependencies.md": "a43b696bd98902c6a64bc4b4b073e8a36b3cdc037bcbd2dd443532d0803a9bfe",
+    "grimoires/loa/reality/interfaces.md": "ab59ee7f5b6240b4a3cf7adf8eaf821ee9810916569d3b4aa6508bca9d4a3390",
+    "grimoires/loa/reality/index.md": "89dade9f80f2d94af8f36c9391709a9e0515ace9877a353b3766821bcdbc456c",
+    "grimoires/loa/reality/routes.md": "149ce2f281a7fccf411af7bc192b9d5e408ffb2db2d5326375a749b836aec753",
+    "grimoires/loa/reality/env-vars.md": "8d915b77a550c014acb2da8f303d8353011ea26ba99e4b5a2a23c5348a44ac26",
+    "grimoires/loa/reality/README.md": "cec7549e6f34591ddd6d0aca39a2879d90b02c459a5c327da3c3cbd1f59c795a"
   }
 }

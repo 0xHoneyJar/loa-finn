@@ -32,6 +32,12 @@ export class WireBoundaryError extends Error {
 const MICRO_USD_PATTERN = /^-?(?:0|[1-9][0-9]*)$/
 
 /**
+ * Maximum length for MicroUSD string values (BB-026-iter2-003: symmetric DoS bounds).
+ * Shared constant for consistent bounds across MicroUSD and CreditUnit parsers.
+ */
+export const MAX_MICRO_USD_LENGTH = 30
+
+/**
  * Parse a raw string into a MicroUSD branded type.
  *
  * Normalization (SDD §4.1, PRD MicroUSD normalization table):
@@ -117,7 +123,7 @@ export function parseMicroUSDLenient(raw: string): { value: MicroUSD; normalized
   }
 
   // Bounds check: reject absurdly long strings before BigInt conversion (DoS prevention)
-  if (trimmed.length > 30) {
+  if (trimmed.length > MAX_MICRO_USD_LENGTH) {
     throw new WireBoundaryError("micro_usd", raw, "value exceeds maximum length (lenient)")
   }
 
@@ -169,6 +175,167 @@ export function addMicroUSD(a: MicroUSD, b: MicroUSD): MicroUSD {
  */
 export function subtractMicroUSD(a: MicroUSD, b: MicroUSD): MicroUSD {
   return (a - b) as MicroUSD
+}
+
+// ---------------------------------------------------------------------------
+// CreditUnit — string ↔ branded bigint (Sprint 2, Task 2.1)
+// User-facing balance unit: 100 CU = $1.00
+// ---------------------------------------------------------------------------
+
+declare const _creditUnitBrand: unique symbol
+export type CreditUnit = bigint & { readonly [_creditUnitBrand]: true }
+
+export const MAX_CREDIT_UNIT_LENGTH = MAX_MICRO_USD_LENGTH // symmetric DoS bounds
+
+const CREDIT_UNIT_PATTERN = /^-?(?:0|[1-9][0-9]*)$/
+
+export function parseCreditUnit(raw: string): CreditUnit {
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new WireBoundaryError("credit_unit", raw, "empty or non-string value")
+  }
+  if (raw.startsWith("+")) {
+    throw new WireBoundaryError("credit_unit", raw, "plus sign prefix not allowed")
+  }
+  if (raw.length > MAX_CREDIT_UNIT_LENGTH) {
+    throw new WireBoundaryError("credit_unit", raw, "value exceeds maximum length")
+  }
+  const isNegative = raw.startsWith("-")
+  const digits = isNegative ? raw.slice(1) : raw
+  if (digits.length === 0) {
+    throw new WireBoundaryError("credit_unit", raw, "bare minus sign")
+  }
+  if (!/^[0-9]+$/.test(digits)) {
+    throw new WireBoundaryError("credit_unit", raw, "contains non-digit characters")
+  }
+  const stripped = digits.replace(/^0+/, "") || "0"
+  let canonical = isNegative ? `-${stripped}` : stripped
+  if (canonical === "-0") canonical = "0"
+  if (!CREDIT_UNIT_PATTERN.test(canonical)) {
+    throw new WireBoundaryError("credit_unit", raw, "does not match canonical pattern")
+  }
+  return BigInt(canonical) as CreditUnit
+}
+
+export function serializeCreditUnit(value: CreditUnit): string {
+  return value.toString()
+}
+
+export function addCreditUnit(a: CreditUnit, b: CreditUnit): CreditUnit {
+  return (a + b) as CreditUnit
+}
+
+export function subtractCreditUnit(a: CreditUnit, b: CreditUnit): CreditUnit {
+  return (a - b) as CreditUnit
+}
+
+// ---------------------------------------------------------------------------
+// MicroUSDC — string ↔ branded bigint (Sprint 2, Task 2.1)
+// On-chain settlement unit: 1 MicroUSDC = 0.000001 USDC (6 decimals)
+// ---------------------------------------------------------------------------
+
+declare const _microUSDCBrand: unique symbol
+export type MicroUSDC = bigint & { readonly [_microUSDCBrand]: true }
+
+const MICRO_USDC_PATTERN = /^-?(?:0|[1-9][0-9]*)$/
+
+export function parseMicroUSDC(raw: string): MicroUSDC {
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new WireBoundaryError("micro_usdc", raw, "empty or non-string value")
+  }
+  if (raw.startsWith("+")) {
+    throw new WireBoundaryError("micro_usdc", raw, "plus sign prefix not allowed")
+  }
+  if (raw.length > MAX_MICRO_USD_LENGTH) {
+    throw new WireBoundaryError("micro_usdc", raw, "value exceeds maximum length")
+  }
+  const isNegative = raw.startsWith("-")
+  const digits = isNegative ? raw.slice(1) : raw
+  if (digits.length === 0) {
+    throw new WireBoundaryError("micro_usdc", raw, "bare minus sign")
+  }
+  if (!/^[0-9]+$/.test(digits)) {
+    throw new WireBoundaryError("micro_usdc", raw, "contains non-digit characters")
+  }
+  const stripped = digits.replace(/^0+/, "") || "0"
+  let canonical = isNegative ? `-${stripped}` : stripped
+  if (canonical === "-0") canonical = "0"
+  if (!MICRO_USDC_PATTERN.test(canonical)) {
+    throw new WireBoundaryError("micro_usdc", raw, "does not match canonical pattern")
+  }
+  return BigInt(canonical) as MicroUSDC
+}
+
+export function serializeMicroUSDC(value: MicroUSDC): string {
+  return value.toString()
+}
+
+// ---------------------------------------------------------------------------
+// Denomination Conversion (Sprint 2, Task 2.1)
+// Explicit rate parameters support rate freeze per billing_entry_id
+// ---------------------------------------------------------------------------
+
+const MICRO_USD_PER_DOLLAR = 1_000_000n
+
+/**
+ * Convert MicroUSD to CreditUnit with explicit rate and rounding.
+ *
+ * Formula: creditUnits = microUSD * creditUnitsPerUsd / 1_000_000
+ * RESERVE: ceil() — user never under-reserved
+ * COMMIT: floor() — user never overpays by more than 1 CU
+ */
+export function convertMicroUSDtoCreditUnit(
+  amount: MicroUSD,
+  creditUnitsPerUsd: number,
+  rounding: "ceil" | "floor" = "floor",
+): CreditUnit {
+  const rate = BigInt(creditUnitsPerUsd)
+  const product = (amount as bigint) * rate
+  if (rounding === "ceil") {
+    // ceil division: (a + b - 1) / b
+    const divisor = MICRO_USD_PER_DOLLAR
+    const result = product >= 0n
+      ? (product + divisor - 1n) / divisor
+      : -((-product) / divisor) // negative ceil = -(floor of abs)
+    return result as CreditUnit
+  }
+  // floor division (natural BigInt behavior for positive values)
+  const result = product >= 0n
+    ? product / MICRO_USD_PER_DOLLAR
+    : -((-product + MICRO_USD_PER_DOLLAR - 1n) / MICRO_USD_PER_DOLLAR) // negative floor
+  return result as CreditUnit
+}
+
+/**
+ * Convert CreditUnit back to MicroUSD with explicit rate.
+ * Used for: converting user-facing CU display back to internal denomination.
+ */
+export function convertCreditUnitToMicroUSD(
+  amount: CreditUnit,
+  creditUnitsPerUsd: number,
+): MicroUSD {
+  const rate = BigInt(creditUnitsPerUsd)
+  return (((amount as bigint) * MICRO_USD_PER_DOLLAR) / rate) as MicroUSD
+}
+
+/**
+ * Convert MicroUSD to MicroUSDC with explicit USD/USDC rate.
+ *
+ * Rate is expressed as MicroUSDC per USD (e.g. 1_000_000 = 1:1 peg).
+ * Formula: microUSDC = microUSD * usdUsdcRate / 1_000_000
+ */
+export function convertMicroUSDtoMicroUSDC(
+  amount: MicroUSD,
+  usdUsdcRate: number,
+  rounding: "ceil" | "floor" = "ceil",
+): MicroUSDC {
+  // Rate as 6-decimal fixed point: 1.0 → 1_000_000
+  const rate = BigInt(Math.round(usdUsdcRate * 1_000_000))
+  const product = (amount as bigint) * rate
+  const divisor = MICRO_USD_PER_DOLLAR // 10^6
+  if (rounding === "ceil") {
+    return ((product + divisor - 1n) / divisor) as MicroUSDC
+  }
+  return (product / divisor) as MicroUSDC
 }
 
 // ---------------------------------------------------------------------------
