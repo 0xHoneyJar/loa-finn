@@ -111,7 +111,21 @@ export interface BillingStateMachineDeps {
   generateId: () => BillingEntryId
   /** Log a state transition for observability. */
   onTransition?: (billingEntryId: BillingEntryId, from: BillingState, to: BillingState, costMicroUsd?: string) => void
+  /**
+   * Acquire entry-level lock before state transition (Bridge medium-1).
+   * Pattern: SET billing:lock:{entryId} {correlationId} NX EX 30
+   * Returns true if lock acquired, false if already held by another correlation.
+   * Optional — without lock, transitions run without concurrency protection.
+   */
+  acquireLock?: (billingEntryId: BillingEntryId, correlationId: string) => Promise<boolean>
+  /** Release entry-level lock after state transition. */
+  releaseLock?: (billingEntryId: BillingEntryId) => Promise<void>
 }
+
+/** Result of a locked state transition attempt. */
+export type LockedTransitionResult<T> =
+  | { ok: true; entry: T }
+  | { ok: false; reason: "lock_contention"; entryId: BillingEntryId }
 
 export class BillingStateMachine {
   private readonly deps: BillingStateMachineDeps
@@ -202,6 +216,17 @@ export class BillingStateMachine {
     await this.deps.enqueueFinalze(entry.billing_entry_id, entry.account_id, actualCost, entry.correlation_id)
 
     return updated
+  }
+
+  /**
+   * Lock-aware commit: acquire entry lock, transition, release lock.
+   * Bridge medium-1 fix: prevents concurrent commit/release on same entry.
+   * Returns { ok: false, reason: "lock_contention" } if lock held by another correlation.
+   */
+  async lockedCommit(entry: BillingEntry, actualCost: MicroUSD): Promise<LockedTransitionResult<BillingEntry>> {
+    return this.withEntryLock(entry.billing_entry_id, entry.correlation_id, () =>
+      this.commit(entry, actualCost),
+    )
   }
 
   // === RELEASE ===
@@ -312,12 +337,62 @@ export class BillingStateMachine {
     return updated
   }
 
+  /**
+   * Lock-aware release: acquire entry lock, transition, release lock.
+   * Bridge medium-1 fix: prevents concurrent commit/release on same entry.
+   */
+  async lockedRelease(entry: BillingEntry, reason: BillingReleasePayload["reason"]): Promise<LockedTransitionResult<BillingEntry>> {
+    return this.withEntryLock(entry.billing_entry_id, entry.correlation_id, () =>
+      this.release(entry, reason),
+    )
+  }
+
+  /**
+   * Lock-aware void: acquire entry lock, transition, release lock.
+   */
+  async lockedVoid(entry: BillingEntry, reason: string, adminId?: string): Promise<LockedTransitionResult<BillingEntry>> {
+    return this.withEntryLock(entry.billing_entry_id, entry.correlation_id, () =>
+      this.void_(entry, reason, adminId),
+    )
+  }
+
   // === VALIDATION ===
 
   private validateTransition(currentState: BillingState, targetState: BillingState): void {
     const validTargets = VALID_TRANSITIONS[currentState]
     if (!validTargets.includes(targetState)) {
       throw new BillingStateError(currentState, targetState)
+    }
+  }
+
+  // === ENTRY-LEVEL LOCKING (Bridge medium-1) ===
+
+  /**
+   * Execute a state transition under an entry-level Redis lock.
+   * Lock pattern: SET billing:lock:{entryId} {correlationId} NX EX 30
+   * If acquireLock is not provided, executes without locking (backward compat).
+   */
+  private async withEntryLock<T>(
+    billingEntryId: BillingEntryId,
+    correlationId: string,
+    fn: () => Promise<T>,
+  ): Promise<LockedTransitionResult<T>> {
+    if (!this.deps.acquireLock) {
+      // No lock support — execute directly (backward compat)
+      const result = await fn()
+      return { ok: true, entry: result }
+    }
+
+    const acquired = await this.deps.acquireLock(billingEntryId, correlationId)
+    if (!acquired) {
+      return { ok: false, reason: "lock_contention", entryId: billingEntryId }
+    }
+
+    try {
+      const result = await fn()
+      return { ok: true, entry: result }
+    } finally {
+      await this.deps.releaseLock?.(billingEntryId)
     }
   }
 }
