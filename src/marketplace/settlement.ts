@@ -311,11 +311,8 @@ export class SettlementEngine {
     actual: number
     expected: number
   } {
-    // Access internal maps for conservation check
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const balances = (this.storage as any).balances as Map<string, WalletBalance>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const escrows = (this.storage as any).escrows as Map<string, EscrowRecord>
+    const balances = this.storage.getAllBalances()
+    const escrows = this.storage.getAllEscrows()
 
     let totalAvailable = 0
     for (const bal of balances.values()) {

@@ -10,7 +10,7 @@ import type {
   Match,
   SettlementInstruction,
 } from "./types.js"
-import { FEE_RATE } from "./types.js"
+import { DEFAULT_LOT_SIZE, FEE_RATE } from "./types.js"
 import type { MarketplaceStorage } from "./storage.js"
 
 // ── Match Result ─────────────────────────────────────────────
@@ -130,7 +130,7 @@ export class MatchingEngine {
         feeMicro,
         sellerProceedsMicro,
         settlement: {
-          creditsToTransfer: fillLots * 100, // lots * DEFAULT_LOT_SIZE
+          creditsToTransfer: fillLots * DEFAULT_LOT_SIZE,
           usdcToSeller: sellerProceedsMicro,
           usdcFee: feeMicro,
           escrowId,

@@ -309,6 +309,18 @@ export class MarketplaceStorage {
     return this.escrows.size
   }
 
+  // ── Audit / Conservation ─────────────────────────────────
+
+  /** Return all wallet balances (for conservation invariant checks). */
+  getAllBalances(): ReadonlyMap<string, WalletBalance> {
+    return this.balances
+  }
+
+  /** Return all escrow records (for conservation invariant checks). */
+  getAllEscrows(): ReadonlyMap<string, EscrowRecord> {
+    return this.escrows
+  }
+
   // ── Internal ─────────────────────────────────────────────
 
   /** Mark an order as expired, remove from sorted set. */

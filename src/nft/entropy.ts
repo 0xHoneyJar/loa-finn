@@ -528,6 +528,13 @@ export function createMemoryCommitmentStore(): CommitmentStore & {
     },
     async set(key: string, commitment: EntropyCommitment, ttlMs: number): Promise<void> {
       store.set(key, { commitment, expiresAt: Date.now() + ttlMs })
+      // Probabilistic cleanup: ~10% chance on each set to evict expired entries
+      if (Math.random() < 0.1) {
+        const now = Date.now()
+        for (const [k, v] of store) {
+          if (now > v.expiresAt) store.delete(k)
+        }
+      }
     },
     async delete(key: string): Promise<void> {
       store.delete(key)
