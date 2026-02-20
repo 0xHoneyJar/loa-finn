@@ -448,6 +448,35 @@ export class CreditSubLedger {
   }
 
   // =========================================================================
+  // Persistence Restore (Bridge high-1: load from Postgres on startup)
+  // =========================================================================
+
+  /**
+   * Restore an account from persistent storage (Postgres).
+   * Bypasses normal creation flow — used only during startup recovery.
+   * @internal Called by credit-persistence.ts loadLedgerFromDatabase()
+   */
+  _restoreAccount(account: CreditAccount): void {
+    this.accounts.set(account.account_id, account)
+  }
+
+  /**
+   * Restore a used nonce from persistent storage.
+   * @internal Called by credit-persistence.ts loadLedgerFromDatabase()
+   */
+  _restoreNonce(nonceKey: string): void {
+    this.usedNonces.add(nonceKey)
+  }
+
+  /**
+   * Restore a processed idempotency key from persistent storage.
+   * @internal Called by credit-persistence.ts loadLedgerFromDatabase()
+   */
+  _restoreProcessedKey(key: string): void {
+    this.processedKeys.add(key)
+  }
+
+  // =========================================================================
   // Private Helpers
   // =========================================================================
 

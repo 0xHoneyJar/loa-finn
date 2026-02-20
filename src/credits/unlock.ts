@@ -24,8 +24,9 @@ import {
 
 export interface UnlockServiceDeps {
   ledger: CreditSubLedger
-  /** Verify the USDC transfer occurred on-chain. Returns true if confirmed. */
-  verifyOnChainTransfer?: (auth: EIP3009UnlockAuth) => Promise<boolean>
+  /** Verify the USDC transfer occurred on-chain. Returns true if confirmed.
+   *  REQUIRED — no default. Security-critical: must verify actual on-chain state. */
+  verifyOnChainTransfer: (auth: EIP3009UnlockAuth) => Promise<boolean>
   /** Optional: log audit events */
   onUnlock?: (wallet: string, amount: bigint, txId: string) => void
 }
@@ -49,8 +50,14 @@ export class UnlockService {
   private readonly usdcPerCredit: bigint
 
   constructor(deps: UnlockServiceDeps, config: UnlockServiceConfig) {
+    if (!deps.verifyOnChainTransfer) {
+      throw new Error(
+        "UnlockService requires verifyOnChainTransfer dependency. " +
+        "Security-critical: on-chain verification must be explicitly provided.",
+      )
+    }
     this.ledger = deps.ledger
-    this.verifyOnChain = deps.verifyOnChainTransfer ?? (async () => true)
+    this.verifyOnChain = deps.verifyOnChainTransfer
     this.onUnlock = deps.onUnlock
     this.treasuryAddress = config.treasuryAddress.toLowerCase()
     // Default: 1 USDC (1_000_000 base units) = 1000 credits → 1000 base units per credit

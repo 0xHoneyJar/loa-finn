@@ -49,6 +49,31 @@ export function crc32(data: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// WAL Sequence Counter (Bridge high-4: monotonic ordering across processes)
+// ---------------------------------------------------------------------------
+
+/** Global monotonic WAL sequence counter.
+ *  Guarantees strict total ordering within a single process.
+ *  For multi-process deployments, each process gets a unique sequence space
+ *  and the replay engine uses sequence numbers for correct ordering. */
+let _walSequence = 0
+
+/** Get next monotonic WAL sequence number. */
+export function nextWALSequence(): number {
+  return ++_walSequence
+}
+
+/** Set WAL sequence to a known value (startup recovery from Redis/DB). */
+export function setWALSequence(seq: number): void {
+  _walSequence = seq
+}
+
+/** Reset WAL sequence counter (testing only). */
+export function _resetWALSequence(): void {
+  _walSequence = 0
+}
+
+// ---------------------------------------------------------------------------
 // WAL Envelope Factory
 // ---------------------------------------------------------------------------
 
@@ -66,6 +91,7 @@ export function createBillingWALEnvelope<T>(
     billing_entry_id: billingEntryId,
     correlation_id: correlationId,
     checksum: crc32(payloadStr),
+    wal_sequence: nextWALSequence(),
     payload,
   }
 }

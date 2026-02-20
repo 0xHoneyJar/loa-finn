@@ -1,7 +1,7 @@
 // src/drizzle/schema.ts — Finn database schema (Sprint 1 T1.3, SDD §6)
 // All tables live in the `finn` schema, isolated from other services.
 
-import { pgSchema, text, timestamp, bigint, integer, jsonb, boolean, index, uniqueIndex } from "drizzle-orm/pg-core"
+import { pgSchema, text, timestamp, bigint, integer, jsonb, boolean, index, uniqueIndex, serial } from "drizzle-orm/pg-core"
 
 export const finnSchema = pgSchema("finn")
 
@@ -80,3 +80,51 @@ export const finnPersonalityVersions = finnSchema.table("finn_personality_versio
   index("idx_personality_versions_personality").on(table.personalityId),
   uniqueIndex("idx_personality_versions_epoch").on(table.personalityId, table.epochNumber),
 ])
+
+// --- finn_credit_accounts ---
+// Rektdrop credit accounts persisted to Postgres (Bridge high-1 fix).
+// Conservation invariant: allocated + unlocked + reserved + consumed + expired = initial_allocation
+export const finnCreditAccounts = finnSchema.table("finn_credit_accounts", {
+  accountId: text("account_id").primaryKey(),                    // lowercased Ethereum address
+  initialAllocation: bigint("initial_allocation", { mode: "bigint" }).notNull(),
+  allocated: bigint("allocated", { mode: "bigint" }).notNull().default(0n),
+  unlocked: bigint("unlocked", { mode: "bigint" }).notNull().default(0n),
+  reserved: bigint("reserved", { mode: "bigint" }).notNull().default(0n),
+  consumed: bigint("consumed", { mode: "bigint" }).notNull().default(0n),
+  expired: bigint("expired", { mode: "bigint" }).notNull().default(0n),
+  tier: text("tier").notNull(),                                  // OG | CONTRIBUTOR | COMMUNITY | PARTNER
+  expiresAt: bigint("expires_at", { mode: "bigint" }).notNull(), // Unix ms
+  createdAt: bigint("created_at", { mode: "bigint" }).notNull(), // Unix ms
+  updatedAt: bigint("updated_at", { mode: "bigint" }).notNull(), // Unix ms
+}, (table) => [
+  index("idx_credit_accounts_tier").on(table.tier),
+])
+
+// --- finn_credit_transactions ---
+// Append-only journal for credit state transitions (double-entry).
+// Every row is a debit+credit pair preserving the conservation invariant.
+export const finnCreditTransactions = finnSchema.table("finn_credit_transactions", {
+  id: serial("id").primaryKey(),                                 // auto-increment for ordering
+  txId: text("tx_id").notNull(),                                 // generated credit transaction ID
+  accountId: text("account_id").notNull(),                       // FK to finn_credit_accounts
+  eventType: text("event_type").notNull(),                       // rektdrop_allocate | usdc_unlock | credit_reserve | ...
+  debitState: text("debit_state").notNull(),                     // state losing credits
+  creditState: text("credit_state").notNull(),                   // state receiving credits
+  amount: bigint("amount", { mode: "bigint" }).notNull(),
+  correlationId: text("correlation_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  metadata: jsonb("metadata"),                                    // extra context
+  timestamp: bigint("timestamp", { mode: "bigint" }).notNull(),  // Unix ms
+}, (table) => [
+  uniqueIndex("idx_credit_transactions_idempotency").on(table.idempotencyKey),
+  index("idx_credit_transactions_account").on(table.accountId),
+  index("idx_credit_transactions_tx_id").on(table.txId),
+])
+
+// --- finn_used_nonces ---
+// Nonce replay protection for USDC unlock flow (Bridge high-1 + medium-5).
+// TTL-based cleanup prevents unbounded growth.
+export const finnUsedNonces = finnSchema.table("finn_used_nonces", {
+  nonceKey: text("nonce_key").primaryKey(),                       // SHA-256 of auth params
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})

@@ -80,6 +80,12 @@ export interface BillingWALEnvelope<T = unknown> {
   billing_entry_id: BillingEntryId
   correlation_id: string
   checksum: string // CRC32 of JSON.stringify(payload)
+  /** Monotonic sequence number for WAL ordering (Bridge high-4 fix).
+   *  Auto-incrementing integer set by WAL writer. Used as replay cursor
+   *  instead of billing_entry_id (ULID) which doesn't guarantee ordering
+   *  across processes. Absent on legacy entries — replay falls back to
+   *  billing_entry_id for backward compat. */
+  wal_sequence?: number
   payload: T
 }
 

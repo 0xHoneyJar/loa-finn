@@ -24,7 +24,8 @@ import { crc32 } from "./state-machine.js"
 // ---------------------------------------------------------------------------
 
 const MAX_WAL_FILE_BYTES = 1024 * 1024 * 1024 // 1GB (Flatline IMP-004)
-const LAST_REPLAYED_OFFSET_KEY = "billing:wal:last_replayed_offset"
+const LAST_REPLAYED_OFFSET_KEY = "billing:wal:last_replayed_offset" // legacy (ULID-based)
+const LAST_REPLAYED_SEQUENCE_KEY = "billing:wal:last_sequence" // monotonic sequence (Bridge high-4)
 
 /** Known billing event types for strict parsing. Unknown types are skipped. */
 const KNOWN_EVENT_TYPES = new Set<string>(BILLING_EVENT_TYPES)
@@ -38,6 +39,8 @@ export interface WALReplayResult {
   entriesSkipped: number
   entriesCorrupted: number
   lastOffset: string | null
+  /** Last monotonic sequence number replayed (null if no entries had wal_sequence) */
+  lastSequence: number | null
   durationMs: number
 }
 
@@ -230,11 +233,17 @@ export async function replayBillingWAL(deps: WALReplayDeps): Promise<WALReplayRe
     entriesSkipped: 0,
     entriesCorrupted: 0,
     lastOffset: null,
+    lastSequence: null,
     durationMs: 0,
   }
 
-  // Check for incremental replay: read last_replayed_offset from Redis
-  const lastOffset = await deps.redis.get(LAST_REPLAYED_OFFSET_KEY)
+  // Check for incremental replay cursors from Redis.
+  // Prefer monotonic sequence (Bridge high-4) over legacy ULID offset.
+  const lastSequenceStr = await deps.redis.get(LAST_REPLAYED_SEQUENCE_KEY)
+  const lastSequence = lastSequenceStr ? Number(lastSequenceStr) : null
+  const lastOffset = lastSequence === null
+    ? await deps.redis.get(LAST_REPLAYED_OFFSET_KEY) // legacy fallback
+    : null
 
   // Read all WAL segment files in order
   const segments = getWALSegments(deps.walDir)
@@ -269,9 +278,20 @@ export async function replayBillingWAL(deps: WALReplayDeps): Promise<WALReplayRe
         continue
       }
 
-      // Skip entries we've already replayed (incremental replay)
-      const walOffset = envelope.billing_entry_id // Use billing_entry_id as ordering proxy
-      if (lastOffset && walOffset <= lastOffset) {
+      // Skip entries we've already replayed (incremental replay).
+      // Bridge high-4 fix: use monotonic wal_sequence when available.
+      // Legacy entries without wal_sequence fall back to ULID comparison.
+      const entrySequence = envelope.wal_sequence ?? null
+      const walOffset = envelope.billing_entry_id
+
+      if (entrySequence !== null && lastSequence !== null) {
+        // Monotonic sequence comparison — strict ordering across processes
+        if (entrySequence <= lastSequence) {
+          result.entriesSkipped++
+          continue
+        }
+      } else if (lastOffset && walOffset <= lastOffset) {
+        // Legacy ULID-based comparison (backward compat for pre-sequence entries)
         result.entriesSkipped++
         continue
       }
@@ -305,6 +325,9 @@ export async function replayBillingWAL(deps: WALReplayDeps): Promise<WALReplayRe
         await applyEnvelope(deps.redis, envelope, walOffset)
         result.entriesProcessed++
         result.lastOffset = walOffset
+        if (entrySequence !== null) {
+          result.lastSequence = entrySequence
+        }
       } catch (err) {
         console.error(`[wal-replay] Error applying ${envelope.event_type} for ${walOffset}:`, err instanceof Error ? err.message : String(err))
         result.entriesCorrupted++
@@ -312,7 +335,11 @@ export async function replayBillingWAL(deps: WALReplayDeps): Promise<WALReplayRe
     }
   }
 
-  // Update last_replayed_offset in Redis for incremental replay on next startup
+  // Persist replay cursors to Redis for incremental replay on next startup.
+  // Prefer sequence-based cursor when available (Bridge high-4).
+  if (result.lastSequence !== null) {
+    await deps.redis.set(LAST_REPLAYED_SEQUENCE_KEY, String(result.lastSequence))
+  }
   if (result.lastOffset) {
     await deps.redis.set(LAST_REPLAYED_OFFSET_KEY, result.lastOffset)
   }
