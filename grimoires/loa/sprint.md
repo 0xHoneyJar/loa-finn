@@ -14,9 +14,9 @@
 
 | Sprint | Global ID | Label | Findings Addressed | Tasks | Dependencies |
 |--------|-----------|-------|--------------------|-------|-------------|
-| 1 | 118 | Protocol Persistence & Correctness | high-1, high-2, high-3, high-4 | 4 | None |
-| 2 | 119 | Concurrency & Resilience | medium-1, medium-2, medium-3, medium-5 | 4 | Sprint 1 |
-| 3 | 120 | Security & Type Safety | medium-4, medium-6, medium-7 | 3 | None |
+| 1 | 118 | Protocol Persistence & Correctness | high-1, high-2, high-3, high-4 | 4 | None | ✅ |
+| 2 | 119 | Concurrency & Resilience | medium-1, medium-2, medium-3, medium-5 | 4 | Sprint 1 | ✅ |
+| 3 | 120 | Security & Type Safety | medium-4, medium-6, medium-7 | 3 | None | ✅ |
 
 ### Dependency Graph
 

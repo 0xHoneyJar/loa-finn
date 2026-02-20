@@ -1169,9 +1169,33 @@
           "label": "OpenAPI + SDK + Discovery",
           "status": "completed",
           "tasks": 6
+        },
+        {
+          "local_id": "sprint-8",
+          "global_id": 118,
+          "label": "Protocol Persistence & Correctness",
+          "status": "completed",
+          "tasks": 4,
+          "notes": "Bridge iteration 1: Addresses findings high-1 through high-4. Review approved, audit passed."
+        },
+        {
+          "local_id": "sprint-9",
+          "global_id": 119,
+          "label": "Concurrency & Resilience",
+          "status": "completed",
+          "tasks": 4,
+          "notes": "Bridge iteration 1: Addresses findings medium-1, medium-2, medium-3, medium-5. Review approved, audit passed."
+        },
+        {
+          "local_id": "sprint-10",
+          "global_id": 120,
+          "label": "Security & Type Safety",
+          "status": "completed",
+          "tasks": 3,
+          "notes": "Bridge iteration 1: Addresses findings medium-4, medium-6, medium-7. Review approved, audit passed."
         }
       ]
     }
   ],
-  "next_global_sprint_id": 118
+  "next_global_sprint_id": 121
 }
