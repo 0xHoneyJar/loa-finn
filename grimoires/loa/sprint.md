@@ -191,7 +191,7 @@ Sprints 5–7 add depth (P1): persistence, on-chain signals, metrics, SDK, disco
 
 ---
 
-## Sprint 6: Observability + Metrics
+## Sprint 6: Observability + Metrics ✅ ✅
 
 > **Global ID**: 116 | **Track**: 4 | **Priority**: P1 | **Dependencies**: Sprint 1
 > **Goal**: Prometheus metrics visible. Conservation violations trigger alerts.
