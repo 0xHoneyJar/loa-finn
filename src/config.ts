@@ -70,6 +70,24 @@ export interface FinnConfig {
   /** Cheval adapter mode: subprocess (Phase 0-2 default) or sidecar (Phase 3) */
   chevalMode: "subprocess" | "sidecar"
 
+  /** x402 payment configuration (Sprint 2) */
+  x402: {
+    enabled: boolean
+    challengeSecret: string
+    challengeSecretPrevious: string
+    walletAddress: string
+    alchemyApiKey: string
+    rpcUrls: string[]
+    minConfirmations: number
+  }
+
+  /** PostgreSQL database (Sprint 1 — finn schema) */
+  postgres: {
+    enabled: boolean
+    connectionString: string
+    maxConnections: number
+  }
+
   /** Redis state backend (Phase 3 — circuit breaker, budget, rate limiter, idempotency) */
   redis: {
     url: string
@@ -219,6 +237,22 @@ export function loadConfig(): FinnConfig {
     sandboxSyncFallback: parseSyncFallback(process.env.SANDBOX_SYNC_FALLBACK, process.env.NODE_ENV),
 
     chevalMode: (process.env.CHEVAL_MODE ?? "subprocess") as "subprocess" | "sidecar",
+
+    x402: {
+      enabled: process.env.X402_ENABLED === "true",
+      challengeSecret: process.env.X402_CHALLENGE_SECRET ?? "",
+      challengeSecretPrevious: process.env.X402_CHALLENGE_SECRET_PREVIOUS ?? "",
+      walletAddress: process.env.X402_WALLET_ADDRESS ?? "",
+      alchemyApiKey: process.env.ALCHEMY_API_KEY ?? "",
+      rpcUrls: (process.env.X402_RPC_URLS ?? "").split(",").filter(Boolean),
+      minConfirmations: parseIntEnv("X402_MIN_CONFIRMATIONS", "10"),
+    },
+
+    postgres: {
+      enabled: process.env.FINN_POSTGRES_ENABLED === "true",
+      connectionString: process.env.DATABASE_URL ?? "",
+      maxConnections: parseIntEnv("FINN_PG_MAX_CONNECTIONS", "10"),
+    },
 
     redis: {
       url: process.env.REDIS_URL ?? "",
