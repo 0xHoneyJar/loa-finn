@@ -1,0 +1,31 @@
+{
+  "name": "@honeyjar/finn-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Finn Agent API",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xHoneyJar/loa-finn.git",
+    "directory": "packages/finn-sdk"
+  }
+}

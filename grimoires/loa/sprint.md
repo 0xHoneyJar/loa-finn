@@ -217,7 +217,7 @@ Sprints 5–7 add depth (P1): persistence, on-chain signals, metrics, SDK, disco
 
 ---
 
-## Sprint 7: OpenAPI + SDK + Discovery
+## Sprint 7: OpenAPI + SDK + Discovery ✅ ✅
 
 > **Global ID**: 117 | **Track**: 5 + 3 | **Priority**: P1 | **Dependencies**: Sprint 3, Sprint 4
 > **Goal**: Developers can discover and integrate with the agent API.

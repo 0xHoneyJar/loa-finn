@@ -1167,7 +1167,7 @@
           "local_id": "sprint-7",
           "global_id": 117,
           "label": "OpenAPI + SDK + Discovery",
-          "status": "pending",
+          "status": "completed",
           "tasks": 6
         }
       ]
