@@ -26,6 +26,8 @@ import {
   VALID_TRANSITIONS,
   parseBillingEntryId,
 } from "./types.js"
+import type { EventWriter } from "../events/writer.js"
+import { STREAM_BILLING, fromBillingEnvelope } from "../events/types.js"
 
 // ---------------------------------------------------------------------------
 // CRC32 — lightweight checksum for WAL records (Flatline SKP-001)
@@ -120,6 +122,13 @@ export interface BillingStateMachineDeps {
   acquireLock?: (billingEntryId: BillingEntryId, correlationId: string) => Promise<boolean>
   /** Release entry-level lock after state transition. */
   releaseLock?: (billingEntryId: BillingEntryId) => Promise<void>
+  /**
+   * Optional EventWriter for unified EventStore emission (Sprint 1, T1.6).
+   * When set, billing WAL appends are also emitted as EventEnvelopes on the
+   * "billing" stream. Fire-and-forget: emission failure is logged, not thrown.
+   * On-disk WAL format unchanged — EventStore receives a mapped copy.
+   */
+  eventWriter?: EventWriter
 }
 
 /** Result of a locked state transition attempt. */
@@ -132,6 +141,21 @@ export class BillingStateMachine {
 
   constructor(deps: BillingStateMachineDeps) {
     this.deps = deps
+  }
+
+  /**
+   * Emit a billing WAL envelope to the unified EventStore (Sprint 1, T1.6).
+   * Fire-and-forget: emission failure is logged, never thrown.
+   * On-disk WAL format unchanged — EventStore receives a mapped copy.
+   */
+  private emitToEventStore(envelope: BillingWALEnvelope): void {
+    if (!this.deps.eventWriter) return
+    const mapped = fromBillingEnvelope(envelope)
+    this.deps.eventWriter
+      .append(STREAM_BILLING, mapped.event_type, mapped.payload, mapped.correlation_id)
+      .catch((err) => {
+        console.warn(`[BillingStateMachine] EventStore emission failed for ${envelope.billing_entry_id}:`, err)
+      })
   }
 
   // === RESERVE ===
@@ -160,6 +184,7 @@ export class BillingStateMachine {
 
     const envelope = createBillingWALEnvelope("billing_reserve", billingEntryId, correlationId, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const entry: BillingEntry = {
       billing_entry_id: billingEntryId,
@@ -200,6 +225,7 @@ export class BillingStateMachine {
 
     const envelope = createBillingWALEnvelope("billing_commit", entry.billing_entry_id, entry.correlation_id, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const updated: BillingEntry = {
       ...entry,
@@ -244,6 +270,7 @@ export class BillingStateMachine {
     const payload: BillingReleasePayload = { reason }
     const envelope = createBillingWALEnvelope("billing_release", entry.billing_entry_id, entry.correlation_id, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const updated: BillingEntry = {
       ...entry,
@@ -270,6 +297,7 @@ export class BillingStateMachine {
     const payload: BillingVoidPayload = { reason, admin_id: adminId }
     const envelope = createBillingWALEnvelope("billing_void", entry.billing_entry_id, entry.correlation_id, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const updated: BillingEntry = {
       ...entry,
@@ -296,6 +324,7 @@ export class BillingStateMachine {
     const payload: BillingFinalizeAckPayload = { arrakis_response_status: arrakisResponseStatus }
     const envelope = createBillingWALEnvelope("billing_finalize_ack", entry.billing_entry_id, entry.correlation_id, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const updated: BillingEntry = {
       ...entry,
@@ -322,6 +351,7 @@ export class BillingStateMachine {
     const payload: BillingFinalizeFailPayload = { attempt, reason }
     const envelope = createBillingWALEnvelope("billing_finalize_fail", entry.billing_entry_id, entry.correlation_id, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const updated: BillingEntry = {
       ...entry,

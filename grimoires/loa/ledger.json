@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-029",
+  "current_cycle": "cycle-030",
   "cycles": [
     {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -1114,8 +1114,10 @@
     },
     {
       "label": "Launch Execution — From Built to Operable",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-20T12:00:00Z",
+      "archived": "2026-02-21T02:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-21-launch-execution-complete",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprint_plan": "grimoires/loa/sprint.md",
@@ -1196,6 +1198,40 @@
         }
       ]
     }
+    },
+    {
+      "label": "Forward Architecture — Economic Consciousness",
+      "status": "active",
+      "started": "2026-02-21T02:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Cycle-030. Implements 3 forward architecture visions from Bridgebuilder Deep Review (PR #92): EventStore abstraction, personality-aware model routing, quality feedback loop. Source: findings D-1 (event sourcing convergence), D-2 (Ostrom governance), D-3 (genotype/phenotype vocabulary).",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 121,
+          "label": "EventStore Abstraction Layer",
+          "status": "completed",
+          "tasks": 7,
+          "notes": "7/7 tasks, 35 tests, 0 regressions. EventEnvelope<T>, open stream registry, JSONL+Postgres backends, credit+billing adapters. Review: All good. Audit: APPROVED."
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 122,
+          "label": "Personality-Aware Model Routing",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 123,
+          "label": "Quality Feedback Loop + Observability",
+          "status": "pending",
+          "tasks": 5
+        }
+      ]
+    }
   ],
-  "next_global_sprint_id": 121
+  "next_global_sprint_id": 124
 }

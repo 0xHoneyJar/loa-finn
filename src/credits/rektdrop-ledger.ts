@@ -22,6 +22,8 @@ import {
   DEFAULT_CREDIT_TTL_MS,
   TIER_AMOUNTS,
 } from "./rektdrop-types.js"
+import type { EventWriter } from "../events/writer.js"
+import { STREAM_CREDIT } from "../events/types.js"
 
 // ---------------------------------------------------------------------------
 // Credit Sub-Ledger
@@ -39,6 +41,22 @@ export class CreditSubLedger {
 
   /** Used nonces for replay protection */
   private readonly usedNonces = new Set<string>()
+
+  /**
+   * Optional EventWriter for unified EventStore emission (Sprint 1, T1.5).
+   * When set, credit transactions are also emitted as EventEnvelopes on the
+   * "credit" stream. Fire-and-forget: emission failure is logged, not thrown.
+   * Credit table remains authoritative — EventStore receives a copy.
+   */
+  private eventWriter: EventWriter | null = null
+
+  /**
+   * Set the EventWriter for unified EventStore emission.
+   * Pass null to disable emission.
+   */
+  setEventWriter(writer: EventWriter | null): void {
+    this.eventWriter = writer
+  }
 
   // =========================================================================
   // Account Operations
@@ -499,5 +517,26 @@ export class CreditSubLedger {
 
   private appendTransaction(tx: CreditTransaction): void {
     this.journal.push(tx)
+
+    // EventStore emission (Sprint 1, T1.5) — fire-and-forget
+    if (this.eventWriter) {
+      // Serialize bigint fields for JSON compatibility
+      const payload = {
+        tx_id: tx.tx_id,
+        account_id: tx.account_id,
+        event_type: tx.event_type,
+        debit_state: tx.debit_state,
+        credit_state: tx.credit_state,
+        amount: tx.amount.toString(),
+        idempotency_key: tx.idempotency_key,
+        metadata: tx.metadata,
+        timestamp: tx.timestamp,
+      }
+      this.eventWriter
+        .append(STREAM_CREDIT, tx.event_type, payload, tx.correlation_id)
+        .catch((err) => {
+          console.warn(`[CreditSubLedger] EventStore emission failed for ${tx.tx_id}:`, err)
+        })
+    }
   }
 }

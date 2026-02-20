@@ -128,3 +128,23 @@ export const finnUsedNonces = finnSchema.table("finn_used_nonces", {
   nonceKey: text("nonce_key").primaryKey(),                       // SHA-256 of auth params
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+// --- finn_events ---
+// Unified EventStore table (Sprint 1 T1.4, cycle-030 EventStore Abstraction).
+// Backend-agnostic event storage — Postgres implementation of EventWriter/EventReader.
+// Sequence is per-stream, monotonic, assigned atomically on INSERT.
+export const finnEvents = finnSchema.table("finn_events", {
+  eventId: text("event_id").primaryKey(),                           // ULID
+  stream: text("stream").notNull(),                                 // branded EventStream name
+  eventType: text("event_type").notNull(),                          // application-level event type
+  sequence: bigint("sequence", { mode: "number" }).notNull(),       // monotonic per stream
+  timestamp: bigint("timestamp", { mode: "number" }).notNull(),     // Unix ms
+  correlationId: text("correlation_id").notNull(),                   // trace correlation
+  checksum: text("checksum").notNull(),                              // CRC32 of payload
+  schemaVersion: integer("schema_version").notNull().default(1),     // envelope schema version
+  payload: jsonb("payload").notNull(),                               // event data (T)
+}, (table) => [
+  uniqueIndex("idx_events_stream_sequence").on(table.stream, table.sequence),
+  index("idx_events_stream_timestamp").on(table.stream, table.timestamp),
+  index("idx_events_correlation").on(table.correlationId),
+])
