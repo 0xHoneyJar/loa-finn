@@ -165,7 +165,7 @@ Sprints 5–7 add depth (P1): persistence, on-chain signals, metrics, SDK, disco
 
 ---
 
-## Sprint 5: On-Chain Signals + Persistence
+## Sprint 5: On-Chain Signals + Persistence ✅ ✅
 
 > **Global ID**: 115 | **Track**: 2b + 2c | **Priority**: P1 | **Dependencies**: Sprint 1, Sprint 4
 > **Goal**: Personality survives restarts. On-chain signal reader operational.

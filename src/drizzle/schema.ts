@@ -1,7 +1,7 @@
 // src/drizzle/schema.ts — Finn database schema (Sprint 1 T1.3, SDD §6)
 // All tables live in the `finn` schema, isolated from other services.
 
-import { pgSchema, text, timestamp, bigint, jsonb, boolean, index, uniqueIndex } from "drizzle-orm/pg-core"
+import { pgSchema, text, timestamp, bigint, integer, jsonb, boolean, index, uniqueIndex } from "drizzle-orm/pg-core"
 
 export const finnSchema = pgSchema("finn")
 
@@ -50,4 +50,33 @@ export const finnVerificationFailures = finnSchema.table("finn_verification_fail
 }, (table) => [
   index("idx_verification_failures_created").on(table.createdAt),
   index("idx_verification_failures_reason").on(table.reason),
+])
+
+// --- finn_personalities ---
+// Personality records keyed by NFT tokenId (Sprint 5 T5.3, SDD §4.3)
+export const finnPersonalities = finnSchema.table("finn_personalities", {
+  id: text("id").primaryKey(),                               // ULID
+  tokenId: text("token_id").notNull(),                       // NFT token ID
+  archetype: text("archetype").notNull(),                    // freetekno | milady | chicago_detroit | acidhouse
+  currentVersionId: text("current_version_id"),              // FK to finn_personality_versions (null until first version)
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_personalities_token_id").on(table.tokenId),
+  index("idx_personalities_archetype").on(table.archetype),
+])
+
+// --- finn_personality_versions ---
+// Immutable version records for personality evolution (Sprint 5 T5.3)
+export const finnPersonalityVersions = finnSchema.table("finn_personality_versions", {
+  id: text("id").primaryKey(),                               // ULID
+  personalityId: text("personality_id").notNull(),            // FK to finn_personalities
+  versionNumber: integer("version_number").notNull(),         // monotonically increasing per personality
+  beauvoirTemplate: text("beauvoir_template").notNull(),      // system prompt template
+  dampFingerprint: jsonb("damp_fingerprint"),                 // 96-dial DAMP values (null for static/v1)
+  epochNumber: integer("epoch_number").notNull().default(0),  // epoch for signal-based derivation
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_personality_versions_personality").on(table.personalityId),
+  uniqueIndex("idx_personality_versions_epoch").on(table.personalityId, table.epochNumber),
 ])
