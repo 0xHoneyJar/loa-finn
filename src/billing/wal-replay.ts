@@ -245,6 +245,17 @@ export async function replayBillingWAL(deps: WALReplayDeps): Promise<WALReplayRe
     ? await deps.redis.get(LAST_REPLAYED_OFFSET_KEY) // legacy fallback
     : null
 
+  // Bridge iteration 2, finding 001: Warn when using legacy ULID cursor.
+  // ULID lexicographic comparison is safe for single-process but may skip entries
+  // in multi-process scenarios. Sequence-based cursor is authoritative going forward.
+  if (lastOffset && lastSequence === null) {
+    console.warn(
+      "[wal-replay] Using legacy ULID cursor for incremental replay. " +
+      "New entries will use monotonic sequence. Legacy entries without wal_sequence " +
+      "are compared lexicographically (safe for single-process deployments only).",
+    )
+  }
+
   // Read all WAL segment files in order
   const segments = getWALSegments(deps.walDir)
   if (segments.length === 0) {

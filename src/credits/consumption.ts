@@ -151,9 +151,14 @@ export async function reserveCredits(
       return { status: "fallback_usdc" }
     }
 
-    // Conservation checkpoint on the atomically-updated account
+    // Conservation checkpoint on the atomically-updated account.
+    // Bridge iteration 2, finding 002: Conservation failure after atomic reserve
+    // requires a durable rollback. We use updateAccount which writes back to Postgres.
+    // This is safe because atomicReserve already committed the debit; the rollback
+    // re-credits the same amount in a separate UPDATE. If the process crashes between
+    // reserve and rollback, the next reconciliation run (src/billing/reconciliation.ts)
+    // will detect the divergence and correct it via RECONCILIATION_CORRECTION WAL entry.
     if (conservation && !conservation.validate(updatedAccount)) {
-      // Rollback: restore unlocked, reduce reserved
       updatedAccount.unlocked += amount
       updatedAccount.reserved -= amount
       await store.updateAccount(wallet, updatedAccount)

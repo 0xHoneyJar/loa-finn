@@ -84,6 +84,12 @@ export interface ClockDriftResult {
  * or HTTP Date header from a trusted service.
  *
  * Returns drift measurement. Logs warning if drift > threshold.
+ *
+ * Bridge iteration 2, finding 003: Wire into auth boundaries:
+ * - SIWE auth: compare message.issuedAt against server time
+ * - x402 verify: compare auth.valid_before against server time
+ * - Credit consumption: compare reservation TTL against server time
+ * TODO: Add startup drift check against trusted time source.
  */
 export function measureClockDrift(
   referenceTimeMs: number,
