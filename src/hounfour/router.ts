@@ -14,6 +14,7 @@ import type { PoolRegistry } from "./pool-registry.js"
 import type { TenantContext } from "./jwt-auth.js"
 import { selectAuthorizedPool, selectAffinityRankedPools } from "./pool-enforcement.js"
 import type { PersonalityContext } from "../nft/personality-context.js"
+import { metrics } from "../gateway/metrics-endpoint.js"
 import type { BYOKProxyClient } from "./byok-proxy-client.js"
 import type {
   AgentBinding,
@@ -371,6 +372,7 @@ export class HounfourRouter {
       const isHealthy = (provider: string, model: string) =>
         this.health.isHealthy({ provider, modelId: model })
 
+      const preferredPoolId = ranked[0]
       for (const candidatePoolId of ranked) {
         const candidate = this.poolRegistry.resolve(candidatePoolId)
         if (candidate && isHealthy(candidate.provider, candidate.model)) {
@@ -387,6 +389,15 @@ export class HounfourRouter {
             attempted: ranked,
           })
       }
+
+      // Emit fallback metric if personality-preferred pool was unhealthy
+      if (pool.id !== preferredPoolId) {
+        metrics.incrementCounter("finn_routing_fallback_total", {
+          from_pool: preferredPoolId,
+          to_pool: pool.id,
+          reason: "unhealthy",
+        })
+      }
     } else {
       // Standard path: single pool selection via choke point
       const poolId = selectAuthorizedPool(tenantContext, taskType)
@@ -401,6 +412,29 @@ export class HounfourRouter {
             agent, pool: poolId,
           })
       }
+
+      // Emit fallback metric if resolved pool differs from requested
+      if (pool.id !== poolId) {
+        metrics.incrementCounter("finn_routing_fallback_total", {
+          from_pool: poolId,
+          to_pool: pool.id,
+          reason: "unhealthy",
+        })
+      }
+    }
+
+    // Emit routing metrics (Sprint 3, T3.4) — bounded cardinality labels only
+    const selectedArchetype = personalityContext?.archetype ?? "unknown"
+    metrics.incrementCounter("finn_routing_pool_selected", {
+      pool: pool.id,
+      archetype: selectedArchetype,
+      task_type: taskType,
+    })
+    if (personalityContext?.routing_affinity) {
+      metrics.incrementCounter("finn_routing_affinity_used", {
+        pool: pool.id,
+        archetype: selectedArchetype,
+      })
     }
 
     // Build tenant-aware metadata

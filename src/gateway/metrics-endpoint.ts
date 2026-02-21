@@ -205,6 +205,15 @@ metrics.registerGauge("finn_settlement_circuit_state", "Settlement circuit break
 // --- Connection metrics ---
 metrics.registerGauge("finn_ws_connections_active", "Active WebSocket connections")
 
+// --- Routing metrics (Sprint 3, T3.4) ---
+// BOUNDED cardinality: labels are pool (5 values), archetype (4 values), task_type (bounded enum)
+// NO personality_id, user_id, or session_id in metric labels
+metrics.registerCounter("finn_routing_pool_selected", "Pool selected for request by archetype and task type")
+metrics.registerCounter("finn_routing_affinity_used", "Personality affinity influenced pool selection")
+metrics.registerCounter("finn_routing_fallback_total", "Pool fallback events by source and target pool")
+metrics.registerCounter("finn_routing_quality_cache_hit_total", "Quality cache hits")
+metrics.registerCounter("finn_routing_quality_cache_miss_total", "Quality cache misses")
+
 // ---------------------------------------------------------------------------
 // Metrics Endpoint Route (T6.1)
 // ---------------------------------------------------------------------------

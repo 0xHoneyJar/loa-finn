@@ -20,6 +20,7 @@ import type { Archetype, DAMPDialId, DAMPFingerprint } from "./signal-types.js"
 // (index.js references missing validators/billing.js)
 import type { PoolId, Tier } from "../hounfour/tier-bridge.js"
 import { TIER_POOL_ACCESS } from "../hounfour/tier-bridge.js"
+import type { RoutingQualityStore } from "./routing-quality.js"
 
 // ---------------------------------------------------------------------------
 // Tier Safety — authoritative pool allowlist (GPT-5.2 fix #5)
@@ -193,20 +194,37 @@ export function scorePoolByGenotype(fingerprint: DAMPFingerprint, poolId: PoolId
 const DEFAULT_ARCHETYPE_WEIGHT = 0.6
 const DEFAULT_GENOTYPE_WEIGHT = 0.4
 
+/** Default quality feedback weight (Sprint 3, T3.3) */
+const DEFAULT_QUALITY_WEIGHT = 0.3
+
 /**
- * Compute combined pool affinity from archetype (static) + genotype (dial-based).
- * Returns per-pool affinity scores keyed by PoolId.
+ * Compute combined pool affinity from archetype (static) + genotype (dial-based)
+ * + quality feedback (epigenetic, Sprint 3).
+ *
+ * Scoring formula:
+ * - Without quality: static_affinity (archetype + genotype blend)
+ * - With quality: static_affinity * (1 - qualityWeight) + quality_score * qualityWeight
+ *
+ * Quality reads from RoutingQualityStore cache ONLY — no I/O at scoring time.
+ * When no quality data exists for a (personality, pool) pair, static affinity is used
+ * unchanged (no penalty for new pools).
  *
  * @param archetype - The personality's archetype
  * @param fingerprint - The 96-dial dAMP fingerprint (optional)
  * @param archetypeWeight - Weight for static archetype affinity (default 0.6)
  * @param genotypeWeight - Weight for dial-based scoring (default 0.4)
+ * @param qualityStore - Optional RoutingQualityStore for feedback scoring (Sprint 3)
+ * @param personalityId - Required when qualityStore is provided
+ * @param qualityWeight - Weight of quality feedback in final score (default 0.3)
  */
 export function computeRoutingAffinity(
   archetype: Archetype,
   fingerprint?: DAMPFingerprint | null,
   archetypeWeight = DEFAULT_ARCHETYPE_WEIGHT,
   genotypeWeight = DEFAULT_GENOTYPE_WEIGHT,
+  qualityStore?: RoutingQualityStore | null,
+  personalityId?: string | null,
+  qualityWeight = DEFAULT_QUALITY_WEIGHT,
 ): Record<PoolId, number> {
   const pools = Object.keys(ARCHETYPE_POOL_AFFINITY.freetekno) as PoolId[]
   const result = {} as Record<PoolId, number>
@@ -214,12 +232,25 @@ export function computeRoutingAffinity(
   for (const poolId of pools) {
     const archetypeScore = getArchetypeAffinity(archetype, poolId)
 
+    let staticAffinity: number
     if (fingerprint) {
       const genotypeScore = scorePoolByGenotype(fingerprint, poolId)
-      result[poolId] = archetypeScore * archetypeWeight + genotypeScore * genotypeWeight
+      staticAffinity = archetypeScore * archetypeWeight + genotypeScore * genotypeWeight
     } else {
-      // No fingerprint — pure archetype affinity
-      result[poolId] = archetypeScore
+      staticAffinity = archetypeScore
+    }
+
+    // Blend quality feedback if available (Sprint 3, T3.3)
+    if (qualityStore && personalityId) {
+      const qualityScore = qualityStore.getPoolQualityCached(personalityId, poolId)
+      if (qualityScore) {
+        result[poolId] = staticAffinity * (1 - qualityWeight) + qualityScore.score * qualityWeight
+      } else {
+        // No quality data — use static affinity unchanged
+        result[poolId] = staticAffinity
+      }
+    } else {
+      result[poolId] = staticAffinity
     }
   }
 

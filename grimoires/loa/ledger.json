@@ -1227,8 +1227,9 @@
           "local_id": "sprint-3",
           "global_id": 123,
           "label": "Quality Feedback Loop + Observability",
-          "status": "pending",
-          "tasks": 5
+          "status": "completed",
+          "tasks": 5,
+          "notes": "5/5 tasks, 34 new tests, 562 total passing. RoutingQualityStore (LRU+TTL+decay), quality emission (fire-and-forget), affinity blending, 5 Prometheus metrics (bounded cardinality), E2E pipeline test. Review: All good. Audit: APPROVED."
         }
       ]
     }
