@@ -96,3 +96,110 @@ export function rateLimitMiddleware(config: FinnConfig) {
 }
 
 export { getClientIp }
+
+// ---------------------------------------------------------------------------
+// Multi-Tier Rate Limiter (Sprint 3 T3.5)
+// Redis sliding window — per-tier rate limits for free/x402/API key paths
+// ---------------------------------------------------------------------------
+
+export interface RateLimitCheckResult {
+  allowed: boolean
+  remaining: number
+  resetMs: number
+  retryAfterSeconds: number
+}
+
+export interface MultiTierRateLimiterDeps {
+  redis: import("../hounfour/redis/client.js").RedisCommandClient
+}
+
+/**
+ * Redis-backed sliding window rate limiter with per-tier limits.
+ *
+ * Uses Redis sorted sets: score = timestamp (ms), member = unique request ID.
+ * Window slides: remove entries older than windowMs, count remaining.
+ */
+export class MultiTierRateLimiter {
+  private readonly redis: MultiTierRateLimiterDeps["redis"]
+
+  constructor(deps: MultiTierRateLimiterDeps) {
+    this.redis = deps.redis
+  }
+
+  /**
+   * Check rate limit for a given tier and identifier.
+   * Returns whether the request is allowed + standard rate limit headers.
+   */
+  async check(
+    tier: string,
+    identifier: string,
+    maxRequests: number,
+    windowMs: number,
+  ): Promise<RateLimitCheckResult> {
+    const key = `finn:ratelimit:${tier}:${identifier}`
+    const now = Date.now()
+    const windowStart = now - windowMs
+
+    // Atomic sliding window via Lua script:
+    // 1. Remove expired entries
+    // 2. Count current entries
+    // 3. Add new entry if under limit
+    // 4. Set key expiry
+    const result = await this.redis.eval(
+      SLIDING_WINDOW_LUA,
+      1,
+      key,
+      String(windowStart),
+      String(now),
+      String(maxRequests),
+      String(Math.ceil(windowMs / 1000) * 2), // Key TTL = 2x window for cleanup
+    )
+
+    const [allowed, count] = result as [number, number]
+    const remaining = Math.max(0, maxRequests - count)
+    const resetMs = windowMs // Approximate — window is sliding
+
+    return {
+      allowed: allowed === 1,
+      remaining,
+      resetMs,
+      retryAfterSeconds: allowed === 1 ? 0 : Math.ceil(windowMs / 1000),
+    }
+  }
+}
+
+/** Lua script for atomic sliding window rate limiting */
+const SLIDING_WINDOW_LUA = `
+local key = KEYS[1]
+local window_start = tonumber(ARGV[1])
+local now = tonumber(ARGV[2])
+local max_requests = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+
+-- Remove expired entries
+redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
+
+-- Count current entries
+local count = redis.call('ZCARD', key)
+
+if count < max_requests then
+  -- Under limit — add entry with score = timestamp
+  redis.call('ZADD', key, now, now .. ':' .. math.random(1000000))
+  redis.call('EXPIRE', key, ttl)
+  return {1, count + 1}
+else
+  redis.call('EXPIRE', key, ttl)
+  return {0, count}
+end
+`
+
+// ---------------------------------------------------------------------------
+// Tier Definitions (SDD §4.6)
+// ---------------------------------------------------------------------------
+
+export const RATE_LIMIT_TIERS = {
+  free_per_ip: { windowMs: 60_000, maxRequests: 60 },
+  x402_per_wallet: { windowMs: 60_000, maxRequests: 30 },
+  challenge_per_ip: { windowMs: 60_000, maxRequests: 120 },
+  api_key_default: { windowMs: 60_000, maxRequests: 60 },
+} as const

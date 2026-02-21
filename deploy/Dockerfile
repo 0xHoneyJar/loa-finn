@@ -55,6 +55,9 @@ COPY .beads/ ./.beads/
 COPY deploy/build-context/oracle-knowledge/ ./grimoires/oracle-dixie/
 COPY deploy/build-context/oracle-persona/ ./grimoires/oracle-persona/
 
+# Copy Drizzle migrations (Sprint 1 T1.3)
+COPY drizzle/ ./drizzle/
+
 # Copy Hounfour adapters and schemas (T-16.8)
 COPY adapters/ ./adapters/
 COPY schemas/ ./schemas/

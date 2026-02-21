@@ -23,6 +23,7 @@ import {
   resolvePool,
   assertValidPoolId,
 } from "./tier-bridge.js"
+import { allowedPoolsForTier } from "../nft/routing-affinity.js"
 import { parsePoolId } from "./wire-boundary.js"
 
 // --- Types (SDD §3.1.1) ---
@@ -336,4 +337,43 @@ export function selectAuthorizedPool(
   }
 
   return poolId
+}
+
+// --- Personality-Aware Pool Selection (Sprint 2, T2.4) ---
+
+/**
+ * Select pools ranked by personality routing affinity, constrained to tier.
+ * Returns PoolId[] sorted by affinity score descending.
+ *
+ * Tier Safety Invariant (GPT-5.2 fix #5):
+ * Uses allowedPoolsForTier() as SINGLE source of truth for pool access.
+ * Only pools in BOTH allowedPools AND resolvedPools (from JWT) are returned.
+ * Empty result means NO eligible pools — caller MUST fail, NEVER escalate.
+ *
+ * The caller iterates pools in affinity order, checking health for each.
+ * This replaces resolveWithFallback's cross-pool fallback chains, which
+ * can escape tier boundaries (e.g., architect → reasoning → reviewer →
+ * fast-code → cheap). Personality affinity IS the fallback order.
+ */
+export function selectAffinityRankedPools(
+  tenantContext: TenantContext,
+  routingAffinity: Record<PoolId, number>,
+): PoolId[] {
+  const tier = tenantContext.claims.tier
+  const allowed = allowedPoolsForTier(tier)
+
+  // Intersection: tier-allowed AND JWT-resolved (defense in depth)
+  const eligible = allowed.filter(p => tenantContext.resolvedPools.includes(p))
+
+  if (eligible.length === 0) return []
+
+  // Sort by affinity descending, ties broken by pool ID ascending (deterministic)
+  eligible.sort((a, b) => {
+    const affinityA = routingAffinity[a] ?? 0
+    const affinityB = routingAffinity[b] ?? 0
+    if (affinityB !== affinityA) return affinityB - affinityA
+    return a.localeCompare(b)
+  })
+
+  return eligible
 }

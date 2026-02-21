@@ -26,6 +26,8 @@ import {
   VALID_TRANSITIONS,
   parseBillingEntryId,
 } from "./types.js"
+import type { EventWriter } from "../events/writer.js"
+import { STREAM_BILLING, fromBillingEnvelope } from "../events/types.js"
 
 // ---------------------------------------------------------------------------
 // CRC32 — lightweight checksum for WAL records (Flatline SKP-001)
@@ -49,6 +51,31 @@ export function crc32(data: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// WAL Sequence Counter (Bridge high-4: monotonic ordering across processes)
+// ---------------------------------------------------------------------------
+
+/** Global monotonic WAL sequence counter.
+ *  Guarantees strict total ordering within a single process.
+ *  For multi-process deployments, each process gets a unique sequence space
+ *  and the replay engine uses sequence numbers for correct ordering. */
+let _walSequence = 0
+
+/** Get next monotonic WAL sequence number. */
+export function nextWALSequence(): number {
+  return ++_walSequence
+}
+
+/** Set WAL sequence to a known value (startup recovery from Redis/DB). */
+export function setWALSequence(seq: number): void {
+  _walSequence = seq
+}
+
+/** Reset WAL sequence counter (testing only). */
+export function _resetWALSequence(): void {
+  _walSequence = 0
+}
+
+// ---------------------------------------------------------------------------
 // WAL Envelope Factory
 // ---------------------------------------------------------------------------
 
@@ -66,6 +93,7 @@ export function createBillingWALEnvelope<T>(
     billing_entry_id: billingEntryId,
     correlation_id: correlationId,
     checksum: crc32(payloadStr),
+    wal_sequence: nextWALSequence(),
     payload,
   }
 }
@@ -85,13 +113,49 @@ export interface BillingStateMachineDeps {
   generateId: () => BillingEntryId
   /** Log a state transition for observability. */
   onTransition?: (billingEntryId: BillingEntryId, from: BillingState, to: BillingState, costMicroUsd?: string) => void
+  /**
+   * Acquire entry-level lock before state transition (Bridge medium-1).
+   * Pattern: SET billing:lock:{entryId} {correlationId} NX EX 30
+   * Returns true if lock acquired, false if already held by another correlation.
+   * Optional — without lock, transitions run without concurrency protection.
+   */
+  acquireLock?: (billingEntryId: BillingEntryId, correlationId: string) => Promise<boolean>
+  /** Release entry-level lock after state transition. */
+  releaseLock?: (billingEntryId: BillingEntryId) => Promise<void>
+  /**
+   * Optional EventWriter for unified EventStore emission (Sprint 1, T1.6).
+   * When set, billing WAL appends are also emitted as EventEnvelopes on the
+   * "billing" stream. Fire-and-forget: emission failure is logged, not thrown.
+   * On-disk WAL format unchanged — EventStore receives a mapped copy.
+   */
+  eventWriter?: EventWriter
 }
+
+/** Result of a locked state transition attempt. */
+export type LockedTransitionResult<T> =
+  | { ok: true; entry: T }
+  | { ok: false; reason: "lock_contention"; entryId: BillingEntryId }
 
 export class BillingStateMachine {
   private readonly deps: BillingStateMachineDeps
 
   constructor(deps: BillingStateMachineDeps) {
     this.deps = deps
+  }
+
+  /**
+   * Emit a billing WAL envelope to the unified EventStore (Sprint 1, T1.6).
+   * Fire-and-forget: emission failure is logged, never thrown.
+   * On-disk WAL format unchanged — EventStore receives a mapped copy.
+   */
+  private emitToEventStore(envelope: BillingWALEnvelope): void {
+    if (!this.deps.eventWriter) return
+    const mapped = fromBillingEnvelope(envelope)
+    this.deps.eventWriter
+      .append(STREAM_BILLING, mapped.event_type, mapped.payload, mapped.correlation_id)
+      .catch((err) => {
+        console.warn(`[BillingStateMachine] EventStore emission failed for ${envelope.billing_entry_id}:`, err)
+      })
   }
 
   // === RESERVE ===
@@ -120,6 +184,7 @@ export class BillingStateMachine {
 
     const envelope = createBillingWALEnvelope("billing_reserve", billingEntryId, correlationId, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const entry: BillingEntry = {
       billing_entry_id: billingEntryId,
@@ -160,6 +225,7 @@ export class BillingStateMachine {
 
     const envelope = createBillingWALEnvelope("billing_commit", entry.billing_entry_id, entry.correlation_id, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const updated: BillingEntry = {
       ...entry,
@@ -178,6 +244,17 @@ export class BillingStateMachine {
     return updated
   }
 
+  /**
+   * Lock-aware commit: acquire entry lock, transition, release lock.
+   * Bridge medium-1 fix: prevents concurrent commit/release on same entry.
+   * Returns { ok: false, reason: "lock_contention" } if lock held by another correlation.
+   */
+  async lockedCommit(entry: BillingEntry, actualCost: MicroUSD): Promise<LockedTransitionResult<BillingEntry>> {
+    return this.withEntryLock(entry.billing_entry_id, entry.correlation_id, () =>
+      this.commit(entry, actualCost),
+    )
+  }
+
   // === RELEASE ===
 
   /**
@@ -193,6 +270,7 @@ export class BillingStateMachine {
     const payload: BillingReleasePayload = { reason }
     const envelope = createBillingWALEnvelope("billing_release", entry.billing_entry_id, entry.correlation_id, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const updated: BillingEntry = {
       ...entry,
@@ -219,6 +297,7 @@ export class BillingStateMachine {
     const payload: BillingVoidPayload = { reason, admin_id: adminId }
     const envelope = createBillingWALEnvelope("billing_void", entry.billing_entry_id, entry.correlation_id, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const updated: BillingEntry = {
       ...entry,
@@ -245,6 +324,7 @@ export class BillingStateMachine {
     const payload: BillingFinalizeAckPayload = { arrakis_response_status: arrakisResponseStatus }
     const envelope = createBillingWALEnvelope("billing_finalize_ack", entry.billing_entry_id, entry.correlation_id, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const updated: BillingEntry = {
       ...entry,
@@ -271,6 +351,7 @@ export class BillingStateMachine {
     const payload: BillingFinalizeFailPayload = { attempt, reason }
     const envelope = createBillingWALEnvelope("billing_finalize_fail", entry.billing_entry_id, entry.correlation_id, payload)
     const walOffset = this.deps.walAppend(envelope)
+    this.emitToEventStore(envelope)
 
     const updated: BillingEntry = {
       ...entry,
@@ -286,12 +367,62 @@ export class BillingStateMachine {
     return updated
   }
 
+  /**
+   * Lock-aware release: acquire entry lock, transition, release lock.
+   * Bridge medium-1 fix: prevents concurrent commit/release on same entry.
+   */
+  async lockedRelease(entry: BillingEntry, reason: BillingReleasePayload["reason"]): Promise<LockedTransitionResult<BillingEntry>> {
+    return this.withEntryLock(entry.billing_entry_id, entry.correlation_id, () =>
+      this.release(entry, reason),
+    )
+  }
+
+  /**
+   * Lock-aware void: acquire entry lock, transition, release lock.
+   */
+  async lockedVoid(entry: BillingEntry, reason: string, adminId?: string): Promise<LockedTransitionResult<BillingEntry>> {
+    return this.withEntryLock(entry.billing_entry_id, entry.correlation_id, () =>
+      this.void_(entry, reason, adminId),
+    )
+  }
+
   // === VALIDATION ===
 
   private validateTransition(currentState: BillingState, targetState: BillingState): void {
     const validTargets = VALID_TRANSITIONS[currentState]
     if (!validTargets.includes(targetState)) {
       throw new BillingStateError(currentState, targetState)
+    }
+  }
+
+  // === ENTRY-LEVEL LOCKING (Bridge medium-1) ===
+
+  /**
+   * Execute a state transition under an entry-level Redis lock.
+   * Lock pattern: SET billing:lock:{entryId} {correlationId} NX EX 30
+   * If acquireLock is not provided, executes without locking (backward compat).
+   */
+  private async withEntryLock<T>(
+    billingEntryId: BillingEntryId,
+    correlationId: string,
+    fn: () => Promise<T>,
+  ): Promise<LockedTransitionResult<T>> {
+    if (!this.deps.acquireLock) {
+      // No lock support — execute directly (backward compat)
+      const result = await fn()
+      return { ok: true, entry: result }
+    }
+
+    const acquired = await this.deps.acquireLock(billingEntryId, correlationId)
+    if (!acquired) {
+      return { ok: false, reason: "lock_contention", entryId: billingEntryId }
+    }
+
+    try {
+      const result = await fn()
+      return { ok: true, entry: result }
+    } finally {
+      await this.deps.releaseLock?.(billingEntryId)
     }
   }
 }

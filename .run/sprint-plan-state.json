@@ -1,30 +1,30 @@
 {
-  "plan_id": "plan-20260219-bridge2-hardening",
+  "plan_id": "plan-20260221-cycle031-adaptive-intelligence",
   "branch": "feature/protocol-convergence-v7",
-  "state": "RUNNING",
+  "state": "JACKED_OUT",
   "timestamps": {
-    "started": "2026-02-19T12:00:00Z",
-    "last_activity": "2026-02-19T12:00:00Z"
+    "started": "2026-02-21T12:00:00Z",
+    "last_activity": "2026-02-21T16:00:00Z"
   },
   "sprints": {
-    "total": 3,
-    "completed": 0,
-    "current": "sprint-11",
+    "total": 2,
+    "completed": 2,
+    "current": null,
     "list": [
-      {"id": "sprint-11", "status": "pending", "cycles": 0, "global_id": "sprint-78", "label": "Security & Infrastructure Hardening"},
-      {"id": "sprint-12", "status": "pending", "cycles": 0, "global_id": "sprint-79", "label": "Observability & Testing"},
-      {"id": "sprint-13", "status": "pending", "cycles": 0, "global_id": "sprint-80", "label": "Scalability & Quality"}
+      {"id": "sprint-1", "global_id": 124, "status": "completed", "cycles": 1, "label": "Quality Signal Governance + Anti-Sycophancy"},
+      {"id": "sprint-2", "global_id": 125, "status": "completed", "cycles": 1, "label": "EventStore Indexed Access + Reputation Bootstrap"}
     ]
   },
   "options": {
-    "from": 11,
-    "to": 13,
+    "from": 1,
+    "to": 2,
     "max_cycles": 20,
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 0,
-    "total_files_changed": 0,
-    "total_findings_fixed": 0
-  }
+    "total_cycles": 2,
+    "total_files_changed": 9,
+    "total_findings_fixed": 2
+  },
+  "cycle": "cycle-031"
 }

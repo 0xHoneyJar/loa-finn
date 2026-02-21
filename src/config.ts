@@ -70,6 +70,47 @@ export interface FinnConfig {
   /** Cheval adapter mode: subprocess (Phase 0-2 default) or sidecar (Phase 3) */
   chevalMode: "subprocess" | "sidecar"
 
+  /** x402 payment configuration (Sprint 2) */
+  x402: {
+    enabled: boolean
+    challengeSecret: string
+    challengeSecretPrevious: string
+    walletAddress: string
+    alchemyApiKey: string
+    rpcUrls: string[]
+    minConfirmations: number
+  }
+
+  /** API key configuration (Sprint 3) */
+  apiKeys: {
+    enabled: boolean
+    /** Server-side pepper for HMAC lookup hash — must be at least 16 chars */
+    pepper: string
+  }
+
+  /** SIWE authentication (Sprint 4) */
+  siwe: {
+    enabled: boolean
+    /** JWT signing secret (HS256) — must be at least 32 chars */
+    jwtSecret: string
+    /** Expected SIWE domain (e.g., "finn.honeyjar.xyz") */
+    domain: string
+    /** Expected SIWE URI (e.g., "https://finn.honeyjar.xyz") */
+    uri: string
+    /** Expected chain ID (8453 for Base) */
+    chainId: number
+  }
+
+  /** Static personality config path (Sprint 4) */
+  personalityConfigPath: string
+
+  /** PostgreSQL database (Sprint 1 — finn schema) */
+  postgres: {
+    enabled: boolean
+    connectionString: string
+    maxConnections: number
+  }
+
   /** Redis state backend (Phase 3 — circuit breaker, budget, rate limiter, idempotency) */
   redis: {
     url: string
@@ -219,6 +260,37 @@ export function loadConfig(): FinnConfig {
     sandboxSyncFallback: parseSyncFallback(process.env.SANDBOX_SYNC_FALLBACK, process.env.NODE_ENV),
 
     chevalMode: (process.env.CHEVAL_MODE ?? "subprocess") as "subprocess" | "sidecar",
+
+    x402: {
+      enabled: process.env.X402_ENABLED === "true",
+      challengeSecret: process.env.X402_CHALLENGE_SECRET ?? "",
+      challengeSecretPrevious: process.env.X402_CHALLENGE_SECRET_PREVIOUS ?? "",
+      walletAddress: process.env.X402_WALLET_ADDRESS ?? "",
+      alchemyApiKey: process.env.ALCHEMY_API_KEY ?? "",
+      rpcUrls: (process.env.X402_RPC_URLS ?? "").split(",").filter(Boolean),
+      minConfirmations: parseIntEnv("X402_MIN_CONFIRMATIONS", "10"),
+    },
+
+    apiKeys: {
+      enabled: process.env.FINN_API_KEYS_ENABLED === "true",
+      pepper: process.env.FINN_API_KEY_PEPPER ?? "",
+    },
+
+    siwe: {
+      enabled: process.env.FINN_SIWE_ENABLED === "true",
+      jwtSecret: process.env.FINN_SIWE_JWT_SECRET ?? "",
+      domain: process.env.FINN_SIWE_DOMAIN ?? "finn.honeyjar.xyz",
+      uri: process.env.FINN_SIWE_URI ?? "https://finn.honeyjar.xyz",
+      chainId: parseIntEnv("FINN_SIWE_CHAIN_ID", "8453"),
+    },
+
+    personalityConfigPath: process.env.FINN_PERSONALITY_CONFIG ?? "config/personalities.json",
+
+    postgres: {
+      enabled: process.env.FINN_POSTGRES_ENABLED === "true",
+      connectionString: process.env.DATABASE_URL ?? "",
+      maxConnections: parseIntEnv("FINN_PG_MAX_CONNECTIONS", "10"),
+    },
 
     redis: {
       url: process.env.REDIS_URL ?? "",

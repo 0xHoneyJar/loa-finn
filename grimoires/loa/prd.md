@@ -1,650 +1,687 @@
-# PRD: Full Stack Launch — Build Everything, Then Ship
+# PRD: Launch Execution — From Built to Operable
 
 > **Version**: 1.2.0
-> **Date**: 2026-02-19
+> **Date**: 2026-02-20
 > **Author**: @janitooor + Claude Opus 4.6 (Bridgebuilder)
-> **Status**: Draft — GPT-5.2 APPROVED (iteration 3) · Flatline APPROVED (5 HIGH_CONSENSUS + 5 BLOCKERS integrated)
-> **Cycle**: cycle-027
-> **Command Center**: [#66](https://github.com/0xHoneyJar/loa-finn/issues/66)
-> **Command Deck**: [Round 1](https://github.com/0xHoneyJar/loa-finn/issues/66#issuecomment-3919495664)
-> **Deep Review**: [Bridgebuilder on PR #79](https://github.com/0xHoneyJar/loa-finn/pull/79#issuecomment-3919440062)
-> **GTM Plan**: [arrakis PR #74](https://github.com/0xHoneyJar/arrakis/pull/74)
-> **Competitive Intel**: [Issue #80 (Conway)](https://github.com/0xHoneyJar/loa-finn/issues/80) · [Issue #37 (Nanobot)](https://github.com/0xHoneyJar/loa-finn/issues/37) · [Issue #46 (Hive)](https://github.com/0xHoneyJar/loa-finn/issues/46)
-> **Predecessor**: cycle-026 "Protocol Convergence v7" (PR #79, bridge complete, JACKED_OUT)
-> **Grounding**: `src/hounfour/` (33 files), `src/gateway/` (17 files), `grimoires/loa/reality/` (6 spokes), `tests/` (2101 passing)
+> **Status**: Draft
+> **Cycle**: cycle-029
+> **Origin**: [Command Center — Issue #66](https://github.com/0xHoneyJar/loa-finn/issues/66#issuecomment-3931932336) + [Bridgebuilder Deep Review PR #82](https://github.com/0xHoneyJar/loa-finn/pull/82)
+> **Predecessor**: cycle-027 "Full Stack Launch" (30 sprints, 1,105 tests, bridge FLATLINED) + cycle-028 "Theory of Identity" (superseded — identity work subsumes into this cycle)
+> **Cross-Repo**: [loa-freeside #62](https://github.com/0xHoneyJar/loa-freeside/issues/62), [loa-freeside PR #74](https://github.com/0xHoneyJar/loa-freeside/pull/74), [loa-hounfour PR #2](https://github.com/0xHoneyJar/loa-hounfour/pull/2)
+> **Issues**: 16 issues across 3 repos — [dependency map](https://github.com/0xHoneyJar/loa-finn/issues/66#issuecomment-3931992001)
+
+---
+
+## 0. The Bridgebuilder Observation — Questioning the Question
+
+The previous cycle (cycle-028 "Theory of Identity") planned 30 sprints and 16 tracks of work to build a complete identity architecture from scratch. That plan was comprehensive. It was also the wrong frame.
+
+The right question is not "how do we build everything?" The right question is: **what is the minimum set of operations that makes this system receive a request from a user, route it through a personality-conditioned agent, and collect payment?**
+
+Everything else — the 70K-edge knowledge graph, the 96-dial dAMP matrix, the entropy ceremony, the credit marketplace — is depth. Depth matters. But depth without an operable system is a library without a door.
+
+### The Freeside Discovery
+
+During infrastructure audit for this PRD, a critical discovery: **both NOWPayments and x402 payment adapters already exist in loa-freeside.**
+
+| Component | Location | Status |
+|-----------|----------|--------|
+| NOWPayments adapter | `themes/sietch/src/packages/adapters/billing/NOWPaymentsAdapter.ts` | Built, needs real keys |
+| x402 payment adapter | `themes/sietch/src/packages/adapters/billing/X402PaymentAdapter.ts` | Built, needs real keys |
+| x402 middleware | `themes/sietch/src/api/middleware/x402-middleware.ts` | Built |
+| Billing routes | `themes/sietch/src/api/routes/billing-routes.ts` | Built, includes `/api/billing/topup` |
+| x402 verifier | `themes/sietch/src/packages/adapters/payment/x402-verifier.ts` | Built |
+| x402 config | `themes/siecht/src/packages/core/billing/x402-config.ts` | Built |
+| PostgreSQL 15 | `docker-compose.dev.yml` | Running (user: arrakis, db: arrakis) |
+| Redis 7 | `docker-compose.dev.yml` | Running |
+| Terraform (AWS) | `infrastructure/terraform/` | ECS, RDS, ElastiCache, ALB |
+
+This changes the plan from "build payment infrastructure" to **"activate existing infrastructure with real credentials and connect loa-finn as a new service."**
+
+### What's Actually Missing
+
+The honest inventory of what exists vs. what's needed:
+
+| Built | NOT Built |
+|-------|-----------|
+| 1,105 tests across identity, credits, marketplace, entropy | Docker Compose for loa-finn (no container yet) |
+| Double-entry credit ledger with conservation invariants | Real x402 wallet + keys configured |
+| Marketplace with escrow settlement | Service-to-service auth between finn and freeside |
+| Anti-narration enforcement (60+ forbidden terms) | Per-NFT personality persistence in Redis/Postgres |
+| Experience accumulation with epoch drift | On-chain signal reader (reads NFT metadata from Base) |
+| Personality-tiered billing types | Static personality config for v1 (before full signal engine) |
+| BillingFinalizeClient with DLQ | Agent homepage / `llms.txt` / `agents.md` |
+| Pool claim enforcement (confused deputy prevention) | Prometheus metrics + Grafana dashboard |
+| loa-hounfour v7.0.0 protocol | OpenAPI spec + TypeScript SDK for Product B |
 
 ---
 
 ## 1. Problem Statement
 
-### The Product Gap
+The HoneyJar agent system has been under development for 28 cycles (93+ sprints). It has 1,105 tests. It has a multi-model routing protocol (hounfour v7.0.0), a double-entry credit ledger, a marketplace with escrow settlement, entropy-driven minting, and anti-narration enforcement.
 
-52 global sprints across 26 development cycles have produced a world-class inference engine. The infrastructure scorecard ([Issue #66 comment](https://github.com/0xHoneyJar/loa-finn/issues/66)):
+**None of it is operable.**
 
-```
-Infrastructure (the "Terraform")           90%  READY
-Product Experience (the "Vercel")          25%  NOT READY
-```
+No Docker container runs loa-finn. No real payment keys are configured. No user can discover an agent endpoint and call it. The billing wire between loa-finn and loa-freeside has been tested in integration but never with real USDC. The personality system has types and tests but no persistence layer that survives a restart.
 
-Multi-model routing, budget conservation, pool enforcement, BYOK redaction, JWT auth, ensemble strategies, protocol contract (loa-hounfour v7) — all production-grade. But no user can buy credits, no agent has a homepage, no NFT personality can be authored, and no value flows through the system.
+This PRD addresses the gap between "built" and "operable" — the last mile from code to product.
 
-### The Timing Window
+### Two Products
 
-Three market signals demand immediate action:
+| Product | Description | User | Revenue Model |
+|---------|-------------|------|---------------|
+| **Product A: Agent per NFT** | Each finnNFT has a unique AI agent with personality derived from on-chain metadata. NFT holders interact via web chat or API. | NFT holders, community members | Credits (Rektdrop) + USDC top-up |
+| **Product B: Twilio-style API** | Developers build on top of the personality-conditioned agent API. OpenAPI spec, TypeScript SDK, API keys. | Developers, integrators | Per-request billing via x402 or API keys |
 
-1. **Conway Terminal** ([Issue #80](https://github.com/0xHoneyJar/loa-finn/issues/80)) launched Feb 18 — sovereign agent infrastructure with x402 payments. 2M views on announcement. Proves market demand for agent economic autonomy.
-2. **x402 adoption** — 75M+ transactions on Coinbase. Google AP2 announced. HTTP-native machine payments are standardizing NOW.
-3. **ERC-7857** (Intelligent NFTs) in draft — trade agents with intelligence intact. Our Soul/Inbox architecture ([Issue #27](https://github.com/0xHoneyJar/loa-finn/issues/27)) anticipated this.
+### Why Now
 
-### The Strategy: Build Everything, Then Ship
-
-The user's mandate is explicit: **build all killer features before onboarding real users.** Ship as closed beta with invite-only access. Internal testing first with real value flowing. Focus QA on the running system, not concurrent feature shipping.
-
-This PRD defines the complete scope for that strategy.
-
-### Staged Rollout Gates (Flatline SKP-001)
-
-"Build everything, then ship" does NOT mean flip one switch. Each track has a feature flag and an explicit release gate:
-
-| Gate | Tracks Enabled | Users | Value Flow |
-|------|---------------|-------|------------|
-| **Gate 0: Smoke** | E2E loop only | Engineers only | Fake money (test credits) |
-| **Gate 1: Ignition** | + Credit packs + Denominations | Internal team (3-5) | Real USDC → real credits |
-| **Gate 2: Warmup** | + NFT experience + Onboarding | Internal + 5 invited | Real agents, real conversations |
-| **Gate 3: Idle** | + BYOK | Expanded beta (10-20) | Subscription path validated |
-| **Gate 4: Launch** | + x402 + Multi-model review | Full closed beta | All revenue paths live |
-
-Each gate requires:
-- All acceptance criteria for included tracks pass
-- Conservation guard verified with real (or test) value at that gate
-- Feature flags for subsequent gates are OFF (kill-switch per track)
-- Rollback plan documented: disable feature flag → previous gate behavior
-
-Feature flags stored in Redis (`feature:{track_name}:enabled`), toggled via admin API.
-
-> Source: User directive 2026-02-19, Issue #66 gap analysis §6, Command Deck Round 1
+1. **Infrastructure exists** — freeside has payment adapters, database, Docker, Terraform
+2. **Protocol is mature** — hounfour v7.0.0 with pool enforcement, budget, DLQ
+3. **Identity stack is deep** — 30 sprints of identity economics code with conservation proofs
+4. **Competition is moving** — Conway's Automaton launched `SOUL.md` self-authoring; we have deeper architecture but they have a running product
+5. **NOWPayments keys are available** — real crypto payment processing is ready to activate
 
 ---
 
 ## 2. Goals & Success Metrics
 
-### Business Objectives
+### Strategic Objective
 
-| Objective | Success Metric |
-|-----------|---------------|
-| End-to-end value flow | A credit purchase → inference request → credit deduction completes with conservation guard verification |
-| Closed beta operational | Invite-only access active, 5+ internal testers using real credits |
-| All revenue paths wired | PAYG (credit packs), BYOK ($5/mo platform fee), and x402 (per-request USDC) all functional |
-| NFT agent experience | A finnNFT holder can create an agent personality, chat via web, and see usage |
-| Cross-system E2E | Docker compose starts arrakis + loa-finn, runs full inference→billing→credit flow |
-| Multi-model review | Bridge iterations produce findings from 2+ models with deduplicated severity ranking |
-| Zero-regression deployment | All 2101+ existing tests pass, no new test failures |
+Make the system operable: a user can discover an agent, send a message, receive a personality-conditioned response, and payment is collected — end to end, in production, with real money.
 
-### Non-Goals
+### Success Metrics
 
-- **Public launch** — this cycle builds for closed beta only, not general availability
-- **Mobile apps** — web chat is sufficient for beta; native apps are post-launch
-- **Voice interaction** — text-only for beta (Whisper integration deferred)
-- **Agent social network** — inter-NFT messaging deferred (Issue #27 Phase 4)
-- **On-chain autonomous actions** — ERC-6551 TBA integration deferred (Issue #27 Phase 4)
-- **WhatsApp/Slack/additional channels** — Discord + Telegram + web chat sufficient for beta
+#### MVP Metrics (P0 — must pass before launch)
+
+| ID | Metric | Target | Measurement |
+|----|--------|--------|-------------|
+| **L-1** | Container runs | loa-finn starts in Docker, passes health check | `docker compose up` + `curl /health` returns 200 |
+| **L-2** | E2E request flow | User sends message → agent responds with personality | Integration test: POST /api/v1/agent/chat → 200 with personality-conditioned response |
+| **L-3** | Payment collection | x402 processes real USDC for at least one paid request | On-chain USDC transfer confirmed on Base for a request routed through finn |
+| **L-8** | Static personality | v1 agents have personality from static config (before full signal engine) | Agent responds with archetype-appropriate voice |
+
+#### Post-MVP Metrics (P1 — this cycle, after MVP)
+
+| ID | Metric | Target | Measurement |
+|----|--------|--------|-------------|
+| **L-4** | Personality persistence | Per-NFT personality state in PostgreSQL survives container restart | Stop/start container, query personality by tokenId, verify unchanged |
+| **L-6** | Observability | Conservation invariant violations trigger alerts | Prometheus metric `conservation_violations_total` wired to alert |
+| **L-7** | SDK exists | Developer can `npm install @honeyjar/finn-sdk` and call agent API | TypeScript SDK builds, types match OpenAPI spec |
+
+#### Future Metrics (P2 — next cycle)
+
+| ID | Metric | Target | Measurement |
+|----|--------|--------|-------------|
+| **L-5** | Agent discovery | Agent has a public homepage with `llms.txt` | `curl /llms.txt` returns valid agent manifest |
+
+### Non-Goals for This Cycle
+
+- Full 96-dial dAMP derivation from on-chain signals (deferred to identity cycle)
+- Credit marketplace with real USDC settlement (marketplace code exists, activation deferred)
+- Entropy ceremony UX (code exists, frontend integration deferred)
+- Knowledge graph bridge to mibera-codex (deferred)
+- DAO governance (deferred)
 
 ---
 
-## 3. User & Stakeholder Context
+## 3. User Personas
 
-### Primary Persona: The NFT Holder (Closed Beta)
+### P1: The NFT Holder (Product A)
 
-Invite-only testers who hold a finnNFT (or any NFT from a supported collection). They want to:
-- Create a personality for their NFT agent
-- Chat with their agent via web (and optionally Discord/Telegram)
-- See how much they've spent and what's left
-- Optionally bring their own API key (BYOK) for cheaper inference
+Holds a finnNFT. Wants to talk to their agent. Expects:
+- Agent has a unique personality (v1: archetype-based, static config)
+- Agent remembers context within a session
+- Agent is accessible via web chat or API
+- Payment works (credits or USDC)
 
-### Secondary Persona: The Community Admin
+### P2: The Developer (Product B)
 
-Manages a community on arrakis (Discord/Telegram). They want to:
-- Set community-wide budget limits
-- See aggregate usage across community members
-- Control which model tiers are available to which conviction levels
+Building on the agent API. Expects:
+- OpenAPI spec they can read
+- TypeScript SDK they can install
+- API keys they can generate
+- Per-request billing that "just works" (x402)
+- Clear rate limits and error codes
 
-### Tertiary Persona: The Permissionless Agent
+### P3: The Operator (Us)
 
-An autonomous agent (potentially Conway-powered) that wants to:
-- Pay for a single inference request via x402 USDC header
-- No account, no credit balance, just money-in → inference-out
-- Conservation guard verifies the payment covers the cost
-
-### Stakeholder: The Engineering Team
-
-Needs the closed beta to:
-- Validate the conservation guard with real money flowing
-- Identify edge cases in the billing pipeline under real usage
-- Prove the branded type system prevents denomination mixing in production
-- Build confidence before public launch
-
-> Source: Issue #66 §3, Issue #27 (finnNFT architecture), Command Deck §I (Conway persona)
+Running the system. Expects:
+- `docker compose up` starts everything
+- Prometheus metrics show system health
+- Conservation invariant violations are immediately visible
+- Logs are structured and queryable
 
 ---
 
 ## 4. Functional Requirements
 
-### Track 1: E2E Billing Loop (P0 — Everything Else Depends on This)
+### FR-1: Containerization & E2E Harness (Track 0)
+> **Issue**: [#84](https://github.com/0xHoneyJar/loa-finn/issues/84) | **Priority**: P0 | **Blockers**: None
 
-**FR-1.1: Wire loa-finn → arrakis finalize endpoint**
+**FR-1.1**: Dockerfile for loa-finn — multi-stage build, health check endpoint, graceful shutdown.
 
-The billing finalize call must flow from loa-finn to arrakis after every inference request.
+**FR-1.2**: Docker Compose that extends freeside's existing `docker-compose.dev.yml` — adds loa-finn as a service alongside PostgreSQL 15 and Redis 7. loa-finn connects to the same PostgreSQL and Redis instances.
 
-- loa-finn calls `POST /api/internal/billing/finalize?format=loh` with S2S JWT
-- Request body contains `BillingEntry` protocol type (loa-hounfour v7 schema)
-- Response validates against `billing-entry` JSON Schema via Ajv
-- Conservation guard's `budget_conservation` invariant fires on the finalize response
+**FR-1.3**: E2E test harness that boots the full stack (finn + freeside + postgres + redis) and runs integration tests: health check, agent chat, billing flow.
 
-**Billing State Machine (4 states):**
-1. **RESERVE** — Before inference: check credits sufficient, hold estimated amount
-2. **COMMIT** — After inference: finalize with actual cost via arrakis endpoint
-3. **RELEASE** — On failure: release held reserve, no charge
-4. **VOID** — On partial failure: compensating entry to reverse committed charge
+**FR-1.4**: CI workflow (GitHub Actions) that builds container, runs E2E tests, and reports status.
 
-**Preflight Finalize Health Check** (Flatline SKP-002): Before starting inference, loa-finn checks arrakis finalize endpoint health via a lightweight ping (`GET /api/internal/billing/health`). If unhealthy, the request is rejected immediately with HTTP 503 `{ "error": "billing_service_unavailable", "retry_after": 30 }`. This prevents streaming responses that can never be committed.
+### FR-2: x402 Pay-Per-Request Middleware (Track 1B)
+> **Issue**: [#85](https://github.com/0xHoneyJar/loa-finn/issues/85) | **Priority**: P0 | **Blockers**: None
 
-**Response Gating Rule**: If finalize COMMIT fails *after* streaming has begun (transient failure during inference), the model response is still delivered, but the account enters `PENDING_RECONCILIATION` state. Further requests are blocked until DLQ replay commits the pending charge, auto-release at 24h (NFR-6), or admin releases it. This avoids "paid but no answer" incidents while preventing unbounded debt accumulation.
+**Architecture Decision**: loa-finn owns x402 challenge issuance and receipt verification locally. Freeside's `X402PaymentAdapter` and `x402-verifier.ts` are imported as library code (shared package or copy), NOT called as a running service dependency. This means finn can verify payments without freeside being online — payment is a local operation; billing reconciliation with freeside happens asynchronously.
 
-**Bounded Reconciliation** (Flatline SKP-002): To prevent mass account lockout if arrakis goes down:
-- Circuit breaker on finalize endpoint: after 5 consecutive failures in 60s, trip breaker → reject new requests at preflight (not after streaming)
-- Max concurrent PENDING_RECONCILIATION accounts: 50 (configurable). If exceeded, new requests denied until queue drains.
-- Prometheus alert: `billing_pending_reconciliation_count > 10` triggers PagerDuty
+**FR-2.1**: x402 middleware on loa-finn's agent API routes. The x402 flow:
+1. Client sends request to `/api/v1/agent/chat` without payment headers
+2. Finn responds with HTTP 402 + HMAC-signed x402 challenge:
+   ```json
+   {
+     "amount": "1000000",
+     "recipient": "0x...",
+     "chain_id": 8453,
+     "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "nonce": "uuid-v4",
+     "expiry": 1708445100,
+     "request_path": "/api/v1/agent/chat",
+     "hmac": "sha256-hmac-of-all-above-fields"
+   }
+   ```
+   The `hmac` field is `HMAC-SHA256(server_secret, canonical_json(amount|recipient|chain_id|token|nonce|expiry|request_path))`. This binds the challenge to the specific request and prevents field tampering. The server secret is `X402_CHALLENGE_SECRET` (32+ bytes, env var).
+3. Client makes USDC payment on Base chain for the exact `amount` to `recipient`, obtains transaction hash
+4. Client re-sends request with `X-Payment-Receipt: <tx_hash>` and `X-Payment-Nonce: <nonce>` headers
+5. Finn re-derives the HMAC from the original challenge fields (looked up by nonce from Redis) and verifies integrity. Then verifies receipt on-chain (see FR-2.2 verification algorithm)
+6. Request proceeds to agent inference
 
-**Acceptance Criteria:**
-- [ ] S2S JWT signed with ES256 via vetted library (jose/jsonwebtoken), includes `sub: "loa-finn"`, `aud: "arrakis"`, `req_hash`
-- [ ] `req_hash` compared with `timingSafeEqual` (not JWT signature verification itself — ECDSA uses constant-time math internally)
-- [ ] `BillingEntry` serialized through `serializeMicroUSD()` (branded type, not raw string)
-- [ ] Conservation guard dual-path verification passes (evaluator + ad-hoc) on RESERVE
-- [ ] Finalize endpoint is idempotent: `billing_entry_id` (ULID) ensures exactly-once commit
-- [ ] Failed finalize triggers DLQ entry with replay capability; account enters PENDING_RECONCILIATION
-- [ ] DLQ replay test: simulate finalize failure, verify account blocks new requests, replay succeeds, account unblocks
-- [ ] Negative tests: invalid JWT signature, wrong `aud`/`sub`, expired token, wrong `req_hash` — all rejected
+> *Flatline SKP-001 (CRITICAL 930): HMAC challenge signing adopted for MVP. Full JWS deferred to post-MVP.*
 
-**FR-1.2: Protocol handshake at startup**
+**FR-2.2**: Receipt verification algorithm (precise specification per Flatline SKP-002):
 
-The handshake validates a single contract domain: the `loa_hounfour_billing_contract` version. loa-finn declares its minimum supported version (`4.0.0`); arrakis declares its implemented version (`4.6.0`). The check is: `arrakis_version >= finn_min_supported`.
+1. Fetch transaction by `tx_hash` from Base RPC via viem `getTransactionReceipt()`
+2. **Status check**: `receipt.status === 1` (tx succeeded). If status=0 → reject with "transaction reverted"
+3. **Confirmation depth**: `currentBlock - receipt.blockNumber >= 10`. If insufficient → return 402 with `X-Payment-Status: pending`
+4. **Log parsing**: Find `Transfer(address,address,uint256)` event in receipt logs where:
+   - Log emitter address === `X402_USDC_ADDRESS` (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)
+   - `to` parameter === `X402_WALLET_ADDRESS` (case-insensitive address comparison)
+   - `value` parameter === challenged `amount` (exact match, USDC uses 6 decimals)
+5. **Replay check**: `SETNX tx_hash` in Redis with 24h TTL. If key already exists → reject with "receipt already used"
+6. **Nonce validation**: Lookup nonce in Redis challenge store. Verify HMAC matches. Delete nonce entry (single-use).
+7. All checks pass → record in `finn_billing_events`, proceed to inference
 
-- Contract domain: `loa_hounfour_billing_contract` (not loa-hounfour package version or arrakis app version)
-- loa-finn declares `FINN_MIN_SUPPORTED_BILLING_CONTRACT = '4.0.0'`
-- arrakis responds with `billing_contract_version: '4.6.0'` in handshake response
-- Handshake failure prevents service startup (fail-closed)
+If any step fails, return appropriate error (402 for payment issues, 400 for malformed input, 503 for RPC failures per FR-2.6).
 
-**Acceptance Criteria:**
-- [ ] `compatibility.ts` handshake runs during boot sequence using `billing_contract_version` field
-- [ ] Incompatible versions produce a clear error message: "loa-finn requires billing contract >= 4.0.0, arrakis reports 3.x.x"
-- [ ] Health endpoint reflects handshake status
-- [ ] Test matrix: compatible pairs (4.0.0/4.6.0, 4.0.0/5.0.0) pass, incompatible pairs (4.0.0/3.9.9) fail
+**FR-2.3**: x402 wallet configuration:
+- `X402_WALLET_ADDRESS`: USDC recipient address on Base (public, included in 402 challenge)
+- `X402_CHAIN_ID`: 8453 (Base mainnet)
+- `X402_USDC_ADDRESS`: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` (USDC on Base)
+- `X402_CHALLENGE_SECRET`: HMAC signing secret for challenge integrity (32+ bytes, generated once, stored in secrets manager). This is NOT a blockchain private key — it's a symmetric secret used only for HMAC signing of 402 challenge objects.
+- Finn does not sign blockchain transactions. It only issues HMAC-protected challenges and verifies on-chain receipts.
 
-**FR-1.3: Docker Compose full stack**
+**FR-2.4**: Payment method selection — strict decision tree (no ambiguity, no fallback):
 
-- Single `docker compose up` starts arrakis + loa-finn + Redis
-- Real ES256 keypair shared via Docker volume (generated by `e2e-keygen.sh`)
-- Test sends inference request through full stack: arrakis → loa-finn → model → budget → finalize → credit deduction
+> *Flatline SKP-003 (HIGH 760): Tightened payment decision tree to eliminate bypass paths.*
 
-**Acceptance Criteria:**
-- [ ] `npm run test:e2e` in arrakis repo passes with both services running
-- [ ] Credit balance decrements by expected MicroUSD amount after inference
-- [ ] DLQ replay recovers from simulated finalize failure
-
-### Track 2: Denomination System (P0)
-
-**FR-2.1: CreditUnit branded type**
-
-New branded type in `wire-boundary.ts` for pre-loaded credit balances. Follows the `parseMicroUSD` template: strict constructor, lenient reader with normalization metrics, serializer.
-
-**Acceptance Criteria:**
-- [ ] `CreditUnit` branded type exported from `wire-boundary.ts`
-- [ ] `parseCreditUnit()` with same 3-layer enforcement (type, lint, runtime)
-- [ ] `MAX_CREDIT_UNIT_LENGTH` constant shared with MicroUSD (symmetric DoS bounds)
-- [ ] CreditUnit ↔ MicroUSD conversion function with explicit exchange rate parameter
-
-**FR-2.2: Credit pack purchase flow**
-
-Users purchase credit packs ($5, $10, $25) that mint a credit balance.
-
-**Closed Beta Payment Rail**: Base USDC transfer (single rail for beta simplicity). Stripe deferred to post-beta.
-
-**Payment Proof Schema:**
-```typescript
-interface CreditPurchaseRequest {
-  pack_size: 500 | 1000 | 2500  // CreditUnit amounts (= $5, $10, $25 at 100 CU/$1)
-  payment_proof: {
-    tx_hash: string              // Base L2 transaction hash
-    chain_id: 8453               // Base mainnet
-    token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'  // USDC on Base
-    sender: string               // Payer wallet address (must match authenticated wallet)
-    amount_micro_usdc: string    // MicroUSDC amount (6 decimals)
-  }
-  idempotency_key: string        // Client-generated ULID, prevents double-mint
-}
+```
+REQUEST ARRIVES
+  │
+  ├─ Path in FREE_ENDPOINTS (/health, /llms.txt, /agents.md, /metrics)?
+  │    → Allow (no payment, no auth)
+  │
+  ├─ Has "Authorization: Bearer dk_..." header?
+  │    → API KEY PATH:
+  │       1. Validate key format (dk_ prefix, length)
+  │       2. Lookup key hash in finn_api_keys (must exist, not revoked)
+  │       3. Check credit balance ≥ request cost
+  │       4. If credits sufficient → debit credits, proceed
+  │       5. If credits exhausted → return 402 with x402 challenge
+  │          (X-Payment-Upgrade: x402 header signals upgrade path)
+  │       6. If key invalid/revoked → return 401 (NOT 402)
+  │
+  ├─ Has "X-Payment-Receipt" header?
+  │    → X402 PATH:
+  │       1. Must also have "X-Payment-Nonce" header
+  │       2. Validate receipt per FR-2.2 algorithm
+  │       3. If valid → proceed
+  │       4. If invalid → return 402 with new challenge
+  │
+  └─ No auth/payment headers on paid endpoint?
+       → return 402 with x402 challenge (default path)
 ```
 
-**Verification Steps** (Flatline SKP-003 — event-log level):
-1. Fetch transaction receipt for `tx_hash` on Base RPC
-2. Parse USDC `Transfer(address,address,uint256)` event logs from receipt:
-   - Verify `token` matches USDC contract address (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)
-   - Verify `to` matches treasury address (`TREASURY_ADDRESS` env var)
-   - Verify `value` matches expected `amount_micro_usdc` for the pack size
-   - Record `log_index` for uniqueness: idempotency key is `(tx_hash, log_index)` not just `tx_hash`
-3. Verify `from` matches authenticated wallet — **with smart wallet support**:
-   - If `from == authenticated_wallet` → EOA match, proceed
-   - If `from != authenticated_wallet` → check if `authenticated_wallet` is an authorized signer via EIP-1271 `isValidSignature()` on the `from` contract. If valid, proceed. If not, reject.
-   - This supports Safe{Wallet}, Argent, and other smart contract wallets
-4. Require 12+ L2 confirmations (finality on Base)
-5. Check `(tx_hash, log_index)` against WAL — if seen, return existing mint result (exactly-once)
-6. Mint credit balance: double-entry ledger produces entries per posting rules above
-7. Conservation guard verifies `budget_conservation` post-mint
-
-**Double-Entry Ledger Rules:**
-
-The ledger is the **source of truth** for all credit balances. Balance is derived, not stored:
-```
-balance(account) = SUM(credits WHERE account_id = account) - SUM(debits WHERE account_id = account)
-```
-
-| Event | Debit Account | Credit Account | Amount | Idempotency Key |
-|-------|--------------|----------------|--------|-----------------|
-| Credit purchase | `treasury:usdc_received` | `user:{id}:credit_balance` | pack_size CU | `idempotency_key` from request |
-| Inference RESERVE | `user:{id}:credit_balance` | `system:reserves_held` | estimated CU | `billing_entry_id` |
-| Inference COMMIT | `system:reserves_held` | `system:revenue_earned` | actual CU | `billing_entry_id` |
-| Reserve RELEASE | `system:reserves_held` | `user:{id}:credit_balance` | (estimated - actual) CU | `billing_entry_id` |
-| VOID | `system:revenue_earned` | `user:{id}:credit_balance` | voided CU | `billing_entry_id` |
-
-**Reconciliation**: Daily automated reconciliation sums all ledger entries by account. If derived balance != cached Redis balance, alert fires and Redis is re-derived from WAL. All posting rules use the `billing_entry_id` as idempotency key — replayed entries produce no additional ledger effect.
-
-**Failure Modes (fail-closed):**
-- Tx not found or pending → reject, return "payment not confirmed"
-- Tx found but wrong amount/recipient → reject, return "payment mismatch"
-- Tx already used (idempotency hit) → return original mint result
-- Chain RPC unavailable → reject, return "verification unavailable, retry later"
-
-**Acceptance Criteria:**
-- [ ] Credit pack endpoint: `POST /api/v1/credits/purchase` with schema above
-- [ ] On-chain verification via Base RPC (viem or ethers): tx status, recipient, amount, confirmations
-- [ ] Credit balance minted as CreditUnit branded value with double-entry WAL entries
-- [ ] Idempotency: same `idempotency_key` returns identical response, no double-mint
-- [ ] Conservation guard `budget_conservation` wired to credit balance (limit = credit balance, spent = accumulated cost)
-- [ ] WAL audit entry for every credit mint and deduction
-- [ ] Negative tests: wrong amount, wrong recipient, insufficient confirmations, replay — all rejected
-
-**FR-2.3: Credit deduction on inference**
-
-Every inference request deducts from the user's credit balance using the billing state machine defined in FR-1.1.
-
-**Deduction Flow (maps to FR-1.1 state machine):**
-1. **RESERVE**: Estimate cost from model + max_tokens + pool tier. Convert MicroUSD estimate to CreditUnit. Hold `estimated_credit_cost` against user balance. If insufficient → HTTP 402 immediately.
-2. **Inference executes**: Model generates response (streaming may begin).
-3. **COMMIT**: Compute `actual_cost` from realized tokens. Call arrakis finalize with `billing_entry_id`. On success, convert committed MicroUSD to CreditUnit and deduct from balance. Release any excess reserve (`estimated - actual`).
-4. **On finalize failure**: Account enters `PENDING_RECONCILIATION` (FR-1.1 gating rule). Reserve remains held. DLQ entry created for replay.
-
-**Exactly-once guarantee**: The `billing_entry_id` (ULID, generated at RESERVE) is the idempotency key for the entire deduction. Retried finalizes with the same ID produce the same ledger effect.
-
-**Concurrency Control** (prevents overdraft from parallel requests):
-- **Per-wallet sequencing**: RESERVE operations for the same `account_id` are serialized via Redis Lua script that atomically checks balance and holds reserve. No two RESERVEs for the same account can interleave.
-- **Lua script** (pseudocode): `if balance - active_reserves >= estimated_cost then INCR active_reserves; return OK else return INSUFFICIENT end`
-- **Optimistic concurrency on COMMIT**: COMMIT includes the `reserve_amount` from RESERVE. If the reserve was already released (e.g., timeout), COMMIT fails gracefully and the response is still delivered (PENDING_RECONCILIATION path).
-- **Reserve TTL**: Reserves expire after 5 minutes (configurable via `RESERVE_TTL_SECONDS`). Expired reserves are auto-released by Redis TTL + WAL cleanup job.
-
-**Acceptance Criteria:**
-- [ ] Inference cost estimated in MicroUSD at RESERVE, actual cost computed at COMMIT
-- [ ] CreditUnit conversion uses explicit exchange rate (`CREDIT_UNITS_PER_USD`, initially 100)
-- [ ] **Rate frozen per billing_entry_id** (Flatline SKP-005): the exchange rate at RESERVE time is persisted in the WAL entry and used for COMMIT and RELEASE — no rate drift between operations on the same entry
-- [ ] Canonical rounding: RESERVE rounds UP (ceil, user pays slightly more), COMMIT rounds DOWN (floor, user pays slightly less), RELEASE returns exact delta — net effect: user never overpays by more than 1 CU
-- [ ] RESERVE holds estimated amount; COMMIT deducts actual; excess released atomically
-- [ ] Failed COMMIT → account enters PENDING_RECONCILIATION, reserve held, DLQ entry created
-- [ ] Insufficient credits at RESERVE returns HTTP 402 with `{ balance_cu, estimated_cost_cu, deficit_cu }`
-- [ ] Conservation guard `budget_conservation` verified at both RESERVE (estimate) and COMMIT (actual)
-- [ ] Usage dashboard shows remaining credits, per-request cost breakdown, and any pending reconciliations
-- [ ] Test: reserve 100 CU, inference costs 80 CU → 20 CU released, balance reduced by 80 CU
-- [ ] Test: reserve 100 CU, finalize fails → balance still shows 100 CU held, account blocked until DLQ replay
-
-**FR-2.4: BYOK platform fee**
-
-BYOK users pay a flat monthly platform fee ($5/mo) for platform access. BYOK is **entitlement-gated**, not conservation-gated — the conservation guard does not check per-request cost against a budget. Instead, the guard checks `entitlement_valid` (is the subscription active?).
-
-**BYOK Entitlement State Machine (4 states):**
-1. **ACTIVE** — Subscription current, inference allowed. Checked on every request.
-2. **PAST_DUE** — Payment failed or expired. Grace period begins (72 hours). Inference still allowed.
-3. **GRACE_EXPIRED** — Grace period elapsed without payment. Inference denied. Account shows "Subscription expired — reactivate to continue."
-4. **CANCELLED** — User explicitly cancelled. Inference denied immediately (no grace).
-
-**Per-request check** (replaces `budget_conservation` for BYOK):
-```
-if (account.byok_entitlement !== 'ACTIVE' && account.byok_entitlement !== 'PAST_DUE') {
-  deny("BYOK subscription inactive")
-}
-```
-
-**Abuse controls**: Rate limit of 1000 requests/day per BYOK account (configurable via `BYOK_DAILY_RATE_LIMIT`). Prevents unlimited usage on flat fee.
-
-**Acceptance Criteria:**
-- [ ] BYOK monthly fee: `BYOK_MONTHLY_FEE_MICRO_USD` env var (default: `5000000` = $5.00)
-- [ ] Entitlement state machine: ACTIVE → PAST_DUE (on payment failure) → GRACE_EXPIRED (after 72h) → requires reactivation
-- [ ] CANCELLED state on explicit cancellation (no grace period)
-- [ ] Per-request entitlement check replaces conservation guard `budget_conservation` for BYOK accounts
-- [ ] BYOK inference requests metered for usage reporting (token count, model, cost-equivalent) but not charged per-request
-- [ ] Rate limit: 1000 req/day per BYOK account (configurable), returns HTTP 429 when exceeded
-- [ ] Proration: mid-month activation charges `(remaining_days / 30) * monthly_fee`
-- [ ] WAL audit entry for every entitlement state transition
-- [ ] Test: ACTIVE account → inference succeeds, metered but not charged
-- [ ] Test: GRACE_EXPIRED account → inference denied with reactivation message
-- [ ] Test: Rate limit exceeded → HTTP 429 with reset time
+**Precedence rule**: If BOTH `Authorization` and `X-Payment-Receipt` are present, `Authorization` wins — API key path is evaluated first. This is deterministic and testable. Mixed headers are not an error, but only one path executes.
 
-### Track 3: x402 Agent Payments (P1)
+**Key invariant**: A 401 response ALWAYS means auth failure (bad/missing/revoked key). A 402 response ALWAYS means payment required (no receipt, invalid receipt, or exhausted credits). These are never conflated.
 
-**FR-3.1: x402 middleware**
+Each request is recorded in a `billing_events` table with: `request_id`, `payment_method` (x402|api_key|free), `amount_micro`, `tx_hash` (if x402), `api_key_id` (if key), `timestamp`. This makes L-3 measurable — every paid request is attributable to a payment method.
 
-Hono middleware that returns `402 Payment Required` with a **fixed price quote** for unauthenticated requests. The quote is a deterministic upper bound, not an estimate.
+**FR-2.5**: Rate Limiting & Abuse Controls. Public endpoints that trigger expensive inference or payment-challenge flows require explicit abuse controls:
+- **Free endpoints** (`/health`, `/llms.txt`): Per-IP rate limit — 60 req/min, 1000 req/hour. Exceeds → 429 with `Retry-After`.
+- **x402 endpoints**: Per-wallet rate limit — 30 req/min (identified by `X-Payment-Receipt` sender address). Additionally, per-IP limit of 120 req/min for 402 challenge generation (prevents challenge flooding). Exceeds → 429.
+- **API key endpoints**: Per-key rate limit — configurable per tier (default: 60 req/min, 10,000 req/day). Burst: token bucket with 10-request burst allowance. Exceeds → 429 with `X-RateLimit-Remaining` and `X-RateLimit-Reset` headers.
+- **Implementation**: Redis-backed sliding window counters. Keys: `ratelimit:{type}:{identifier}:{window}`. Rate limit configuration stored in environment variables with sensible defaults.
 
-**Pricing Model**: Fixed price quote per request. The client receives a `max_cost` that is the absolute maximum they will pay. loa-finn enforces `max_tokens` bounds to guarantee the actual cost never exceeds the quote.
+**FR-2.6**: On-Chain Verification Failure Modes. Receipt verification against Base chain can fail in several ways that must be handled explicitly:
+- **RPC outage**: If Base RPC is unreachable, return 503 with `Retry-After: 30`. Do NOT fall back to accepting unverified receipts. Log to `finn_verification_failures` with reason `rpc_unreachable`.
+- **Pending transaction**: If tx exists but has insufficient confirmations, return 402 with `X-Payment-Status: pending` and `X-Confirmations-Required: 10`. Client should retry after ~20 seconds.
+- **Confirmation depth**: Require minimum 10 confirmations on Base (approximately 20 seconds at 2s block time). This provides sufficient finality for Base L2 while keeping latency acceptable.
+- **Reorg handling**: If a previously-confirmed receipt is reorged out, the Redis replay entry remains (preventing re-use of the tx_hash). A background reconciler runs every 5 minutes, checking recent `finn_billing_events` entries (last 1 hour) against on-chain state. Reorged transactions are flagged with `status: reorged` in the billing events table. No automatic service revocation for v1 — operators handle via alerts.
+- **Retry/backoff**: Client-facing: exponential backoff guidance in 402/503 responses. Server-side RPC calls: 3 retries with 1s/2s/4s backoff before returning 503.
 
-**Credit-Note Refund** (Flatline SKP-004): If `actual_cost < quoted_max_cost`, the delta is issued as an off-chain credit note to a wallet-bound x402 balance. This balance can be applied to future x402 requests (reducing the required payment amount). Credit notes expire after 7 days. This avoids user-hostile overcharging while keeping settlement simple (no on-chain refund transfers).
+**FR-2.7**: API Key Lifecycle. API keys are core to Product B and require explicit lifecycle management:
+- **Issuance**: API keys are generated via `POST /api/v1/keys` (authenticated via SIWE wallet signature). Format: `dk_{base58_32bytes}` (prefix identifies key type). Each key is tied to a wallet address and a credit account.
+- **Storage**: Keys are stored as bcrypt hashes in `finn_api_keys` table. The plaintext key is shown exactly once at creation time. Associated metadata: `wallet_address`, `credit_account_id`, `created_at`, `last_used_at`, `revoked_at`, `rate_tier`.
+- **Rotation**: Users can create multiple active keys per wallet. Old keys continue to work until explicitly revoked. No automatic expiration for v1 (but `last_used_at` tracking enables future cleanup).
+- **Revocation**: `DELETE /api/v1/keys/{key_id}` (authenticated via SIWE). Revoked keys return 401 immediately. Revocation is permanent — no un-revoke.
+- **Credit mapping**: Each API key is linked to a credit account. When credits are exhausted, the key returns 402 with x402 challenge (upgrade path per FR-2.4). Credit balance is queryable via `GET /api/v1/keys/{key_id}/balance`.
 
-**Per-request receipt**: Every x402 response includes `X-Receipt` header with JSON: `{ "quoted": <max_cost>, "actual": <actual_cost>, "credit_note": <delta>, "credit_balance": <total_x402_credits> }`.
+### FR-3: Static Personality Config for v1 (Track 2)
+> **Issue**: [#88](https://github.com/0xHoneyJar/loa-finn/issues/88) | **Priority**: P0 | **Blockers**: None
 
-**Quote Calculation**:
-```
-max_cost = model_rate_per_token × max_tokens × markup_factor
-```
-Where `max_tokens` is capped at the request's `max_tokens` parameter (or model default if omitted), and `markup_factor` accounts for platform overhead (initially 1.0).
+**FR-3.1**: Static personality configuration — a JSON/YAML file that maps NFT token IDs to personality configs. Each config includes: archetype, voice description, behavioral traits, expertise domains, and a pre-written BEAUVOIR.md template.
 
-**Acceptance Criteria:**
-- [ ] Unauthenticated `POST /api/v1/invoke` returns 402 with `X-Payment-Required` header
-- [ ] Header includes: `max_cost` (MicroUSDC), `max_tokens`, `model`, `payment_address`, `chain_id: 8453`, `valid_until` (Unix timestamp, 5 min TTL)
-- [ ] `max_cost` is a deterministic upper bound computed from `max_tokens × rate`
-- [ ] Authenticated requests (JWT or credit balance) bypass x402 flow
-- [ ] Quote is cached per `(model, max_tokens)` tuple for 60s to prevent price manipulation
+**FR-3.2**: Four archetype templates (Freetekno, Milady, Chicago/Detroit, Acidhouse) with enough variation to demonstrate personality differentiation.
 
-**FR-3.2: x402 payment verification**
+**FR-3.3**: Personality loader that reads static config at startup and serves it via the existing `PersonalityService` interface. This is the v1 bridge — replaced by the full signal engine in a later cycle.
 
-Verify `X-Payment` header contains valid USDC transfer authorization where `paid_amount >= quoted_max_cost`.
+**FR-3.4**: Anti-narration enforcement on static templates: templates must pass `checkAntiNarration()` validation (the 60+ forbidden term list already exists in `src/nft/reviewer-adapter.ts`).
 
-**Payment Invariant**: `paid_amount >= quoted_max_cost` (not `paid_amount >= estimated_cost`). The quote is the contract — if the client pays the quoted amount, service is guaranteed.
+### FR-4: On-Chain Signal Reader (Track 2)
+> **Issue**: [#86](https://github.com/0xHoneyJar/loa-finn/issues/86) | **Priority**: P1 | **Blockers**: None
 
-**Acceptance Criteria:**
-- [ ] Parse EIP-3009 `transferWithAuthorization` from `X-Payment` header
-- [ ] Verify: signature valid, `amount >= quoted_max_cost`, `validBefore >= now`, nonce unused
-- [ ] Enforce `max_tokens` from the quote — request cannot exceed the token bound that produced the price
-- [ ] Settlement via openx402.ai facilitator (primary) or direct on-chain verification (fallback)
-- [ ] Rounding: all MicroUSDC amounts ceil to nearest 1 MicroUSDC (no fractional units)
-- [ ] Nonce replay protection: store used nonces in Redis with TTL matching `validBefore`
-- [ ] Test: payment of exact `max_cost` → inference succeeds
-- [ ] Test: payment less than `max_cost` → rejected with "insufficient payment" and required amount
-- [ ] Test: expired `validBefore` → rejected
-- [ ] Test: replayed nonce → rejected
+**FR-4.1**: Ethereum provider integration (viem/ethers) that reads finnNFT metadata from the Base chain contract. Extracts: archetype, ancestor, era, element, and any other on-chain fields.
 
-**FR-3.3: MicroUSDC branded type**
+**FR-4.2**: Signal snapshot construction from on-chain data — populates the `SignalSnapshot` type already defined in `src/nft/signal-types.ts`.
 
-Wire boundary type for on-chain USDC settlement amounts. Conversion between internal ledger (MicroUSD) and on-chain settlement (MicroUSDC) uses an explicit, auditable rate.
+**FR-4.3**: Caching layer: on-chain reads are expensive. Cache signal snapshots in Redis with 24h TTL. Transfer invalidation strategy: **TTL-only for v1** — no event subscriptions. On cache miss, call `ownerOf(tokenId)` to refresh ownership. This is sufficient because static personality config (FR-3) is the source of truth in v1; on-chain signals are informational, not authoritative, until the full signal engine is built. Event-based invalidation (viem `watchContractEvent` with reconnect + `lastProcessedBlock` persisted in Redis) is deferred to the identity cycle when on-chain signals become authoritative for personality derivation.
 
-**Acceptance Criteria:**
-- [ ] `MicroUSDC` branded type in `wire-boundary.ts` (6-decimal USDC precision, matches USDC contract decimals)
-- [ ] `parseMicroUSDC()` / `serializeMicroUSDC()` with same 3-layer enforcement pattern
-- [ ] `convertMicroUSDtoMicroUSDC(amount: MicroUSD, rate: USDtoUSDCRate): MicroUSDC` — explicit rate parameter
-- [ ] Rate initially `1.0` but configurable via `USD_USDC_EXCHANGE_RATE` env var
-- [ ] **Rate frozen per billing_entry_id** (Flatline SKP-005): conversion rate at quote time persisted in WAL; settlement uses same rate regardless of env var changes between quote and settlement
-- [ ] Rounding: `Math.ceil()` on MicroUSDC conversions (platform bears sub-unit loss, not user)
-- [ ] Rate and rounding logged in WAL for audit trail
-- [ ] Reconciliation report: daily job sums rounding deltas by denomination, alerts if cumulative drift exceeds threshold (configurable, default 1000 MicroUSD)
+### FR-5: Per-NFT Personality Persistence (Track 2)
+> **Issue**: [#87](https://github.com/0xHoneyJar/loa-finn/issues/87) | **Priority**: P1 | **Blockers**: FR-1 (needs Docker/Postgres)
 
-### Track 4: NFT Agent Experience (P0)
+**FR-5.1**: PostgreSQL schema for personality storage. **Schema ownership**: loa-finn owns its own migrations in its own repo, applied to the shared database. Finn tables are namespaced with `finn_` prefix to avoid collisions with freeside tables. Deploy order: freeside migrations run first (it owns the database), then finn migrations run (additive only — new tables, never modifying freeside tables). Rollback: finn migrations are independently reversible without affecting freeside.
 
-**FR-4.1: Per-NFT personality authoring**
+**FR-5.2**: Redis cache layer for hot personality data (BEAUVOIR.md, current dAMP fingerprint). Write-through to Postgres. Redis keys namespaced with `finn:` prefix.
 
-Each finnNFT gets a unique BEAUVOIR.md personality file.
+**FR-5.3**: Migration from in-memory storage to persistent storage. The existing `PersonalityService` interface doesn't change — only the storage backend.
 
-**Acceptance Criteria:**
-- [ ] `POST /api/v1/nft/:tokenId/personality` creates personality from template + user preferences
-- [ ] Preferences: name, voice (analytical/creative/witty/sage), expertise domains, custom instructions
-- [ ] Personality stored in persistence layer (WAL → R2), keyed by `collection:tokenId`
-- [ ] NFTRoutingConfig updated to route this personality → appropriate task → pool mapping
-- [ ] Personality hot-reloadable (FileWatcher or config update endpoint)
+**FR-5.4**: Schema constraints: `finn_personalities.current_version_id` is a foreign key to `finn_personality_versions(id)`. Unique constraint on `(personality_id, epoch_number)` for experience snapshots to prevent duplication under concurrent writes. All inserts are idempotent (ON CONFLICT DO NOTHING or upsert semantics).
 
-**FR-4.2: Agent homepage (web chat)**
+### FR-6: Agent Homepage & Discovery (Track 3)
+> **Issue**: [#89](https://github.com/0xHoneyJar/loa-finn/issues/89) | **Priority**: P2 | **Blockers**: None
 
-Each NFT gets a URL that serves a chat interface.
+**FR-6.1**: `GET /llms.txt` endpoint serving agent capability manifest per the emerging llms.txt convention.
 
-**Acceptance Criteria:**
-- [ ] `GET /agent/:collection/:tokenId` serves agent homepage with personality info + chat widget
-- [ ] Chat widget connects via WebSocket for streaming responses
-- [ ] Wallet connect (MetaMask, WalletConnect) for authentication
-- [ ] Session resume across page reloads (existing session management)
-- [ ] Usage display: credits remaining, messages sent, model used
+**FR-6.2**: `GET /agents.md` endpoint serving a human-readable agent directory.
 
-**FR-4.3: Conversation persistence**
+**FR-6.3**: Per-agent homepage at `GET /agent/:tokenId` — shows personality summary, capabilities, and interaction link.
 
-User conversations stored per-NFT with session continuity.
+### FR-7: Conservation Guard Observability (Track 4)
+> **Issue**: [#90](https://github.com/0xHoneyJar/loa-finn/issues/90) | **Priority**: P1 | **Blockers**: None
 
-**Access Model**: Conversations are **bound to the wallet address at creation time** (not transferable with NFT). If the NFT is transferred to a new owner, the new owner starts fresh conversations. The previous owner retains read-only access to their historical conversations but cannot create new ones for the transferred NFT.
+**FR-7.1**: Prometheus metrics endpoint (`GET /metrics`) exposing:
+- `conservation_violations_total` — counter of invariant violations
+- `credits_by_state{state}` — gauge per credit state
+- `settlement_total{status}` — counter of settlements by outcome
+- `escrow_balance_total` — total credits in escrow
+- `agent_requests_total{archetype}` — requests by personality archetype
 
-This is the simpler, more private model for closed beta. On-trade conversation transfer (re-encryption for new owner) is deferred to post-beta as part of Soul/Inbox Phase 2 (Issue #27).
+**FR-7.2**: Grafana dashboard JSON (importable) showing conservation health, credit flow, and agent usage.
 
-**Ownership Verification**: On each API call, verify `msg.sender == conversation.owner_address`. No on-chain ownership check required for conversation access — ownership was verified at creation time. NFT ownership is only checked when creating a NEW conversation (to confirm the wallet holds the NFT).
+**FR-7.3**: Alert rules: conservation violation → PagerDuty/Discord webhook.
 
-**Acceptance Criteria:**
-- [ ] Conversation thread model: `conversation_id`, `nft_id`, `owner_address`, `messages[]`, `created_at`
-- [ ] `owner_address` set at conversation creation time from authenticated wallet
-- [ ] Access check: `request.wallet_address === conversation.owner_address` (constant-time comparison)
-- [ ] NFT ownership verified via on-chain read (Base RPC, 1 confirmation) only at conversation creation
-- [ ] New owner of a transferred NFT can create new conversations but cannot access previous owner's
-- [ ] Conversations stored in Redis (hot) with WAL backup (warm) and R2 archive (cold)
-- [ ] Conversation list API: `GET /api/v1/nft/:tokenId/conversations` — filtered by authenticated wallet
-- [ ] Conversation survives session eviction (SessionRouter's 30min idle / 100 max cache)
-- [ ] Test: wallet A creates conversation, NFT transfers to wallet B → B cannot read A's conversations
-- [ ] Test: wallet B creates new conversation for same NFT after transfer → succeeds
+### FR-8: OpenAPI Spec & TypeScript SDK (Track 5)
+> **Issue**: [#91](https://github.com/0xHoneyJar/loa-finn/issues/91) | **Priority**: P1 | **Blockers**: None
 
-### Track 5: Onboarding & Access Control (P0)
+**FR-8.1**: OpenAPI 3.1 specification for the agent API — covers: agent chat, personality read, health check, marketplace (when activated), credit balance.
 
-**FR-5.1: Invite-only access**
+**FR-8.2**: TypeScript SDK generated from the OpenAPI spec (using openapi-typescript-codegen or similar). Published to npm as `@honeyjar/finn-sdk`.
 
-Closed beta restricted to invited wallet addresses.
-
-**Allowlist Storage**: For closed beta, store **plaintext normalized addresses** in Redis set (`beta:allowlist`). Hashing deferred — with < 100 beta addresses, the privacy benefit of hashing doesn't justify the implementation complexity. If beta scales beyond 1000 addresses, migrate to `keccak256(lowercase_address)` with no salt (deterministic lookup).
-
-**Normalization**: All addresses normalized to lowercase before storage and lookup. EIP-55 mixed-case checksums are stripped — comparison is case-insensitive hex.
-
-**Lookup**: `SISMEMBER beta:allowlist <lowercase_address>` — O(1) Redis set membership check.
-
-**Acceptance Criteria:**
-- [ ] Allowlist stored as Redis set (`beta:allowlist`) with plaintext lowercase addresses
-- [ ] Address normalization: strip `0x` prefix optionally, lowercase, validate 40 hex chars, re-add `0x`
-- [ ] `SISMEMBER` lookup on every authenticated request (< 1ms with Redis)
-- [ ] Non-allowlisted wallets get HTTP 403 with JSON `{ "error": "beta_access_required", "waitlist_url": "..." }`
-- [ ] Admin endpoint: `POST /api/v1/admin/allowlist` (add/remove addresses), protected by admin JWT
-- [ ] Admin JWT requires `role: "admin"` claim (not just any valid JWT)
-- [ ] Allowlist bypass: addresses in `BETA_BYPASS_ADDRESSES` env var always pass (internal testing)
-- [ ] Rate limiting on allowlist check endpoint to prevent enumeration (10 req/min per IP)
-- [ ] WAL audit entry for every allowlist add/remove operation
-- [ ] Test: allowlisted address → access granted
-- [ ] Test: non-allowlisted address → 403 with waitlist URL
-- [ ] Test: mixed-case address matches lowercase entry in allowlist
-
-**FR-5.2: Onboarding flow**
-
-From wallet connect to first agent message.
-
-**Acceptance Criteria:**
-- [ ] Step 1: Connect wallet → detect NFTs (via arrakis NativeReader or direct chain query)
-- [ ] Step 2: Select NFT → show as agent avatar
-- [ ] Step 3: Configure personality (name, voice, expertise)
-- [ ] Step 4: Purchase credits (or activate BYOK)
-- [ ] Step 5: Agent goes live → redirect to agent homepage
-- [ ] Step 6: First message → streaming response → credit deducted → usage updated
-- [ ] Complete flow works end-to-end with real value (even if small amounts for testing)
-
-### Track 6: Multi-Model Review (P1)
-
-**FR-6.1: Bridge + Flatline unification**
-
-Bridge iterations invoke Flatline Protocol for multi-model findings.
-
-**Acceptance Criteria:**
-- [ ] Bridge iteration N triggers Flatline with PR diff as content
-- [ ] Opus reviews architecture, GPT reviews implementation
-- [ ] Findings merged, deduplicated by location + description similarity
-- [ ] Severity ranking reflects multi-model consensus (HIGH_CONSENSUS, DISPUTED)
-- [ ] Sprint plan generated from consensus findings only
-
-### Track 7: Operational Hardening (P0)
-
-**FR-7.1: Production deployment**
-
-loa-finn deployed to cloud with monitoring.
-
-**Treasury Security:**
-- Treasury address for credit pack payments MUST be a multisig (Safe{Wallet} 2-of-3 or similar)
-- Key custody: keys held by 3 separate team members, no single point of compromise
-- Treasury address configured via `TREASURY_ADDRESS` env var (not hardcoded)
-- Monitoring: alert if treasury receives unexpected token types or amounts outside pack sizes
-- Rotation: if treasury is compromised, update `TREASURY_ADDRESS` + invalidate all pending payment proofs + alert all users
-- Incident response: documented runbook for treasury compromise (freeze credit mints, rotate address, audit recent mints)
-
-**Acceptance Criteria:**
-- [ ] Fly.io (or Railway) deployment with health checks
-- [ ] Prometheus metrics endpoint (`/metrics`)
-- [ ] Grafana dashboard: request rate, latency, error rate, credit balance distribution, conservation guard results
-- [ ] JWKS key rotation with production keys (not dev keys)
-- [ ] Rate limiting tuned for beta traffic (conservative initially)
-- [ ] Treasury address is multisig with 2-of-3 signing requirement
-- [ ] Treasury monitoring: alert on unexpected transfers or amounts
-- [ ] Treasury rotation runbook documented and tested
-
-**FR-7.2: Conservation guard remaining suggestions**
-
-Address non-blocking items from PR #79 bridge review.
-
-**Acceptance Criteria:**
-- [ ] `recoveryStopped` flag (BB-026-iter2-002) — state-based recovery
-- [ ] `MAX_MICRO_USD_LENGTH` shared constant (BB-026-iter2-003) — symmetric DoS bounds
-- [ ] `"ensemble-untraced"` extracted to constant (BB-026-iter2-004)
-- [ ] `native-runtime-adapter.ts:416` trace_id fixed (BB-026-iter2-005)
-- [ ] Full backoff sequence test (BB-026-iter2-007)
+**FR-8.3**: SDK includes typed request/response objects, error handling, and x402 payment integration helpers.
 
 ---
 
-## 5. Technical & Non-Functional Requirements
+## 5. Technical Architecture
 
-### NFR-1: Conservation Guarantee
+### 5.1 Service Topology
 
-Every financial operation MUST be verified by the BillingConservationGuard's dual-path lattice. This is the constitutional constraint ([Deep Review §II](https://github.com/0xHoneyJar/loa-finn/pull/79#issuecomment-3919440062)).
+```
+                    ┌─────────────┐
+                    │   Client    │
+                    │ (web/SDK)   │
+                    └──────┬──────┘
+                           │ HTTPS
+                           ▼
+                    ┌─────────────┐
+                    │  loa-finn   │  :3001
+                    │  (agent)    │
+                    └──┬───┬───┬──┘
+                       │   │   │
+              ┌────────┘   │   └────────┐
+              ▼            ▼            ▼
+       ┌───────────┐ ┌──────────┐ ┌──────────────┐
+       │ PostgreSQL │ │  Redis   │ │ loa-freeside │
+       │    15      │ │    7     │ │  (billing)   │
+       │   :5432    │ │  :6379   │ │   :3000      │
+       └───────────┘ └──────────┘ └──────────────┘
+                                         │
+                                         ▼
+                                  ┌──────────────┐
+                                  │ loa-hounfour │
+                                  │  (routing)   │
+                                  └──────────────┘
+```
 
-- Evaluator result AND ad-hoc result must both pass
-- Divergence between evaluator and ad-hoc triggers alert
-- Bypassed evaluator (null expression) defers to ad-hoc only
-- All invariant results logged to WAL
+loa-finn runs on port 3001 (freeside occupies 3000). Both services share the same PostgreSQL and Redis instances via Docker Compose networking.
 
-### NFR-2: Branded Type Safety
+### 5.2 Service-to-Service Communication
 
-All financial values MUST flow through wire-boundary branded types. No raw bigint or string for monetary values.
+| Direction | Protocol | Auth | Purpose |
+|-----------|----------|------|---------|
+| finn → freeside | HTTP REST | S2S JWT (ES256) | Billing finalization, credit operations |
+| finn → hounfour | HTTP REST | S2S JWT (ES256) | Model routing, inference |
+| finn → PostgreSQL | TCP | Connection string | Personality persistence |
+| finn → Redis | TCP | Connection string | Cache, session, rate limiting |
+| finn → Base RPC | HTTPS | API key | On-chain signal reads |
+| client → finn | HTTPS | x402 / API key | Agent API |
 
-- MicroUSD for internal ledger
-- CreditUnit for user balances
-- MicroUSDC for on-chain settlement
-- BasisPoints for percentage calculations
-- ESLint rule bans `as MicroUSD` (only `parseMicroUSD()` can construct)
+### 5.2.1 S2S Authentication Contract
 
-### NFR-3: Fail-Closed by Default
+Service-to-service authentication uses JWT with ES256 (ECDSA P-256). This is separate from end-user authentication (SIWE/EIP-4361, which is for NFT holder wallet verification only — not used for S2S).
 
-Every new subsystem MUST default to denying operations when uncertain.
+**JWT Claims**:
+```json
+{
+  "iss": "loa-finn",              // Issuing service name
+  "aud": "loa-ecosystem",         // Shared audience for all ecosystem services
+  "sub": "s2s:finn",              // Subject: service identity
+  "exp": 1708444800,              // Expiry: 5 minutes from issuance
+  "iat": 1708444500,              // Issued-at
+  "jti": "uuid-v4"                // Unique token ID for replay prevention
+}
+```
 
-- Missing credit balance → deny (not "assume unlimited")
-- Missing personality → use default BEAUVOIR.md (not blank)
-- x402 payment verification failure → deny (not "serve anyway")
-- Unknown denomination → deny (not "treat as MicroUSD")
+**Key Distribution & Identification**:
 
-### NFR-4: Audit Trail
+> *Flatline SKP-005 (HIGH 720): Added `kid` headers, fail-closed behavior, pinned keys, clock skew tolerance.*
 
-Every state-changing operation MUST produce a WAL entry.
+- Each service has a pre-generated ES256 key pair. Keys are **pinned per environment** — NOT generated at first boot in production (prevents drift on instance restarts). In development, keys may be auto-generated for convenience.
+- JWT headers include `kid` (key ID) — format: `{service}:{environment}:{version}` (e.g., `finn:prod:v1`). This enables key identification during rotation without ambiguity.
+- Public keys are distributed via environment variables (`S2S_ES256_PUBLIC_KEY_PATH`) for MVP. In production (ECS), stored in AWS Secrets Manager and injected as Docker secrets.
+- **Post-MVP**: JWKS endpoint (`/.well-known/jwks.json`) on each service for automated key discovery. For MVP, env-var distribution is sufficient for a 2-3 service ecosystem.
 
-- Credit mint, deduction, refund
-- Personality creation, update
-- x402 payment verification (success and failure)
-- Conservation guard results (pass, fail, divergence)
-- Allowlist changes
+**Key Rotation**:
+1. Generate new key pair with incremented version (e.g., `finn:prod:v2`)
+2. Deploy new public key to all consumers (added to trusted key set, old key retained)
+3. Switch issuer to new private key (new JWTs use new `kid`)
+4. Grace period: accept both `v1` and `v2` public keys for 24h
+5. After 24h: remove old public key from trusted set
 
-### NFR-5: Performance
+**Middleware Behavior** (fail-closed):
+1. Validate JWT signature with known public key (matched by `kid` header)
+2. `iss` is in allowed service set
+3. `aud` matches `loa-ecosystem`
+4. `exp` is in the future (with **30-second clock skew tolerance** — `exp + 30s > now`)
+5. `jti` is not in the Redis replay set (stored with TTL = token lifetime + 30s skew buffer)
+6. **Fail-closed on Redis outage**: If Redis is unreachable for `jti` check, **reject the token** (401). This prevents replay attacks during Redis failures. The trade-off (brief S2S outage during Redis failure) is preferable to allowing replays on a payment system.
 
-- Inference latency: < 200ms overhead from loa-finn (excluding model response time)
-- Credit check: < 5ms (Redis lookup)
-- x402 verification: < 500ms (on-chain or facilitator)
-- Conservation guard: < 1ms per invariant (4 invariants = < 4ms total)
+Invalid tokens → 401. Missing tokens → 401. Redis unavailable → 401 (fail-closed).
 
-### NFR-6: Persistence & Recovery
+**Existing Implementation**: The `BillingFinalizeClient` in loa-finn already uses JWT ES256 for finn→freeside communication (implemented in cycle-022, PR #68). This contract formalizes and extends that pattern to all S2S calls, adding `kid` headers, fail-closed semantics, and clock skew tolerance.
 
-Three-tier persistence (Redis → WAL → R2) requires explicit failure mode handling:
+### 5.3 Environment Variables
 
-| Tier | RPO | RTO | Failure Mode | Behavior |
-|------|-----|-----|-------------|----------|
-| Redis (hot) | 0 (in-memory) | < 1s (reconnect) | Redis down | Fail-closed: deny new requests, serve no stale balances |
-| WAL (warm) | 0 (append-only) | < 5s (reopen) | WAL write failure | Fail-closed: deny operation, do not ack to caller |
-| R2 (cold) | ≤ 5min (async sync) | < 30s (re-sync) | R2 unavailable | Degrade: continue with Redis+WAL, queue R2 sync, alert |
+loa-finn needs these added to `.env`. **Two env files are required**: `.env` for local development (localhost URLs) and `.env.docker` for Docker Compose (service name URLs).
 
-**DLQ Specification** (supports FR-1.1 PENDING_RECONCILIATION):
+**`.env.docker`** (used by Docker Compose — service names resolve via Compose DNS):
+```env
+# Database (shared with freeside — Compose service name)
+DATABASE_URL=postgresql://arrakis:arrakis@postgres:5432/arrakis
 
-- **Backend**: Redis Streams (`billing:dlq` stream) with consumer group per service instance
-- **Retry policy**: Exponential backoff (1s, 2s, 4s, 8s, 16s), max 5 retries
-- **Poison message**: After max retries, move to `billing:dlq:poison` stream, alert admin
-- **Manual resolution**: Admin API endpoint `POST /api/v1/admin/reconcile/:billing_entry_id` with RELEASE or FORCE_COMMIT actions
-- **Max pending duration**: 24 hours. After 24h, auto-release reserve and log `auto_release_timeout` WAL entry. Account unblocked with warning.
-- **Monitoring**: Prometheus gauge `billing_pending_reconciliation_count`, alert if > 10
+# Redis (shared with freeside — Compose service name)
+REDIS_URL=redis://redis:6379
 
-### NFR-7: Security
+# x402 Payment
+X402_WALLET_ADDRESS=0x...           # USDC recipient on Base
+X402_CHAIN_ID=8453                  # Base mainnet
+X402_USDC_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913  # USDC on Base
+X402_CHALLENGE_SECRET=...           # HMAC-SHA256 secret for challenge signing (32+ bytes)
 
-- **JWT verification**: Use a vetted JWT library (jose or jsonwebtoken) for ES256 ECDSA signature verification. ECDSA verification is inherently constant-time — do NOT add manual timing-safe comparison to the signature check itself. Apply `timingSafeEqual` to fixed-length secret comparisons: `req_hash` validation, API key comparison, webhook signature verification.
-- **BYOK keys**: Never stored by loa-finn (proxy-only, deny-by-default redaction via existing `byok-redaction-filter.ts`)
-- **x402 nonces**: EIP-3009 nonces stored in Redis with TTL matching `validBefore` — prevents replay attacks
-- **Allowlist**: Plaintext normalized lowercase addresses for beta (< 100 users). Migrate to `keccak256(address)` if scaling beyond 1000. See FR-5.1.
-- **Rate limiting**: Per wallet address (anti-abuse), configurable per tier (credit, BYOK, x402)
-- **Negative test requirements**: Invalid JWT signature, wrong `aud`/`sub`, expired token, wrong `req_hash` — all must be rejected with appropriate HTTP status codes and no information leakage
+# NOWPayments (backup payment method)
+NOWPAYMENTS_API_KEY=...
+NOWPAYMENTS_IPN_SECRET=...
+
+# Base RPC (for on-chain reads)
+BASE_RPC_URL=https://mainnet.base.org
+FINN_NFT_CONTRACT=0x...             # finnNFT contract address
+
+# Service-to-Service (Compose service names)
+FREESIDE_URL=http://freeside:3000
+HOUNFOUR_URL=http://hounfour:3002
+
+# S2S Auth (see section 5.4)
+S2S_JWT_ISSUER=loa-finn
+S2S_JWT_AUDIENCE=loa-ecosystem
+S2S_ES256_PRIVATE_KEY_PATH=/run/secrets/finn_es256_private.pem
+S2S_ES256_PUBLIC_KEY_PATH=/run/secrets/finn_es256_public.pem
+
+# Existing (already configured)
+ANTHROPIC_API_KEY=...
+PORT=3001
+```
+
+**`.env`** (local development — localhost):
+```env
+DATABASE_URL=postgresql://arrakis:arrakis@localhost:5432/arrakis
+REDIS_URL=redis://localhost:6379
+FREESIDE_URL=http://localhost:3000
+HOUNFOUR_URL=http://localhost:3002
+# ... same x402/NOWPayments/RPC vars as .env.docker
+```
+
+Docker Compose service names must match: `postgres`, `redis`, `freeside`, `finn`, `hounfour`.
+
+### 5.5 Security Requirements & Threat Model
+
+> *Flatline IMP-001 (HIGH_CONSENSUS, avg 910): auto-integrated*
+
+This system handles real funds (USDC). Security is not a post-launch concern.
+
+**Threat Model — Payment Path**:
+
+| Threat | Attack Vector | Control |
+|--------|--------------|---------|
+| Receipt replay | Reuse a valid tx_hash for multiple requests | Redis replay set: `(tx_hash)` stored with 24h TTL. Check before processing. |
+| Receipt forgery | Fabricate a tx_hash that doesn't exist on-chain | On-chain verification: tx must exist, be confirmed (10+ blocks), and match amount/recipient/token |
+| Underpayment | Send less USDC than required | Exact amount matching: verified amount must equal challenged amount (6 decimal USDC precision) |
+| Wrong recipient | Pay a different address | Recipient verification: Transfer event `to` must match `X402_WALLET_ADDRESS` |
+| Challenge tampering | Modify challenge fields before payment | HMAC-SHA256 signed challenge (FR-2.1 step 2). Server re-derives and verifies HMAC before accepting receipt. |
+| Fee-on-transfer tokens | Token deducts fee, recipient gets less | USDC on Base is not fee-on-transfer. Hardcode USDC contract address, reject other tokens. |
+| Front-running | Attacker observes tx in mempool, submits receipt first | Redis replay set keyed on tx_hash prevents double-claim. First valid submission wins. |
+
+**Threat Model — API Key Path**:
+
+| Threat | Attack Vector | Control |
+|--------|--------------|---------|
+| Key leakage | Key exposed in logs/client code | Keys are bcrypt-hashed at rest. Plaintext shown once at creation. Never logged. |
+| Brute force | Enumerate `dk_*` keys | 32 bytes of entropy = 2^256 keyspace. Rate limiting on auth failures (10/min per IP). |
+| Stolen key abuse | Attacker uses leaked key | Per-key rate limits. `last_used_at` tracking. Wallet owner can revoke via SIWE. |
+| Credit exhaustion attack | Attacker drains someone's credits | Credits are per-key, not per-wallet. Revoke the compromised key; other keys unaffected. |
+
+**Key Management**:
+- No private keys for x402 (finn only verifies, does not sign)
+- S2S ES256 keys: generated at boot, private key file permissions 0600, never logged, rotated per section 5.2.1
+- SIWE verification uses wallet public addresses only (no server-side key material)
+- All secrets via environment variables or Docker secrets (never in code or config files)
+
+**Input Validation** (all external inputs):
+- `X-Payment-Receipt` header: validate hex string format, max 66 chars (0x + 64 hex)
+- `Authorization` header: validate `Bearer dk_` prefix, max 64 chars
+- Request body: JSON schema validation, max 10KB for chat requests
+- Token IDs: validate uint256 range, reject non-numeric
+- Wallet addresses: validate EIP-55 checksum format
+
+### 5.6 Database Schema (finn-owned, namespaced)
+
+**Ownership**: loa-finn owns these migrations. They live in `loa-finn/drizzle/migrations/`. They create new tables only — never modify freeside-owned tables.
+
+> *Flatline SKP-004 (HIGH 740): Added schema isolation, DB roles, connection pool sizing, and CI migration check.*
+
+**Schema isolation**: All finn tables live in a dedicated PostgreSQL schema:
+```sql
+CREATE SCHEMA IF NOT EXISTS finn;
+SET search_path TO finn, public;
+```
+Tables are still prefixed with `finn_` for defense-in-depth (schema + prefix). Freeside tables remain in `public` schema.
+
+**DB roles & privileges**:
+- `finn_app` role: `USAGE` on schema `finn`, `SELECT/INSERT/UPDATE/DELETE` on all finn tables. No access to freeside tables.
+- `freeside_app` role: `USAGE` on schema `public` only. No access to schema `finn`.
+- Migration runner (`finn_migrate`): `CREATE` on schema `finn`, used only during deployments.
+- In development (Docker Compose), the shared `arrakis` user has full access for simplicity. Role separation is enforced in staging/production via Terraform.
+
+**Connection pool sizing**: Shared PostgreSQL connection pool must accommodate both services:
+- PostgreSQL `max_connections`: 100 (RDS default)
+- Freeside pool: 20 connections (existing)
+- Finn pool: 15 connections (initial)
+- Headroom: 65 connections for migrations, monitoring, ad-hoc queries
+- Pool implementation: pg-pool or Drizzle's built-in pooling, configured via `DATABASE_POOL_SIZE` env var.
+
+**Deploy order**: freeside migrations first, then finn migrations. Finn migrations are idempotent (IF NOT EXISTS). Rollback: finn migrations are independently reversible.
+
+**CI migration check**: GitHub Actions workflow validates that finn migrations:
+1. Are non-blocking (no `ALTER TABLE ... ADD COLUMN ... NOT NULL` without default on existing tables)
+2. Do not reference freeside-owned tables (grep for table names without `finn_` prefix)
+3. Apply cleanly against a fresh database with freeside migrations already applied
+
+```sql
+-- Schema setup (finn-owned, first migration)
+CREATE SCHEMA IF NOT EXISTS finn;
+
+-- Personality storage (finn-owned tables in finn schema)
+CREATE TABLE IF NOT EXISTS finn_personalities (
+  id TEXT PRIMARY KEY,                -- collection:tokenId
+  canonical_name TEXT NOT NULL,
+  display_name TEXT,
+  archetype TEXT NOT NULL,
+  beauvoir_md TEXT NOT NULL,
+  current_version_id TEXT NOT NULL,
+  governance_model TEXT DEFAULT 'holder',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(canonical_name)
+);
+
+CREATE TABLE IF NOT EXISTS finn_personality_versions (
+  id TEXT PRIMARY KEY,
+  personality_id TEXT NOT NULL REFERENCES finn_personalities(id),
+  previous_version_id TEXT REFERENCES finn_personality_versions(id),
+  signal_snapshot JSONB NOT NULL,
+  damp_fingerprint JSONB,
+  beauvoir_md TEXT NOT NULL,
+  authored_by TEXT NOT NULL,          -- wallet address
+  codex_version TEXT,
+  experience_digest JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Add FK from personalities to versions after both tables exist
+ALTER TABLE finn_personalities
+  ADD CONSTRAINT fk_current_version
+  FOREIGN KEY (current_version_id)
+  REFERENCES finn_personality_versions(id)
+  DEFERRABLE INITIALLY DEFERRED;     -- Deferred: allows inserting personality + version in same tx
+
+CREATE TABLE IF NOT EXISTS finn_experience_snapshots (
+  id TEXT PRIMARY KEY,
+  personality_id TEXT NOT NULL REFERENCES finn_personalities(id),
+  epoch_number INTEGER NOT NULL,
+  topic_distribution JSONB NOT NULL,
+  style_counts JSONB NOT NULL,
+  dial_offsets JSONB NOT NULL,
+  interaction_count INTEGER NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,    -- 2 * half_life retention
+  UNIQUE(personality_id, epoch_number) -- Prevent duplicate epochs
+);
+
+CREATE TABLE IF NOT EXISTS finn_billing_events (
+  id TEXT PRIMARY KEY,                -- request_id
+  payment_method TEXT NOT NULL,       -- 'x402' | 'api_key' | 'free'
+  amount_micro BIGINT DEFAULT 0,
+  tx_hash TEXT,                       -- x402 on-chain tx hash (nullable)
+  api_key_id TEXT,                    -- API key identifier (nullable)
+  personality_id TEXT,                -- Which agent was called
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS finn_api_keys (
+  id TEXT PRIMARY KEY,                -- key_id (public identifier)
+  key_hash TEXT NOT NULL,             -- bcrypt hash of dk_... key
+  wallet_address TEXT NOT NULL,       -- owner wallet (EIP-55)
+  credit_account_id TEXT,             -- linked credit account
+  rate_tier TEXT DEFAULT 'default',   -- rate limit tier
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ              -- NULL = active, set = revoked
+);
+
+CREATE TABLE IF NOT EXISTS finn_verification_failures (
+  id TEXT PRIMARY KEY,
+  failure_reason TEXT NOT NULL,       -- rpc_unreachable | invalid_receipt | reorged | ...
+  tx_hash TEXT,
+  request_id TEXT,
+  details JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_finn_pv_pid ON finn_personality_versions(personality_id);
+CREATE INDEX IF NOT EXISTS idx_finn_es_pid ON finn_experience_snapshots(personality_id);
+CREATE INDEX IF NOT EXISTS idx_finn_be_method ON finn_billing_events(payment_method, created_at);
+CREATE INDEX IF NOT EXISTS idx_finn_ak_wallet ON finn_api_keys(wallet_address) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_finn_vf_reason ON finn_verification_failures(failure_reason, created_at);
+```
 
 ---
 
 ## 6. Scope & Prioritization
 
-### What's In Scope (Closed Beta)
+### MVP (This Cycle — P0)
 
-| Track | Priority | Sprints Est. |
-|-------|----------|-------------|
-| Track 1: E2E Billing Loop | P0 | 1 |
-| Track 2: Denomination System | P0 | 2 |
-| Track 4: NFT Agent Experience | P0 | 2 |
-| Track 5: Onboarding & Access | P0 | 1 |
-| Track 7: Operational Hardening | P0 | 1 |
-| Track 3: x402 Agent Payments | P1 | 1-2 |
-| Track 6: Multi-Model Review | P1 | 1 |
+| Track | What | Issue | Delivers |
+|-------|------|-------|----------|
+| Track 0 | Docker + E2E harness | [#84](https://github.com/0xHoneyJar/loa-finn/issues/84) | Container runs, tests pass |
+| Track 1B | x402 middleware | [#85](https://github.com/0xHoneyJar/loa-finn/issues/85) | Pay-per-request works |
+| Track 2a | Static personality config | [#88](https://github.com/0xHoneyJar/loa-finn/issues/88) | Agents have personality |
 
-**Total estimated: 9-10 sprints (Global IDs 68-77)**
+### Post-MVP (This Cycle — P1)
 
-### What's Out of Scope
+| Track | What | Issue | Delivers |
+|-------|------|-------|----------|
+| Track 2b | On-chain signal reader | [#86](https://github.com/0xHoneyJar/loa-finn/issues/86) | Real NFT metadata |
+| Track 2c | Personality persistence | [#87](https://github.com/0xHoneyJar/loa-finn/issues/87) | Survives restarts |
+| Track 4 | Observability | [#90](https://github.com/0xHoneyJar/loa-finn/issues/90) | Prometheus + Grafana |
+| Track 5 | OpenAPI + SDK | [#91](https://github.com/0xHoneyJar/loa-finn/issues/91) | Product B enabled |
 
-- Public launch / general availability
-- Mobile native apps
-- Voice interaction (Whisper)
-- Agent social network / inter-NFT messaging
-- On-chain autonomous actions (ERC-6551 TBA)
-- WhatsApp, Slack, additional channels
-- Goal-driven agent generation (Hive-style)
-- Full Soul/Inbox with on-trade transfer (Issue #27 Phase 2+)
+### Future (Next Cycle — P2)
 
-### Sprint Sequencing
+| Track | What | Issue | Delivers |
+|-------|------|-------|----------|
+| Track 3 | Agent homepage + `llms.txt` (L-5) | [#89](https://github.com/0xHoneyJar/loa-finn/issues/89) | Discovery |
+| Identity | Full signal engine + dAMP derivation | cycle-028 sprints | Deep personality |
+| Marketplace | Real USDC settlement | marketplace code activation | Credit trading |
 
-```
-Sprint 1: E2E Loop + Conservation Hardening     (Track 1 + Track 7.2)
-Sprint 2: Credit Denomination + Purchase Flow    (Track 2.1-2.2)
-Sprint 3: Credit Deduction + BYOK Fee           (Track 2.3-2.4)
-Sprint 4: NFT Personality Authoring              (Track 4.1)
-Sprint 5: Agent Homepage + Web Chat              (Track 4.2-4.3)
-Sprint 6: Onboarding Flow + Invite System        (Track 5)
-Sprint 7: Production Deployment + Monitoring     (Track 7.1)
-Sprint 8: x402 Middleware + Payment Verification (Track 3.1-3.2)
-Sprint 9: x402 Denomination + Guard Integration  (Track 3.3)
-Sprint 10: Multi-Model Review + Polish           (Track 6 + integration testing)
-```
+### Cross-Repo Work (loa-freeside)
+
+| What | Issue | Priority |
+|------|-------|----------|
+| Deploy finn to existing infra | [freeside #77](https://github.com/0xHoneyJar/loa-freeside/issues/77) | P0 |
+| Monitoring for finn service | [freeside #78](https://github.com/0xHoneyJar/loa-freeside/issues/78) | P1 |
+| NOWPayments activation | [freeside #79](https://github.com/0xHoneyJar/loa-freeside/issues/79) | P1 |
+| Personality routing bridge | [freeside #80](https://github.com/0xHoneyJar/loa-freeside/issues/80) | P1 |
+
+### Cross-Repo Work (loa-hounfour)
+
+| What | Issue | Priority |
+|------|-------|----------|
+| MicroUSDC type + personality schema | [hounfour #19](https://github.com/0xHoneyJar/loa-hounfour/issues/19) | P1 |
 
 ---
 
@@ -654,65 +691,58 @@ Sprint 10: Multi-Model Review + Polish           (Track 6 + integration testing)
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| x402 facilitator (openx402.ai) unreliable | x402 payments fail | Fall back to direct on-chain verification; credit packs as primary path |
-| Conservation guard performance under load | Latency increase | Benchmark early (Sprint 1); constraint evaluation is < 1ms per invariant |
-| Arrakis billing schema drift | E2E tests fail | Strangler Fig pattern (`?format=loh`) allows gradual migration |
-| WebSocket scaling (in-memory sessions) | Beta user limit | Redis-backed sessions for horizontal scaling (Track 7) |
-| Pi SDK stability for headless sessions | Agent failures | NativeRuntimeAdapter spike needed; fallback to direct model calls |
+| x402 wallet setup complexity | Blocks revenue | NOWPayments as fallback (keys already available) |
+| Base RPC reliability | Blocks on-chain reads | Multiple RPC providers, aggressive caching |
+| freeside DB schema conflicts | Blocks persistence | New tables only, no modifications to existing schema |
+| Docker networking between services | Blocks E2E | Shared Docker Compose network, health check dependencies |
 
 ### External Dependencies
 
-| Dependency | Status | Risk |
-|------------|--------|------|
-| `@0xhoneyjar/loa-hounfour` v7.0.0 | MERGED (PR #79) | Low — pinned to release tag |
-| arrakis billing E2E scaffold | SCAFFOLDED (PR #63) | Low — 14 assertions passing |
-| arrakis GTM plan | DRAFTED (PR #74) | Medium — 7 decisions pending |
-| openx402.ai facilitator | LIVE (external) | Medium — third-party dependency |
-| Fly.io or Railway deployment | AVAILABLE | Low — standard deployment |
-| MetaMask / WalletConnect | STABLE | Low — well-established libraries |
+| Dependency | Owner | Status | Fallback |
+|-----------|-------|--------|----------|
+| Base chain RPC | Alchemy/Infura | Need API key | Public RPC (rate-limited) |
+| x402 protocol | Coinbase | Production | NOWPayments adapter |
+| NOWPayments API | NOWPayments | Keys available in env | x402 |
+| finnNFT contract | 0xHoneyJar | Deployed on Base | Mock contract for testing |
 
-### PR #74 Decision Dependencies
+### Decision Log
 
-7 decisions from the GTM plan affect this PRD:
-
-| Decision | This PRD's Assumption | If Different |
-|----------|----------------------|-------------|
-| D1: Auth model | Hybrid (API key for S2S, wallet connect for users) | Adjust FR-5.2 |
-| D2: Account hierarchy | Account → Project → optional Community | Adjust FR-2.2 credit scoping |
-| D3: Billing primitive | Prepaid (credit packs) | Adjust Track 2 entirely |
-| D4: Dogfood entry gate | Public API MVP before Pillar 2 | Adjust sprint order |
-| D5: API contract source | Zod → OpenAPI → SDK | Affects FR-4.2 API design |
-| D6: SLA definition | SLO targets only for beta | No impact on beta |
-| D7: BYOK metering | Proxy with token metering | Confirms FR-2.4 |
+| Decision | Rationale | Date |
+|----------|-----------|------|
+| Reuse freeside's PostgreSQL + Redis | Already deployed, schema extensible, avoids infra duplication | 2026-02-20 |
+| Static personality config for v1 | Unblocks launch without full signal engine | 2026-02-20 |
+| x402 as primary payment, NOWPayments as fallback | x402 is permissionless (better for Product B), NOWPayments is proven | 2026-02-20 |
+| loa-finn on port 3001 | freeside occupies 3000, simple port offset | 2026-02-20 |
+| Supersede cycle-028 | Identity depth deferred to post-launch; operability first | 2026-02-20 |
 
 ---
 
-## 8. The Philosophical Frame
+## 8. Bridgebuilder Observations
 
-### From the Deep Review
+### The Permission to Question the Question
 
-The [Bridgebuilder deep review](https://github.com/0xHoneyJar/loa-finn/pull/79#issuecomment-3919440062) reframed what we're building:
+The deepest finding in the review of the previous 28 cycles: **we were building depth before operability.** The conservation invariants are excellent. The anti-narration enforcement is novel. The credit marketplace with escrow settlement is genuinely well-engineered. But none of it matters if no one can use it.
 
-> *"Is this a billing system, or is it an economic protocol?"*
+This is the classic infrastructure trap. Google built MapReduce, GFS, and Bigtable before they had Search ads working reliably. But they had Search working first. The infrastructure served the product, not the other way around.
 
-This PRD answers: **it's an economic protocol** for a token-gated capability market. The conservation guard is constitutional law. The branded types are denominations. The evaluator lattice is the constraint that makes the market sustainable.
+### The Freeside Discovery as Organizational Learning
 
-### From web4
+The fact that both payment adapters already existed in freeside — and the command center in Issue #66 initially said "NOT BUILT" — reveals a cross-repo visibility gap. The code exists. The knowledge of its existence didn't cross the repository boundary.
 
-> *"Money must be scarce, but monies can be infinite."*
+This is Conway's Law in action: the structure of the organization (separate repos) shapes the structure of the system (isolated infrastructure). The fix isn't reorganization — it's the routing bridge (freeside #80) that makes cross-repo capabilities discoverable at the protocol level.
 
-Track 2 (denominations) implements the plurality of monies: MicroUSD, CreditUnit, MicroUSDC, BYOKCost. Track 1 (conservation guard) implements the scarcity constraint: you cannot spend more than you have, regardless of which denomination you're using.
+### What "Operable" Actually Means
 
-### From Conway
+An operable system isn't just a running container. It's:
+1. **Callable** — someone can send a request and get a response (MVP: L-1, L-2, L-8)
+2. **Payable** — the system collects revenue for the service (MVP: L-3)
+3. **Persistent** — state survives restarts (Post-MVP: L-4)
+4. **Observable** — operators can see what's happening (Post-MVP: L-6)
+5. **Documented** — developers can build on it (Post-MVP: L-7)
+6. **Discoverable** — someone can find the agent endpoint (Future: L-5)
 
-Conway proves agents can sustain themselves. We prove communities can govern their agents. The closed beta is where these two ideas meet: real agents, real money, real governance — but in a controlled environment where we can observe, learn, and iterate before opening the doors.
-
-### The Cambrian Moment
-
-loa-hounfour v7 is the skeletal structure. This PRD defines the first organisms that evolve on that skeleton: credit packs, x402 payments, NFT personalities, agent homepages. The closed beta is the Ediacaran period — the first complex life, visible but not yet explosive. Public launch is the Cambrian Explosion.
+The MVP delivers the first two — callable and payable. Post-MVP adds persistence, observability, and documentation. Discovery comes in the next cycle. The metrics are phased to match the scope, not the aspiration.
 
 ---
 
-*PRD: Full Stack Launch — Build Everything, Then Ship*
-*Cycle 027 | Command Center: [#66](https://github.com/0xHoneyJar/loa-finn/issues/66)*
-*"The question is no longer 'does this work?' It is 'what does this make possible?'"*
+*Cycle-029: Launch Execution. The infrastructure exists. The code is tested. The question is no longer "can we build it?" The question is "can we make it work?"*

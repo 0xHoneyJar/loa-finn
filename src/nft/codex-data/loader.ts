@@ -37,12 +37,16 @@ export interface LoadedArtifact<T = unknown> {
 
 export interface MoleculeTarotEntry {
   molecule: string
+  formula: string
+  drug_type: "Ancient" | "Modern" | "Both"
   card: {
     name: string
     arcana: "major" | "minor"
     suit?: "wands" | "cups" | "swords" | "pentacles"
     number: number
   }
+  element: string
+  meaning: string
 }
 
 // ---------------------------------------------------------------------------

@@ -23,6 +23,8 @@ export interface ReconciliationDeps {
   alertDivergence: (details: ReconciliationDivergence[]) => Promise<void>
   /** Alert on rounding drift */
   alertRoundingDrift: (details: RoundingDriftReport) => Promise<void>
+  /** Generate a unique reconciliation run ID */
+  generateRunId?: () => string
 }
 
 export interface ReconciliationDivergence {
@@ -85,6 +87,7 @@ export class ReconciliationService {
    */
   async reconcile(): Promise<ReconciliationResult> {
     const start = Date.now()
+    const reconciliationRunId = this.deps.generateRunId?.() ?? `recon-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const entries = await this.deps.getAllJournalEntries()
 
     // Derive all balances from journal entries
@@ -115,11 +118,23 @@ export class ReconciliationService {
       const redisBalance = redisValue ? BigInt(redisValue) : 0n
 
       if (derivedBalance !== redisBalance) {
-        divergences.push({
+        const divergence: ReconciliationDivergence = {
           account,
           derived_balance: derivedBalance.toString(),
           redis_balance: redisBalance.toString(),
           delta: (derivedBalance - redisBalance).toString(),
+        }
+        divergences.push(divergence)
+
+        // Append RECONCILIATION_CORRECTION to WAL before overwriting Redis (Bridge medium-2)
+        await this.deps.walAppend("billing_reconciliation", {
+          correction_type: "RECONCILIATION_CORRECTION",
+          account,
+          derived_balance: divergence.derived_balance,
+          cached_balance: divergence.redis_balance,
+          delta: divergence.delta,
+          reconciliation_run_id: reconciliationRunId,
+          timestamp: Date.now(),
         })
 
         // Overwrite Redis from derived values
@@ -153,9 +168,10 @@ export class ReconciliationService {
       await this.deps.alertRoundingDrift(driftReport)
     }
 
-    // Log reconciliation to WAL
+    // Log reconciliation summary to WAL
     const duration = Date.now() - start
     await this.deps.walAppend("billing_reconciliation", {
+      reconciliation_run_id: reconciliationRunId,
       accounts_checked: derivedBalances.size,
       divergences_found: divergences.length,
       divergences_corrected: divergencesCorrected,

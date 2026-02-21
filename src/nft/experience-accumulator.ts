@@ -9,6 +9,7 @@
 import type { DAMPDialId } from "./signal-types.js"
 import type { InteractionAggregate } from "./experience-types.js"
 import type { ExperienceEngine } from "./experience-engine.js"
+import type { RoutingQualityStore, RoutingQualityEvent } from "./routing-quality.js"
 
 // ---------------------------------------------------------------------------
 // CompletionResult Metadata — minimal interface for decoupling
@@ -51,6 +52,8 @@ export interface AccumulatorConfig {
   enabled?: boolean
   /** Maximum queue depth before dropping (default 1000) */
   maxQueueDepth?: number
+  /** Optional RoutingQualityStore for emitting quality feedback events (Sprint 3, T3.2) */
+  qualityStore?: RoutingQualityStore | null
 }
 
 const DEFAULT_MAX_QUEUE_DEPTH = 1000
@@ -83,12 +86,14 @@ export interface AccumulationResult {
  */
 export class ExperienceAccumulator {
   private readonly engine: ExperienceEngine
+  private readonly qualityStore: RoutingQualityStore | null
   private readonly enabled: boolean
   private readonly maxQueueDepth: number
   private queueDepth = 0
 
   constructor(engine: ExperienceEngine, config: AccumulatorConfig = {}) {
     this.engine = engine
+    this.qualityStore = config.qualityStore ?? null
     this.enabled = config.enabled ?? true
     this.maxQueueDepth = config.maxQueueDepth ?? DEFAULT_MAX_QUEUE_DEPTH
   }
@@ -99,13 +104,18 @@ export class ExperienceAccumulator {
    * This is the primary entry point for the feedback loop.
    * Called after each successful completion, asynchronously.
    *
+   * When a RoutingQualityStore is configured and routingContext is provided,
+   * also emits a RoutingQualityEvent (fire-and-forget, MUST NOT block response).
+   *
    * @param personalityId - Personality ID (collection:tokenId)
    * @param metadata - Extracted completion metadata (NO content)
+   * @param routingContext - Optional routing context for quality feedback (Sprint 3, T3.2)
    * @returns AccumulationResult indicating acceptance and epoch status
    */
   async accumulate(
     personalityId: string,
     metadata: CompletionMetadata,
+    routingContext?: { pool_id: string; task_type: string; safety_pass?: boolean },
   ): Promise<AccumulationResult> {
     // Gate: disabled
     if (!this.enabled) {
@@ -130,6 +140,25 @@ export class ExperienceAccumulator {
 
       // Feed into engine (synchronous — engine handles epoch trigger)
       const { epochTriggered } = this.engine.recordInteraction(personalityId, aggregate)
+
+      // Emit routing quality event (fire-and-forget, Sprint 3 T3.2)
+      if (this.qualityStore && routingContext) {
+        const qualityEvent: RoutingQualityEvent = {
+          personality_id: personalityId,
+          pool_id: routingContext.pool_id,
+          model: metadata.model,
+          task_type: routingContext.task_type,
+          latency_ms: metadata.latency_ms,
+          tokens_used: metadata.usage.prompt_tokens + metadata.usage.completion_tokens,
+          quality_signals: {
+            safety_pass: routingContext.safety_pass ?? true,
+          },
+        }
+        // Fire-and-forget — quality emission MUST NOT block response path
+        this.qualityStore.recordQuality(qualityEvent, `acc-${personalityId}-${Date.now()}`).catch(() => {
+          // Swallowed — quality emission is best-effort
+        })
+      }
 
       return { accepted: true, epoch_triggered: epochTriggered }
     } catch {

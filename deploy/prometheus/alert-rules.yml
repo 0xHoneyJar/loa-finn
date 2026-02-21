@@ -1,0 +1,80 @@
+# deploy/prometheus/alert-rules.yml — Finn Alert Rules (Sprint 6 T6.6)
+#
+# Compatible with Alertmanager/PagerDuty/Discord webhook.
+# See deploy/grafana/finn-dashboard.json for corresponding dashboard panels.
+
+groups:
+  - name: finn_conservation
+    interval: 30s
+    rules:
+      - alert: ConservationViolation
+        expr: rate(finn_conservation_violations_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: finn
+        annotations:
+          summary: "Conservation guard violation detected"
+          description: "Conservation invariant violations have been occurring for more than 5 minutes. Violation rate: {{ $value }}/s. This indicates a billing invariant breach — credits may be leaking."
+          runbook_url: "https://github.com/0xHoneyJar/loa-finn/wiki/runbooks/conservation-violation"
+
+  - name: finn_x402
+    interval: 30s
+    rules:
+      - alert: X402VerificationFailureRate
+        expr: |
+          (
+            sum(rate(finn_x402_verifications_total{result="failure"}[5m]))
+            /
+            sum(rate(finn_x402_verifications_total[5m]))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: finn
+        annotations:
+          summary: "x402 verification failure rate exceeds 50%"
+          description: "More than 50% of x402 payment verifications have failed over the last 5 minutes. Current failure rate: {{ $value | humanizePercentage }}. Check RPC connectivity and contract state."
+          runbook_url: "https://github.com/0xHoneyJar/loa-finn/wiki/runbooks/x402-verification"
+
+  - name: finn_rpc
+    interval: 30s
+    rules:
+      - alert: RPCCircuitBreakerOpen
+        expr: finn_settlement_circuit_state{state="open"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          team: finn
+        annotations:
+          summary: "RPC circuit breaker has been open for 5+ minutes"
+          description: "The settlement circuit breaker is in OPEN state, meaning RPC calls are failing consistently. On-chain operations are degraded."
+          runbook_url: "https://github.com/0xHoneyJar/loa-finn/wiki/runbooks/rpc-circuit-breaker"
+
+      - alert: RPCHighErrorRate
+        expr: |
+          (
+            sum(rate(finn_rpc_requests_total{result="error"}[5m]))
+            /
+            sum(rate(finn_rpc_requests_total[5m]))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: finn
+        annotations:
+          summary: "RPC error rate exceeds 50%"
+          description: "More than 50% of RPC requests are failing. Current error rate: {{ $value | humanizePercentage }}. Check provider health and network connectivity."
+
+  - name: finn_latency
+    interval: 30s
+    rules:
+      - alert: HighRequestLatency
+        expr: histogram_quantile(0.95, rate(finn_request_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: finn
+        annotations:
+          summary: "P95 request latency exceeds 5 seconds"
+          description: "The 95th percentile request latency is {{ $value }}s. Check downstream services and database performance."

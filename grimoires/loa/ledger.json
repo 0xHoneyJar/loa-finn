@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-026",
+  "current_cycle": "cycle-030",
   "cycles": [
     {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -780,12 +780,12 @@
     },
     {
       "label": "Full Stack Launch — Build Everything, Then Ship",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-19T03:00:00Z",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprint_plan": "grimoires/loa/sprint.md",
-      "notes": "Cycle-027. PRD v1.2.0: GPT-5.2 APPROVED (iteration 3), Flatline APPROVED. SDD v2.0.0: GPT-5.2 APPROVED (iteration 3), Flatline APPROVED. Sprint v1.0.0: GPT-5.2 APPROVED (iteration 2, 8 blocking issues resolved). 10 sprints, 59 tasks. Builds all product features before onboarding real users as closed beta.",
+      "notes": "Cycle-027. PRD v1.2.0: GPT-5.2 APPROVED (iteration 3), Flatline APPROVED. SDD v2.0.0: GPT-5.2 APPROVED (iteration 3), Flatline APPROVED. Sprint v1.0.0: GPT-5.2 APPROVED (iteration 2, 8 blocking issues resolved). 10 sprints, 59 tasks. Builds all product features before onboarding real users as closed beta. Bridge JACKED_OUT. PR #82 open. 3 pending bridge-fix sprints deferred to identity cycle.",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -888,8 +888,381 @@
           "status": "pending",
           "tasks": 4
         }
+      ],
+      "archived": "2026-02-19T15:00:00Z"
+    },
+    {
+      "label": "The Theory of Identity — BEAUVOIR.md as Agent Soul Architecture",
+      "status": "archived",
+      "started": "2026-02-19T15:00:00Z",
+      "archived": "2026-02-20T12:00:00Z",
+      "prd": "grimoires/loa/prd-cycle027-fullstack-launch.md.bak",
+      "sdd": "grimoires/loa/sdd-cycle027-fullstack-launch.md.bak",
+      "notes": "Superseded by cycle-029 'Launch Execution'. Identity depth deferred to post-launch. 30 sprints planned, 0 executed — all work covered by the identity code already built in cycle-027 (PR #82, 1,105 tests).",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 81,
+          "label": "Type Foundation + Signal Engine",
+          "status": "pending",
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 82,
+          "label": "BEAUVOIR Synthesizer",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 83,
+          "label": "Personality Versioning",
+          "status": "pending",
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 84,
+          "label": "Backward Compatibility + API Evolution",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 85,
+          "label": "Anti-Narration Enforcement",
+          "status": "pending",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-6",
+          "global_id": 86,
+          "label": "MVP Governance (SIWE Auth + Ownership)",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-7",
+          "global_id": 87,
+          "label": "dAPM-96 Derivation",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-8",
+          "global_id": 88,
+          "label": "dAPM Mode Overrides",
+          "status": "pending",
+          "tasks": 4
+        },
+        {
+          "local_id": "sprint-9",
+          "global_id": 89,
+          "label": "Knowledge Graph Bridge",
+          "status": "pending",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-10",
+          "global_id": 90,
+          "label": "Identity Graph API",
+          "status": "pending",
+          "tasks": 4
+        },
+        {
+          "local_id": "sprint-11",
+          "global_id": 91,
+          "label": "Integration Sprint",
+          "status": "pending",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-12",
+          "global_id": 92,
+          "label": "Evaluation Harness — Core",
+          "status": "pending",
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-13",
+          "global_id": 93,
+          "label": "Evaluation Harness — Advanced",
+          "status": "pending",
+          "tasks": 2
+        },
+        {
+          "local_id": "sprint-14",
+          "global_id": 94,
+          "label": "Full Governance",
+          "status": "pending",
+          "tasks": 3
+        },
+        {
+          "local_id": "sprint-15",
+          "global_id": 95,
+          "label": "Re-derive, Mode, and Rollback APIs",
+          "status": "pending",
+          "tasks": 3
+        },
+        {
+          "local_id": "sprint-16",
+          "global_id": 96,
+          "label": "Polish, Hardening, and E2E Validation",
+          "status": "pending",
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-17",
+          "global_id": 97,
+          "label": "dAMP Codebase Rename",
+          "status": "pending",
+          "tasks": 4
+        },
+        {
+          "local_id": "sprint-18",
+          "global_id": 98,
+          "label": "Self-Derived Agent Naming",
+          "status": "pending",
+          "tasks": 3
+        },
+        {
+          "local_id": "sprint-19",
+          "global_id": 99,
+          "label": "Entropy Protocol",
+          "status": "pending",
+          "tasks": 3
+        },
+        {
+          "local_id": "sprint-20",
+          "global_id": 100,
+          "label": "Minting Ceremony UX Integration",
+          "status": "pending",
+          "tasks": 3
+        },
+        {
+          "local_id": "sprint-21",
+          "global_id": 101,
+          "label": "Rektdrop Credit System",
+          "status": "pending",
+          "tasks": 3
+        },
+        {
+          "local_id": "sprint-22",
+          "global_id": 102,
+          "label": "Credit Billing Integration",
+          "status": "pending",
+          "tasks": 2
+        },
+        {
+          "local_id": "sprint-23",
+          "global_id": 103,
+          "label": "Credit Marketplace — Order Book",
+          "status": "pending",
+          "tasks": 3
+        },
+        {
+          "local_id": "sprint-24",
+          "global_id": 104,
+          "label": "Credit Marketplace — Settlement & Anti-Abuse",
+          "status": "pending",
+          "tasks": 3
+        },
+        {
+          "local_id": "sprint-25",
+          "global_id": 105,
+          "label": "Experience Accumulation — Types & Epoch Engine",
+          "status": "pending",
+          "tasks": 3
+        },
+        {
+          "local_id": "sprint-26",
+          "global_id": 106,
+          "label": "Experience Feedback Loop — Integration & Collection Config",
+          "status": "pending",
+          "tasks": 3
+        },
+        {
+          "local_id": "sprint-27",
+          "global_id": 107,
+          "label": "Personality Fingerprint Protocol",
+          "status": "pending",
+          "tasks": 2
+        },
+        {
+          "local_id": "sprint-28",
+          "global_id": 108,
+          "label": "Personality-Tiered Billing",
+          "status": "pending",
+          "tasks": 2
+        },
+        {
+          "local_id": "sprint-29",
+          "global_id": 109,
+          "label": "Personality-as-Reviewer",
+          "status": "pending",
+          "tasks": 2
+        },
+        {
+          "local_id": "sprint-30",
+          "global_id": 110,
+          "label": "Phase 5 E2E Validation & Integration",
+          "status": "pending",
+          "tasks": 3
+        }
+      ]
+    },
+    {
+      "label": "Launch Execution — From Built to Operable",
+      "status": "archived",
+      "started": "2026-02-20T12:00:00Z",
+      "archived": "2026-02-21T02:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-21-launch-execution-complete",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Cycle-029. Pivots from identity depth to operability. PRD v1.2.0: GPT-5.2 APPROVED (iteration 2). SDD v1.1.0: GPT-5.2 APPROVED (iteration 3, 9 issues resolved). Sprint v1.0.0: GPT-5.2 APPROVED (iteration 2, 4 blocking issues resolved). Flatline: PRD (4 HIGH + 5 BLOCKERS resolved), SDD (5 HIGH + 4 BLOCKERS resolved). 16 issues across 3 repos. Freeside infrastructure reuse discovery.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 111,
+          "label": "Infrastructure Foundation",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 112,
+          "label": "x402 HMAC + Receipt Verification",
+          "status": "completed",
+          "tasks": 9
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 113,
+          "label": "Payment Decision Tree + API Keys",
+          "status": "completed",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 114,
+          "label": "Static Personality + SIWE Auth",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 115,
+          "label": "On-Chain Signals + Persistence",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-6",
+          "global_id": 116,
+          "label": "Observability + Metrics",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-7",
+          "global_id": 117,
+          "label": "OpenAPI + SDK + Discovery",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-8",
+          "global_id": 118,
+          "label": "Protocol Persistence & Correctness",
+          "status": "completed",
+          "tasks": 4,
+          "notes": "Bridge iteration 1: Addresses findings high-1 through high-4. Review approved, audit passed."
+        },
+        {
+          "local_id": "sprint-9",
+          "global_id": 119,
+          "label": "Concurrency & Resilience",
+          "status": "completed",
+          "tasks": 4,
+          "notes": "Bridge iteration 1: Addresses findings medium-1, medium-2, medium-3, medium-5. Review approved, audit passed."
+        },
+        {
+          "local_id": "sprint-10",
+          "global_id": 120,
+          "label": "Security & Type Safety",
+          "status": "completed",
+          "tasks": 3,
+          "notes": "Bridge iteration 1: Addresses findings medium-4, medium-6, medium-7. Review approved, audit passed."
+        }
+      ]
+    },
+    {
+      "label": "Forward Architecture — Economic Consciousness",
+      "status": "archived",
+      "started": "2026-02-21T02:00:00Z",
+      "archived": "2026-02-21T12:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-21-forward-architecture-complete",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Cycle-030. Implements 3 forward architecture visions from Bridgebuilder Deep Review (PR #92): EventStore abstraction, personality-aware model routing, quality feedback loop. Source: findings D-1 (event sourcing convergence), D-2 (Ostrom governance), D-3 (genotype/phenotype vocabulary). All 3 sprints COMPLETED. 562 total tests. Bridgebuilder Deep Review posted (3 parts PR #92 + synthesis issue #66).",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 121,
+          "label": "EventStore Abstraction Layer",
+          "status": "completed",
+          "tasks": 7,
+          "notes": "7/7 tasks, 35 tests, 0 regressions. EventEnvelope<T>, open stream registry, JSONL+Postgres backends, credit+billing adapters. Review: All good. Audit: APPROVED."
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 122,
+          "label": "Personality-Aware Model Routing",
+          "status": "completed",
+          "tasks": 6,
+          "notes": "6/6 tasks, 33 new tests, 0 regressions. Archetype affinity matrix, dial-weighted scoring, combined routing, tier-safe pool selection, agent-chat wiring. Security audit APPROVED — tier safety invariant verified with 3-layer defense-in-depth."
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 123,
+          "label": "Quality Feedback Loop + Observability",
+          "status": "completed",
+          "tasks": 5,
+          "notes": "5/5 tasks, 34 new tests, 562 total passing. RoutingQualityStore (LRU+TTL+decay), quality emission (fire-and-forget), affinity blending, 5 Prometheus metrics (bounded cardinality), E2E pipeline test. Review: All good. Audit: APPROVED."
+        }
+      ]
+    },
+    {
+      "label": "Adaptive Intelligence — Quality Governance & Reputation Bootstrap",
+      "status": "active",
+      "started": "2026-02-21T12:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Cycle-031. Implements actionable suggestions from Bridgebuilder Deep Review of PR #92 (cycle-030). Finding #6 (MEDIUM): Quality Signal Ontology governance — anti-sycophancy, challenge_rate, archetype-aware weighting. Finding #7 (LOW) + Questions 2-3: EventStore indexed access, stream compaction, collection-level reputation bootstrap. GPT-5.2 APPROVED (iteration 2, 7 blocking issues resolved in v1.1.0).",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 124,
+          "label": "Quality Signal Governance + Anti-Sycophancy",
+          "status": "completed",
+          "tasks": 6,
+          "notes": "6/6 tasks, 51 new tests (85 total), 0 regressions. Anti-sycophancy detection, archetype-aware weighting, strict env var validation, 3-layer fire-and-forget defense-in-depth, bounded Prometheus cardinality. Review: All good. Audit: APPROVED."
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 125,
+          "label": "EventStore Indexed Access + Reputation Bootstrap",
+          "status": "completed",
+          "tasks": 6,
+          "notes": "6/6 tasks, 45 new tests (130 total), 0 regressions. QualityEventIndex (dual-key, LRU, ring buffer), JSONL compaction, collection reputation (trimmed mean, anti-manipulation), Bayesian bootstrap blending, routing affinity wiring. Review: All good. Audit: APPROVED."
+        }
       ]
     }
   ],
-  "next_global_sprint_id": 81
+  "current_cycle": "cycle-031",
+  "next_global_sprint_id": 126
 }

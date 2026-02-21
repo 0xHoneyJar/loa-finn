@@ -12,7 +12,9 @@ import { loadPersona } from "./persona-loader.js"
 import { validateExecutionContext } from "./types.js"
 import type { PoolRegistry } from "./pool-registry.js"
 import type { TenantContext } from "./jwt-auth.js"
-import { selectAuthorizedPool } from "./pool-enforcement.js"
+import { selectAuthorizedPool, selectAffinityRankedPools } from "./pool-enforcement.js"
+import type { PersonalityContext } from "../nft/personality-context.js"
+import { metrics } from "../gateway/metrics-endpoint.js"
 import type { BYOKProxyClient } from "./byok-proxy-client.js"
 import type {
   AgentBinding,
@@ -339,6 +341,7 @@ export class HounfourRouter {
     tenantContext: TenantContext,
     taskType: string,
     options?: InvokeOptions,
+    personalityContext?: PersonalityContext | null,
   ): Promise<CompletionResult> {
     if (!this.poolRegistry) {
       throw new HounfourError("CONFIG_INVALID", "PoolRegistry required for tenant-aware routing", { agent })
@@ -349,19 +352,89 @@ export class HounfourRouter {
       throw new HounfourError("BINDING_INVALID", `Agent "${agent}" not found in registry`, { agent })
     }
 
-    // Pool selection via single choke point (SDD §3.5.2)
-    const poolId = selectAuthorizedPool(tenantContext, taskType)
+    // Pool selection: personality-aware or standard choke point (SDD §3.5.2)
+    let pool: import("./pool-registry.js").PoolDefinition | null = null
 
-    // Resolve pool with health-aware fallback
-    const pool = this.poolRegistry.resolveWithFallback(
-      poolId,
-      (provider, model) => this.health.isHealthy({ provider, modelId: model }),
-    )
-    if (!pool) {
-      throw new HounfourError("PROVIDER_UNAVAILABLE",
-        `No healthy provider for pool "${poolId}" (fallback chain exhausted)`, {
-          agent, pool: poolId,
+    if (personalityContext?.routing_affinity) {
+      // Personality-aware: try tier-allowed pools in affinity order.
+      // Does NOT follow cross-pool fallback chains (which can escape tier
+      // boundaries: architect→reasoning→reviewer→fast-code→cheap).
+      // Affinity ranking IS the fallback order — tier safety preserved.
+      const ranked = selectAffinityRankedPools(tenantContext, personalityContext.routing_affinity)
+
+      if (ranked.length === 0) {
+        throw new HounfourError("POOL_ACCESS_DENIED",
+          "No eligible pools for tier (personality-aware routing)", {
+            agent, tier: tenantContext.claims.tier,
+          })
+      }
+
+      const isHealthy = (provider: string, model: string) =>
+        this.health.isHealthy({ provider, modelId: model })
+
+      const preferredPoolId = ranked[0]
+      for (const candidatePoolId of ranked) {
+        const candidate = this.poolRegistry.resolve(candidatePoolId)
+        if (candidate && isHealthy(candidate.provider, candidate.model)) {
+          pool = candidate
+          break
+        }
+      }
+
+      if (!pool) {
+        throw new HounfourError("PROVIDER_UNAVAILABLE",
+          `No healthy provider in personality-ranked pools (tier: ${tenantContext.claims.tier})`, {
+            agent,
+            tier: tenantContext.claims.tier,
+            attempted: ranked,
+          })
+      }
+
+      // Emit fallback metric if personality-preferred pool was unhealthy
+      if (pool.id !== preferredPoolId) {
+        metrics.incrementCounter("finn_routing_fallback_total", {
+          from_pool: preferredPoolId,
+          to_pool: pool.id,
+          reason: "unhealthy",
         })
+      }
+    } else {
+      // Standard path: single pool selection via choke point
+      const poolId = selectAuthorizedPool(tenantContext, taskType)
+
+      pool = this.poolRegistry.resolveWithFallback(
+        poolId,
+        (provider, model) => this.health.isHealthy({ provider, modelId: model }),
+      )
+      if (!pool) {
+        throw new HounfourError("PROVIDER_UNAVAILABLE",
+          `No healthy provider for pool "${poolId}" (fallback chain exhausted)`, {
+            agent, pool: poolId,
+          })
+      }
+
+      // Emit fallback metric if resolved pool differs from requested
+      if (pool.id !== poolId) {
+        metrics.incrementCounter("finn_routing_fallback_total", {
+          from_pool: poolId,
+          to_pool: pool.id,
+          reason: "unhealthy",
+        })
+      }
+    }
+
+    // Emit routing metrics (Sprint 3, T3.4) — bounded cardinality labels only
+    const selectedArchetype = personalityContext?.archetype ?? "unknown"
+    metrics.incrementCounter("finn_routing_pool_selected", {
+      pool: pool.id,
+      archetype: selectedArchetype,
+      task_type: taskType,
+    })
+    if (personalityContext?.routing_affinity) {
+      metrics.incrementCounter("finn_routing_affinity_used", {
+        pool: pool.id,
+        archetype: selectedArchetype,
+      })
     }
 
     // Build tenant-aware metadata

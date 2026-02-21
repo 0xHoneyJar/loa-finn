@@ -50,6 +50,14 @@ export interface CreditStore {
   getReservation(reservationId: string): Promise<ReservationReceipt | null>
   setReservation(receipt: ReservationReceipt): Promise<void>
   deleteReservation(reservationId: string): Promise<void>
+  /**
+   * Atomic reserve: single SQL conditional UPDATE that fails atomically
+   * if balance is insufficient (Bridge high-2 TOCTOU fix).
+   * Pattern: UPDATE ... SET unlocked = unlocked - $amount WHERE wallet = $wallet AND unlocked >= $amount RETURNING *
+   * Returns updated account if successful, null if insufficient balance.
+   * Optional — stores without SQL fall back to read-check-write.
+   */
+  atomicReserve?(wallet: string, amount: number): Promise<CreditAccount | null>
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +107,12 @@ export function resetReservationCounter(): void {
  * - allocated (locked) → 402 CREDITS_LOCKED
  * - unlocked > 0 → reserve → return receipt
  * - unlocked = 0, consumed > 0 → FALLBACK_USDC
+ *
+ * Bridge high-2 fix: when store.atomicReserve is available, uses a single
+ * SQL conditional UPDATE to prevent TOCTOU race. The pattern is:
+ *   UPDATE ... SET unlocked = unlocked - $amount
+ *   WHERE wallet = $wallet AND unlocked >= $amount RETURNING *
+ * If 0 rows affected → insufficient credits. No overspend possible.
  */
 export async function reserveCredits(
   store: CreditStore,
@@ -123,12 +137,48 @@ export async function reserveCredits(
     return { status: "fallback_usdc" }
   }
 
-  // Check sufficient balance
+  // Check sufficient balance (pre-check before atomic operation)
   if (account.unlocked < amount) {
     return { status: "fallback_usdc" }
   }
 
-  // Reserve: move from unlocked to reserved
+  // Bridge high-2 fix: use atomic reserve when available to prevent TOCTOU race.
+  // Single SQL conditional UPDATE: if 0 rows affected → insufficient (concurrent drain).
+  if (store.atomicReserve) {
+    const updatedAccount = await store.atomicReserve(wallet, amount)
+    if (!updatedAccount) {
+      // Atomic reserve failed — balance was drained by concurrent request
+      return { status: "fallback_usdc" }
+    }
+
+    // Conservation checkpoint on the atomically-updated account.
+    // Bridge iteration 2, finding 002: Conservation failure after atomic reserve
+    // requires a durable rollback. We use updateAccount which writes back to Postgres.
+    // This is safe because atomicReserve already committed the debit; the rollback
+    // re-credits the same amount in a separate UPDATE. If the process crashes between
+    // reserve and rollback, the next reconciliation run (src/billing/reconciliation.ts)
+    // will detect the divergence and correct it via RECONCILIATION_CORRECTION WAL entry.
+    if (conservation && !conservation.validate(updatedAccount)) {
+      updatedAccount.unlocked += amount
+      updatedAccount.reserved -= amount
+      await store.updateAccount(wallet, updatedAccount)
+      return { status: "fallback_usdc" }
+    }
+
+    const receipt: ReservationReceipt = {
+      reservationId: generateReservationId(),
+      wallet,
+      amount,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 5 * 60 * 1000, // 5 minute TTL
+    }
+
+    await store.setReservation(receipt)
+    return { status: "reserved", receipt }
+  }
+
+  // Legacy path: read-check-write (no atomicity guarantee).
+  // Only used by stores without SQL (in-memory test stores).
   account.unlocked -= amount
   account.reserved += amount
 

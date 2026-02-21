@@ -1,0 +1,99 @@
+# docker-compose.dev.yml — Local dev stack with PostgreSQL + Redis (Sprint 1 T1.1)
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up         # Start all services
+#   docker compose -f docker-compose.dev.yml up -d      # Start in background
+#   docker compose -f docker-compose.dev.yml down -v    # Stop and remove volumes
+#
+# Finn runs on :3001 to coexist with freeside/arrakis on :3000.
+
+services:
+  finn:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    container_name: finn-dev
+    ports:
+      - "3001:3000"
+    env_file:
+      - .env.docker
+    environment:
+      NODE_ENV: development
+      DATA_DIR: /data
+      PORT: "3000"
+      FINN_POSTGRES_ENABLED: "true"
+      DATABASE_URL: postgresql://finn_app:${FINN_APP_PASSWORD:-finn_app_dev}@postgres:5432/finn
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - finn-data:/data
+    networks:
+      - finn-dev
+    restart: unless-stopped
+
+  finn-migrate:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    container_name: finn-migrate
+    command: ["node", "dist/drizzle/migrate.js"]
+    env_file:
+      - .env.docker
+    environment:
+      DATABASE_URL: postgresql://finn_migrate:${FINN_MIGRATE_PASSWORD:-finn_migrate_dev}@postgres:5432/finn
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - finn-dev
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: finn-postgres-dev
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_dev}
+      POSTGRES_DB: finn
+      FINN_APP_PASSWORD: ${FINN_APP_PASSWORD:-finn_app_dev}
+      FINN_MIGRATE_PASSWORD: ${FINN_MIGRATE_PASSWORD:-finn_migrate_dev}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d finn"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - finn-dev
+
+  redis:
+    image: redis:7-alpine
+    container_name: finn-redis-dev
+    ports:
+      - "6380:6379"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - finn-dev
+
+volumes:
+  finn-data:
+  postgres-data:
+  redis-data:
+
+networks:
+  finn-dev:
+    driver: bridge

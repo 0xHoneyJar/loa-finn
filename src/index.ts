@@ -55,6 +55,26 @@ async function main() {
   const validation = identity.validate()
   console.log(`[finn] identity loaded: v${identityDoc.version}, checksum=${identityDoc.checksum.slice(0, 8)}, valid=${validation.valid}`)
 
+  // 2b. Initialize PostgreSQL (Sprint 1 T1.3/T1.4)
+  let finnDb: import("./drizzle/db.js").Db | undefined
+  let finnSql: import("postgres").Sql | undefined
+  if (config.postgres.enabled) {
+    if (!config.postgres.connectionString) {
+      throw new Error("[finn] FINN_POSTGRES_ENABLED=true but DATABASE_URL is not set")
+    }
+    const { createDb } = await import("./drizzle/db.js")
+    const { validateDatabase } = await import("./drizzle/validate.js")
+    const dbResult = createDb({
+      connectionString: config.postgres.connectionString,
+      maxConnections: config.postgres.maxConnections,
+    })
+    finnDb = dbResult.db
+    finnSql = dbResult.sql
+    await validateDatabase(dbResult.sql)
+  } else {
+    console.log("[finn] postgres: disabled (set FINN_POSTGRES_ENABLED=true to enable)")
+  }
+
   // 3. Initialize persistence (upstream WALManager)
   const walDir = join(config.dataDir, "wal")
   const wal = createWALManager(walDir)
@@ -657,6 +677,11 @@ async function main() {
     // Shutdown worker pool (abort running, terminate workers)
     if (pool) {
       try { await pool.shutdown() } catch (err) { console.error("[finn] pool shutdown error:", err) }
+    }
+
+    // Close PostgreSQL pool (Sprint 1 T1.5)
+    if (finnSql) {
+      try { await finnSql.end() } catch (err) { console.error("[finn] postgres close error:", err) }
     }
 
     // Disconnect Redis (before final sync — Redis not needed for R2/WAL)
