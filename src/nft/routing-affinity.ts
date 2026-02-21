@@ -21,6 +21,7 @@ import type { Archetype, DAMPDialId, DAMPFingerprint } from "./signal-types.js"
 import type { PoolId, Tier } from "../hounfour/tier-bridge.js"
 import { TIER_POOL_ACCESS } from "../hounfour/tier-bridge.js"
 import type { RoutingQualityStore } from "./routing-quality.js"
+import type { ReputationBootstrap } from "./reputation-bootstrap.js"
 
 // ---------------------------------------------------------------------------
 // Tier Safety — authoritative pool allowlist (GPT-5.2 fix #5)
@@ -199,11 +200,13 @@ const DEFAULT_QUALITY_WEIGHT = 0.3
 
 /**
  * Compute combined pool affinity from archetype (static) + genotype (dial-based)
- * + quality feedback (epigenetic, Sprint 3).
+ * + quality feedback (epigenetic, Sprint 3)
+ * + reputation bootstrap (Sprint 2 GID 125, T2.5).
  *
  * Scoring formula:
  * - Without quality: static_affinity (archetype + genotype blend)
  * - With quality: static_affinity * (1 - qualityWeight) + quality_score * qualityWeight
+ * - With bootstrap: same formula, but bootstrap-sourced scores used for new personalities
  *
  * Quality reads from RoutingQualityStore cache ONLY — no I/O at scoring time.
  * When no quality data exists for a (personality, pool) pair, static affinity is used
@@ -216,6 +219,8 @@ const DEFAULT_QUALITY_WEIGHT = 0.3
  * @param qualityStore - Optional RoutingQualityStore for feedback scoring (Sprint 3)
  * @param personalityId - Required when qualityStore is provided
  * @param qualityWeight - Weight of quality feedback in final score (default 0.3)
+ * @param collectionId - Optional collection ID for reputation bootstrap (Sprint 2, T2.5)
+ * @param reputationBootstrap - Optional ReputationBootstrap for collection warm-start (Sprint 2, T2.5)
  */
 export function computeRoutingAffinity(
   archetype: Archetype,
@@ -225,6 +230,8 @@ export function computeRoutingAffinity(
   qualityStore?: RoutingQualityStore | null,
   personalityId?: string | null,
   qualityWeight = DEFAULT_QUALITY_WEIGHT,
+  collectionId?: string | null,
+  reputationBootstrap?: ReputationBootstrap | null,
 ): Record<PoolId, number> {
   const pools = Object.keys(ARCHETYPE_POOL_AFFINITY.freetekno) as PoolId[]
   const result = {} as Record<PoolId, number>
@@ -245,6 +252,18 @@ export function computeRoutingAffinity(
       const qualityScore = qualityStore.getPoolQualityCached(personalityId, poolId)
       if (qualityScore) {
         result[poolId] = staticAffinity * (1 - qualityWeight) + qualityScore.score * qualityWeight
+      } else if (reputationBootstrap && collectionId) {
+        // No personal quality — try collection bootstrap (Sprint 2, T2.5)
+        const bootstrap = reputationBootstrap.getQualityWithBootstrap(
+          personalityId, poolId, collectionId,
+        )
+        if (bootstrap.score) {
+          // Bootstrap scores blend at the same quality weight
+          result[poolId] = staticAffinity * (1 - qualityWeight) + bootstrap.score.score * qualityWeight
+        } else {
+          // No data at all — use static affinity unchanged
+          result[poolId] = staticAffinity
+        }
       } else {
         // No quality data — use static affinity unchanged
         result[poolId] = staticAffinity

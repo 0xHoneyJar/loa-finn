@@ -1,5 +1,12 @@
 # A2A Sprint Index
 
+## Cycle-031: Adaptive Intelligence — Quality Governance & Reputation Bootstrap
+
+| Sprint | Global ID | Status | Report |
+|--------|-----------|--------|--------|
+| Sprint 1: Quality Signal Governance + Anti-Sycophancy | 124 | COMPLETED | [reviewer.md](sprint-124/reviewer.md) / [engineer-feedback.md](sprint-124/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-124/auditor-sprint-feedback.md) |
+| Sprint 2: EventStore Indexed Access + Reputation Bootstrap | 125 | COMPLETED | [reviewer.md](sprint-125/reviewer.md) / [engineer-feedback.md](sprint-125/engineer-feedback.md) / [auditor-sprint-feedback.md](sprint-125/auditor-sprint-feedback.md) |
+
 ## Cycle-025: The Oracle — Unified Knowledge Interface
 
 | Sprint | Global ID | Status | Report |

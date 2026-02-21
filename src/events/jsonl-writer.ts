@@ -37,6 +37,11 @@ export class JsonlEventWriter implements EventWriter {
   private readonly sequences = new Map<string, number>()
   private closed = false
 
+  /** Exposed for compaction (Sprint 2, T2.2) */
+  get dataDir(): string {
+    return this.dir
+  }
+
   constructor(options: JsonlEventWriterOptions) {
     this.dir = options.dir
     this.maxSegmentBytes = options.maxSegmentBytes ?? DEFAULT_MAX_SEGMENT_BYTES

@@ -24,6 +24,11 @@ export class JsonlEventReader implements EventReader {
   private readonly dir: string
   private closed = false
 
+  /** Exposed for compaction (Sprint 2, T2.2) */
+  get dataDir(): string {
+    return this.dir
+  }
+
   constructor(options: JsonlEventReaderOptions) {
     this.dir = options.dir
   }

@@ -1200,12 +1200,14 @@
     },
     {
       "label": "Forward Architecture — Economic Consciousness",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-21T02:00:00Z",
+      "archived": "2026-02-21T12:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-21-forward-architecture-complete",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprint_plan": "grimoires/loa/sprint.md",
-      "notes": "Cycle-030. Implements 3 forward architecture visions from Bridgebuilder Deep Review (PR #92): EventStore abstraction, personality-aware model routing, quality feedback loop. Source: findings D-1 (event sourcing convergence), D-2 (Ostrom governance), D-3 (genotype/phenotype vocabulary).",
+      "notes": "Cycle-030. Implements 3 forward architecture visions from Bridgebuilder Deep Review (PR #92): EventStore abstraction, personality-aware model routing, quality feedback loop. Source: findings D-1 (event sourcing convergence), D-2 (Ostrom governance), D-3 (genotype/phenotype vocabulary). All 3 sprints COMPLETED. 562 total tests. Bridgebuilder Deep Review posted (3 parts PR #92 + synthesis issue #66).",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -1232,7 +1234,35 @@
           "notes": "5/5 tasks, 34 new tests, 562 total passing. RoutingQualityStore (LRU+TTL+decay), quality emission (fire-and-forget), affinity blending, 5 Prometheus metrics (bounded cardinality), E2E pipeline test. Review: All good. Audit: APPROVED."
         }
       ]
+    },
+    {
+      "label": "Adaptive Intelligence — Quality Governance & Reputation Bootstrap",
+      "status": "active",
+      "started": "2026-02-21T12:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Cycle-031. Implements actionable suggestions from Bridgebuilder Deep Review of PR #92 (cycle-030). Finding #6 (MEDIUM): Quality Signal Ontology governance — anti-sycophancy, challenge_rate, archetype-aware weighting. Finding #7 (LOW) + Questions 2-3: EventStore indexed access, stream compaction, collection-level reputation bootstrap. GPT-5.2 APPROVED (iteration 2, 7 blocking issues resolved in v1.1.0).",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 124,
+          "label": "Quality Signal Governance + Anti-Sycophancy",
+          "status": "completed",
+          "tasks": 6,
+          "notes": "6/6 tasks, 51 new tests (85 total), 0 regressions. Anti-sycophancy detection, archetype-aware weighting, strict env var validation, 3-layer fire-and-forget defense-in-depth, bounded Prometheus cardinality. Review: All good. Audit: APPROVED."
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 125,
+          "label": "EventStore Indexed Access + Reputation Bootstrap",
+          "status": "completed",
+          "tasks": 6,
+          "notes": "6/6 tasks, 45 new tests (130 total), 0 regressions. QualityEventIndex (dual-key, LRU, ring buffer), JSONL compaction, collection reputation (trimmed mean, anti-manipulation), Bayesian bootstrap blending, routing affinity wiring. Review: All good. Audit: APPROVED."
+        }
+      ]
     }
   ],
-  "next_global_sprint_id": 124
+  "current_cycle": "cycle-031",
+  "next_global_sprint_id": 126
 }

@@ -205,6 +205,11 @@ metrics.registerGauge("finn_settlement_circuit_state", "Settlement circuit break
 // --- Connection metrics ---
 metrics.registerGauge("finn_ws_connections_active", "Active WebSocket connections")
 
+// --- Quality governance metrics (Sprint 1, T1.5) ---
+// BOUNDED cardinality: archetype label has 4 values + "unknown" = 5 values
+metrics.registerCounter("finn_quality_sycophancy_detected_total", "Sycophancy risk detection events by archetype")
+metrics.registerCounter("finn_quality_governance_error_total", "Quality governance configuration or runtime errors")
+
 // --- Routing metrics (Sprint 3, T3.4) ---
 // BOUNDED cardinality: labels are pool (5 values), archetype (4 values), task_type (bounded enum)
 // NO personality_id, user_id, or session_id in metric labels
