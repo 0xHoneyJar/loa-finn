@@ -238,7 +238,7 @@ export class ApiKeyManager {
       console.error(
         JSON.stringify({
           metric: "finn.billing_event_record_error",
-          keyId,
+          keyId: keyId.slice(0, 8) + "***",
           requestId,
           error: (err as Error).message,
         }),
