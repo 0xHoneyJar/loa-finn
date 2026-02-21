@@ -147,7 +147,12 @@ export function deriveTarot(molecule: string): TarotCard {
 
   const card = entry.card
   const suit = card.arcana === "major" ? "major" as const : card.suit!
-  const element = deriveElement(suit)
+
+  // For Major Arcana, use gumi's canonical per-card element from the bijection.
+  // For Minor Arcana, suit-derived element matches canonical (wands=fire, etc.)
+  const element = card.arcana === "major" && entry.element
+    ? entry.element.toLowerCase() as Element
+    : deriveElement(suit)
 
   return {
     name: card.name,

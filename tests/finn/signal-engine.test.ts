@@ -122,33 +122,33 @@ async function main() {
   // Tarot Derivation (Bijection)
   // ===================================================================
 
-  await test("deriveTarot: LSD maps to The Magician (Major Arcana)", () => {
+  await test("deriveTarot: LSD maps to The Star (Major Arcana)", () => {
     const card = deriveTarot("LSD")
-    assert.equal(card.name, "The Magician")
-    assert.equal(card.number, 1)
+    assert.equal(card.name, "The Star")
+    assert.equal(card.number, 17)
     assert.equal(card.suit, "major")
-    assert.equal(card.element, "fire")
+    assert.equal(card.element, "air")
   })
 
-  await test("deriveTarot: Psilocybin maps to The Fool (Major Arcana)", () => {
-    const card = deriveTarot("Psilocybin")
+  await test("deriveTarot: Ayahuasca maps to The Fool (Major Arcana)", () => {
+    const card = deriveTarot("Ayahuasca")
     assert.equal(card.name, "The Fool")
     assert.equal(card.number, 0)
     assert.equal(card.suit, "major")
   })
 
-  await test("deriveTarot: Cocaine maps to Eight of Wands", () => {
+  await test("deriveTarot: Cocaine maps to Three of Wands", () => {
     const card = deriveTarot("Cocaine")
-    assert.equal(card.name, "Eight of Wands")
+    assert.equal(card.name, "Three of Wands")
     assert.equal(card.suit, "wands")
     assert.equal(card.element, "fire")
   })
 
-  await test("deriveTarot: Alcohol maps to Ace of Cups", () => {
+  await test("deriveTarot: Alcohol maps to King of Pentacles", () => {
     const card = deriveTarot("Alcohol")
-    assert.equal(card.name, "Ace of Cups")
-    assert.equal(card.suit, "cups")
-    assert.equal(card.element, "water")
+    assert.equal(card.name, "King of Pentacles")
+    assert.equal(card.suit, "pentacles")
+    assert.equal(card.element, "earth")
   })
 
   await test("deriveTarot: Piracetam maps to Ace of Swords", () => {
@@ -158,16 +158,16 @@ async function main() {
     assert.equal(card.element, "air")
   })
 
-  await test("deriveTarot: Ashwagandha maps to Ace of Pentacles", () => {
+  await test("deriveTarot: Ashwagandha maps to The Hermit (Major Arcana)", () => {
     const card = deriveTarot("Ashwagandha")
-    assert.equal(card.name, "Ace of Pentacles")
-    assert.equal(card.suit, "pentacles")
+    assert.equal(card.name, "The Hermit")
+    assert.equal(card.suit, "major")
     assert.equal(card.element, "earth")
   })
 
   await test("deriveTarot: case-insensitive lookup", () => {
     const card = deriveTarot("lsd")
-    assert.equal(card.name, "The Magician")
+    assert.equal(card.name, "The Star")
   })
 
   await test("deriveTarot: throws for unknown molecule", () => {
@@ -325,20 +325,20 @@ async function main() {
   // Nested Identity Propagation (Task 1.4)
   // ===================================================================
 
-  await test("propagateIdentityChain: Morphine -> Death -> major -> fire -> archetype affinity", () => {
-    const chain = propagateIdentityChain("Morphine", "greek_philosopher")
-    assert.equal(chain.molecule, "Morphine")
+  await test("propagateIdentityChain: Ketamine -> Death -> major -> water -> archetype affinity", () => {
+    const chain = propagateIdentityChain("Ketamine", "greek_philosopher")
+    assert.equal(chain.molecule, "Ketamine")
     assert.equal(chain.tarot.name, "Death")
     assert.equal(chain.tarot.suit, "major")
-    assert.equal(chain.element, "fire")
+    assert.equal(chain.element, "water")
     assert.ok(chain.archetype_affinity.primary)
     assert.ok(chain.ancestor_connection)
     assert.equal(chain.ancestor_connection!.id, "greek_philosopher")
   })
 
-  await test("propagateIdentityChain: Cocaine -> Eight of Wands -> wands -> fire -> freetekno", () => {
+  await test("propagateIdentityChain: Cocaine -> Three of Wands -> wands -> fire -> freetekno", () => {
     const chain = propagateIdentityChain("Cocaine", "cypherpunk")
-    assert.equal(chain.tarot.name, "Eight of Wands")
+    assert.equal(chain.tarot.name, "Three of Wands")
     assert.equal(chain.tarot.suit, "wands")
     assert.equal(chain.element, "fire")
     assert.equal(chain.archetype_affinity.primary.archetype, "freetekno")
@@ -346,11 +346,11 @@ async function main() {
     assert.equal(chain.ancestor_connection!.id, "cypherpunk")
   })
 
-  await test("propagateIdentityChain: Alcohol -> Ace of Cups -> cups -> water -> acidhouse", () => {
+  await test("propagateIdentityChain: Alcohol -> King of Pentacles -> pentacles -> earth -> chicago_detroit", () => {
     const chain = propagateIdentityChain("Alcohol", "beat_poet")
-    assert.equal(chain.tarot.suit, "cups")
-    assert.equal(chain.element, "water")
-    assert.equal(chain.archetype_affinity.primary.archetype, "acidhouse")
+    assert.equal(chain.tarot.suit, "pentacles")
+    assert.equal(chain.element, "earth")
+    assert.equal(chain.archetype_affinity.primary.archetype, "chicago_detroit")
   })
 
   await test("propagateIdentityChain: Piracetam -> Ace of Swords -> swords -> air -> milady", () => {
@@ -360,11 +360,11 @@ async function main() {
     assert.equal(chain.archetype_affinity.primary.archetype, "milady")
   })
 
-  await test("propagateIdentityChain: Ashwagandha -> Ace of Pentacles -> pentacles -> earth -> chicago_detroit", () => {
+  await test("propagateIdentityChain: Ashwagandha -> The Hermit -> major -> earth -> acidhouse", () => {
     const chain = propagateIdentityChain("Ashwagandha", "aboriginal_elder")
-    assert.equal(chain.tarot.suit, "pentacles")
+    assert.equal(chain.tarot.suit, "major")
     assert.equal(chain.element, "earth")
-    assert.equal(chain.archetype_affinity.primary.archetype, "chicago_detroit")
+    assert.equal(chain.archetype_affinity.primary.archetype, "acidhouse")
   })
 
   await test("propagateIdentityChain: deterministic — same input always same output", () => {
@@ -407,9 +407,9 @@ async function main() {
     assert.equal(snapshot.birthday, "1352-06-15")
     assert.equal(snapshot.era, "medieval")
     assert.equal(snapshot.molecule, "LSD")
-    assert.equal(snapshot.tarot.name, "The Magician")
+    assert.equal(snapshot.tarot.name, "The Star")
     assert.equal(snapshot.tarot.suit, "major")
-    assert.equal(snapshot.element, "fire")
+    assert.equal(snapshot.element, "air")
     assert.equal(snapshot.swag_rank, "S")
     assert.equal(snapshot.swag_score, 75)
     assert.equal(snapshot.sun_sign, "aries")
@@ -422,7 +422,7 @@ async function main() {
       archetype: "freetekno",
       ancestor: "cypherpunk",
       birthday: "2000-01-01",
-      molecule: "Cannabis",
+      molecule: "Weed",
       swag_rank: "A",
       swag_score: 50,
       sun_sign: "capricorn",
