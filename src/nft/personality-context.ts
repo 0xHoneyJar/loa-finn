@@ -53,6 +53,14 @@ export interface PersonalityContext {
   dominant_dimensions: DominantDimension[]
   /** Protocol version that produced this context */
   protocol_version: typeof PERSONALITY_CONTEXT_VERSION
+  /**
+   * Per-pool routing affinity scores [0-1], computed from archetype + genotype.
+   * Used by HounfourRouter to select personality-optimal pools.
+   * Undefined when fingerprint is unavailable (legacy_v1 personalities).
+   * Sprint 2 (GID 122), Task T2.3.
+   * Keys are PoolId strings from loa-hounfour vocabulary.
+   */
+  routing_affinity?: Record<string, number>
 }
 
 // ---------------------------------------------------------------------------
@@ -124,12 +132,14 @@ export function extractDominantDimensions(
  * @param personalityId - Composite key `collection:tokenId`
  * @param archetype - Primary archetype from signal snapshot
  * @param fingerprint - dAMP fingerprint (null if not derived)
+ * @param routingAffinity - Pre-computed routing affinity (from computeRoutingAffinity)
  * @returns PersonalityContext or null
  */
 export async function buildPersonalityContext(
   personalityId: string,
   archetype: Archetype,
   fingerprint: DAMPFingerprint | null,
+  routingAffinity?: Record<string, number>,
 ): Promise<PersonalityContext | null> {
   if (!fingerprint) return null
 
@@ -142,6 +152,7 @@ export async function buildPersonalityContext(
     archetype,
     dominant_dimensions: dominant,
     protocol_version: PERSONALITY_CONTEXT_VERSION,
+    routing_affinity: routingAffinity,
   }
 }
 
@@ -152,6 +163,7 @@ export function buildPersonalityContextSync(
   personalityId: string,
   archetype: Archetype,
   fingerprint: DAMPFingerprint | null,
+  routingAffinity?: Record<string, number>,
 ): PersonalityContext | null {
   if (!fingerprint) return null
 
@@ -164,6 +176,7 @@ export function buildPersonalityContextSync(
     archetype,
     dominant_dimensions: dominant,
     protocol_version: PERSONALITY_CONTEXT_VERSION,
+    routing_affinity: routingAffinity,
   }
 }
 

@@ -14,11 +14,11 @@
 
 ## Sprint Overview
 
-| Sprint | Global ID | Label | Tasks | Dependencies |
-|--------|-----------|-------|-------|-------------|
-| 1 | 121 | EventStore Abstraction Layer | 7 | None |
-| 2 | 122 | Personality-Aware Model Routing | 6 | None |
-| 3 | 123 | Quality Feedback Loop + Observability | 5 | Sprint 1, Sprint 2 |
+| Sprint | Global ID | Label | Tasks | Dependencies | Status |
+|--------|-----------|-------|-------|-------------|--------|
+| 1 | 121 | EventStore Abstraction Layer | 7 | None | |
+| 2 | 122 | Personality-Aware Model Routing | 6 | None | APPROVED |
+| 3 | 123 | Quality Feedback Loop + Observability | 5 | Sprint 1, Sprint 2 | |
 
 ### Dependency Graph
 

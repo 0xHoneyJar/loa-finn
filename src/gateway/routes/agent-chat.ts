@@ -8,6 +8,7 @@
 
 import { Hono } from "hono"
 import type { PersonalityProvider, PersonalityConfig } from "../../nft/personality-provider.js"
+import type { PersonalityContext } from "../../nft/personality-context.js"
 import type { PaymentDecision } from "../payment-decision.js"
 
 // ---------------------------------------------------------------------------
@@ -17,8 +18,14 @@ import type { PaymentDecision } from "../payment-decision.js"
 export interface AgentChatDeps {
   /** PersonalityProvider for resolving tokenId → config */
   personalityProvider: PersonalityProvider
-  /** Generate agent response given a system prompt and user message */
-  generateResponse: (systemPrompt: string, userMessage: string) => Promise<string>
+  /** Generate agent response given a system prompt and user message.
+   *  When personalityContext is provided, the router uses personality-aware
+   *  pool selection (Sprint 2, T2.5). */
+  generateResponse: (systemPrompt: string, userMessage: string, personalityContext?: PersonalityContext | null) => Promise<string>
+  /** Resolve PersonalityContext from a token ID.
+   *  Returns null if fingerprint is unavailable (legacy v1 personalities).
+   *  Optional — when absent, routing falls back to standard pool selection. */
+  resolvePersonalityContext?: (tokenId: string, archetype: string) => Promise<PersonalityContext | null>
 }
 
 interface ChatRequest {
@@ -63,10 +70,23 @@ export function createAgentChatRoutes(deps: AgentChatDeps): Hono {
       return c.json({ error: "Token ID not found", code: "PERSONALITY_NOT_FOUND" }, 404)
     }
 
+    // Resolve PersonalityContext for personality-aware routing (Sprint 2, T2.5)
+    // Returns null for legacy v1 personalities without dAMP fingerprints —
+    // in that case, the router falls back to standard pool selection.
+    let personalityContext: PersonalityContext | null = null
+    if (deps.resolvePersonalityContext) {
+      try {
+        personalityContext = await deps.resolvePersonalityContext(body.token_id, personality.archetype)
+      } catch {
+        // Non-fatal: routing falls back to standard pool selection
+        console.warn(`[agent-chat] personality context resolution failed for token_id="${body.token_id}"`)
+      }
+    }
+
     // Generate response with personality-conditioned system prompt
     let response: string
     try {
-      response = await deps.generateResponse(personality.beauvoir_template, body.message)
+      response = await deps.generateResponse(personality.beauvoir_template, body.message, personalityContext)
     } catch (err) {
       console.error(
         JSON.stringify({
@@ -86,6 +106,10 @@ export function createAgentChatRoutes(deps: AgentChatDeps): Hono {
       personality: {
         archetype: personality.archetype,
         display_name: personality.display_name,
+        ...(personalityContext && {
+          routing_version: personalityContext.protocol_version,
+          dominant_dimensions: personalityContext.dominant_dimensions.slice(0, 3).map(d => d.dial_id),
+        }),
       },
       billing: paymentDecision
         ? {

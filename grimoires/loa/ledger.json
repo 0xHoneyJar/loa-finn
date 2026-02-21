@@ -1197,7 +1197,6 @@
           "notes": "Bridge iteration 1: Addresses findings medium-4, medium-6, medium-7. Review approved, audit passed."
         }
       ]
-    }
     },
     {
       "label": "Forward Architecture — Economic Consciousness",
@@ -1220,8 +1219,9 @@
           "local_id": "sprint-2",
           "global_id": 122,
           "label": "Personality-Aware Model Routing",
-          "status": "pending",
-          "tasks": 6
+          "status": "completed",
+          "tasks": 6,
+          "notes": "6/6 tasks, 33 new tests, 0 regressions. Archetype affinity matrix, dial-weighted scoring, combined routing, tier-safe pool selection, agent-chat wiring. Security audit APPROVED — tier safety invariant verified with 3-layer defense-in-depth."
         },
         {
           "local_id": "sprint-3",
