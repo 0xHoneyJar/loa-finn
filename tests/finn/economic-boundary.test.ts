@@ -199,6 +199,18 @@ describe("Economic Boundary — Snapshot Builders", () => {
       expect(snap).not.toBeNull()
       expect(snap!.billing_tier).toBe("unknown")
     })
+
+    it("returns null for NaN limit (fail-closed)", () => {
+      const budget = makeBudget({ limit_usd: NaN })
+      const snap = buildCapitalSnapshot(budget)
+      expect(snap).toBeNull()
+    })
+
+    it("returns null for Infinity spent (fail-closed)", () => {
+      const budget = makeBudget({ spent_usd: Infinity })
+      const snap = buildCapitalSnapshot(budget)
+      expect(snap).toBeNull()
+    })
   })
 })
 

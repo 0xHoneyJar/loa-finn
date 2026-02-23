@@ -39,6 +39,16 @@ import {
 
 export type EconomicBoundaryMode = "enforce" | "shadow" | "bypass"
 
+/**
+ * Extended evaluation result that includes denial_codes.
+ * The protocol's evaluateEconomicBoundary() returns denial_codes at runtime
+ * but the exported TypeScript type may lag behind. This local extension
+ * provides type-safe access without inline assertions.
+ */
+type EvaluationResultWithDenials = EconomicBoundaryEvaluationResult & {
+  denial_codes?: DenialCode[]
+}
+
 // --- Constants ---
 
 const VALID_MODES = new Set<string>(["enforce", "shadow", "bypass"])
@@ -201,8 +211,9 @@ export function buildCapitalSnapshot(
       console.warn("[economic-boundary] Budget remaining is negative or non-finite — capital snapshot unavailable")
       return null
     }
-    // Convert USD to MicroUSD string (1 USD = 1,000,000 MicroUSD)
-    const remainingMicro = Math.floor(remainingUsd * 1_000_000).toString()
+    // Convert USD to MicroUSD string (1 USD = 1,000,000 MicroUSD).
+    // Math.round minimizes IEEE-754 directional bias (e.g., 0.1+0.2-0.3 artifacts).
+    const remainingMicro = Math.round(remainingUsd * 1_000_000).toString()
 
     return {
       budget_remaining: remainingMicro,
@@ -345,7 +356,7 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
         component: "economic-boundary",
         mode,
         decision: result.access_decision.granted ? "granted" : "denied",
-        denial_codes: (result as { denial_codes?: DenialCode[] }).denial_codes ?? [],
+        denial_codes: (result as EvaluationResultWithDenials).denial_codes ?? [],
         trust_tier: claims.tier,
         trust_passed: result.trust_evaluation.passed,
         capital_passed: result.capital_evaluation.passed,
@@ -360,7 +371,7 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
           return c.json({
             error: "Forbidden",
             code: "ECONOMIC_BOUNDARY_DENIED",
-            denial_codes: (result as { denial_codes?: DenialCode[] }).denial_codes ?? [],
+            denial_codes: (result as EvaluationResultWithDenials).denial_codes ?? [],
             denial_reason: result.access_decision.denial_reason,
           }, 403)
         }
