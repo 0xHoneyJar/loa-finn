@@ -29,6 +29,7 @@ export type HounfourErrorCode =
   | "ORACLE_MODEL_UNAVAILABLE"
   | "ORACLE_KNOWLEDGE_UNAVAILABLE"
   | "KNOWLEDGE_INJECTION"
+  | "ACCESS_POLICY_DENIED"
 
 /** Typed error for all Hounfour operations */
 export class HounfourError extends Error {

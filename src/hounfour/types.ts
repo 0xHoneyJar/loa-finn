@@ -1,8 +1,9 @@
 // src/hounfour/types.ts — Hounfour shared types (SDD §4.2, T-14.4)
 // All interfaces for the multi-model provider abstraction layer.
 //
-// Canonical branded types re-exported from @0xhoneyjar/loa-hounfour (v7.0.0).
+// Canonical branded types re-exported from @0xhoneyjar/loa-hounfour (v7.9.2).
 // Use wire-boundary.ts parse functions to construct branded values.
+// Protocol schemas and types centralized in protocol-types.ts (Task 2.4).
 
 export type { MicroUSD, BasisPoints, AccountId } from "@0xhoneyjar/loa-hounfour"
 export type { PoolId } from "@0xhoneyjar/loa-hounfour"

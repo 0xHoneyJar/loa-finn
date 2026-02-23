@@ -9,7 +9,7 @@ import type { RedisStateBackend } from "./redis/client.js"
 
 const CLOCK_SKEW_SEC = 60          // Tolerance for clock drift between services
 const MIN_TTL_SEC = 30             // Floor — even short-lived tokens get replay protection
-const MAX_TTL_SEC = 7200           // Ceiling — cap memory usage for long-lived tokens
+const DEFAULT_MAX_TTL_SEC = 7200   // Default ceiling — cap memory usage for long-lived tokens
 const CLEANUP_INTERVAL_MS = 60_000 // Sweep expired entries every 60s
 const DEFAULT_MAX_SIZE = 100_000   // Maximum JTI entries before oldest-first eviction
 
@@ -19,12 +19,22 @@ const DEFAULT_MAX_SIZE = 100_000   // Maximum JTI entries before oldest-first ev
  * Derive replay protection TTL from JWT exp claim.
  * Security-critical — must cover the full token lifetime plus clock skew.
  *
- * ttlSec = clamp(exp - now + CLOCK_SKEW_SEC, MIN_TTL_SEC, MAX_TTL_SEC)
+ * ttlSec = clamp(exp - now + CLOCK_SKEW_SEC, MIN_TTL_SEC, maxTtlSec)
+ *
+ * @param expUnixSec - JWT exp claim (Unix seconds)
+ * @param nowUnixSec - Current time override (for testing)
+ * @param maxTtlSec  - Ceiling override (default: DEFAULT_MAX_TTL_SEC=7200).
+ *                      Pass MAX_JTI_WINDOW_SECONDS from jwt-auth to apply the
+ *                      effective protocol-merged ceiling.
  */
-export function deriveJtiTtl(expUnixSec: number, nowUnixSec?: number): number {
+export function deriveJtiTtl(
+  expUnixSec: number,
+  nowUnixSec?: number,
+  maxTtlSec: number = DEFAULT_MAX_TTL_SEC,
+): number {
   const now = nowUnixSec ?? Math.floor(Date.now() / 1000)
   const raw = expUnixSec - now + CLOCK_SKEW_SEC
-  return Math.max(MIN_TTL_SEC, Math.min(MAX_TTL_SEC, raw))
+  return Math.max(MIN_TTL_SEC, Math.min(maxTtlSec, raw))
 }
 
 // --- Interface ---
