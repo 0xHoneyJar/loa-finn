@@ -225,12 +225,16 @@ Known denial codes: `TRUST_SCORE_BELOW_THRESHOLD`, `TRUST_STATE_BELOW_THRESHOLD`
   - `free` → `{cold, 10}`
   - `pro` → `{warming, 50}`
   - `enterprise` → `{established, 80}`
+  - `authoritative` → `{authoritative, 95}` — (Sprint 5, Task 5.3) the tier that money cannot buy. Reached only via behavioral evidence through `ReputationProvider`, not subscription level.
 - **ECONOMIC_BOUNDARY_MODE** env var: `enforce` | `shadow` | `bypass` (default: `shadow`)
-- **Circuit breaker** (Sprint 4, Task 4.1): `CircuitBreaker` class instantiated per-middleware (Hystrix bulkheading). Configurable `threshold`/`windowMs`/`resetMs`. Default: 5 failures/30s → open, 60s cooldown → half-open. Mode-aware: enforce → 503 (fail-closed), shadow → allow through.
+- **Circuit breaker** (Sprint 4, Task 4.1; Sprint 5, Task 5.1): `CircuitBreaker` class instantiated per-middleware (Hystrix bulkheading). Configurable `threshold`/`windowMs`/`resetMs`. Default: 5 failures/30s → open, 60s cooldown → half-open. Half-open behavior: `isOpen()` returns false after cooldown (allows one probe request). Success in half-open → circuit closes. Failure in half-open → circuit immediately re-opens (no gradual recovery). Mode-aware: enforce → 503 (fail-closed), shadow → allow through.
 - **Budget period** (Sprint 4, Task 4.2): `BudgetSnapshot.budget_period_end?` (ISO 8601). When provided, used verbatim in capital snapshot. When absent, 30-day default.
 - **Tenant ID hashing** (Sprint 4, Task 4.4): `hashTenantId()` — SHA-256 truncated to 16 hex chars. Used in structured logs for PII protection. Raw `tenant_id` preserved in 403 response bodies (goes to authenticated tenant).
 - **denial_codes type gap** (Sprint 4, Task 4.3): Local `EvaluationResultWithDenials` extends protocol type. Upstream issue: [loa-hounfour#35](https://github.com/0xHoneyJar/loa-hounfour/issues/35).
 - **Graceful degradation**: Pre-v7.7 peers use flat tier-based trust only
+- **ReputationProvider** (Sprint 5, Task 5.3): Optional async interface `{ getReputationBoost(tenantId): Promise<{boost, source} | null> }` exported from `types.ts`. When provided to `buildTrustSnapshot()` and tenant tier is "enterprise", queried with 5ms `Promise.race` timeout. Boost >= 15 upgrades reputation to "authoritative" with blended score. Provider absent, returning null, throwing, or timing out → static mapping (fail-closed). Only queried for enterprise tier.
+- **Blended score weighting** (Sprint 5, Task 5.4): `computeBlendedScore(tierBase, behavioralBoost, weights?)` computes `α × tierBase + β × behavioralBoost`. Default weights: `{alpha: 0.7, beta: 0.3}` (tier-dominant). Result: integer in `[0, 100]` via `Math.round()` + clamp. Epsilon weight validation: `Math.abs(α + β - 1) < 1e-9` handles IEEE-754 non-terminating decimals. Exported as `DEFAULT_BLENDING_WEIGHTS`.
+- **Interaction matrix** (Sprint 5, Task 5.2): 9-cell matrix of `ECONOMIC_BOUNDARY_MODE × AP_ENFORCEMENT`. Key cells: shadow × observe → both log, neither enforces. shadow × enforce → AP enforces, EB logs. enforce × observe → EB enforces (403), AP never reached. enforce × enforce → EB denial takes precedence (short-circuits chain). EB is upstream of AP in the middleware chain.
 
 ---
 

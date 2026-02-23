@@ -23,7 +23,7 @@
 import { createHash } from "node:crypto"
 import type { Context, Next } from "hono"
 import type { JWTClaims } from "./jwt-auth.js"
-import type { BudgetSnapshot } from "./types.js"
+import type { BudgetSnapshot, ReputationProvider } from "./types.js"
 import type { PeerFeatures } from "./protocol-handshake.js"
 import {
   evaluateEconomicBoundary,
@@ -66,9 +66,10 @@ const VALID_MODES = new Set<string>(["enforce", "shadow", "bypass"])
  * Validated at boot time against protocol's REPUTATION_STATES.
  */
 export const TIER_TRUST_MAP: Readonly<Record<string, { reputation_state: ReputationStateName; blended_score: number }>> = {
-  free:       { reputation_state: "cold",        blended_score: 10 },
-  pro:        { reputation_state: "warming",     blended_score: 50 },
-  enterprise: { reputation_state: "established", blended_score: 80 },
+  free:          { reputation_state: "cold",          blended_score: 10 },
+  pro:           { reputation_state: "warming",       blended_score: 50 },
+  enterprise:    { reputation_state: "established",   blended_score: 80 },
+  authoritative: { reputation_state: "authoritative", blended_score: 95 },
 } as const
 
 /**
@@ -112,6 +113,30 @@ export const ECONOMIC_BOUNDARY_MODE: EconomicBoundaryMode = (() => {
   return "shadow"
 })()
 
+// --- Blended Score Weighting (Task 5.4: dynamic reputation foundation) ---
+
+/** Default weights for blended score computation: tier-dominant, behavioral supplementary. */
+export const DEFAULT_BLENDING_WEIGHTS = { alpha: 0.7, beta: 0.3 } as const
+
+/**
+ * Compute blended trust score from tier base and behavioral boost.
+ * Result is an integer in [0, 100]. Weights must sum to 1.0 (IEEE-754 epsilon tolerance).
+ */
+export function computeBlendedScore(
+  tierBase: number,
+  behavioralBoost: number,
+  weights?: { alpha: number; beta: number },
+): number {
+  const { alpha, beta } = weights ?? DEFAULT_BLENDING_WEIGHTS
+  if (Math.abs(alpha + beta - 1) >= 1e-9) {
+    throw new Error(
+      `[economic-boundary] Blending weights must sum to 1.0 (got ${alpha} + ${beta} = ${alpha + beta})`,
+    )
+  }
+  const raw = alpha * tierBase + beta * behavioralBoost
+  return Math.round(Math.min(100, Math.max(0, raw)))
+}
+
 // --- Circuit Breaker (Task 4.1: instance-per-middleware, not module singleton) ---
 
 export interface CircuitBreakerOptions {
@@ -132,6 +157,7 @@ export class CircuitBreaker {
   failureCount = 0
   lastFailure = 0
   open = false
+  private halfOpen = false
 
   readonly threshold: number
   readonly windowMs: number
@@ -146,10 +172,24 @@ export class CircuitBreaker {
   recordSuccess(): void {
     this.failureCount = 0
     this.open = false
+    this.halfOpen = false
   }
 
   recordFailure(): boolean {
     const now = Date.now()
+
+    // In half-open state, a single failure immediately re-opens the circuit
+    if (this.halfOpen) {
+      this.open = true
+      this.halfOpen = false
+      this.lastFailure = now
+      this.failureCount = this.threshold
+      console.error(
+        `[economic-boundary] Circuit RE-OPENED — failure during half-open probe`,
+      )
+      return true
+    }
+
     if (now - this.lastFailure > this.windowMs) {
       this.failureCount = 0
     }
@@ -171,6 +211,7 @@ export class CircuitBreaker {
     // Half-open: allow retry after cooldown
     if (Date.now() - this.lastFailure > this.resetMs) {
       this.open = false
+      this.halfOpen = true
       this.failureCount = 0
       return false
     }
@@ -181,6 +222,7 @@ export class CircuitBreaker {
     this.failureCount = 0
     this.lastFailure = 0
     this.open = false
+    this.halfOpen = false
   }
 }
 
@@ -203,10 +245,11 @@ export function resetCircuitBreaker(): void {
  *
  * Returns null on missing pool_id or unknown tier (fail-closed).
  */
-export function buildTrustSnapshot(
+export async function buildTrustSnapshot(
   claims: JWTClaims,
   peerFeatures?: PeerFeatures,
-): TrustLayerSnapshot | null {
+  opts?: { reputationProvider?: ReputationProvider },
+): Promise<TrustLayerSnapshot | null> {
   const tierMapping = TIER_TRUST_MAP[claims.tier]
   if (!tierMapping) {
     console.warn(`[economic-boundary] Unknown tier "${claims.tier}" — trust snapshot unavailable`)
@@ -220,6 +263,29 @@ export function buildTrustSnapshot(
       `[economic-boundary] Degraded trust mode: peerFeatures.economicBoundary=false ` +
       `(requires v7.7.0+). Using flat tier-based trust for tier="${claims.tier}"`,
     )
+  }
+
+  // Task 5.3: Dynamic reputation — try to upgrade enterprise → authoritative
+  if (opts?.reputationProvider && claims.tier === "enterprise") {
+    try {
+      const rejectAfter = (ms: number) =>
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("ReputationProvider timeout")), ms),
+        )
+      const result = await Promise.race([
+        opts.reputationProvider.getReputationBoost(claims.tenant_id),
+        rejectAfter(5),
+      ])
+      if (result && result.boost >= 15) {
+        return {
+          reputation_state: "authoritative",
+          blended_score: computeBlendedScore(tierMapping.blended_score, result.boost),
+          snapshot_at: new Date().toISOString(),
+        }
+      }
+    } catch (err) {
+      console.warn("[economic-boundary] ReputationProvider failed — using static mapping:", err)
+    }
   }
 
   return {
@@ -279,13 +345,14 @@ export function buildCapitalSnapshot(
  * Composes snapshots from JWT claims + budget, delegates to protocol.
  * NEVER throws — returns result or null on infrastructure failure.
  */
-export function evaluateBoundary(
+export async function evaluateBoundary(
   claims: JWTClaims,
   budget: BudgetSnapshot,
   peerFeatures?: PeerFeatures,
   criteria?: QualificationCriteria,
-): EconomicBoundaryEvaluationResult | null {
-  const trustSnapshot = buildTrustSnapshot(claims, peerFeatures)
+  opts?: { reputationProvider?: ReputationProvider },
+): Promise<EconomicBoundaryEvaluationResult | null> {
+  const trustSnapshot = await buildTrustSnapshot(claims, peerFeatures, opts)
   if (!trustSnapshot) return null
 
   const capitalSnapshot = buildCapitalSnapshot(budget)
@@ -331,6 +398,8 @@ export interface EconomicBoundaryMiddlewareOptions {
   mode?: EconomicBoundaryMode
   /** Circuit breaker configuration (default: 5 failures / 30s window / 60s reset). */
   circuitBreakerOptions?: CircuitBreakerOptions
+  /** Optional reputation provider for dynamic trust scoring (Task 5.3). */
+  reputationProvider?: ReputationProvider
 }
 
 /** Middleware handler with attached circuit breaker instance for testing. */
@@ -407,7 +476,7 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
       }
 
       // Evaluate boundary
-      const result = evaluateBoundary(claims, budget, opts.peerFeatures, opts.criteria)
+      const result = await evaluateBoundary(claims, budget, opts.peerFeatures, opts.criteria, { reputationProvider: opts.reputationProvider })
       const latencyMs = performance.now() - startMs
 
       if (!result) {

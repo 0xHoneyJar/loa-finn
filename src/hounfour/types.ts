@@ -267,6 +267,11 @@ export interface BudgetSnapshot {
   budget_period_end?: string
 }
 
+/** Provider for dynamic reputation scoring (Sprint 5, Task 5.3). */
+export interface ReputationProvider {
+  getReputationBoost(tenantId: string): Promise<{ boost: number; source: string } | null>
+}
+
 // --- Ledger Entry (16 fields per SDD §5.2) ---
 
 export interface LedgerEntry {
