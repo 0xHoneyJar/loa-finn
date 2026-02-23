@@ -5,8 +5,8 @@
 > **Cycle**: cycle-032
 > **PRD**: grimoires/loa/prd.md (v1.1.0 — GPT-5.2 APPROVED)
 > **SDD**: grimoires/loa/sdd.md (v1.0.0 — GPT-5.2 APPROVED + Flatline APPROVED)
-> **Total**: 19 tasks across 3 sprints
-> **Global Sprint IDs**: 126–128
+> **Total**: 30 tasks across 5 sprints
+> **Global Sprint IDs**: 126–130
 
 ---
 
@@ -17,8 +17,10 @@
 | Sprint 1 (global-126) | Bump + Clean + Vectors | 6 | Pin v7.9.2, remove patch, resolution audit, 202 conformance vectors |
 | Sprint 2 (global-127) | Type System + Vocabulary + Handshake | 7 | Strict parser, MicroUSDC migration, schemas, access policy, handshake |
 | Sprint 3 (global-128) | Decision Engine + Choreography | 6 | Economic boundary adapter, middleware, choreography tests, reality update |
+| Sprint 4 (global-129) | Economic Boundary Hardening | 6 | Instance circuit breaker, configurable period, type alignment, tenant hash |
+| Sprint 5 (global-130) | Test Depth + Dynamic Reputation | 5 | Half-open tests, interaction matrix, authoritative mapping, blended scoring |
 
-**Dependencies**: Sprint 1 must complete before Sprint 2 (dependency resolution required). Sprint 2 must complete before Sprint 3 (type imports and handshake features needed by economic boundary).
+**Dependencies**: Sprint 1 → Sprint 2 (dependency resolution required). Sprint 2 → Sprint 3 (type imports and handshake features needed by economic boundary). Sprint 3 → Sprint 4 (builds on economic boundary implementation). Sprint 3 → Sprint 5 (tests and extensions of economic boundary).
 
 **Risk gates**: Sprint 1 has an abort gate at Task 1.3 — if resolution audit fails, the sprint stops and we investigate export map changes before proceeding.
 
@@ -193,7 +195,7 @@
 | **FR** | FR-4 |
 | **Files** | `src/hounfour/economic-boundary.ts`, `src/server.ts` |
 | **Description** | Create `economicBoundaryMiddleware()` that runs UNCONDITIONALLY (local decision engine, not gated on peer features). Policy denials return 403. Infrastructure errors (snapshot unavailable, schema failure, exceptions) return 503 with `error_type: "infrastructure"`. Validate combined `{ trust, capital }` input against `EconomicBoundarySchema.safeParse()`. Entire middleware wrapped in try/catch. Implement `ECONOMIC_BOUNDARY_MODE` env var (enforce/shadow/bypass) for safe production rollout. Add observability: `economic_boundary_evaluations_total` counter, `economic_boundary_latency_ms` histogram, structured log on every evaluation. |
-| **Acceptance** | Middleware compiles and mounts. Policy denial -> 403 with denial_codes. Infra error -> 503 with error_type. Schema validation failure -> 503. Unhandled exception -> 503 (no provider call). `ECONOMIC_BOUNDARY_MODE=bypass` skips evaluation. `shadow` mode logs but allows — structured log includes `{ mode: "shadow", decision, denial_codes, trust_tier, latency_ms }` and divergence from local-only path is tracked with SLO threshold (>5% divergence rate triggers alert). Performance budget: p95 < 2ms, p99 < 5ms (pure computation, no I/O). Metrics emitting. Circuit breaker on snapshot failures: after 5 consecutive failures in 30s, circuit opens — bypass economic boundary (log at ERROR with `circuit: "open"`), allow requests through. Resets on next successful snapshot. Prevents budget-service outage from cascading to total invoke/oracle unavailability. |
+| **Acceptance** | Middleware compiles and mounts. Policy denial -> 403 with denial_codes. Infra error -> 503 with error_type. Schema validation failure -> 503. Unhandled exception -> 503 (no provider call). `ECONOMIC_BOUNDARY_MODE=bypass` skips evaluation. `shadow` mode logs but allows — structured log includes `{ mode: "shadow", decision, denial_codes, trust_tier, latency_ms }` and divergence from local-only path is tracked with SLO threshold (>5% divergence rate triggers alert). Performance budget: p95 < 2ms, p99 < 5ms (pure computation, no I/O). Metrics emitting. **Circuit breaker** on snapshot failures: after 5 consecutive failures in 30s, circuit opens. Behavior is **mode-aware**: `enforce` mode → 503 (fail-closed — authorization gate must not silently bypass); `shadow` mode → allow through (observability-only, no security impact). Resets on next successful snapshot after 60s cooldown (half-open). |
 | **Blocked by** | 3.1 |
 
 ### Task 3.3 — Choreography failure tests
@@ -270,4 +272,179 @@
 
 ---
 
-*19 tasks. 3 sprints. Pure adoption — no new infrastructure, no module reorganization. Every task extends existing, tested code.*
+---
+
+## Sprint 4: Economic Boundary Hardening (global-129)
+
+**Goal**: Address all HIGH and MEDIUM findings from [Bridgebuilder Deep Review (PR #102)](https://github.com/0xHoneyJar/loa-finn/pull/102#issuecomment-3947676926). Refactor circuit breaker to instance-per-middleware, make budget period configurable, align protocol types upstream, and hash tenant IDs in observability logs.
+
+**Exit criteria**: Circuit breaker is instance-scoped. Budget period accepted from BudgetSnapshot. `denial_codes` type gap documented as upstream issue. Tenant ID hashed in structured logs. All existing + new tests pass.
+
+**Source**: Bridgebuilder Review PR #102 — 2 HIGH, 2 MEDIUM findings.
+
+### Task 4.1 — Instance-level circuit breaker (HIGH)
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Bridgebuilder HIGH — Singleton circuit breaker in multi-route context |
+| **Files** | `src/hounfour/economic-boundary.ts` |
+| **Description** | Refactor the module-level `CIRCUIT_BREAKER` singleton into a `CircuitBreaker` class instantiated per `economicBoundaryMiddleware()` call. Each middleware instance owns its own circuit state (failureCount, lastFailure, open flag). The class exposes `recordSuccess()`, `recordFailure()`, `isOpen()`, `reset()` methods. The `resetCircuitBreaker()` test helper resets via the instance returned from middleware factory. Constructor accepts configurable `threshold`, `windowMs`, `resetMs` with current defaults. Export the class for direct testing. |
+| **Acceptance** | Two middleware instances have independent circuit state. Opening one circuit does not affect the other. Existing tests pass with updated `resetCircuitBreaker()` pattern. New test: open circuit on instance A, verify instance B still evaluates. Constructor params configurable. |
+| **Blocked by** | Sprint 3 complete |
+
+### Task 4.2 — Configurable budget period end (HIGH)
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Bridgebuilder HIGH — Budget period end hardcode blocks monetary pluralism |
+| **Files** | `src/hounfour/types.ts`, `src/hounfour/economic-boundary.ts`, `tests/finn/economic-boundary.test.ts` |
+| **Description** | Add optional `budget_period_end?: string` (ISO 8601) to `BudgetSnapshot` interface. In `buildCapitalSnapshot()`, use `budget.budget_period_end` when provided, fall back to current 30-day default only when absent. Log at DEBUG when using fallback. This opens the path for upstream providers (arrakis, DAOs) to supply their own budget cycles without loa-finn assuming monthly periods. |
+| **Acceptance** | `BudgetSnapshot` accepts optional `budget_period_end`. When provided, capital snapshot uses it verbatim. When absent, 30-day fallback used (existing behavior preserved). Test: custom period end flows through to `CapitalLayerSnapshot.budget_period_end`. Test: absent period end uses 30-day default. No breaking changes to existing callers. |
+| **Blocked by** | Sprint 3 complete |
+
+### Task 4.3 — Protocol type alignment for denial_codes (MEDIUM)
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Bridgebuilder MEDIUM — Type extension reveals protocol-consumer contract gap |
+| **Files** | `src/hounfour/economic-boundary.ts` |
+| **Description** | The local `EvaluationResultWithDenials` type extension is the correct tactical fix for the `denial_codes` gap. This task: (1) Add a code comment on the type extension explaining the gap and linking to the upstream issue. (2) File an issue on [loa-hounfour](https://github.com/0xHoneyJar/loa-hounfour) requesting `denial_codes` be added to the exported `EconomicBoundaryEvaluationResult` type, referencing this PR as evidence. (3) Add a `// TODO(loa-hounfour#XX): Remove when upstream type includes denial_codes` comment. |
+| **Acceptance** | Issue filed on loa-hounfour with reproduction context. Local type extension has upstream issue reference. TODO comment with issue number. |
+| **Blocked by** | Sprint 3 complete |
+
+### Task 4.4 — Tenant ID hashing in observability logs (MEDIUM)
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Bridgebuilder MEDIUM — Tenant ID logging in observability payload |
+| **Files** | `src/hounfour/economic-boundary.ts`, `tests/finn/economic-boundary.test.ts` |
+| **Description** | Replace raw `tenant_id` in structured log payloads with a hashed identifier using `createHash('sha256').update(tenant_id).digest('hex').slice(0, 16)` (truncated to 16 chars for log readability). This preserves correlation (same tenant always produces same hash) while preventing PII leakage to external log sinks (Datadog, Grafana Cloud). Import `createHash` from `node:crypto`. Keep raw `tenant_id` in 403 response bodies (those go to the authenticated tenant, not to logs). **Log capture strategy**: Tests use `vi.spyOn(console, 'warn')` and `vi.spyOn(console, 'log')` to capture structured log calls (existing pattern in economic-boundary.test.ts lines 294, 544, 576). The middleware already emits logs via `console.warn`/`console.log` with JSON.stringify payloads, so parsing the second argument of the spy call provides deterministic assertion on payload fields. |
+| **Acceptance** | Structured logs contain `tenant_hash` (16-char hex) instead of raw `tenant_id`. 403 response bodies still contain raw `tenant_id` for debugging. Same tenant always produces same hash (deterministic). Test (via `vi.spyOn(console, 'warn')`): parse JSON from log call, verify payload contains `tenant_hash` field and does NOT contain `tenant_id` field. Test: verify 403 response body still contains raw `tenant_id`. |
+| **Blocked by** | Sprint 3 complete |
+
+### Task 4.5 — Comprehensive test harness for Sprint 4 changes
+
+| Field | Value |
+|-------|-------|
+| **Finding** | All Sprint 4 findings |
+| **Files** | `tests/finn/economic-boundary.test.ts` |
+| **Description** | Add test sections for: (1) Instance circuit breaker isolation — two independent breakers, open one, verify other evaluates. (2) Configurable budget period — custom period flows through, absent uses default. (3) Tenant hash — structured log contains hash not raw ID, 403 contains raw ID. (4) Circuit breaker constructor params — custom threshold/window/reset. |
+| **Acceptance** | All new tests pass. All existing tests pass (no regressions). Tests cover both happy path and edge cases for each finding. |
+| **Blocked by** | 4.1, 4.2, 4.3, 4.4 |
+
+### Task 4.6 — Update code reality documentation
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Documentation maintenance |
+| **Files** | `grimoires/oracle/code-reality-hounfour.md` |
+| **Description** | Update the hounfour code reality to document: instance circuit breaker pattern, configurable budget period end, tenant ID hashing approach, and the denial_codes type gap (with upstream issue reference). |
+| **Acceptance** | Reality doc reflects Sprint 4 changes. No stale information. |
+| **Blocked by** | 4.5 |
+
+---
+
+## Sprint 5: Test Depth + Dynamic Reputation Foundation (global-130)
+
+**Goal**: Address all LOW and SPECULATION findings from [Bridgebuilder Deep Review (PR #102)](https://github.com/0xHoneyJar/loa-finn/pull/102#issuecomment-3947676926). Complete circuit breaker test coverage, add interaction matrix tests, and lay the foundation for dynamic reputation scoring with the "authoritative" tier mapping.
+
+**Exit criteria**: Half-open circuit breaker transition tested with time manipulation. Interaction matrix has cross-mode tests. `TIER_TRUST_MAP` includes "authoritative" mapping. Blended score weighting interface defined. All tests pass.
+
+**Source**: Bridgebuilder Review PR #102 — 2 LOW, 2 SPECULATION findings.
+
+### Task 5.1 — Half-open circuit breaker time-travel tests (LOW)
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Bridgebuilder LOW — Consider testing half-open circuit breaker transition |
+| **Files** | `tests/finn/economic-boundary.test.ts` |
+| **Description** | Add tests that manipulate `Date.now()` (via `vi.spyOn(Date, 'now')`) to verify the half-open transition. Scenarios: (1) Circuit opens after threshold failures. (2) Advance time past `RESET_MS` cooldown. (3) Next request attempts evaluation (half-open). (4a) If evaluation succeeds → circuit fully closes. (4b) If evaluation fails → circuit re-opens immediately (no gradual recovery). Also test: time advances to just *before* cooldown → circuit stays open. |
+| **Acceptance** | Time-travel test verifies half-open transition at exact cooldown boundary. Success in half-open → circuit closes. Failure in half-open → circuit re-opens. Off-by-one test at cooldown boundary (cooldown-1ms stays open, cooldown+1ms goes half-open). |
+| **Blocked by** | Sprint 4 complete (uses instance circuit breaker from 4.1) |
+
+### Task 5.2 — Interaction matrix cross-mode tests (LOW)
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Bridgebuilder LOW — Consider documenting the interaction matrix in tests |
+| **Files** | `tests/finn/economic-boundary.test.ts` |
+| **Description** | The interaction matrix (economic-boundary.ts:13-21) defines 9 cells for `ECONOMIC_BOUNDARY_MODE × ECONOMIC_BOUNDARY_ACCESS_POLICY_ENFORCEMENT`. Add a `describe("Interaction matrix")` block that tests the 4 most critical cells: (1) `shadow × observe` — both log, neither enforces. (2) `shadow × enforce` — AP enforces, EB logs. (3) `enforce × observe` — EB enforces, AP logs. (4) `enforce × enforce` — both enforce, EB denial takes precedence (returns 403 before AP evaluates). These tests require the access policy evaluation from Task 2.6 to be wired in. If not yet in enforce mode, test at the middleware level using mode overrides. |
+| **Acceptance** | 4 cross-mode interaction tests pass. Each test verifies the correct behavior per the documented matrix. Comments reference the matrix table in the source file. |
+| **Blocked by** | Sprint 4 complete, Task 2.6 (access policy wiring required for AP × EB cross-mode tests) |
+
+### Task 5.3 — "Authoritative" tier mapping + reputation interface (SPECULATION)
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Bridgebuilder SPECULATION — From static tiers to dynamic reputation |
+| **Files** | `src/hounfour/economic-boundary.ts`, `src/hounfour/types.ts`, `tests/finn/economic-boundary.test.ts` |
+| **Description** | Extend `TIER_TRUST_MAP` with an `authoritative` entry: `{ reputation_state: "authoritative", blended_score: 95 }`. This is the tier that money cannot buy — it requires behavioral evidence beyond subscription level. Define a `ReputationProvider` interface: `{ getReputationBoost(tenantId: string): Promise<{ boost: number; source: string } | null> }`. In `buildTrustSnapshot()`, accept an optional `reputationProvider` parameter. When provided and tenant tier is "enterprise", query for a reputation boost using `Promise.race([provider.getReputationBoost(tenantId), rejectAfter(5)])` where `rejectAfter(ms)` creates a timeout via `setTimeout`. 5ms timeout chosen to stay within the 2ms p95 evaluation budget (snapshot build is one of several steps). If boost exists and meets threshold (e.g., boost >= 15), upgrade reputation_state to "authoritative" and add boost to blended_score. When provider is absent, returns null, throws, or times out — use static mapping (existing behavior preserved, fail-closed). |
+| **Acceptance** | `TIER_TRUST_MAP.authoritative` exists and passes boot-time validation. `ReputationProvider` interface exported from types.ts. `buildTrustSnapshot()` accepts optional provider. Without provider: existing behavior unchanged (all tests pass). With provider returning boost >= 15 for enterprise tenant: reputation upgrades to "authoritative". With provider returning null: static mapping used. With provider throwing: static mapping used (fail-closed, logged at WARN). With provider exceeding 5ms timeout (tested via `vi.useFakeTimers()`): static mapping used (fail-closed, logged at WARN). |
+| **Blocked by** | Sprint 4 complete |
+
+### Task 5.4 — Blended score weighting foundation (SPECULATION)
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Bridgebuilder SPECULATION — blended_score = α × tier_base + β × behavioral_score |
+| **Files** | `src/hounfour/economic-boundary.ts`, `tests/finn/economic-boundary.test.ts` |
+| **Description** | Create `computeBlendedScore(tierBase: number, behavioralBoost: number, weights?: { alpha: number; beta: number }): number`. Default weights: `{ alpha: 0.7, beta: 0.3 }` (tier-dominant, behavioral supplementary). Score clamped to `[0, 100]`. When `ReputationProvider` returns a boost, `buildTrustSnapshot()` uses `computeBlendedScore(tierMapping.blended_score, boost)` instead of raw `tierMapping.blended_score`. Export weights as `DEFAULT_BLENDING_WEIGHTS` for documentation and override. This is the foundation for dynamic reputation scoring — the weights can be tuned per-community as governance evolves. |
+| **Acceptance** | `computeBlendedScore(50, 30)` → `Math.round(0.7*50 + 0.3*30)` = 44 (integer). Score clamped: `computeBlendedScore(90, 100)` ≤ 100. Custom weights: `computeBlendedScore(50, 30, {alpha: 0.5, beta: 0.5})` → 40. **Epsilon weight validation**: `Math.abs(alpha + beta - 1) < 1e-9` (throw if violated — handles IEEE-754 non-terminating decimals like 0.1+0.2). All score assertions use `toBeCloseTo(expected, 0)` (integer precision), not exact equality. Final score always `Math.round()` to integer, clamped [0, 100]. Integration test: enterprise tenant with behavioral boost → blended score > static score. |
+| **Blocked by** | 5.3 |
+
+### Task 5.5 — Update documentation and code reality
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Documentation + REFRAME |
+| **Files** | `grimoires/oracle/code-reality-hounfour.md` |
+| **Description** | Update code reality to document: (1) `ReputationProvider` interface and its role in the trust snapshot pipeline. (2) `computeBlendedScore()` and the weighting model. (3) The "authoritative" tier and what it represents (earned through behavior, not purchased). (4) The interaction matrix with all 9 cells documented. (5) The circuit breaker half-open transition behavior. Reference the REFRAME from Bridgebuilder: "This isn't convergence — it's fluency." |
+| **Acceptance** | Reality doc covers all Sprint 5 additions. ReputationProvider documented with usage examples. Blending weights explained. Authoritative tier described as behavioral, not transactional. |
+| **Blocked by** | 5.4 |
+
+---
+
+## Risk Matrix (Updated)
+
+| # | Risk | Sprint | Mitigation |
+|---|------|--------|------------|
+| R1 | v7.9.2 export-map changes break imports | 1 | Task 1.3 abort gate — stop if resolution fails |
+| R2 | Vector count != 202 | 1 | Self-verifying loader with hard count assertion |
+| R3 | MicroUSDC brand symbol mismatch -> TS errors | 2 | Centralized re-export + compile-time brand verification |
+| R4 | Economic boundary adds latency | 3 | Pure computation (<1ms); benchmark in acceptance test |
+| R5 | Handshake feature detection edge cases | 2 | 5 simulated peer versions + malformed/prerelease tests |
+| R6 | Negative values leak to strict boundary | 2 | Property test + nominal StrictMicroUSD branding |
+| R7 | Shadow access policy diverges from tier checks | 2 | Asymmetric mode: protocol-deny overrides local-allow |
+| R8 | Instance circuit breaker increases memory per route | 4 | Negligible — 5 primitives per instance (<100 bytes) |
+| R9 | Tenant hash collision at 16 chars | 4 | 16 hex chars = 64-bit space, sufficient for operational correlation |
+| R10 | ReputationProvider latency in trust snapshot | 5 | Fail-closed with timeout; provider failure uses static mapping |
+| R11 | Blending weights misconfigured (α + β ≠ 1.0) | 5 | Epsilon validation (`Math.abs(α+β-1) < 1e-9`) throws on mismatch; final score `Math.round()` to integer eliminates float drift |
+
+---
+
+## Success Criteria (All Sprints)
+
+- [ ] `pnpm install` clean — no postinstall patching
+- [ ] ~1,105+ existing tests pass (zero regressions)
+- [ ] 202/202 conformance vectors pass
+- [ ] No `as unknown as` casts at protocol boundaries
+- [ ] `StrictMicroUSD` nominally branded (compile-time verification)
+- [ ] `MicroUSDC` migrated to single protocol source of truth
+- [ ] `EFFECTIVE_JTI_POLICY` uses `Math.max` (larger replay window = stricter)
+- [ ] Economic boundary middleware active on invoke + oracle routes
+- [ ] 4 choreography failure scenarios tested
+- [ ] Feature detection works for 5 peer versions + edge cases
+- [ ] Access policy in asymmetric shadow mode
+- [ ] Runtime kill-switch (`ECONOMIC_BOUNDARY_MODE`) operational
+- [ ] Observability metrics emitting
+- [ ] Circuit breaker is instance-scoped (no shared state between routes)
+- [ ] Budget period end configurable from upstream provider
+- [ ] Tenant ID hashed in structured logs (PII protection)
+- [ ] Half-open circuit breaker transition tested with time manipulation
+- [ ] Interaction matrix cross-mode behavior verified
+- [ ] "Authoritative" reputation state mapped and reachable via behavioral evidence
+- [ ] Blended score weighting foundation with configurable α/β weights
+
+---
+
+*30 tasks. 5 sprints. Sprints 1-3: pure protocol adoption. Sprint 4: hardening from Bridgebuilder HIGH/MEDIUM findings. Sprint 5: test depth and dynamic reputation foundation from LOW/SPECULATION findings.*

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "bridge_id": "bridge-20260224-cycle032",
-  "state": "ITERATING",
+  "bridge_id": "bridge-20260224-cycle032-iter2",
+  "state": "JACKED_OUT",
   "config": {
     "depth": 3,
     "mode": "full",
@@ -11,25 +11,48 @@
     "repo": "0xHoneyJar/loa-finn"
   },
   "timestamps": {
-    "started": "2026-02-24T10:00:00Z",
-    "last_activity": "2026-02-24T10:00:00Z"
+    "started": "2026-02-24T14:00:00Z",
+    "last_activity": "2026-02-24T10:15:00Z"
   },
-  "iterations": [],
+  "iterations": [
+    {
+      "iteration": 1,
+      "sprints_executed": ["sprint-4", "sprint-5"],
+      "global_ids": [129, 130],
+      "findings_addressed": 8,
+      "findings_remaining": 0,
+      "commits": [
+        "feat(sprint-129): Economic Boundary Hardening",
+        "feat(sprint-130): Test Depth + Dynamic Reputation Foundation"
+      ],
+      "gpt_review": {
+        "sprint_4": "APPROVED (iteration 2)",
+        "sprint_5": "SKIPPED (API unavailable — curl exit 56)"
+      },
+      "tests": {
+        "total": 77,
+        "passed": 77,
+        "failed": 0
+      }
+    }
+  ],
   "flatline": {
-    "initial_score": null,
-    "last_score": null,
-    "consecutive_below_threshold": 0
+    "detected": true,
+    "reason": "All 8 Bridgebuilder findings addressed (2 HIGH, 2 MEDIUM, 2 LOW, 2 SPECULATION). No new findings generated. Kaironic termination.",
+    "initial_score": 8,
+    "last_score": 0,
+    "consecutive_below_threshold": 1
   },
   "metrics": {
-    "total_sprints_executed": 0,
-    "total_files_changed": 0,
-    "total_findings_addressed": 0,
+    "total_sprints_executed": 2,
+    "total_files_changed": 7,
+    "total_findings_addressed": 8,
     "total_visions_captured": 0
   },
   "finalization": {
-    "ground_truth_updated": false,
-    "rtfm_passed": false,
-    "pr_url": null,
+    "ground_truth_updated": true,
+    "rtfm_passed": true,
+    "pr_url": "https://github.com/0xHoneyJar/loa-finn/pull/102",
     "butterfreezone_generated": false
   }
 }
