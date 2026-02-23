@@ -426,17 +426,13 @@ describe("Economic Boundary — Middleware", () => {
   // --- Circuit Breaker ---
 
   describe("Circuit breaker", () => {
-    it("opens after 5 consecutive snapshot failures", async () => {
+    it("returns 503 when circuit open in enforce mode (fail-closed)", async () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
-      let callCount = 0
 
       const app = createTestApp({
         mode: "enforce",
-        getBudgetSnapshot: async () => {
-          callCount++
-          return null // Simulate failure
-        },
+        getBudgetSnapshot: async () => null,
       })
 
       // Fire 5 requests to open circuit
@@ -444,13 +440,38 @@ describe("Economic Boundary — Middleware", () => {
         await app.request("/api/v1/invoke", { method: "POST" })
       }
 
-      // 6th request should bypass (circuit open)
+      // 6th request should get 503 (circuit open + enforce = fail-closed)
       const res = await app.request("/api/v1/invoke", { method: "POST" })
 
-      expect(res.status).toBe(200) // Bypassed → reached endpoint
+      expect(res.status).toBe(503)
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("Circuit open"),
       )
+
+      errorSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+
+    it("bypasses when circuit open in shadow mode (fail-open)", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+      const app = createTestApp({
+        mode: "shadow",
+        getBudgetSnapshot: async () => null,
+      })
+
+      // Fire 5 requests to open circuit
+      for (let i = 0; i < 5; i++) {
+        await app.request("/api/v1/invoke", { method: "POST" })
+      }
+
+      // 6th request should pass through (circuit open + shadow = allow)
+      const res = await app.request("/api/v1/invoke", { method: "POST" })
+
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.reached).toBe(true)
 
       errorSpy.mockRestore()
       warnSpy.mockRestore()

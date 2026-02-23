@@ -284,9 +284,14 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
       return next()
     }
 
-    // Circuit breaker — if open, bypass to prevent cascade
+    // Circuit breaker — if open, degrade gracefully per mode.
+    // Enforce: 503 (fail-closed — don't silently bypass authorization gate).
+    // Shadow: allow through (observability-only, no security impact).
     if (isCircuitOpen()) {
       console.warn("[economic-boundary] Circuit open — bypassing evaluation")
+      if (mode === "enforce") {
+        return c.json({ error: "Service Unavailable", error_type: "infrastructure" }, 503)
+      }
       return next()
     }
 

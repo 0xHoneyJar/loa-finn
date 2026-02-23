@@ -197,9 +197,12 @@ export function createApp(config: FinnConfig, options: AppOptions) {
   // Runs UNCONDITIONALLY (local decision engine, not gated on peer features).
   // Mode controlled by ECONOMIC_BOUNDARY_MODE env var (default: "shadow").
   app.use("/api/v1/invoke", economicBoundaryMiddleware({
-    getBudgetSnapshot: async () => {
-      // Budget snapshot from hounfour router (same source as billing reserve).
-      // HounfourRouter.budgetSnapshot() is scope-bound at construction time.
+    getBudgetSnapshot: async (_tenantId: string) => {
+      // SAFETY: HounfourRouter.budgetSnapshot() is scope-bound at construction
+      // time (single-tenant-per-instance model). The tenantId parameter is
+      // accepted for interface compliance but not used for lookup — the router's
+      // scopeMeta already isolates to the correct tenant's budget. If loa-finn
+      // moves to multi-tenant-per-instance, this must use tenant-keyed lookup.
       if (!options.hounfour) return null
       try {
         return options.hounfour.budgetSnapshot()
