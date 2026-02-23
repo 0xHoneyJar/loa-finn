@@ -226,7 +226,10 @@ Known denial codes: `TRUST_SCORE_BELOW_THRESHOLD`, `TRUST_STATE_BELOW_THRESHOLD`
   - `pro` → `{warming, 50}`
   - `enterprise` → `{established, 80}`
 - **ECONOMIC_BOUNDARY_MODE** env var: `enforce` | `shadow` | `bypass` (default: `shadow`)
-- **Circuit breaker**: 5 consecutive failures in 30s → open (bypass), 60s cooldown
+- **Circuit breaker** (Sprint 4, Task 4.1): `CircuitBreaker` class instantiated per-middleware (Hystrix bulkheading). Configurable `threshold`/`windowMs`/`resetMs`. Default: 5 failures/30s → open, 60s cooldown → half-open. Mode-aware: enforce → 503 (fail-closed), shadow → allow through.
+- **Budget period** (Sprint 4, Task 4.2): `BudgetSnapshot.budget_period_end?` (ISO 8601). When provided, used verbatim in capital snapshot. When absent, 30-day default.
+- **Tenant ID hashing** (Sprint 4, Task 4.4): `hashTenantId()` — SHA-256 truncated to 16 hex chars. Used in structured logs for PII protection. Raw `tenant_id` preserved in 403 response bodies (goes to authenticated tenant).
+- **denial_codes type gap** (Sprint 4, Task 4.3): Local `EvaluationResultWithDenials` extends protocol type. Upstream issue: [loa-hounfour#35](https://github.com/0xHoneyJar/loa-hounfour/issues/35).
 - **Graceful degradation**: Pre-v7.7 peers use flat tier-based trust only
 
 ---

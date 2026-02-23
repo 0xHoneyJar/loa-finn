@@ -7,8 +7,10 @@
 //   (4) Successful full lifecycle → all 6 steps execute (integration)
 //
 // Plus infrastructure error paths: snapshot failure → 503, schema → 503, exception → 503.
-// Plus circuit breaker behavior.
+// Plus circuit breaker behavior (Task 4.1: instance-per-middleware).
 // Plus graceful degradation for pre-v7.7 peers.
+// Plus tenant ID hashing in logs (Task 4.4).
+// Plus configurable budget period end (Task 4.2).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import {
@@ -21,8 +23,11 @@ import {
   validateTierTrustMap,
   resetCircuitBreaker,
   ECONOMIC_BOUNDARY_MODE,
+  CircuitBreaker,
+  hashTenantId,
   type EconomicBoundaryMode,
   type EconomicBoundaryMiddlewareOptions,
+  type EconomicBoundaryHandler,
 } from "../../src/hounfour/economic-boundary.js"
 import type { JWTClaims } from "../../src/hounfour/jwt-auth.js"
 import type { BudgetSnapshot } from "../../src/hounfour/types.js"
@@ -402,7 +407,8 @@ describe("Economic Boundary — Middleware", () => {
       expect(res.status).toBe(503)
     })
 
-    it("returns 503 when tenantContext is missing (middleware ordering error)", async () => {
+    it("returns 503 when tenantContext is missing in enforce mode", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
       const app = new Hono()
       // Intentionally skip setting tenantContext
       app.use("*", economicBoundaryMiddleware({
@@ -414,6 +420,25 @@ describe("Economic Boundary — Middleware", () => {
       const res = await app.request("/api/v1/invoke", { method: "POST" })
 
       expect(res.status).toBe(503)
+      errorSpy.mockRestore()
+    })
+
+    it("allows through when tenantContext is missing in shadow mode (fail-open)", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const app = new Hono()
+      // Intentionally skip setting tenantContext
+      app.use("*", economicBoundaryMiddleware({
+        mode: "shadow",
+        getBudgetSnapshot: async () => makeBudget(),
+      }))
+      app.post("/api/v1/invoke", (c) => c.json({ reached: true }))
+
+      const res = await app.request("/api/v1/invoke", { method: "POST" })
+
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.reached).toBe(true)
+      errorSpy.mockRestore()
     })
   })
 
@@ -591,5 +616,258 @@ describe("Economic Boundary — Observability", () => {
     expect(logPayload.decision).toBe("granted")
 
     logSpy.mockRestore()
+  })
+})
+
+// =============================================================================
+// Sprint 4 Tests (global-129): Economic Boundary Hardening
+// =============================================================================
+
+describe("Sprint 4 — Instance Circuit Breaker (Task 4.1)", () => {
+  it("CircuitBreaker class uses default config", () => {
+    const cb = new CircuitBreaker()
+    expect(cb.threshold).toBe(5)
+    expect(cb.windowMs).toBe(30_000)
+    expect(cb.resetMs).toBe(60_000)
+    expect(cb.isOpen()).toBe(false)
+  })
+
+  it("CircuitBreaker accepts custom configuration", () => {
+    const cb = new CircuitBreaker({ threshold: 3, windowMs: 10_000, resetMs: 20_000 })
+    expect(cb.threshold).toBe(3)
+    expect(cb.windowMs).toBe(10_000)
+    expect(cb.resetMs).toBe(20_000)
+  })
+
+  it("opens after threshold failures", () => {
+    const cb = new CircuitBreaker({ threshold: 3 })
+    cb.recordFailure()
+    cb.recordFailure()
+    expect(cb.isOpen()).toBe(false)
+    cb.recordFailure() // 3rd = threshold
+    expect(cb.isOpen()).toBe(true)
+  })
+
+  it("resets failure count on success", () => {
+    const cb = new CircuitBreaker({ threshold: 3 })
+    cb.recordFailure()
+    cb.recordFailure()
+    cb.recordSuccess()
+    expect(cb.failureCount).toBe(0)
+    expect(cb.isOpen()).toBe(false)
+  })
+
+  it("reset() clears all state", () => {
+    const cb = new CircuitBreaker({ threshold: 2 })
+    cb.recordFailure()
+    cb.recordFailure()
+    expect(cb.isOpen()).toBe(true)
+    cb.reset()
+    expect(cb.isOpen()).toBe(false)
+    expect(cb.failureCount).toBe(0)
+    expect(cb.lastFailure).toBe(0)
+  })
+
+  it("two middleware instances have independent circuit state", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    // Instance A — will be opened
+    const handlerA = economicBoundaryMiddleware({
+      mode: "enforce",
+      getBudgetSnapshot: async () => null, // always fails
+    })
+
+    // Instance B — healthy
+    const handlerB = economicBoundaryMiddleware({
+      mode: "enforce",
+      getBudgetSnapshot: async () => makeBudget(),
+    })
+
+    const appA = new Hono()
+    appA.use("*", async (c, next) => {
+      c.set("tenantContext", { claims: makeClaims() })
+      return next()
+    })
+    appA.use("*", handlerA)
+    appA.post("/api/v1/invoke", (c) => c.json({ reached: true }))
+
+    const appB = new Hono()
+    appB.use("*", async (c, next) => {
+      c.set("tenantContext", { claims: makeClaims() })
+      return next()
+    })
+    appB.use("*", handlerB)
+    appB.post("/api/v1/invoke", (c) => c.json({ reached: true }))
+
+    // Open circuit A with 5 failures
+    for (let i = 0; i < 5; i++) {
+      await appA.request("/api/v1/invoke", { method: "POST" })
+    }
+
+    // Verify A is open
+    expect(handlerA.circuitBreaker.isOpen()).toBe(true)
+
+    // Verify B still evaluates (independent circuit)
+    expect(handlerB.circuitBreaker.isOpen()).toBe(false)
+    const resB = await appB.request("/api/v1/invoke", { method: "POST" })
+    expect(resB.status).toBe(200)
+
+    errorSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
+  it("middleware exposes circuitBreaker instance", () => {
+    const handler = economicBoundaryMiddleware({
+      getBudgetSnapshot: async () => makeBudget(),
+    })
+    expect(handler.circuitBreaker).toBeInstanceOf(CircuitBreaker)
+  })
+
+  it("accepts custom circuitBreakerOptions via middleware", () => {
+    const handler = economicBoundaryMiddleware({
+      getBudgetSnapshot: async () => makeBudget(),
+      circuitBreakerOptions: { threshold: 10, windowMs: 5_000, resetMs: 120_000 },
+    })
+    expect(handler.circuitBreaker.threshold).toBe(10)
+    expect(handler.circuitBreaker.windowMs).toBe(5_000)
+    expect(handler.circuitBreaker.resetMs).toBe(120_000)
+  })
+})
+
+describe("Sprint 4 — Configurable Budget Period End (Task 4.2)", () => {
+  it("uses provided budget_period_end when present", () => {
+    const customEnd = "2026-06-30T23:59:59Z"
+    const budget = makeBudget({ budget_period_end: customEnd })
+    const snap = buildCapitalSnapshot(budget)
+
+    expect(snap).not.toBeNull()
+    expect(snap!.budget_period_end).toBe(customEnd)
+  })
+
+  it("falls back to 30-day default when budget_period_end absent", () => {
+    const budget = makeBudget() // no budget_period_end
+    const now = Date.now()
+    const snap = buildCapitalSnapshot(budget)
+
+    expect(snap).not.toBeNull()
+    // Should be ~30 days from now
+    const periodEnd = new Date(snap!.budget_period_end).getTime()
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000
+    expect(periodEnd).toBeGreaterThan(now + thirtyDaysMs - 5000)
+    expect(periodEnd).toBeLessThan(now + thirtyDaysMs + 5000)
+  })
+
+  it("preserves existing callers without budget_period_end (no breaking changes)", () => {
+    // Old-style budget without the new field
+    const budget: BudgetSnapshot = {
+      scope: "monthly",
+      spent_usd: 10,
+      limit_usd: 100,
+      percent_used: 10,
+      warning: false,
+      exceeded: false,
+    }
+    const snap = buildCapitalSnapshot(budget)
+
+    expect(snap).not.toBeNull()
+    expect(snap!.budget_remaining).toBe("90000000")
+    expect(snap!.budget_period_end).toBeDefined()
+  })
+})
+
+describe("Sprint 4 — Tenant ID Hashing (Task 4.4)", () => {
+  it("hashTenantId produces 16-char hex string", () => {
+    const hash = hashTenantId("community:thj")
+    expect(hash).toHaveLength(16)
+    expect(hash).toMatch(/^[0-9a-f]{16}$/)
+  })
+
+  it("same tenant always produces same hash (deterministic)", () => {
+    const hash1 = hashTenantId("community:thj")
+    const hash2 = hashTenantId("community:thj")
+    expect(hash1).toBe(hash2)
+  })
+
+  it("different tenants produce different hashes", () => {
+    const hash1 = hashTenantId("community:thj")
+    const hash2 = hashTenantId("community:other")
+    expect(hash1).not.toBe(hash2)
+  })
+
+  it("structured denial log contains tenant_hash, not tenant_id", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const app = createTestApp({
+      mode: "shadow",
+      claims: makeClaims({ tier: "free" as JWTClaims["tier"], tenant_id: "community:thj" }),
+      getBudgetSnapshot: async () => makeBudget(),
+      criteria: {
+        min_trust_score: 50,
+        min_reputation_state: "warming" as const,
+        min_available_budget: "0",
+      },
+    })
+
+    await app.request("/api/v1/invoke", { method: "POST" })
+
+    const logCalls = warnSpy.mock.calls.filter(
+      (call) => typeof call[0] === "string" && call[0].includes("economic-boundary") && call[0].includes("evaluation"),
+    )
+    expect(logCalls.length).toBeGreaterThan(0)
+
+    const logPayload = JSON.parse(logCalls[0][1] as string)
+    // Must have tenant_hash
+    expect(logPayload.tenant_hash).toBeDefined()
+    expect(logPayload.tenant_hash).toHaveLength(16)
+    expect(logPayload.tenant_hash).toBe(hashTenantId("community:thj"))
+    // Must NOT have raw tenant_id
+    expect(logPayload.tenant_id).toBeUndefined()
+
+    warnSpy.mockRestore()
+  })
+
+  it("structured grant log contains tenant_hash, not tenant_id", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
+    const app = createTestApp({
+      mode: "shadow",
+      claims: makeClaims({ tier: "pro" as JWTClaims["tier"], tenant_id: "community:thj" }),
+      getBudgetSnapshot: async () => makeBudget(),
+    })
+
+    await app.request("/api/v1/invoke", { method: "POST" })
+
+    const logCalls = logSpy.mock.calls.filter(
+      (call) => typeof call[0] === "string" && call[0].includes("economic-boundary") && call[0].includes("evaluation"),
+    )
+    expect(logCalls.length).toBeGreaterThan(0)
+
+    const logPayload = JSON.parse(logCalls[0][1] as string)
+    expect(logPayload.tenant_hash).toBeDefined()
+    expect(logPayload.tenant_id).toBeUndefined()
+
+    logSpy.mockRestore()
+  })
+
+  it("403 response body contains raw tenant_id for debugging", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const app = createTestApp({
+      mode: "enforce",
+      claims: makeClaims({ tier: "free" as JWTClaims["tier"], tenant_id: "community:thj" }),
+      getBudgetSnapshot: async () => makeBudget(),
+      criteria: {
+        min_trust_score: 50,
+        min_reputation_state: "warming" as const,
+        min_available_budget: "0",
+      },
+    })
+
+    const res = await app.request("/api/v1/invoke", { method: "POST" })
+
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    // 403 response goes to the authenticated tenant — raw ID is safe
+    expect(body.tenant_id).toBe("community:thj")
+
+    warnSpy.mockRestore()
   })
 })

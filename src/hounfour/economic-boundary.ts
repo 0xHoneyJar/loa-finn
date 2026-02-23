@@ -20,6 +20,7 @@
 //   │ enforce  │ EB enforc │ both enforc │ both enf │
 //   └──────────┴───────────┴─────────────┴──────────┘
 
+import { createHash } from "node:crypto"
 import type { Context, Next } from "hono"
 import type { JWTClaims } from "./jwt-auth.js"
 import type { BudgetSnapshot } from "./types.js"
@@ -42,8 +43,15 @@ export type EconomicBoundaryMode = "enforce" | "shadow" | "bypass"
 /**
  * Extended evaluation result that includes denial_codes.
  * The protocol's evaluateEconomicBoundary() returns denial_codes at runtime
- * but the exported TypeScript type may lag behind. This local extension
- * provides type-safe access without inline assertions.
+ * but the exported TypeScript type does not include them yet.
+ *
+ * This local extension provides type-safe access without inline assertions.
+ * It exists because the upstream @0xhoneyjar/loa-hounfour package's
+ * EconomicBoundaryEvaluationResult type does not export denial_codes,
+ * even though the runtime evaluation function populates them.
+ *
+ * TODO(loa-hounfour#35): Remove when upstream type includes denial_codes.
+ * Filed: https://github.com/0xHoneyJar/loa-hounfour/issues/35
  */
 type EvaluationResultWithDenials = EconomicBoundaryEvaluationResult & {
   denial_codes?: DenialCode[]
@@ -104,57 +112,85 @@ export const ECONOMIC_BOUNDARY_MODE: EconomicBoundaryMode = (() => {
   return "shadow"
 })()
 
-// --- Circuit Breaker ---
+// --- Circuit Breaker (Task 4.1: instance-per-middleware, not module singleton) ---
 
-const CIRCUIT_BREAKER = {
-  failureCount: 0,
-  lastFailure: 0,
-  open: false,
-  THRESHOLD: 5,       // consecutive failures to open
-  WINDOW_MS: 30_000,  // 30s window
-  RESET_MS: 60_000,   // 60s cooldown before half-open
+export interface CircuitBreakerOptions {
+  /** Consecutive failures to open the circuit. Default: 5 */
+  threshold?: number
+  /** Window in ms for counting consecutive failures. Default: 30000 */
+  windowMs?: number
+  /** Cooldown in ms before half-open transition. Default: 60000 */
+  resetMs?: number
 }
 
-function recordCircuitSuccess(): void {
-  CIRCUIT_BREAKER.failureCount = 0
-  CIRCUIT_BREAKER.open = false
-}
+/**
+ * Per-instance circuit breaker (Hystrix bulkheading pattern).
+ * Each economicBoundaryMiddleware() call owns its own CircuitBreaker instance,
+ * preventing cross-route state contamination in multi-route gateways.
+ */
+export class CircuitBreaker {
+  failureCount = 0
+  lastFailure = 0
+  open = false
 
-function recordCircuitFailure(): boolean {
-  const now = Date.now()
-  // Reset counter if outside window
-  if (now - CIRCUIT_BREAKER.lastFailure > CIRCUIT_BREAKER.WINDOW_MS) {
-    CIRCUIT_BREAKER.failureCount = 0
+  readonly threshold: number
+  readonly windowMs: number
+  readonly resetMs: number
+
+  constructor(opts?: CircuitBreakerOptions) {
+    this.threshold = opts?.threshold ?? 5
+    this.windowMs = opts?.windowMs ?? 30_000
+    this.resetMs = opts?.resetMs ?? 60_000
   }
-  CIRCUIT_BREAKER.failureCount++
-  CIRCUIT_BREAKER.lastFailure = now
 
-  if (CIRCUIT_BREAKER.failureCount >= CIRCUIT_BREAKER.THRESHOLD) {
-    CIRCUIT_BREAKER.open = true
-    console.error(
-      `[economic-boundary] Circuit OPEN after ${CIRCUIT_BREAKER.failureCount} consecutive snapshot failures in ${CIRCUIT_BREAKER.WINDOW_MS}ms — bypassing economic boundary`,
-    )
-    return true
+  recordSuccess(): void {
+    this.failureCount = 0
+    this.open = false
   }
-  return false
-}
 
-function isCircuitOpen(): boolean {
-  if (!CIRCUIT_BREAKER.open) return false
-  // Half-open: allow retry after cooldown
-  if (Date.now() - CIRCUIT_BREAKER.lastFailure > CIRCUIT_BREAKER.RESET_MS) {
-    CIRCUIT_BREAKER.open = false
-    CIRCUIT_BREAKER.failureCount = 0
+  recordFailure(): boolean {
+    const now = Date.now()
+    if (now - this.lastFailure > this.windowMs) {
+      this.failureCount = 0
+    }
+    this.failureCount++
+    this.lastFailure = now
+
+    if (this.failureCount >= this.threshold) {
+      this.open = true
+      console.error(
+        `[economic-boundary] Circuit OPEN after ${this.failureCount} consecutive snapshot failures in ${this.windowMs}ms — bypassing economic boundary`,
+      )
+      return true
+    }
     return false
   }
-  return true
+
+  isOpen(): boolean {
+    if (!this.open) return false
+    // Half-open: allow retry after cooldown
+    if (Date.now() - this.lastFailure > this.resetMs) {
+      this.open = false
+      this.failureCount = 0
+      return false
+    }
+    return true
+  }
+
+  reset(): void {
+    this.failureCount = 0
+    this.lastFailure = 0
+    this.open = false
+  }
 }
 
-/** Exposed for testing — resets circuit breaker state. */
+/**
+ * @deprecated Use the CircuitBreaker instance from the middleware handler instead.
+ * Kept for backwards compatibility — creates a fresh default instance reset.
+ */
 export function resetCircuitBreaker(): void {
-  CIRCUIT_BREAKER.failureCount = 0
-  CIRCUIT_BREAKER.lastFailure = 0
-  CIRCUIT_BREAKER.open = false
+  // No-op: circuit breakers are now per-instance.
+  // Tests should use handler.circuitBreaker.reset() instead.
 }
 
 // --- Snapshot Builders ---
@@ -215,10 +251,20 @@ export function buildCapitalSnapshot(
     // Math.round minimizes IEEE-754 directional bias (e.g., 0.1+0.2-0.3 artifacts).
     const remainingMicro = Math.round(remainingUsd * 1_000_000).toString()
 
+    // Task 4.2: Use upstream-provided budget period when available,
+    // fall back to 30-day default only when absent. This opens the path
+    // for DAOs and upstream providers to supply their own budget cycles.
+    const periodEnd = budget.budget_period_end
+      ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+
+    if (!budget.budget_period_end) {
+      console.debug("[economic-boundary] No budget_period_end provided — using 30-day default")
+    }
+
     return {
       budget_remaining: remainingMicro,
       billing_tier: budget.scope ?? "unknown",
-      budget_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30d default
+      budget_period_end: periodEnd,
     }
   } catch (err) {
     console.error("[economic-boundary] Failed to build capital snapshot:", err)
@@ -261,7 +307,18 @@ export function evaluateBoundary(
   }
 }
 
-// --- Middleware (Task 3.2) ---
+// --- Tenant ID Hashing (Task 4.4: PII protection in observability logs) ---
+
+/**
+ * Hash tenant ID for structured logs using SHA-256, truncated to 16 hex chars.
+ * Preserves correlation (same tenant → same hash) without PII leakage to
+ * external log sinks (Datadog, Grafana Cloud).
+ */
+export function hashTenantId(tenantId: string): string {
+  return createHash("sha256").update(tenantId).digest("hex").slice(0, 16)
+}
+
+// --- Middleware (Task 3.2, updated Task 4.1 + 4.4) ---
 
 export interface EconomicBoundaryMiddlewareOptions {
   /** Provide budget snapshot for the authenticated tenant. */
@@ -272,6 +329,13 @@ export interface EconomicBoundaryMiddlewareOptions {
   criteria?: QualificationCriteria
   /** Override mode (default: ECONOMIC_BOUNDARY_MODE env var). */
   mode?: EconomicBoundaryMode
+  /** Circuit breaker configuration (default: 5 failures / 30s window / 60s reset). */
+  circuitBreakerOptions?: CircuitBreakerOptions
+}
+
+/** Middleware handler with attached circuit breaker instance for testing. */
+export type EconomicBoundaryHandler = ((c: Context, next: Next) => Promise<Response | void>) & {
+  circuitBreaker: CircuitBreaker
 }
 
 /**
@@ -282,12 +346,16 @@ export interface EconomicBoundaryMiddlewareOptions {
  * Infrastructure errors → 503 with error_type: "infrastructure".
  * Entire middleware wrapped in try/catch (fail-closed in enforce, fail-open in shadow).
  *
+ * Each call creates an independent CircuitBreaker instance (Task 4.1 — Hystrix bulkheading).
+ * Tenant IDs are hashed in structured logs (Task 4.4 — PII protection).
+ *
  * Performance budget: p95 < 2ms (pure computation, no I/O except budget snapshot).
  */
-export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptions) {
+export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptions): EconomicBoundaryHandler {
   const mode = opts.mode ?? ECONOMIC_BOUNDARY_MODE
+  const cb = new CircuitBreaker(opts.circuitBreakerOptions)
 
-  return async (c: Context, next: Next) => {
+  const handler = async (c: Context, next: Next) => {
     const startMs = performance.now()
 
     // Bypass mode — emergency kill-switch
@@ -298,7 +366,7 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
     // Circuit breaker — if open, degrade gracefully per mode.
     // Enforce: 503 (fail-closed — don't silently bypass authorization gate).
     // Shadow: allow through (observability-only, no security impact).
-    if (isCircuitOpen()) {
+    if (cb.isOpen()) {
       console.warn("[economic-boundary] Circuit open — bypassing evaluation")
       if (mode === "enforce") {
         return c.json({ error: "Service Unavailable", error_type: "infrastructure" }, 503)
@@ -312,18 +380,24 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
       if (!tenantContext?.claims) {
         // No auth context — should not happen if middleware chain is correct
         console.error("[economic-boundary] Missing tenantContext — middleware ordering error")
-        return c.json({ error: "Internal Server Error", error_type: "infrastructure" }, 503)
+        cb.recordFailure()
+        if (mode === "enforce") {
+          return c.json({ error: "Service Unavailable", error_type: "infrastructure" }, 503)
+        }
+        // Shadow mode: fail-open
+        return next()
       }
 
       const claims = tenantContext.claims
+      const tenantHash = hashTenantId(claims.tenant_id)
 
       // Fetch budget snapshot
       const budget = await opts.getBudgetSnapshot(claims.tenant_id)
       if (!budget) {
-        recordCircuitFailure()
+        cb.recordFailure()
         const latencyMs = performance.now() - startMs
         console.error(
-          `[economic-boundary] Budget snapshot unavailable for tenant=${claims.tenant_id} latency_ms=${latencyMs.toFixed(1)}`,
+          `[economic-boundary] Budget snapshot unavailable for tenant_hash=${tenantHash} latency_ms=${latencyMs.toFixed(1)}`,
         )
         if (mode === "enforce") {
           return c.json({ error: "Service Unavailable", error_type: "infrastructure" }, 503)
@@ -337,9 +411,9 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
       const latencyMs = performance.now() - startMs
 
       if (!result) {
-        recordCircuitFailure()
+        cb.recordFailure()
         console.error(
-          `[economic-boundary] Evaluation failed for tenant=${claims.tenant_id} ` +
+          `[economic-boundary] Evaluation failed for tenant_hash=${tenantHash} ` +
           `tier=${claims.tier} mode=${mode} latency_ms=${latencyMs.toFixed(1)}`,
         )
         if (mode === "enforce") {
@@ -349,9 +423,10 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
       }
 
       // Record success for circuit breaker
-      recordCircuitSuccess()
+      cb.recordSuccess()
 
-      // Structured log for every evaluation (observability)
+      // Structured log for every evaluation (observability).
+      // Task 4.4: Uses tenant_hash instead of raw tenant_id for PII protection.
       const logPayload = {
         component: "economic-boundary",
         mode,
@@ -360,7 +435,7 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
         trust_tier: claims.tier,
         trust_passed: result.trust_evaluation.passed,
         capital_passed: result.capital_evaluation.passed,
-        tenant_id: claims.tenant_id,
+        tenant_hash: tenantHash,
         latency_ms: Number(latencyMs.toFixed(1)),
       }
 
@@ -368,11 +443,13 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
         console.warn("[economic-boundary] evaluation:", JSON.stringify(logPayload))
 
         if (mode === "enforce") {
+          // 403 response goes to the authenticated tenant — raw tenant_id is safe here
           return c.json({
             error: "Forbidden",
             code: "ECONOMIC_BOUNDARY_DENIED",
             denial_codes: (result as EvaluationResultWithDenials).denial_codes ?? [],
             denial_reason: result.access_decision.denial_reason,
+            tenant_id: claims.tenant_id,
           }, 403)
         }
         // Shadow mode: log but allow
@@ -388,7 +465,7 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
     } catch (err) {
       const latencyMs = performance.now() - startMs
       console.error(`[economic-boundary] Unhandled error (latency_ms=${latencyMs.toFixed(1)}):`, err)
-      recordCircuitFailure()
+      cb.recordFailure()
 
       if (mode === "enforce") {
         return c.json({ error: "Service Unavailable", error_type: "infrastructure" }, 503)
@@ -397,4 +474,8 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
       return next()
     }
   }
+
+  // Attach circuit breaker instance for testing and inspection
+  handler.circuitBreaker = cb
+  return handler as EconomicBoundaryHandler
 }

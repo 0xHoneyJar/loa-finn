@@ -263,6 +263,8 @@ export interface BudgetSnapshot {
   percent_used: number
   warning: boolean
   exceeded: boolean
+  /** Optional ISO 8601 budget period end from upstream provider. When absent, 30-day default used. */
+  budget_period_end?: string
 }
 
 // --- Ledger Entry (16 fields per SDD §5.2) ---
