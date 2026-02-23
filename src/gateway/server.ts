@@ -25,6 +25,7 @@ import { oracleRateLimitMiddleware, OracleRateLimiter } from "./oracle-rate-limi
 import { oracleConcurrencyMiddleware, ConcurrencyLimiter } from "./oracle-concurrency.js"
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import { getProtocolInfo } from "../hounfour/protocol-handshake.js"
+import { economicBoundaryMiddleware } from "../hounfour/economic-boundary.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
@@ -190,6 +191,23 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     if (isOraclePath(c.req.path)) return next()
     return hounfourAuth(config)(c, next)
   })
+
+  // Economic boundary — pre-invocation gate (SDD §6.3, step 2)
+  // Chain position: JWT Auth → **Economic Boundary** → Billing Guard → Provider
+  // Runs UNCONDITIONALLY (local decision engine, not gated on peer features).
+  // Mode controlled by ECONOMIC_BOUNDARY_MODE env var (default: "shadow").
+  app.use("/api/v1/invoke", economicBoundaryMiddleware({
+    getBudgetSnapshot: async () => {
+      // Budget snapshot from hounfour router (same source as billing reserve).
+      // HounfourRouter.budgetSnapshot() is scope-bound at construction time.
+      if (!options.hounfour) return null
+      try {
+        return options.hounfour.budgetSnapshot()
+      } catch {
+        return null
+      }
+    },
+  }))
 
   // Billing guard middleware — returns 503 when evaluator degraded (SDD §4.2)
   // Applied to all billing entrypoints: /api/v1/invoke, /api/v1/oracle

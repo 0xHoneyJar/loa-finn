@@ -1088,6 +1088,70 @@
         "verification": 5
       },
       "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied on /data",
+      "solution": "Use sudo or check file permissions first",
+      "target": "openclaw",
+      "id": "b741833a-d950-44bd-a419-c023bfb9db5f",
+      "created": "2026-02-21T04:59:54.218Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "pattern:retry",
+      "pattern": "API rate limited",
+      "solution": "Wait 5 seconds then retry with exponential backoff",
+      "target": "openclaw",
+      "id": "a3ccee66-972a-4d9c-94bc-c88a8a60402d",
+      "created": "2026-02-21T04:59:54.253Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Error: ENOENT: no such file or directory",
+      "solution": "Retry with: {\"command\":\"mkdir -p /data && touch /data/file.txt\"}",
+      "target": "openclaw",
+      "id": "35bbec69-48b4-4ca9-ac09-13ee62d15067",
+      "created": "2026-02-21T04:59:54.282Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
+    },
+    {
+      "source": "error-cycle",
+      "trigger": "tool:bash:error",
+      "pattern": "Permission denied",
+      "solution": "Retry with: {\"command\":\"sudo cmd\"}",
+      "target": "openclaw",
+      "id": "08d391ce-e93e-4a25-a099-1a8c7ef0d06a",
+      "created": "2026-02-21T04:59:58.285Z",
+      "gates": {
+        "discovery_depth": 5,
+        "reusability": 5,
+        "trigger_clarity": 5,
+        "verification": 5
+      },
+      "status": "active"
     }
   ]
 }

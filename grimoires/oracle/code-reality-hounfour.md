@@ -1,7 +1,7 @@
 ---
-generated_date: "2026-02-16"
+generated_date: "2026-02-24"
 source_repo: 0xHoneyJar/loa-hounfour
-provenance: cycle-025-sprint-61-task-2.4
+provenance: cycle-032-sprint-128-task-3.6
 tags: ["technical"]
 ---
 
@@ -13,259 +13,299 @@ library -- it defines interfaces, canonical vocabularies, and validation
 functions. Implementations live in loa-finn and arrakis.
 
 **Dependency reference**: `loa-finn/package.json` pins the package at a
-specific commit SHA:
+specific commit SHA (v7.9.2 tag):
 
 ```json
-"@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#e5b9f16c60a95f7940c96af3b11cf50065abe898"
+"@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#ff8c16b899b5bbebb9bf1a5e3f9e791342b49bea"
 ```
 
----
-
-## 1. Known Exports (from loa-finn import analysis)
-
-The following exports are observed across loa-finn's import statements.
-Source files that import from the package:
-
-- `loa-finn/src/hounfour/pool-registry.ts`
-- `loa-finn/src/hounfour/tier-bridge.ts`
-- `loa-finn/src/hounfour/pool-enforcement.ts`
-- `loa-finn/src/hounfour/jwt-auth.ts`
-- `loa-finn/src/hounfour/nft-routing-config.ts`
-- `loa-finn/src/hounfour/protocol-handshake.ts`
-
-### 1.1 Type Exports
-
-| Export | Used In | Description |
-|--------|---------|-------------|
-| `PoolId` | pool-registry, tier-bridge, pool-enforcement, jwt-auth, nft-routing-config | Branded string type for canonical pool identifiers |
-| `Tier` | pool-registry, tier-bridge, pool-enforcement, jwt-auth | String literal union: `"free" \| "pro" \| "enterprise"` |
-| `TaskType` | tier-bridge | String type for task classification |
-
-### 1.2 Constant Exports
-
-| Export | Used In | Description |
-|--------|---------|-------------|
-| `POOL_IDS` | tier-bridge | Canonical set of valid pool IDs |
-| `TIER_POOL_ACCESS` | tier-bridge, pool-enforcement | Map: Tier to readonly PoolId[] |
-| `TIER_DEFAULT_POOL` | tier-bridge | Map: Tier to default PoolId |
-
-### 1.3 Function Exports
-
-| Export | Signature (inferred) | Used In |
-|--------|---------------------|---------|
-| `isValidPoolId` | `(id: string) => boolean` | pool-registry, tier-bridge, nft-routing-config |
-| `tierHasAccess` | `(tier: Tier, poolId: string) => boolean` | tier-bridge, pool-enforcement |
-| `validateCompatibility` | `(remoteVersion: string) => { compatible: boolean; error?: string }` | protocol-handshake |
+**Contract version**: `7.9.1` (CONTRACT_VERSION constant from the package).
 
 ---
 
-## 2. Pool Vocabulary
+## 1. Module Map
 
-The canonical pool IDs as used by loa-finn's `PoolRegistry`:
+The package exports from multiple subpaths:
 
-| Pool ID | Description | Tier Access |
-|---------|-------------|-------------|
-| `cheap` | Low-cost general purpose | free, pro, enterprise |
-| `fast-code` | Fast code completion | pro, enterprise |
-| `reviewer` | Code review and analysis | pro, enterprise |
-| `reasoning` | Complex reasoning and planning | enterprise |
-| `architect` | Architecture and high-level planning | enterprise |
-
-These pool IDs are validated against `isValidPoolId()` from loa-hounfour
-at construction time in `PoolRegistry`. Any pool ID not in the canonical
-vocabulary is rejected.
+| Subpath | Purpose |
+|---------|---------|
+| `@0xhoneyjar/loa-hounfour` | Main: pool vocab, tier model, versioning, reputation, access policy, economic boundary evaluation |
+| `@0xhoneyjar/loa-hounfour/economy` | Economy: MicroUSDC types, pricing, billing schemas, JWT schemas, NFT IDs, economic boundary schemas |
+| `@0xhoneyjar/loa-hounfour/constraints` | Constraints: ConstraintOrigin type |
 
 ---
 
-## 3. Tier Model
+## 2. Known Exports (from loa-finn import analysis)
 
-Three tiers with hierarchical pool access:
+### 2.1 Main Package (`@0xhoneyjar/loa-hounfour`)
 
-| Tier | Accessible Pools | Default Pool |
-|------|-----------------|--------------|
-| `free` | cheap | cheap |
-| `pro` | cheap, fast-code, reviewer | cheap |
-| `enterprise` | cheap, fast-code, reviewer, reasoning, architect | cheap |
+#### Types
 
-The tier-to-pool mapping is defined in `TIER_POOL_ACCESS` and
-`TIER_DEFAULT_POOL` constants from loa-hounfour. loa-finn's `tier-bridge.ts`
-re-exports these for local use.
+| Export | Description |
+|--------|-------------|
+| `PoolId` | Branded string type for canonical pool identifiers |
+| `Tier` | String literal union: `"free" \| "pro" \| "enterprise"` |
+| `TaskType` | String type for task classification |
+| `ReputationStateName` | `"cold" \| "warming" \| "established" \| "authoritative"` |
+| `AccessPolicyContext` | Input context for access policy evaluation |
+| `AccessPolicyResult` | Result of access policy evaluation |
+
+#### Constants
+
+| Export | Description |
+|--------|-------------|
+| `POOL_IDS` | Canonical set of valid pool IDs |
+| `TIER_POOL_ACCESS` | Map: Tier to readonly PoolId[] |
+| `TIER_DEFAULT_POOL` | Map: Tier to default PoolId |
+| `CONTRACT_VERSION` | Protocol version string (`"7.9.1"`) |
+| `REPUTATION_STATES` | Array of valid reputation state names |
+| `REPUTATION_STATE_ORDER` | Map: state name → numeric order (cold=0, warming=1, established=2, authoritative=3) |
+
+#### Functions
+
+| Export | Signature | Description |
+|--------|-----------|-------------|
+| `isValidPoolId` | `(id: string) => boolean` | Validate pool ID against canonical vocabulary |
+| `tierHasAccess` | `(tier: Tier, poolId: string) => boolean` | Check tier can access pool |
+| `validateCompatibility` | `(remoteVersion: string) => CompatResult` | Semver compatibility check |
+| `isKnownReputationState` | `(s: string) => s is ReputationStateName` | Type guard for reputation states |
+| `evaluateEconomicBoundary` | `(trust, capital, criteria, evaluatedAt) => EvaluationResult` | Core economic boundary evaluation |
+| `evaluateFromBoundary` | `(boundary, criteria, evaluatedAt) => EvaluationResult` | Evaluate from pre-constructed boundary object |
+| `evaluateAccessPolicy` | `(context: AccessPolicyContext) => AccessPolicyResult` | Access policy evaluation |
+
+### 2.2 Economy Subpackage (`@0xhoneyjar/loa-hounfour/economy`)
+
+#### Types
+
+| Export | Description |
+|--------|-------------|
+| `MicroUSDC` | Branded type for micro-USD amounts (string integer) |
+| `BrandedMicroUSD` | Branded arithmetic micro-USD type |
+| `BasisPoints` | Branded basis points type |
+| `AccountId` | Branded account identifier type |
+| `JwtClaims` (as `ProtocolJwtClaims`) | Protocol JWT claims schema type |
+| `S2SJwtClaims` (as `ProtocolS2SJwtClaims`) | Service-to-service JWT claims |
+| `BillingEntry` (as `ProtocolBillingEntry`) | Billing entry wire type |
+| `EconomicBoundary` | Combined trust + capital boundary object |
+| `QualificationCriteria` | Threshold criteria for boundary evaluation |
+| `DenialCode` | Denial code enum for boundary denials |
+| `EvaluationGap` | Gap between evaluation and criteria |
+| `ModelEconomicProfile` | Model-level economic configuration |
+| `JwtBoundarySpec` | JWT boundary specification (replay_window_seconds) |
+| `NftId` / `ParsedNftId` | NFT identifier types |
+| `PricingInput` (as `ProtocolPricingInput`) | Pricing computation input |
+| `UsageInput` (as `ProtocolUsageInput`) | Usage computation input |
+| `ConservationResult` | Pricing conservation verification result |
+| `TransferChoreography` / `TransferInvariant` | Transfer choreography vocabulary |
+| `EconomicChoreography` | Economic choreography vocabulary |
+| `TrustLayerSnapshot` | Trust layer state for boundary evaluation |
+| `CapitalLayerSnapshot` | Capital layer state for boundary evaluation |
+| `AccessDecision` | Boundary access decision (granted + denial_reason) |
+| `TrustEvaluation` | Trust evaluation sub-result |
+| `CapitalEvaluation` | Capital evaluation sub-result |
+| `EconomicBoundaryEvaluationResult` | Full boundary evaluation result |
+
+#### Schemas (Zod)
+
+| Export | Description |
+|--------|-------------|
+| `JwtClaimsSchema` | Zod schema for JWT claims |
+| `S2SJwtClaimsSchema` | Zod schema for S2S JWT claims |
+| `BillingEntrySchema` (as `ProtocolBillingEntrySchema`) | Billing entry schema |
+| `EconomicBoundarySchema` | Economic boundary schema |
+| `QualificationCriteriaSchema` | Qualification criteria schema |
+| `DenialCodeSchema` | Denial code schema |
+| `EvaluationGapSchema` | Evaluation gap schema |
+| `ModelEconomicProfileSchema` | Model economic profile schema |
+| `JwtBoundarySpecSchema` | JWT boundary spec schema |
+| `TrustLayerSnapshotSchema` | Trust layer snapshot schema |
+| `CapitalLayerSnapshotSchema` | Capital layer snapshot schema |
+| `AccessDecisionSchema` | Access decision schema |
+| `TrustEvaluationSchema` | Trust evaluation schema |
+| `CapitalEvaluationSchema` | Capital evaluation schema |
+| `EconomicBoundaryEvaluationResultSchema` | Full evaluation result schema |
+
+#### Functions
+
+| Export | Signature | Description |
+|--------|-----------|-------------|
+| `microUSDC` | `(value: number) => MicroUSDC` | Create branded MicroUSDC value |
+| `readMicroUSDC` | `(value: MicroUSDC) => number` | Read branded MicroUSDC as number |
+| `serializeMicroUSDC` (as `protocolSerializeMicroUSDC`) | `(value: MicroUSDC) => string` | Serialize to wire string |
+| `deserializeMicroUSDC` | `(value: string) => MicroUSDC` | Deserialize from wire string |
+| `microUSDToUSDC` | `(micro: number) => number` | Convert micro-USD to USDC |
+| `microUSDCToUSD` | `(micro: MicroUSDC) => number` | Convert MicroUSDC to USD |
+| `computeCostMicro` (as `protocolComputeCostMicro`) | `(input: PricingInput) => MicroUSDC` | Compute cost in micro-USD |
+| `computeCostMicroSafe` (as `protocolComputeCostMicroSafe`) | `(input: PricingInput) => MicroUSDC \| null` | Safe cost computation (null on error) |
+| `verifyPricingConservation` | `(input, output) => ConservationResult` | Verify pricing conservation invariant |
+| `validateBillingEntry` (as `protocolValidateBillingEntry`) | `(entry) => boolean` | Validate billing entry |
+| `validateBillingRecipients` (as `protocolValidateBillingRecipients`) | `(recipients) => boolean` | Validate recipients |
+| `validateCreditNote` (as `protocolValidateCreditNote`) | `(note) => boolean` | Validate credit note |
+| `allocateRecipients` (as `protocolAllocateRecipients`) | `(amount, recipients) => Allocation[]` | Allocate billing across recipients |
+| `isValidNftId` | `(id: string) => boolean` | Validate NFT ID format |
+| `parseNftId` | `(id: string) => ParsedNftId` | Parse NFT ID into components |
+| `formatNftId` | `(parsed: ParsedNftId) => string` | Format ParsedNftId back to string |
+| `checksumAddress` | `(address: string) => string` | EIP-55 checksum address |
+
+#### Constants
+
+| Export | Description |
+|--------|-------------|
+| `JTI_POLICY` (as `PROTOCOL_JTI_POLICY`) | Protocol-defined JTI replay policy per endpoint type |
+| `TRANSFER_CHOREOGRAPHY` | Transfer choreography step vocabulary |
+| `TRANSFER_INVARIANTS` | Transfer invariant definitions |
+| `ECONOMIC_CHOREOGRAPHY` | Economic choreography (6-step enforcement chain) |
+
+### 2.3 Constraints Subpackage (`@0xhoneyjar/loa-hounfour/constraints`)
+
+| Export | Description |
+|--------|-------------|
+| `ConstraintOrigin` | Type for constraint origin tracking |
 
 ---
 
-## 4. Protocol Versioning
+## 3. Economic Boundary Evaluation
 
-`loa-finn/src/hounfour/protocol-handshake.ts` uses `validateCompatibility()`
-from loa-hounfour to verify semver-based protocol compatibility between
-loa-finn and arrakis at boot time.
+The core economic boundary evaluation is the pre-invocation gate (SDD §6.3, step 2).
 
-The handshake flow:
-1. Fetch `{arrakisBaseUrl}/api/internal/health`
-2. Extract `contract_version` from health response
-3. Call `validateCompatibility(remoteVersion)` from loa-hounfour
-4. Production: incompatible = fatal error (fail-fast)
-5. Development: incompatible = warning + continue
-
-Handshake status types: `"compatible"`, `"skipped"`, `"degraded"`,
-`"incompatible"`.
-
----
-
-## 5. JTI Policy
-
-`loa-finn/src/hounfour/jwt-auth.ts` defines JTI requirements per endpoint
-type, which aligns with loa-hounfour's protocol constants:
+### 3.1 Input Types
 
 ```typescript
-const JTI_POLICY = {
-  invoke:  { required: true },
-  admin:   { required: true },
-  s2s_get: { required: false, compensating: "exp <= 60s" },
+interface TrustLayerSnapshot {
+  reputation_state: ReputationStateName  // "cold" | "warming" | "established" | "authoritative"
+  blended_score: number                  // 0-100
+  snapshot_at: string                    // ISO-8601
 }
 
-const AUDIENCE_MAP = {
-  invoke: "loa-finn",
-  admin:  "loa-finn-admin",
-  s2s:    "arrakis",
+interface CapitalLayerSnapshot {
+  budget_remaining: string               // MicroUSD string integer
+  billing_tier: string                   // Billing scope
+  budget_period_end: string              // ISO-8601
+}
+
+interface QualificationCriteria {
+  min_trust_score: number
+  min_reputation_state: ReputationStateName
+  min_available_budget: string           // MicroUSD string integer
 }
 ```
 
----
-
-## 6. JWT Claims Contract
-
-The JWT claims structure is the primary protocol contract between arrakis
-(issuer) and loa-finn (consumer):
+### 3.2 Result Type
 
 ```typescript
-interface JWTClaims {
-  iss: string              // Issuer (arrakis)
-  aud: string              // Audience (loa-finn | loa-finn-admin | arrakis)
-  sub: string              // Subject (tenant or service identity)
-  tenant_id: string        // Tenant identifier
-  tier: Tier               // "free" | "pro" | "enterprise"
-  nft_id?: string          // NFT identifier for personality routing
-  model_preferences?: Record<string, string>  // task_type -> pool_id
-  byok?: boolean           // Bring-your-own-key flag
-  req_hash: string         // sha256:{hex} of request body
-  iat: number              // Issued at (Unix timestamp)
-  exp: number              // Expiration (Unix timestamp)
-  jti?: string             // JWT ID for replay prevention
-  scope?: string           // S2S scope claim
-  pool_id?: string         // Requested pool (validated by enforcement)
-  allowed_pools?: string[] // Gateway hint (never trusted, re-derived)
-  reservation_id?: string  // Billing reservation ID
-}
-```
-
----
-
-## 7. Billing Protocol Types
-
-The following types define the billing wire contract between loa-finn and
-arrakis. They are observed in `loa-finn/src/hounfour/billing-finalize-client.ts`:
-
-### 7.1 FinalizeRequest (loa-finn to arrakis)
-
-```typescript
-interface FinalizeRequest {
-  reservation_id: string
-  tenant_id: string
-  actual_cost_micro: string   // String-serialized BigInt micro-USD
-  trace_id: string
-}
-```
-
-Wire mapping at HTTP boundary (camelCase for arrakis consumption):
-- `reservation_id` maps to `reservationId`
-- `tenant_id` maps to `accountId`
-- `actual_cost_micro` maps to `actualCostMicro`
-- `trace_id` maps to `traceId`
-
-### 7.2 FinalizeResult
-
-```typescript
-type FinalizeResult =
-  | { ok: true; status: "finalized" | "idempotent" }
-  | { ok: false; status: "dlq"; reason: string }
-```
-
-### 7.3 HTTP Response Codes
-
-| Status | Meaning | loa-finn Behavior |
-|--------|---------|-------------------|
-| 200 | Finalized | Return `{ ok: true, status: "finalized" }` |
-| 409 | Already finalized | Return `{ ok: true, status: "idempotent" }` |
-| 401 | Unauthorized | Terminal -- DLQ, no retry |
-| 404 | Not found | Terminal -- DLQ, no retry |
-| 422 | Unprocessable | Terminal -- DLQ, no retry |
-| Other | Transient failure | DLQ with exponential backoff |
-
----
-
-## 8. Pool Enforcement Contract
-
-The pool enforcement protocol defines how JWT claims are validated against
-the tier-pool access matrix:
-
-1. `enforcePoolClaims(claims)` derives `resolvedPools` from `claims.tier`
-2. If `claims.pool_id` is present: validate it is a known pool AND tier
-   has access
-3. If `claims.allowed_pools` is present: detect mismatch with tier-derived
-   pools (subset, superset, invalid_entry)
-4. `selectAuthorizedPool(tenantContext, taskType)` resolves the final pool
-   using preferences + tier defaults, then verifies membership
-
-Mismatch types:
-- **subset**: fewer pools claimed than tier permits (informational)
-- **superset**: more pools claimed than tier permits (warning; strict mode = 403)
-- **invalid_entry**: unknown pool IDs in claims (error)
-
----
-
-## 9. NFT Routing Policy
-
-The NFT routing policy schema (validated against loa-hounfour's
-`RoutingPolicySchema`):
-
-```typescript
-interface NFTRoutingPolicy {
-  version: string                    // Semver string
-  personalities: PersonalityRouting[]
-}
-
-interface PersonalityRouting {
-  personality_id: string
-  task_routing: {
-    chat: PoolId
-    analysis: PoolId
-    architecture: PoolId
-    code: PoolId
-    default: PoolId
+interface EconomicBoundaryEvaluationResult {
+  access_decision: {
+    granted: boolean
+    denial_reason?: string
   }
-  preferences?: {
-    temperature?: number             // 0-2
-    max_tokens?: number
-    system_prompt_path?: string
+  trust_evaluation: {
+    passed: boolean
+    score: number
+    state: ReputationStateName
   }
+  capital_evaluation: {
+    passed: boolean
+    remaining: string
+  }
+  denial_codes?: DenialCode[]           // e.g. "TRUST_SCORE_BELOW_THRESHOLD"
+  evaluated_at: string
 }
 ```
 
+### 3.3 Denial Codes
+
+Known denial codes: `TRUST_SCORE_BELOW_THRESHOLD`, `TRUST_STATE_BELOW_THRESHOLD`,
+`BUDGET_BELOW_THRESHOLD`.
+
+### 3.4 loa-finn Adapter
+
+`src/hounfour/economic-boundary.ts` bridges JWT claims to protocol evaluation:
+
+- **TIER_TRUST_MAP**: Maps tier to `{reputation_state, blended_score}`:
+  - `free` → `{cold, 10}`
+  - `pro` → `{warming, 50}`
+  - `enterprise` → `{established, 80}`
+- **ECONOMIC_BOUNDARY_MODE** env var: `enforce` | `shadow` | `bypass` (default: `shadow`)
+- **Circuit breaker**: 5 consecutive failures in 30s → open (bypass), 60s cooldown
+- **Graceful degradation**: Pre-v7.7 peers use flat tier-based trust only
+
 ---
 
-## 10. Package Role Summary
+## 4. Reputation State Model
+
+Four-state reputation model with strict ordering:
+
+| State | Order | Description |
+|-------|-------|-------------|
+| `cold` | 0 | New/unknown tenant |
+| `warming` | 1 | Building trust |
+| `established` | 2 | Trusted tenant |
+| `authoritative` | 3 | Highest trust |
+
+---
+
+## 5. Protocol Versioning
+
+`validateCompatibility()` performs semver-based compatibility checking.
+`CONTRACT_VERSION` is `"7.9.1"`. loa-finn's `FINN_MIN_SUPPORTED` is `"4.0.0"`.
+
+### 5.1 Feature Detection Thresholds
+
+| Feature | Minimum Version | Description |
+|---------|----------------|-------------|
+| `trustScopes` | 6.0.0 | Trust scope arrays in health response |
+| `reputationGated` | 7.3.0 | Reputation-gated access |
+| `compoundPolicies` | 7.4.0 | Compound policy evaluation |
+| `economicBoundary` | 7.7.0 | Economic boundary evaluation |
+| `denialCodes` | 7.9.1 | Structured denial codes |
+
+---
+
+## 6. Economic Choreography (6-Step Enforcement Chain)
+
+The `ECONOMIC_CHOREOGRAPHY` constant defines the enforcement chain position:
+
+1. **JWT Auth** — Validate token, extract claims
+2. **Economic Boundary** — Pre-invocation trust + capital gate (NEW in v7.9.2 adoption)
+3. **Budget Reserve** — Reserve funds for the operation
+4. **Provider Call** — Execute the model invocation
+5. **Conservation Guard** — Verify billing invariants
+6. **Billing Finalize** — Commit billing entry to arrakis
+
+---
+
+## 7. Import Map (loa-finn → protocol-types.ts)
+
+loa-finn centralizes all protocol imports through `src/hounfour/protocol-types.ts`.
+Consumer files import from this module, not directly from `@0xhoneyjar/loa-hounfour`.
+
+| Consumer | Imports |
+|----------|---------|
+| `pool-enforcement.ts` | `evaluateAccessPolicy`, `AccessPolicyContext`, `AccessPolicyResult` |
+| `jwt-auth.ts` | `PROTOCOL_JTI_POLICY` |
+| `wire-boundary.ts` | `microUSDC`, `readMicroUSDC`, `protocolSerializeMicroUSDC`, `deserializeMicroUSDC`, MicroUSDC types |
+| `economic-boundary.ts` | `evaluateEconomicBoundary`, trust/capital types, `QualificationCriteria`, `REPUTATION_STATES`, `DenialCode` |
+| `protocol-handshake.ts` | `CONTRACT_VERSION` (direct from main package) |
+| `billing-conservation-guard.ts` | `verifyPricingConservation`, `ConservationResult`, `TRANSFER_INVARIANTS` |
+
+---
+
+## 8. Package Role Summary
 
 loa-hounfour is the shared protocol package between loa-finn and arrakis.
 It provides:
 
-- **Canonical vocabulary**: Pool IDs, tier names, task types
+- **Canonical vocabulary**: Pool IDs, tier names, task types, reputation states
 - **Access control matrix**: Which tiers can use which pools
-- **Validation functions**: Pool ID validation, tier access checks,
-  protocol version compatibility
-- **Schema definitions**: NFT routing policy, billing types
+- **Validation functions**: Pool ID validation, tier access checks, protocol version compatibility
+- **Schema definitions**: NFT routing policy, billing types, JWT claims, economic boundary
+- **Economic evaluation**: Pre-invocation boundary evaluation with trust + capital layers
+- **Pricing utilities**: MicroUSDC arithmetic, cost computation, conservation verification
+- **Billing utilities**: Entry validation, recipient allocation, credit notes
+- **NFT utilities**: ID validation, parsing, checksumming
 
 It does NOT contain:
 - Provider implementations (those live in loa-finn)
 - HTTP clients or servers
-- Business logic beyond validation
+- Business logic beyond validation and evaluation
 - State management or persistence

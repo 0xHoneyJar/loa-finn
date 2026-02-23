@@ -1,259 +1,273 @@
-# Sprint Plan: Adaptive Intelligence — Quality Governance & Reputation Bootstrap
+# Sprint Plan: Protocol Convergence v7.9.2 — Full Adoption
 
-> **Version**: 1.1.0
-> **Date**: 2026-02-21
-> **Cycle**: cycle-031
-> **Source**: Bridgebuilder Deep Review (PR #92) — Finding #6 (MEDIUM), Finding #7 (LOW), Forward Questions 1-4
-> **Sprints**: 2 (12 tasks)
-> **Global IDs**: 124–125
-> **Team**: 1 agent (Claude Opus 4.6)
-> **Predecessor**: cycle-030 "Forward Architecture — Economic Consciousness" (3 sprints, 123 global, 562 tests)
-> **Bridge Review**: [Part 3](https://github.com/0xHoneyJar/loa-finn/pull/92#issuecomment-3937930880) — Forward Architecture Questions
-> **GPT-5.2 Review**: Iteration 1 — 7 blocking issues resolved (v1.1.0)
+> **Version**: 1.0.0
+> **Date**: 2026-02-23
+> **Cycle**: cycle-032
+> **PRD**: grimoires/loa/prd.md (v1.1.0 — GPT-5.2 APPROVED)
+> **SDD**: grimoires/loa/sdd.md (v1.0.0 — GPT-5.2 APPROVED + Flatline APPROVED)
+> **Total**: 19 tasks across 3 sprints
+> **Global Sprint IDs**: 126–128
 
 ---
 
-## Sprint Overview
+## Overview
 
-| Sprint | Global ID | Label | Tasks | Dependencies | Status |
-|--------|-----------|-------|-------|-------------|--------|
-| 1 | 124 | Quality Signal Governance + Anti-Sycophancy | 6 | None | |
-| 2 | 125 | EventStore Indexed Access + Reputation Bootstrap | 6 | Sprint 1 | |
+| Sprint | Label | Tasks | Focus |
+|--------|-------|-------|-------|
+| Sprint 1 (global-126) | Bump + Clean + Vectors | 6 | Pin v7.9.2, remove patch, resolution audit, 202 conformance vectors |
+| Sprint 2 (global-127) | Type System + Vocabulary + Handshake | 7 | Strict parser, MicroUSDC migration, schemas, access policy, handshake |
+| Sprint 3 (global-128) | Decision Engine + Choreography | 6 | Economic boundary adapter, middleware, choreography tests, reality update |
 
-### Dependency Graph
+**Dependencies**: Sprint 1 must complete before Sprint 2 (dependency resolution required). Sprint 2 must complete before Sprint 3 (type imports and handshake features needed by economic boundary).
 
-```
-Sprint 1 (Quality Governance) ──── Sprint 2 (IndexedAccess + Bootstrap)
-```
-
-### Source: Bridgebuilder Deep Review Findings & Questions
-
-| Finding/Question | Description | Sprint |
-|------------------|-------------|--------|
-| Finding #6 (MEDIUM) | Quality Signal Ontology will become governance model — needs `challenge_rate`, anti-sycophancy | Sprint 1 |
-| Question 1 | "What you measure determines what the system optimizes for" — deliberate signal design | Sprint 1 |
-| Finding #7 (LOW) | EventStore `replay()` is O(total_events) per cache miss — needs indexing before 1M events | Sprint 2 |
-| Question 2 | Reputation Bootstrap Problem — cold-start identical to Netflix/Uber recommendation systems | Sprint 2 |
-| Question 3 | EventStore evolution: indexed lookup → compaction → materialized views | Sprint 2 |
-
-### FAANG Parallels (from Bridgebuilder Review)
-
-| Suggestion | Parallel | Connection |
-|------------|----------|------------|
-| Anti-sycophancy signals | Google Panda update (2011) — click-through rewarded clickbait, added "long click" and "pogo-sticking" as counter-signals | The quality signal ontology IS the governance model. Counter-signals prevent optimization gaming. |
-| Reputation bootstrap | Netflix cold-start / Uber new-driver rating | No quality history → static fallback is correct default, but reputation portability unlocks collection-level intelligence |
-| EventStore indexing | DynamoDB partition key / Kafka log compaction / CockroachDB CDC | Progressive evolution: index → compact → materialize. LRU cache buys time. |
-
-### GPT-5.2 Review Fixes (v1.1.0)
-
-| # | Issue | Fix Applied |
-|---|-------|-------------|
-| 1 | Collection index needs `collectionId → Set<personalityId>` secondary index for efficient T2.3 lookups | Added `Map<collectionId, Set<cacheKey>>` secondary index in T2.1. T2.3 collection lookup is O(#personalities_in_collection), not O(total_keys). |
-| 2 | Node.js object overhead makes 16-byte memory estimate unrealistic | Changed to realistic ~200 bytes/entry estimate. Added hard cap (maxIndexKeys=1000, LRU eviction on index). Added heap bound acceptance criterion in tests. |
-| 3 | JSONL compaction (atomic rename) doesn't apply to Postgres backend | Scoped T2.2 to JSONL-only. Added backend guard (no-op on Postgres). Future Postgres compaction via retention DELETE is a follow-up ticket. |
-| 4 | Bootstrap decay claim unsupported by math — no explicit blending function | Added Bayesian pseudo-count blending: `q = (k*q_collection + n*q_personal)/(k+n)` with k=3. Tests assert prior weight <10% by n=5. |
-| 5 | Governance processing in recordQuality() may violate fire-and-forget invariant | Added explicit acceptance criterion: governance wrapped in try/catch, never throws, never awaits I/O. Test with malformed env var → request path unblocked. |
-| 6 | No schema validation for FINN_QUALITY_GOVERNANCE_OVERRIDES env var | Added strict validation: known signal keys only, finite non-negative weights, auto-normalize if sum>0, exclude safety_pass from weighting, fallback to defaults on parse error. |
-| 7 | Collection reputation has no anti-sybil/manipulation resistance | Added min_sample_count threshold (default 5), max contributor cap (20 personalities), trimmed mean aggregation. Test: single outlier cannot move collection score beyond bound. |
+**Risk gates**: Sprint 1 has an abort gate at Task 1.3 — if resolution audit fails, the sprint stops and we investigate export map changes before proceeding.
 
 ---
 
-## Sprint 1: Quality Signal Governance + Anti-Sycophancy
+## Sprint 1: Bump + Clean + Vectors (global-126)
 
-> **Global ID**: 124 | **Priority**: HIGH | **Dependencies**: None
-> **Goal**: Transform the quality signal ontology from a passive measurement layer into an active governance model. Add anti-sycophancy detection, challenge_rate tracking, and archetype-aware signal weighting. The principle: **what you measure determines what the system optimizes for**.
+**Goal**: Pin loa-hounfour v7.9.2, remove the postinstall patch, verify zero regressions, and establish the self-verifying 202-vector conformance infrastructure.
 
-### Context
+**Exit criteria**: `pnpm install` clean (no patch), all ~1,105 existing tests pass, 202/202 conformance vectors pass.
 
-The current `QualitySignals` interface (from sprint 123) carries three signals:
+### Task 1.1 — Bump dependency to v7.9.2 tag SHA
 
-```typescript
-interface QualitySignals {
-  user_satisfaction?: number    // thumbs up/down → 0.0 or 1.0
-  coherence_score?: number      // LLM-as-judge
-  safety_pass: boolean          // hard floor
-}
-```
+| Field | Value |
+|-------|-------|
+| **FR** | FR-1 |
+| **Files** | `package.json` |
+| **Description** | Update `@0xhoneyjar/loa-hounfour` dependency from `d091a3c0` (v7.0.0) to `ff8c16b899b5bbebb9bf1a5e3f9e791342b49bea` (v7.9.2 tag). Run `pnpm install`. |
+| **Acceptance** | `pnpm install` succeeds. `CONTRACT_VERSION === "7.9.2"` verified via `node -e "console.log(require('@0xhoneyjar/loa-hounfour').CONTRACT_VERSION)"`. No postinstall errors. Verify `pnpm-lock.yaml` contains expected integrity hash for the installed package (pnpm content-addressable store ensures tarball integrity). |
+| **Blocked by** | None |
 
-This is a reasonable v1 but creates a **sycophancy risk**: a model that always agrees with the user will score 1.0 on satisfaction and 0.0 on actual utility. Google learned this lesson with the Panda update (2011) — click-through rates rewarded clickbait, so they added "long click" (time on page) and "pogo-sticking" (returning to search quickly) as counter-signals.
+### Task 1.2 — Delete postinstall patch script
 
-The `safety_pass` hard floor is critical and correct. But `user_satisfaction` as a standalone float needs guardrails. The governance model needs:
-1. **Counter-signals** that detect when satisfaction is gamed by sycophancy
-2. **Challenge rate** — how often the personality pushes back on user assumptions
-3. **Task completion** — did the user's downstream goal actually get accomplished
-4. **Archetype-aware weighting** — a `freetekno` personality SHOULD challenge more than a `milady` personality
+| Field | Value |
+|-------|-------|
+| **FR** | FR-2 |
+| **Files** | `package.json`, `scripts/patch-hounfour-dist.sh` |
+| **Description** | Delete `scripts/patch-hounfour-dist.sh`. Remove `"postinstall"` script from `package.json`. Run `pnpm install` to verify clean resolution. |
+| **Acceptance** | File deleted. `postinstall` key absent from package.json scripts. `pnpm install` completes with no patching, no warnings. |
+| **Blocked by** | 1.1 |
 
-### Fire-and-Forget Invariant (GPT-5.2 fix #5)
+### Task 1.3 — Resolution audit gate (ABORT GATE)
 
-All governance processing added to `recordQuality()` MUST be exception-safe and non-blocking. The existing invariant — quality emission never blocks the response path — is inviolable. Governance logic (sycophancy detection, archetype weighting, metrics emission) MUST be wrapped in try/catch within the fire-and-forget path. A malformed `FINN_QUALITY_GOVERNANCE_OVERRIDES` env var MUST NOT crash or block — fall back to defaults and increment an error counter.
+| Field | Value |
+|-------|-------|
+| **FR** | FR-3, FR-3a |
+| **Files** | `tests/finn/resolution-audit.test.ts` (NEW) |
+| **Description** | Create resolution audit test that enumerates ALL hounfour import specifiers across loa-finn — including static `from` imports, dynamic `import()` calls, `require()` calls, and string literals referencing `@0xhoneyjar/loa-hounfour/`. For each unique specifier: verify TS compile resolution (`tsc --noEmit` as part of CI) AND Node runtime resolution (dynamic import in test). Verify vectors directory exists via `createRequire().resolve()` (not hardcoded node_modules path). Import `existsSync` from `node:fs`. |
+| **Acceptance** | All import specifiers resolve at both compile-time and runtime. Vectors directory exists. Test passes. Deep subpaths (e.g., `@0xhoneyjar/loa-hounfour/economy`) validated against exports map. Also audit built `.js` output (not just `.ts` source) to catch specifiers generated or transformed at build time. **If this test fails, STOP — do not proceed to Task 1.4+. Investigate and fix resolution before continuing.** |
+| **Blocked by** | 1.2 |
 
-### Tasks
+### Task 1.4 — Run existing test suite
 
-| ID | Task | Acceptance Criteria |
-|----|------|-------------------|
-| T1.1 | Extend QualitySignals with governance signals | `src/nft/routing-quality.ts`: Add new optional fields to `QualitySignals`: `challenge_rate?: number` — [0-1] measure of how often the personality pushes back on user assumptions (higher = more challenging). `task_completion?: number` — [0-1] measure of downstream task success (deferred signal, placeholder for future integration). `response_depth?: number` — [0-1] measure of engagement depth vs. surface agreement. All optional, backward compatible. Existing `qualityFromSignals()` must continue to work unchanged when new fields are absent. Test: QualitySignals with only `safety_pass` → existing behavior unchanged. With new fields populated → all contribute to quality score. |
-| T1.2 | Implement anti-sycophancy detector | `src/nft/quality-governance.ts` (NEW): Implement `detectSycophancyRisk(signals: QualitySignals): { risk: boolean; confidence: number; reason?: string }`. Detection rules: (a) `user_satisfaction = 1.0` AND `coherence_score < 0.5` → HIGH risk (agreeable but incoherent). (b) `user_satisfaction > 0.8` AND `challenge_rate < 0.1` → MEDIUM risk (never pushes back). (c) `user_satisfaction > 0.9` AND `response_depth < 0.3` → MEDIUM risk (surface agreement). When sycophancy detected, export `adjustForSycophancy(signals: QualitySignals): QualitySignals` that caps effective `user_satisfaction` at `coherence_score` value. This prevents always-agreeing models from gaming the quality score. Test: satisfaction=1.0, coherence=0.3 → risk=true, adjusted satisfaction=0.3. Satisfaction=0.8, coherence=0.9 → risk=false, satisfaction unchanged. All signals absent → no risk detected, no adjustment. |
-| T1.3 | Archetype-aware signal weighting governance with strict validation | `src/nft/quality-governance.ts`: Define `QualityGovernanceConfig` — maps archetype → signal weights for the 5 non-boolean signals (user_satisfaction, coherence_score, challenge_rate, task_completion, response_depth). `safety_pass` is EXCLUDED from weighting — it remains a hard floor that overrides all governance (GPT-5.2 fix #6). Default weights: `{ user_satisfaction: 0.3, coherence_score: 0.3, challenge_rate: 0.2, task_completion: 0.15, response_depth: 0.05 }`. Per-archetype overrides: `freetekno` — `challenge_rate: 0.3` (creative personalities should challenge more). `milady` — `user_satisfaction: 0.4` (social personalities prioritize engagement). `chicago_detroit` — `task_completion: 0.3` (assertive personalities are task-oriented). `acidhouse` — `response_depth: 0.25` (experimental personalities value depth). Export `getSignalWeights(archetype: Archetype)`. Weights auto-normalized to sum to 1.0. **Env var validation** (GPT-5.2 fix #6): `FINN_QUALITY_GOVERNANCE_OVERRIDES` parsed with strict schema — only known signal keys accepted, weights must be finite numbers ≥ 0, `safety_pass` key rejected, sum=0 → fallback to defaults, malformed JSON → log warning + fallback to defaults (never throw). Test: each archetype returns different weight distributions. All weight sets sum to 1.0. Malformed JSON env var → defaults used, error counter incremented. Negative weight → rejected. Unknown key `foo` → rejected. `safety_pass` in override → rejected. |
-| T1.4 | Integrate governance into qualityFromSignals() (exception-safe) | `src/nft/routing-quality.ts`: Modify `qualityFromSignals()` to accept optional `archetype: Archetype` parameter. When archetype is provided: (a) apply anti-sycophancy adjustment, (b) use archetype-aware weights for final score. When archetype is absent: existing behavior (simple average of available signals). `safety_pass=false` ALWAYS returns 0 — this hard floor overrides all governance, applied BEFORE any weighting. Update `recordQuality()` to accept optional archetype in the event. Update `RoutingQualityEvent` to carry optional `archetype` field. **Fire-and-forget invariant** (GPT-5.2 fix #5): All governance processing in `recordQuality()` wrapped in try/catch. If governance throws (malformed config, unexpected signal value), log warning and fall back to ungoverned `qualityFromSignals()`. NEVER await I/O in governance path. NEVER propagate exceptions to caller. Test: quality computation with freetekno archetype produces different score than milady for same signals. Anti-sycophancy detection reduces score for agreeable-but-incoherent responses. Safety floor (safety_pass=false → 0) still overrides everything. Malformed governance config → ungoverned quality still computed, request path unblocked. |
-| T1.5 | Prometheus metrics for quality governance | `src/gateway/metrics-endpoint.ts` + `src/nft/routing-quality.ts`: Register new bounded-cardinality counters: `finn_quality_sycophancy_detected_total{archetype}` — tracks sycophancy detection events per archetype (4 archetypes + "unknown" = 5 values). `finn_quality_governance_error_total` — tracks governance config parse errors or runtime failures. Wire emissions in `recordQuality()` after governance processing. Histogram metrics for signal distributions deferred to future sprint (Bridgebuilder Question 1 follow-up) — counters are sufficient for v1 observability. NO personality_id in labels (bounded cardinality preserved). Test: verify metrics registered. Verify sycophancy counter incremented when detection fires. Verify governance error counter incremented on malformed env var. Verify NO unbounded labels. |
-| T1.6 | Quality governance integration test suite | `tests/nft/quality-governance.test.ts` (NEW): (a) Anti-sycophancy detection: 5 test cases covering all detection rules + edge cases (all signals absent, partial signals, boundary values). (b) Signal weighting: 4 archetypes × verify different weight distributions, all sum to 1.0. (c) Governance integration: quality computation with governance produces different scores for different archetypes given same signals. (d) Backward compatibility: existing tests in `routing-quality.test.ts` pass unchanged — `qualityFromSignals()` without archetype returns identical results to v1. (e) Env var validation: malformed JSON → defaults, negative weights → rejected, unknown keys → rejected, safety_pass key → rejected. (f) Safety floor: sycophancy-adjusted scores still respect safety_pass=false → 0. (g) Fire-and-forget: governance error → quality still computed, no throw. (h) E2E: record quality event with archetype + governance → cached score reflects governance adjustments. |
+| Field | Value |
+|-------|-------|
+| **FR** | — (zero regression gate) |
+| **Files** | All existing test files |
+| **Description** | Run `pnpm test` against the full existing test suite (~1,105 tests). No test modifications allowed — if tests fail, the bump or patch removal caused a regression. |
+| **Acceptance** | All ~1,105 existing tests pass. Zero regressions. |
+| **Blocked by** | 1.3 |
 
-### Testing
+### Task 1.5 — Self-verifying vector infrastructure
 
-- Anti-sycophancy detection catches all 3 risk patterns
-- Archetype-specific weighting produces measurably different quality scores
-- Backward compatibility: all 34 existing routing-quality tests pass unchanged
-- Safety floor overrides governance adjustments
-- Fire-and-forget invariant: governance errors never block response path
-- Env var validation: malformed overrides degrade gracefully
-- Prometheus metrics bounded cardinality maintained
-- E2E: governance adjustments influence cached quality scores → routing decisions
+| Field | Value |
+|-------|-------|
+| **FR** | FR-13, FR-14, FR-15 |
+| **Files** | `tests/finn/conformance-vectors.test.ts` (NEW), `tests/finn/jwt-auth.test.ts` (VERIFY) |
+| **Description** | Create conformance vector test infrastructure. Discovery uses `createRequire().resolve()` for package-layout-independent vector resolution. Import `{ dirname }` from `node:path`. Load from manifest.json if available, fallback to directory enumeration. Assert: count == 202, category coverage (at minimum `jwt` + new categories), per-category non-empty, vector ID uniqueness. Verify existing JWT vector path still valid. |
+| **Acceptance** | 202 vectors discovered. All required categories present and non-empty. Vector ID uniqueness asserted. JWT conformance path verified. |
+| **Blocked by** | 1.3 |
 
----
+### Task 1.6 — Run 202 conformance vectors
 
-## Sprint 2: EventStore Indexed Access + Reputation Bootstrap
-
-> **Global ID**: 125 | **Priority**: MEDIUM | **Dependencies**: Sprint 1 (quality governance shapes reputation scores)
-> **Goal**: Solve the O(total_events) replay performance bottleneck and the cold-start reputation problem. Add indexed EventStore access for O(1) lookups and collection-level reputation sharing with anti-manipulation guardrails.
-
-### Context
-
-**Performance**: The current `RoutingQualityStore.getPoolQuality()` on cache miss iterates the entire `routing_quality` stream to find matching events:
-
-```typescript
-for await (const envelope of this.reader.replay<RoutingQualityEvent>(STREAM_ROUTING_QUALITY)) {
-  if (envelope.payload.personality_id === personalityId && envelope.payload.pool_id === poolId) {
-    allMatching.push(...)
-  }
-}
-```
-
-At 100 events, fine. At 1M events (a few months of production quality recording), this becomes the bottleneck. The LRU cache (5-min TTL, max 1000 entries) buys time by making cache misses rare, but every cold start, TTL expiry, or cache eviction triggers a full scan.
-
-**Cold Start**: When a new personality has no quality history, `getPoolQualityCached()` returns `null` and the system falls back to static affinity. This is correct (no penalty for missing data). But it creates the Netflix cold-start problem: new personalities get identical routing regardless of their collection's quality history.
-
-Netflix solved this with content-based filtering (new users see popular content). Uber solved it with geographic baselines (new drivers get average ride distribution). loa-finn can solve it with **collection-level reputation sharing**: if other personalities in the same collection have quality history, use the collection average as a warm-start.
-
-### Memory Model (GPT-5.2 fix #2)
-
-The in-memory index stores `{ quality: number, timestamp: number }` tuples per key. In V8/Node.js, each object has ~64 bytes overhead (hidden class + properties), each array element pointer is 8 bytes, plus the Map entry overhead (~100 bytes per key). Realistic estimate: **~200 bytes per event entry**, **~200 bytes per index key overhead**.
-
-Hard caps enforced:
-- `maxIndexKeys`: 1000 (aligned with LRU cache maxSize) — LRU eviction on index when exceeded
-- `maxEventsPerKey`: 100 (aligned with maxEventsToAggregate)
-- **Worst-case memory**: 1000 keys × 100 events × 200 bytes = ~20MB (acceptable for a gateway process)
-- Secondary collection index: `Map<collectionId, Set<cacheKey>>` adds ~50KB for 1000 keys across 10 collections
-
-### Bootstrap Blending (GPT-5.2 fix #4)
-
-Collection reputation uses a **Bayesian pseudo-count prior**:
-
-```
-q_effective = (k * q_collection + n * q_personal) / (k + n)
-```
-
-Where:
-- `k` = pseudo-count (default 3, configurable via `FINN_BOOTSTRAP_PSEUDO_COUNT`)
-- `q_collection` = collection-level trimmed mean quality
-- `n` = number of personal quality events
-- `q_personal` = personal quality score
-
-At n=0: `q_effective = q_collection` (pure bootstrap)
-At n=3: `q_effective = 0.5 * q_collection + 0.5 * q_personal` (equal blend)
-At n=5: `q_effective = 0.375 * q_collection + 0.625 * q_personal` (personal dominates)
-At n=10: `q_effective ≈ 0.23 * q_collection + 0.77 * q_personal`
-
-Prior weight at n=5 is 37.5% — test asserts prior weight < 40% (conservative bound).
-
-### Anti-Manipulation (GPT-5.2 fix #7)
-
-Collection-level reputation aggregation has v1 defenses against Sybil/manipulation:
-
-1. **Minimum sample threshold**: Only personalities with ≥ `minSampleCount` (default 5) quality events contribute to collection average
-2. **Max contributor cap**: At most `maxContributors` (default 20) personalities contribute per pool — take the 20 with highest sample_count
-3. **Trimmed mean**: Discard highest and lowest quality scores before averaging (removes outlier manipulation)
-4. **Confidence weighting**: Each personality's contribution weighted by `min(sample_count / 50, 1.0)` — new personalities with few events have less influence
-
-### Tasks
-
-| ID | Task | Acceptance Criteria |
-|----|------|-------------------|
-| T2.1 | Add in-memory index with dual-key structure and collection secondary index | `src/nft/routing-quality.ts`: Add `QualityEventIndex` with two data structures: (a) **Primary index**: `Map<string, Array<{ quality: number; timestamp: number }>>` keyed by `personality_id:pool_id` — for O(1) lookups on cache miss. (b) **Secondary collection index** (GPT-5.2 fix #1): `Map<string, Set<string>>` mapping `collectionId → Set<cacheKey>` — enables efficient collection-level aggregation in T2.3 without scanning all keys. Collection ID extracted as the prefix before `:` in personality_id (e.g., `honeyjar` from `honeyjar:42`). Both indexes built lazily on first full scan (during `getPoolQuality()` cache miss). Updated incrementally on `recordQuality()`. **Hard caps** (GPT-5.2 fix #2): `maxIndexKeys=1000` with LRU eviction (evict oldest-accessed key when full), `maxEventsPerKey=100` (ring buffer — oldest event dropped on overflow). When index exists, cache miss uses indexed data instead of full stream replay. Index is optional — when not populated (first cache miss after startup), falls back to stream replay to build both indexes. Test: append 1000 events across 50 personality:pool pairs in 5 collections. First cache miss → full scan + dual index build. Second miss for different key → O(1) indexed lookup (no full scan). Collection secondary index correctly groups keys by collection prefix. LRU eviction at key cap works. Heap usage for 1000-key index < 25MB (measured). |
-| T2.2 | Stream compaction for JSONL quality stream (JSONL-only) | `src/nft/routing-quality.ts`: Implement `compactQualityStream(retainPerKey: number = 100): Promise<{ keysCompacted: number; eventsRemoved: number }>`. **JSONL-only** (GPT-5.2 fix #3): compaction checks backend type — if EventWriter is not JSONL-backed, returns `{ keysCompacted: 0, eventsRemoved: 0 }` (no-op). For Postgres, future work: retention DELETE job keyed by (personality_id, pool_id) with windowing (logged as follow-up). JSONL algorithm: (a) full scan of `routing_quality` stream, (b) group by `personality_id:pool_id`, (c) for each key retain only the `retainPerKey` most recent events, (d) write compacted events to new stream file, (e) atomically swap (rename old → `.bak`, rename new → active). Compaction runs on-demand (not automatic in v1 — callers decide when). After compaction, the in-memory index is rebuilt. Test: 1000 JSONL events across 10 keys → compact(retain=50) → 500 events remain (50 per key). Compacted stream replays identically to original for recent events. Quality scores computed from compacted stream match pre-compaction scores (within floating-point epsilon). Postgres backend → no-op, zero events removed. |
-| T2.3 | Collection-level reputation aggregation with anti-manipulation | `src/nft/reputation-bootstrap.ts` (NEW): Implement `ReputationBootstrap` class. Constructor accepts `RoutingQualityStore` (for index access) and `ReputationConfig` (tunable thresholds). Method `getCollectionQuality(collectionId: string, poolId: string): QualityScore | null`. Algorithm: (a) Use secondary collection index from T2.1 to get all `cacheKey`s for `collectionId` — O(#personalities_in_collection), NOT O(total_keys) (GPT-5.2 fix #1). (b) Filter to personalities with `sample_count >= minSampleCount` (default 5) — excludes low-data personalities (GPT-5.2 fix #7). (c) Cap at `maxContributors` (default 20), selecting by highest `sample_count`. (d) Weight each contributor by `min(sample_count / 50, 1.0)` — confidence weighting. (e) Apply **trimmed mean**: discard highest and lowest scores, weighted-average the rest. (f) Return aggregated score. If fewer than 2 qualifying personalities → returns null (insufficient data for trimming). Test: 3 personalities with scores [0.8, 0.6, 0.7] and sufficient samples → trimmed mean ≈ 0.7. Empty collection → null. Single personality → null (can't trim). 1 outlier at 0.1 among [0.7, 0.8, 0.7, 0.8, 0.1] → trimmed mean ≈ 0.75 (outlier discarded). Personality with only 2 events (below minSampleCount=5) → excluded from aggregation. |
-| T2.4 | Warm-start protocol with Bayesian pseudo-count blending | `src/nft/reputation-bootstrap.ts`: Add `getQualityWithBootstrap(personalityId: string, poolId: string, collectionId?: string): { score: QualityScore | null; source: "personal" | "bootstrap" | "none" }`. Lookup cascade: (1) Personality quality (cache) with n personal events → if found, blend with collection prior. (2) No personal data, collection quality exists → return collection quality as bootstrap with `source: "bootstrap"`. (3) Neither → return `{ score: null, source: "none" }` (static affinity, current behavior). **Bayesian blending** (GPT-5.2 fix #4): When personal data exists AND collection data exists, compute `q_effective = (k * q_collection + n * q_personal) / (k + n)` where `k` is pseudo-count (default 3, configurable via `FINN_BOOTSTRAP_PSEUDO_COUNT`). This ensures: at n=0, pure collection prior; at n=5, prior weight = k/(k+n) = 3/8 = 37.5% (< 40%); at n=10, prior weight ≈ 23%. Test: new personality, no history, collection has history → returns bootstrap score with source="bootstrap". Personality with 5 personal events → prior weight < 40% of effective score. Personality with 10+ events → prior weight < 25%. Both empty → source="none". Bootstrap score with source="bootstrap" used in routing → measurably shifts pool selection vs. pure static affinity. |
-| T2.5 | Wire reputation bootstrap into routing affinity | `src/nft/routing-affinity.ts`: Modify `computeRoutingAffinity()` to accept optional `collectionId: string` and optional `reputationBootstrap: ReputationBootstrap`. When `qualityStore` is present and no personality quality exists, attempt collection-level bootstrap via `getQualityWithBootstrap()`. Bootstrap scores from source="bootstrap" blend at Bayesian-discounted weight (already computed in T2.4). Personal scores from source="personal" use standard `qualityWeight`. No data (source="none") → pure static affinity (current behavior). Without collectionId or reputationBootstrap → current behavior exactly (no bootstrap). Test: new personality in collection with quality history → routing differs from pure static affinity. Same personality without collectionId → pure static affinity. Established personality with 10+ events → routing nearly identical to no-bootstrap (prior weight negligible). |
-| T2.6 | Performance + integration test suite | `tests/nft/reputation-bootstrap.test.ts` (NEW) + updates to `tests/nft/routing-quality.test.ts`: (a) **Index performance**: 10,000 events → indexed lookup <1ms (vs. full scan). First miss triggers scan, subsequent misses use index. Heap bound: 1000-key index < 25MB. (b) **Compaction correctness**: pre/post compaction quality scores match within epsilon. Postgres backend → no-op. (c) **Collection aggregation**: multi-personality collection produces correct trimmed mean. minSampleCount filter works. maxContributor cap works. Single outlier cannot shift score more than 10% vs. trimmed mean without outlier. (d) **Warm-start cascade**: personal → bootstrap → none fallback works correctly. (e) **Bootstrap Bayesian decay**: at n=5 personal events, collection prior weight < 40%. At n=10, < 25%. Monotonically decreasing. (f) **Anti-manipulation**: attacker mints 50 personalities with score=0.0, all below minSampleCount → collection score unaffected. Attacker with 1 high-sample personality at score=0.0 among 5 honest personalities → trimmed mean excludes the outlier. (g) **E2E**: new personality minted in active collection → first request uses bootstrap routing → quality recorded → subsequent requests increasingly use personal quality. (h) **Backward compat**: all 34+ existing routing-quality tests pass unchanged. All Sprint 1 governance tests pass. |
-
-### Testing
-
-- Indexed lookup is O(1) after initial build — measured <1ms for 10K events
-- Heap bound: index < 25MB for 1000 keys
-- Stream compaction preserves quality score accuracy (JSONL-only; Postgres no-op)
-- Collection reputation sharing provides meaningful warm-start with anti-manipulation
-- Bayesian bootstrap decay: prior weight < 40% by 5 personal events
-- Anti-sybil: outlier personalities cannot shift collection score beyond bound
-- All 34+ existing routing-quality tests pass unchanged
-- Performance: 1000 sequential cache lookups still <100ms
+| Field | Value |
+|-------|-------|
+| **FR** | FR-13 |
+| **Files** | `tests/finn/conformance-vectors.test.ts` |
+| **Description** | Execute all 202 conformance vectors. Each vector defines inputs and expected outputs — the test runner validates finn's implementation against protocol expectations. |
+| **Acceptance** | 202/202 pass. Zero failures. |
+| **Blocked by** | 1.5 |
 
 ---
 
-## Environment Variables (New)
+## Sprint 2: Type System + Vocabulary + Handshake (global-127)
 
-| Variable | Sprint | Required | Description |
-|----------|--------|----------|-------------|
-| `FINN_QUALITY_GOVERNANCE_OVERRIDES` | 1 | No | JSON string overriding archetype signal weights (strict schema validation — known keys only, finite ≥ 0, safety_pass excluded) |
-| `FINN_SYCOPHANCY_DETECTION_ENABLED` | 1 | No | Enable/disable anti-sycophancy detection (default: true) |
-| `FINN_BOOTSTRAP_PSEUDO_COUNT` | 2 | No | Bayesian pseudo-count k for collection prior blending (default: 3) |
-| `FINN_BOOTSTRAP_MIN_SAMPLES` | 2 | No | Minimum quality events per personality to contribute to collection reputation (default: 5) |
-| `FINN_BOOTSTRAP_MAX_CONTRIBUTORS` | 2 | No | Max personalities contributing to collection reputation per pool (default: 20) |
-| `FINN_QUALITY_INDEX_ENABLED` | 2 | No | Enable in-memory quality event index (default: true) |
-| `FINN_QUALITY_INDEX_MAX_KEYS` | 2 | No | Max keys in quality event index before LRU eviction (default: 1000) |
-| `FINN_QUALITY_COMPACTION_RETAIN` | 2 | No | Events to retain per key during compaction (default: 100) |
+**Goal**: Adopt protocol type system (strict parser, MicroUSDC migration, schemas), vocabulary utilities, access policy in shadow mode, and update protocol handshake with semver-derived feature detection.
+
+**Exit criteria**: `StrictMicroUSD` wrapper works with nominal branding, MicroUSDC migrated to protocol import with compile-time verification, JTI policy enforced, access policy running in asymmetric shadow mode, handshake detects 4 peer features.
+
+### Task 2.1 — Add `parseStrictMicroUSD` wrapper
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-7 |
+| **Files** | `src/hounfour/wire-boundary.ts`, `tests/finn/wire-boundary.test.ts` |
+| **Description** | Add `parseStrictMicroUSD()` that delegates to protocol `parseMicroUsd()`. Return type is `StrictMicroUSD` — a locally-branded type that intersects the protocol `ProtocolMicroUSD` with a local `_strictMicroUSDBrand: unique symbol`. This ensures: (1) the value is protocol-validated (non-negative), and (2) it cannot be assigned from the local `MicroUSD` type (which allows negatives). The function validates via `parseMicroUsd()`, then brands the result with a single safe constructor (the only place where the internal branding cast occurs). |
+| **Acceptance** | Positive values return `StrictMicroUSD`. Negative values throw `WireBoundaryError`. Zero returns `StrictMicroUSD`. Compile-time test: `StrictMicroUSD` is NOT assignable from local `MicroUSD`. Compile-time test: `StrictMicroUSD` IS assignable to `ProtocolMicroUSD` (superset). No `as unknown as` casts outside the single `parseStrictMicroUSD` constructor. |
+| **Blocked by** | Sprint 1 complete |
+
+### Task 2.2 — Negative boundary invariant tests
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-7a |
+| **Files** | `tests/finn/wire-boundary.test.ts` |
+| **Description** | Add tests enforcing the negative value boundary invariant: negative MicroUSD ONLY in internal accounting contexts, NEVER at strict boundaries. Round-trip: WAL -> internal -> outbound wire must reject negatives at the wire boundary. Property test: any negative input to `parseStrictMicroUSD` produces `WireBoundaryError`. |
+| **Acceptance** | Round-trip test rejects negative at wire boundary. Property test (100+ random negative values) all produce error. No negative value can be branded as `StrictMicroUSD`. |
+| **Blocked by** | 2.1 |
+
+### Task 2.3 — Migrate MicroUSDC to protocol import
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-9, FR-9a |
+| **Files** | `src/hounfour/wire-boundary.ts`, `src/hounfour/protocol-types.ts` (NEW), `tests/finn/branded-type-migration.test.ts` (NEW) |
+| **Description** | Replace local `MicroUSDC` brand (wire-boundary.ts:236-265) with protocol import from `@0xhoneyjar/loa-hounfour/economy`. Create `src/hounfour/protocol-types.ts` as centralized re-export module. Use `readMicroUSDC(raw.toString())` for conversion (validates non-negativity) — guard that `raw` is `bigint` before calling `.toString()` to prevent Number precision loss (e.g., `Number(9007199254740993).toString()` loses precision). Add compile-time `expectTypeOf` brand verification test. |
+| **Acceptance** | Local MicroUSDC brand declaration deleted. Protocol import used everywhere. Re-export provides backward-compatible import path. `readMicroUSDC()` validates non-negativity. Brand verification test passes. |
+| **Blocked by** | 2.1 |
+
+### Task 2.4 — Import protocol schemas and types
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-8, FR-10 |
+| **Files** | `src/hounfour/types.ts`, `src/hounfour/jwt-auth.ts`, `src/billing/types.ts` |
+| **Description** | Import and use `JwtClaimsSchema`, `BillingEntrySchema`, `EconomicBoundarySchema`, `QualificationCriteria`, `DenialCode`, `EvaluationGap`, `ModelEconomicProfileSchema`, `ConstraintOrigin`, `ReputationStateName` from protocol. Import `JTI_POLICY` and create `EFFECTIVE_JTI_POLICY` (replay cache window = `Math.min(Math.max(local, protocol), MAX_JTI_WINDOW_SECONDS)` — larger is stricter for replay detection, but capped by `MAX_JTI_WINDOW_SECONDS` env var (default: 600s) to protect tenants from protocol-imposed excessively large windows; required = OR of both). Wire into Redis TTL, max-age check, required flag. |
+| **Acceptance** | All types imported and used. `EFFECTIVE_JTI_POLICY` created with capped `Math.max` for window_seconds. `MAX_JTI_WINDOW_SECONDS` env var respected (default 600). Test: token with jti replayed after local window but within effective window is rejected. Test: protocol window of 3600s capped to 600s default. Log WARNING when protocol window exceeds local by >2x. |
+| **Blocked by** | 2.1 |
+
+### Task 2.5 — Adopt vocabulary utilities
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-11 |
+| **Files** | `src/budget.ts`, `src/pricing.ts`, `src/billing/types.ts`, `src/nft-routing-config.ts` |
+| **Description** | Import and use: `computeCostMicro()`/`computeCostMicroSafe()` (validate against local `calculateCostMicro`), `verifyPricingConservation()`, `validateBillingEntry()`, `isValidNftId()`/`parseNftId()`, `isKnownReputationState()`, vocabulary constants (`REPUTATION_STATES`, `ECONOMIC_CHOREOGRAPHY`, `TRANSFER_INVARIANTS`). |
+| **Acceptance** | Protocol functions imported. Consistency tests verify local and protocol functions agree on same inputs. Vocabulary constants used in documentation/logging. |
+| **Blocked by** | 2.1 |
+
+### Task 2.6 — Shadow-mode access policy evaluation
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-12 |
+| **Files** | `src/hounfour/pool-enforcement.ts` |
+| **Description** | Import `evaluateAccessPolicy()` and run with documented rollout ladder. Rename modes: `observe` (log-only, no enforcement), `asymmetric` (protocol-deny overrides local-allow, protocol-allow does NOT override local-deny), `enforce` (protocol result replaces local result). Controlled by `ECONOMIC_BOUNDARY_ACCESS_POLICY_ENFORCEMENT` env var (observe/asymmetric/enforce, default: observe). Log divergence with structured fields. Document rollout ladder in code comments: observe → asymmetric → enforce, with criteria for each promotion (e.g., <1% divergence rate for 7 days to promote observe→asymmetric). |
+| **Acceptance** | `evaluateAccessPolicy()` runs on every request. `observe` mode: logs divergence only, never blocks. `asymmetric` mode: protocol deny blocks even when local allows. `enforce` mode: protocol result used directly. Divergence logged with account_id, pool_id, local_result, protocol_result. Test: all 3 modes with protocol-deny + local-allow scenario. Rollout ladder documented in code. |
+| **Blocked by** | 2.4 |
+
+### Task 2.7 — Update protocol handshake feature detection
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-16, FR-17, FR-17a |
+| **Files** | `src/hounfour/protocol-handshake.ts`, `tests/finn/protocol-handshake.test.ts` |
+| **Description** | Extend `PeerFeatures` with `capabilityScopedTrust` (v7.6.0+), `economicBoundary` (v7.9.0+), and `constraintOrigin` (v7.9.0+). Create `FEATURE_VERSIONS` registry mapping all 4 feature names to introduction versions. Use semver comparison (not hardcoded booleans). Handle parse failures: try/catch with all-false default (fail-closed). Handle prerelease: treat as < release for same major.minor. |
+| **Acceptance** | 5 simulated peer versions pass (v4.6.0, v6.0.0, v7.0.0, v7.6.0, v7.9.2) — all 4 flags correct for each version. Malformed version -> all features false. Prerelease "7.9.0-rc.1" -> economicBoundary false. Structured log line includes all 4 feature flags (`trustScopes`, `capabilityScopedTrust`, `economicBoundary`, `constraintOrigin`). |
+| **Blocked by** | 2.1 |
 
 ---
 
-## Success Criteria
+## Sprint 3: Decision Engine + Choreography (global-128)
 
-| Metric | Target | Sprint |
-|--------|--------|--------|
-| Anti-sycophancy detection | Catches agreeable-but-incoherent responses | Sprint 1 |
-| Archetype governance | Different archetypes produce different quality scores for same signals | Sprint 1 |
-| Backward compatibility | All 34 existing routing-quality tests pass unchanged | Both |
-| Safety floor | `safety_pass=false` always overrides governance | Sprint 1 |
-| Fire-and-forget | Governance errors never block response path | Sprint 1 |
-| Env var validation | Malformed governance overrides degrade gracefully to defaults | Sprint 1 |
-| Bounded cardinality | ALL new Prometheus metrics have bounded label sets | Sprint 1 |
-| Indexed lookup | O(1) cache miss resolution after initial scan, heap < 25MB | Sprint 2 |
-| Stream compaction | Quality scores preserved within epsilon after compaction (JSONL-only) | Sprint 2 |
-| Collection bootstrap | New personalities get warm-start from collection peers | Sprint 2 |
-| Anti-manipulation | Outlier personality cannot shift collection score > 10% | Sprint 2 |
-| Bootstrap decay | Collection prior weight < 40% by 5 personal events | Sprint 2 |
+**Goal**: Integrate `evaluateEconomicBoundary()` as the pre-invocation gate (step 2 in the enforcement choreography), wire it into invoke/oracle routes, verify choreography failure semantics, and update documentation.
+
+**Exit criteria**: Economic boundary middleware active on all invoke/oracle routes, 4 choreography failure scenarios tested, runtime feature flag operational, observability metrics emitting, code reality updated.
+
+### Task 3.1 — Economic boundary adapter + snapshot builders
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-4, FR-5 |
+| **Files** | `src/hounfour/economic-boundary.ts` (NEW) |
+| **Description** | Create economic boundary adapter. Implement `TIER_TRUST_MAP` (typed `Record<string, TrustLevel>`, validated at boot against protocol tier definitions). Implement `buildCapabilityScopedTrust()` (populates 6D trust from JWT claims.trust_scopes). Implement `buildTrustSnapshot()` (returns null on missing pool_id or unknown tier — fail-closed). Implement `buildCapitalSnapshot()` (reads budget.snapshot(), returns null on any failure — fail-closed). Import `EconomicBoundarySchema` from `@0xhoneyjar/loa-hounfour/economy`. Capital snapshot is a coarse pre-check — budget reserve is the authoritative contention point. Env flag interaction matrix: document valid combinations of `ECONOMIC_BOUNDARY_MODE` × `ECONOMIC_BOUNDARY_ACCESS_POLICY_ENFORCEMENT` (6 cells). Add startup validation: reject invalid env values with descriptive error (e.g., `ECONOMIC_BOUNDARY_MODE=foo` → process exits with message listing valid values). |
+| **Acceptance** | `buildTrustSnapshot` returns valid snapshot with correct tier->trust mapping. Returns null when pool_id missing or tier unknown. `buildCapitalSnapshot` returns valid snapshot from budget state. Returns null on budget.snapshot() failure. Boot-time `validateTierTrustMap()` throws if protocol tier missing from map. |
+| **Blocked by** | Sprint 2 complete |
+
+### Task 3.2 — Economic boundary middleware
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-4 |
+| **Files** | `src/hounfour/economic-boundary.ts`, `src/server.ts` |
+| **Description** | Create `economicBoundaryMiddleware()` that runs UNCONDITIONALLY (local decision engine, not gated on peer features). Policy denials return 403. Infrastructure errors (snapshot unavailable, schema failure, exceptions) return 503 with `error_type: "infrastructure"`. Validate combined `{ trust, capital }` input against `EconomicBoundarySchema.safeParse()`. Entire middleware wrapped in try/catch. Implement `ECONOMIC_BOUNDARY_MODE` env var (enforce/shadow/bypass) for safe production rollout. Add observability: `economic_boundary_evaluations_total` counter, `economic_boundary_latency_ms` histogram, structured log on every evaluation. |
+| **Acceptance** | Middleware compiles and mounts. Policy denial -> 403 with denial_codes. Infra error -> 503 with error_type. Schema validation failure -> 503. Unhandled exception -> 503 (no provider call). `ECONOMIC_BOUNDARY_MODE=bypass` skips evaluation. `shadow` mode logs but allows — structured log includes `{ mode: "shadow", decision, denial_codes, trust_tier, latency_ms }` and divergence from local-only path is tracked with SLO threshold (>5% divergence rate triggers alert). Performance budget: p95 < 2ms, p99 < 5ms (pure computation, no I/O). Metrics emitting. Circuit breaker on snapshot failures: after 5 consecutive failures in 30s, circuit opens — bypass economic boundary (log at ERROR with `circuit: "open"`), allow requests through. Resets on next successful snapshot. Prevents budget-service outage from cascading to total invoke/oracle unavailability. |
+| **Blocked by** | 3.1 |
+
+### Task 3.3 — Choreography failure tests
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-5a |
+| **Files** | `tests/finn/economic-boundary.test.ts` (NEW) |
+| **Description** | Test all 4 failure scenarios from SDD section 6.3. Steps 5-6 test EXISTING behaviors (WAL compensating entries via `billing-conservation-guard.ts`, DLQ via `billing-finalize-client.ts` — no new implementation needed). Steps 1-2 test NEW economic boundary behavior. Scenarios: (1) Step 2 denial -> no provider call, no billing (NEW). (2) Step 5 conservation failure -> no billing commit (EXISTING `BillingConservationGuard` behavior — verify no regression). (3) Step 6 finalize failure -> DLQ entry (EXISTING `BillingFinalizeClient` DLQ behavior — verify no regression). (4) Successful full lifecycle -> all 6 steps execute (integration). Also test new infra error paths: budget.snapshot throws -> 503, schema validation fails -> 503, trust snapshot null -> 503. |
+| **Acceptance** | All 4 choreography scenarios pass. Infrastructure error tests pass (503 for snapshot/schema/exception failures, 403 for policy denials). No provider call on boundary denial. Steps 5-6 assertions verify existing behavior is preserved. TOCTOU concurrency test: two concurrent requests where economic boundary allows but budget reserve denies (race between snapshot read and reserve write) — verify second request gets 402/503, not silent overcommit. |
+| **Blocked by** | 3.2 |
+
+### Task 3.4 — Wire economic boundary into invoke/oracle paths
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-4 |
+| **Files** | `src/server.ts`, `src/routes/invoke.ts`, `src/routes/oracle.ts` |
+| **Description** | Wire `economicBoundaryMiddleware` after `hounfourAuth` and before budget reserve on both invoke and oracle routes. Position in middleware chain: JWT Auth -> Economic Boundary -> Budget Reserve -> Provider Call -> Conservation Guard -> Billing Finalize. Add route-level test asserting middleware ordering (auth before boundary, boundary before reserve). |
+| **Acceptance** | Middleware active on `/api/v1/invoke` and `/api/v1/oracle` routes. Request with insufficient trust/capital gets 403 before provider call. Existing tests still pass (middleware in enforce mode with valid tenants). Route-level ordering test passes. |
+| **Blocked by** | 3.1, 3.2 |
+
+### Task 3.5 — Graceful degradation for pre-v7.9 peers
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-17a |
+| **Files** | `src/hounfour/economic-boundary.ts` |
+| **Description** | Verify economic boundary runs unconditionally regardless of peer features. When `!peerFeatures.economicBoundary` or `!peerFeatures.capabilityScopedTrust`, trust snapshot uses flat `trust_level` only (no 6D trust). Log degraded mode at WARN with feature name, remote version, and introduction version. |
+| **Acceptance** | With peer at v4.6.0: boundary evaluates using flat trust, logs degradation warning. With peer at v7.9.2: boundary uses full 6D trust. Both cases: evaluation runs (never skipped). |
+| **Blocked by** | 3.4, 2.7 (requires PeerFeatures including `capabilityScopedTrust`) |
+
+### Task 3.6 — Update hounfour code reality
+
+| Field | Value |
+|-------|-------|
+| **FR** | FR-18 |
+| **Files** | `grimoires/oracle/code-reality-hounfour.md` |
+| **Description** | Update the hounfour code reality document to reflect v7.9.2 exports, new modules, updated import map, and new protocol functions. Include: `evaluateEconomicBoundary`, `evaluateFromBoundary`, `EconomicBoundarySchema`, `parseMicroUsd`, `MicroUSDC`/`readMicroUSDC`, `evaluateAccessPolicy`, `ConstraintOrigin`, `CapabilityScopedTrust`, 202 conformance vectors. |
+| **Acceptance** | Reality doc reflects v7.9.2. All new exports documented. Import map updated. No stale v7.0.0 references. |
+| **Blocked by** | 3.5 |
 
 ---
 
-## Architecture Notes
+## Risk Matrix
 
-### The Governance Model Insight
+| # | Risk | Sprint | Mitigation |
+|---|------|--------|------------|
+| R1 | v7.9.2 export-map changes break imports | 1 | Task 1.3 abort gate — stop if resolution fails |
+| R2 | Vector count != 202 | 1 | Self-verifying loader with hard count assertion |
+| R3 | MicroUSDC brand symbol mismatch -> TS errors | 2 | Centralized re-export + compile-time brand verification |
+| R4 | Economic boundary adds latency | 3 | Pure computation (<1ms); benchmark in acceptance test |
+| R5 | Handshake feature detection edge cases | 2 | 5 simulated peer versions + malformed/prerelease tests |
+| R6 | Negative values leak to strict boundary | 2 | Property test + nominal StrictMicroUSD branding |
+| R7 | Shadow access policy diverges from tier checks | 2 | Asymmetric mode: protocol-deny overrides local-allow |
 
-The Bridgebuilder review's deepest observation: **the quality signal ontology IS the governance model**. What loa-finn measures determines what the system optimizes for. A system that only measures user satisfaction will converge on sycophancy. A system that only measures coherence will converge on mediocrity.
+---
 
-The governance model in Sprint 1 introduces *counter-signals* — measurements that create tension with each other. A personality cannot simultaneously maximize satisfaction (by agreeing with everything) and challenge rate (by pushing back on assumptions). This tension is the mechanism that prevents degenerate optimization.
+## Success Criteria (All Sprints)
 
-This is the same insight behind Google's search quality evolution:
-- v1: PageRank (link authority) → gamed by link farms
-- v2: Panda (content quality) → counter-signal to thin content
-- v3: BERT (semantic understanding) → counter-signal to keyword stuffing
+- [ ] `pnpm install` clean — no postinstall patching
+- [ ] ~1,105+ existing tests pass (zero regressions)
+- [ ] 202/202 conformance vectors pass
+- [ ] No `as unknown as` casts at protocol boundaries
+- [ ] `StrictMicroUSD` nominally branded (compile-time verification)
+- [ ] `MicroUSDC` migrated to single protocol source of truth
+- [ ] `EFFECTIVE_JTI_POLICY` uses `Math.max` (larger replay window = stricter)
+- [ ] Economic boundary middleware active on invoke + oracle routes
+- [ ] 4 choreography failure scenarios tested
+- [ ] Feature detection works for 5 peer versions + edge cases
+- [ ] Access policy in asymmetric shadow mode
+- [ ] Runtime kill-switch (`ECONOMIC_BOUNDARY_MODE`) operational
+- [ ] Observability metrics emitting
 
-Each counter-signal closed an optimization loophole. Sprint 1 closes the sycophancy loophole.
+---
 
-### The Reputation Portability Principle
-
-Sprint 2's collection-level reputation sharing embodies a Web4 principle: if reputation is a form of social currency, the ability to port it across contexts is a feature, not a bug.
-
-When a user mints a new NFT in the `honeyjar` collection, that NFT should benefit from the collection's accumulated quality history — not start from zero. This is analogous to:
-- **Credit bureaus**: a new account benefits from the holder's credit history
-- **Google Scholar**: a new paper benefits from the author's h-index
-- **Uber**: a new market benefits from the driver's rating in other markets
-
-The Bayesian pseudo-count blending (k=3) encodes appropriate skepticism: collection reputation is a *prior*, not a *certainty*. It fades monotonically as personal data accumulates, ensuring earned reputation always dominates inherited reputation. The anti-manipulation guardrails (trimmed mean, min samples, max contributors) prevent a single actor from poisoning the collection's reputation — the same defense mechanism that TripAdvisor uses for its review aggregation.
+*19 tasks. 3 sprints. Pure adoption — no new infrastructure, no module reorganization. Every task extends existing, tested code.*

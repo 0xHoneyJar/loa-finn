@@ -110,6 +110,28 @@ export {
 } from "@0xhoneyjar/loa-hounfour/economy"
 export type { EconomicChoreography } from "@0xhoneyjar/loa-hounfour/economy"
 
+// Economy — Economic Boundary Evaluation (Task 3.1)
+export {
+  evaluateEconomicBoundary,
+  evaluateFromBoundary,
+} from "@0xhoneyjar/loa-hounfour"
+export {
+  TrustLayerSnapshotSchema,
+  CapitalLayerSnapshotSchema,
+  AccessDecisionSchema,
+  TrustEvaluationSchema,
+  CapitalEvaluationSchema,
+  EconomicBoundaryEvaluationResultSchema,
+} from "@0xhoneyjar/loa-hounfour/economy"
+export type {
+  TrustLayerSnapshot,
+  CapitalLayerSnapshot,
+  AccessDecision,
+  TrustEvaluation,
+  CapitalEvaluation,
+  EconomicBoundaryEvaluationResult,
+} from "@0xhoneyjar/loa-hounfour/economy"
+
 // Access Policy Evaluation (Task 2.6)
 export {
   evaluateAccessPolicy,
