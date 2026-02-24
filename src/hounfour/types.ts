@@ -114,6 +114,7 @@ export interface RequestMetadata {
   nft_id: string                        // "" for Phase 0-3
   trace_id: string                      // UUID per request
   reservation_id?: string               // billing reservation from arrakis JWT (Phase 5)
+  task_type?: import("./protocol-types.js").TaskType  // Task type classification (v7.11.0)
 }
 
 export interface CompletionResult {
@@ -284,6 +285,8 @@ export interface BudgetSnapshot {
 /** Provider for dynamic reputation scoring (Sprint 5, Task 5.3). */
 export interface ReputationProvider {
   getReputationBoost(tenantId: string): Promise<{ boost: number; source: string } | null>
+  /** Optional cohort-specific score for task-dimensional reputation (v7.11.0, Task 2.4). */
+  getTaskCohortScore?(tenantId: string, taskType: string): Promise<number | null>
 }
 
 // --- Ledger Entry (16 fields per SDD §5.2) ---
@@ -326,6 +329,7 @@ export interface LedgerEntryV2 {
   nft_id?: string
   pool_id?: string
   ensemble_id?: string
+  task_type?: string                      // Task type (e.g., "finn:conversation") — optional for backward compat
   prompt_tokens: number
   completion_tokens: number
   reasoning_tokens: number

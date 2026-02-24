@@ -24,12 +24,15 @@ import {
   assertValidPoolId,
 } from "./tier-bridge.js"
 import { allowedPoolsForTier } from "../nft/routing-affinity.js"
-import { parsePoolId } from "./wire-boundary.js"
+import { parsePoolId, parseTaskType, isRegisteredTaskType, DEFAULT_TASK_TYPE, resolveLegacyTaskType } from "./wire-boundary.js"
 import {
   evaluateAccessPolicy,
   type AccessPolicyContext,
   type AccessPolicyResult,
 } from "./protocol-types.js"
+import type { TaskType } from "./protocol-types.js"
+import { OPEN_TASK_TYPES_ENABLED } from "./economic-boundary.js"
+import { isTenantAllowlisted } from "./task-type-allowlist.js"
 
 // --- Types (SDD §3.1.1) ---
 
@@ -346,6 +349,14 @@ export const ENFORCEMENT_GEOMETRY: "expression" | "native" = (() => {
   return "expression"
 })()
 
+/** Policy for unknown (unregistered, non-allowlisted) task types. */
+export const UNKNOWN_TASK_TYPE_POLICY: "safe_default" | "deny" = (() => {
+  const raw = process.env.UNKNOWN_TASK_TYPE_POLICY ?? "safe_default"
+  if (raw === "safe_default" || raw === "deny") return raw
+  console.warn(`[pool-enforcement] Invalid UNKNOWN_TASK_TYPE_POLICY="${raw}". Defaulting to "safe_default".`)
+  return "safe_default"
+})()
+
 // --- Composed HTTP Middleware: hounfourAuth (SDD §3.1.5) ---
 
 /**
@@ -373,6 +384,44 @@ export function hounfourAuth(
     if (!authResult.ok) {
       return c.json(authResult.body, authResult.status)
     }
+
+    // 1.5. Task type gate (v7.11.0, SDD §4.6.4)
+    // Parse task type from header, resolve legacy, validate registration or allowlist
+    let taskType: TaskType = DEFAULT_TASK_TYPE
+    let taskTypeRestricted = false
+
+    if (OPEN_TASK_TYPES_ENABLED) {
+      const rawTaskType = c.req.header("X-Task-Type")
+      if (rawTaskType) {
+        try {
+          taskType = parseTaskType(rawTaskType)
+        } catch {
+          // Try legacy resolution
+          const legacy = resolveLegacyTaskType(rawTaskType)
+          if (legacy) {
+            taskType = legacy
+          } else {
+            return c.json({ error: "Bad Request", code: "INVALID_TASK_TYPE" }, 400)
+          }
+        }
+
+        // Check if the resolved task type is known (registered or allowlisted)
+        const isKnown = isRegisteredTaskType(taskType) ||
+                        isTenantAllowlisted(authResult.context.claims.tenant_id, taskType)
+
+        if (!isKnown) {
+          if (UNKNOWN_TASK_TYPE_POLICY === "deny") {
+            return c.json({ error: "Forbidden", code: "UNKNOWN_TASK_TYPE" }, 403)
+          }
+          // safe_default: allow but restrict
+          taskTypeRestricted = true
+        }
+      }
+    }
+
+    // Set TaskType in Hono context (branded type via module augmentation)
+    c.set("taskType", taskType)
+    c.set("taskTypeRestricted", taskTypeRestricted)
 
     // 2. Pool enforcement (single config snapshot for both enforce + log)
     const poolConfig = getPoolConfig()

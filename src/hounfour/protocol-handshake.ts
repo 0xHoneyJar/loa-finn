@@ -159,8 +159,17 @@ export async function validateProtocolAtBoot(config: HandshakeConfig): Promise<H
     if (fetchTimeout) clearTimeout(fetchTimeout)
   }
 
+  // Validate health response structure (Task 2.12)
+  const validatedHealth = validateHealthResponse(healthData)
+  if (!validatedHealth) {
+    const msg = "arrakis health response has invalid structure"
+    if (isProd) throw new Error(`[protocol-handshake] FATAL: ${msg}`)
+    console.warn(`[protocol-handshake] ${msg} — continuing with default features (dev mode)`)
+    return { ok: true, status: "degraded", message: `warn: ${msg}` }
+  }
+
   // Extract contract_version
-  const remoteVersion = healthData.contract_version
+  const remoteVersion = validatedHealth.contract_version
   if (typeof remoteVersion !== "string" || !remoteVersion) {
     const msg = "arrakis health response missing contract_version — upgrade arrakis"
     if (isProd) throw new Error(`[protocol-handshake] FATAL: ${msg}`)
@@ -178,7 +187,7 @@ export async function validateProtocolAtBoot(config: HandshakeConfig): Promise<H
   }
 
   // Feature detection
-  const peerFeatures = detectPeerFeatures(remoteVersion, healthData)
+  const peerFeatures = detectPeerFeatures(remoteVersion, validatedHealth)
 
   const warnSuffix = compat.warning ? ` (${compat.warning})` : ""
   const featureSummary = Object.entries(peerFeatures)
@@ -283,13 +292,59 @@ function compareSemver(
 }
 
 /**
+ * Runtime structural validation for ArrakisHealthResponse (SDD §4.2, Task 2.12).
+ * Uses typeof/in guards — no schema library (finn doesn't use zod/typebox).
+ * Returns validated response or null (with logged warning) on invalid shape.
+ */
+function validateHealthResponse(data: Record<string, unknown>): ArrakisHealthResponse | null {
+  // status must be a string
+  if (typeof data.status !== "string") {
+    console.warn("[protocol-handshake] Health response missing or invalid 'status' field")
+    return null
+  }
+
+  // contract_version must be a string
+  if (typeof data.contract_version !== "string") {
+    console.warn("[protocol-handshake] Health response missing or invalid 'contract_version' field")
+    return null
+  }
+
+  // capabilities is optional, but if present must be array of strings
+  if (data.capabilities !== undefined) {
+    if (!Array.isArray(data.capabilities)) {
+      console.warn("[protocol-handshake] Health response 'capabilities' is not an array — ignoring")
+      // Don't fail — just ignore capabilities
+      return {
+        status: data.status as "ok" | "degraded" | "down",
+        contract_version: data.contract_version,
+        trust_scopes: data.trust_scopes as Record<string, unknown> | undefined,
+      }
+    }
+    // Filter out non-string entries (forward-compatible — unknown entries silently ignored)
+    const validCapabilities = data.capabilities.filter((c: unknown) => typeof c === "string") as string[]
+    return {
+      status: data.status as "ok" | "degraded" | "down",
+      contract_version: data.contract_version,
+      capabilities: validCapabilities,
+      trust_scopes: data.trust_scopes as Record<string, unknown> | undefined,
+    }
+  }
+
+  return {
+    status: data.status as "ok" | "degraded" | "down",
+    contract_version: data.contract_version,
+    trust_scopes: data.trust_scopes as Record<string, unknown> | undefined,
+  }
+}
+
+/**
  * Detect peer features based on remote version and health response.
  * Uses dual-strategy detection (SDD §4.2):
  *   1. Capabilities array (primary) — explicit declaration from peer
  *   2. Semver FEATURE_THRESHOLDS (fallback) — backward compat with v7.9.2
  *   3. legacy_field (trustScopes only) — backward compat with pre-v7.0
  */
-function detectPeerFeatures(remoteVersion: string, healthData: Record<string, unknown>): PeerFeatures {
+function detectPeerFeatures(remoteVersion: string, healthData: ArrakisHealthResponse): PeerFeatures {
   const remote = parseSemver(remoteVersion)
   const meetsThreshold = (threshold: { major: number; minor: number; patch: number }) =>
     compareSemver(remote, threshold) >= 0
@@ -298,8 +353,8 @@ function detectPeerFeatures(remoteVersion: string, healthData: Record<string, un
   // 1. Capabilities array (primary) — explicit declaration from peer
   // 2. Semver FEATURE_THRESHOLDS (fallback) — backward compat with v7.9.2
   // 3. legacy_field (trustScopes only) — backward compat with pre-v7.0
-  const capabilities = Array.isArray(healthData.capabilities)
-    ? new Set(healthData.capabilities as string[])
+  const capabilities = healthData.capabilities
+    ? new Set(healthData.capabilities)
     : null
 
   const detect = (capabilityName: string, threshold: { major: number; minor: number; patch: number }): boolean => {
@@ -308,7 +363,7 @@ function detectPeerFeatures(remoteVersion: string, healthData: Record<string, un
   }
 
   return {
-    trustScopes:        detect("trust_scopes", FEATURE_THRESHOLDS.trustScopes) || "trust_scopes" in healthData,
+    trustScopes:        detect("trust_scopes", FEATURE_THRESHOLDS.trustScopes) || healthData.trust_scopes !== undefined,
     reputationGated:    detect("reputation_gated", FEATURE_THRESHOLDS.reputationGated),
     compoundPolicies:   detect("compound_policies", FEATURE_THRESHOLDS.compoundPolicies),
     economicBoundary:   detect("economic_boundary", FEATURE_THRESHOLDS.economicBoundary),

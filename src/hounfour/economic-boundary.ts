@@ -34,6 +34,7 @@ import {
   type ReputationStateName,
   REPUTATION_STATES,
 } from "./protocol-types.js"
+import type { TaskType } from "./protocol-types.js"
 
 // --- Types ---
 
@@ -365,9 +366,9 @@ export async function evaluateBoundary(
   budget: BudgetSnapshot,
   peerFeatures?: PeerFeatures,
   criteria?: QualificationCriteria,
-  opts?: { reputationProvider?: ReputationProvider; reputationTimeoutMs?: number },
+  opts?: { reputationProvider?: ReputationProvider; reputationTimeoutMs?: number; taskType?: string },
 ): Promise<EconomicBoundaryEvaluationResult | null> {
-  const trustSnapshot = await buildTrustSnapshot(claims, peerFeatures, opts)
+  let trustSnapshot = await buildTrustSnapshot(claims, peerFeatures, opts)
   if (!trustSnapshot) return null
 
   const capitalSnapshot = buildCapitalSnapshot(budget)
@@ -375,6 +376,28 @@ export async function evaluateBoundary(
 
   const effectiveCriteria = criteria ?? DEFAULT_CRITERIA
   const evaluatedAt = new Date().toISOString()
+
+  // Task 2.5: Task-dimensional reputation (v7.11.0)
+  // When enabled and a taskType is provided, attempt cohort-specific scoring
+  if (TASK_DIMENSIONAL_REPUTATION_ENABLED && opts?.taskType && opts?.reputationProvider?.getTaskCohortScore) {
+    try {
+      const cohortScore = await opts.reputationProvider.getTaskCohortScore(claims.tenant_id, opts.taskType)
+      if (cohortScore !== null) {
+        // Shadow divergence: log when cohort and blended differ by > 10 points
+        const blendedScore = trustSnapshot.blended_score
+        const divergence = Math.abs(cohortScore - blendedScore)
+        if (divergence > 10) {
+          console.log(
+            `[economic-boundary] Task-dimensional divergence: cohort=${cohortScore} blended=${blendedScore} delta=${divergence} taskType=${opts.taskType} tenant=${claims.tenant_id}`,
+          )
+        }
+        // Replace blended_score with cohort score
+        trustSnapshot = { ...trustSnapshot, blended_score: cohortScore }
+      }
+    } catch (err) {
+      console.warn("[economic-boundary] Task cohort score failed — using blended:", err)
+    }
+  }
 
   try {
     return evaluateEconomicBoundary(
