@@ -1421,6 +1421,7 @@ describe("Sprint 6 — Configurable ReputationProvider timeout (Task 6.1)", () =
 
   it("timer is cleaned up after provider resolves (no dangling setTimeout)", async () => {
     vi.useFakeTimers()
+    const setSpy = vi.spyOn(globalThis, "setTimeout")
     const clearSpy = vi.spyOn(globalThis, "clearTimeout")
     const provider: ReputationProvider = {
       getReputationBoost: () => Promise.resolve({ boost: 20, source: "fast" }),
@@ -1434,10 +1435,15 @@ describe("Sprint 6 — Configurable ReputationProvider timeout (Task 6.1)", () =
     vi.advanceTimersByTime(1)
     await promise
 
-    // clearTimeout was called with a timer handle — proves the dangling timer is cleaned up
-    // Node.js returns a Timeout object (not a number) from setTimeout
-    expect(clearSpy).toHaveBeenCalledTimes(1)
-    expect(clearSpy.mock.calls[0]![0]).toBeDefined()
+    // Find the specific handle for the 100ms deadline timer created by buildTrustSnapshot.
+    // Asserting clearTimeout was called with that handle proves the production timer was
+    // cleaned up — not merely that Vitest internals happened to call clearTimeout.
+    const timeoutIndex = setSpy.mock.calls.findIndex((call) => call[1] === 100)
+    const timeoutHandle = timeoutIndex >= 0 ? setSpy.mock.results[timeoutIndex]?.value : undefined
+    expect(timeoutHandle).toBeDefined()
+    expect(clearSpy).toHaveBeenCalledWith(timeoutHandle)
+
+    setSpy.mockRestore()
     clearSpy.mockRestore()
     vi.useRealTimers()
   })
@@ -1457,7 +1463,7 @@ describe("Sprint 6 — Configurable ReputationProvider timeout (Task 6.1)", () =
     warnSpy.mockRestore()
   })
 
-  it("R13: warns when reputationTimeoutMs is 0 (disables dynamic reputation)", () => {
+  it("R13: warns when reputationTimeoutMs is 0 (times out async providers)", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
 
     createTestApp({
@@ -1467,7 +1473,22 @@ describe("Sprint 6 — Configurable ReputationProvider timeout (Task 6.1)", () =
     })
 
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("reputationTimeoutMs=0 will immediately time out"),
+      expect.stringContaining("reputationTimeoutMs<=0 will time out all asynchronous"),
+    )
+    warnSpy.mockRestore()
+  })
+
+  it("R13: warns when reputationTimeoutMs is negative (Node.js clamps to 1ms)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    createTestApp({
+      mode: "shadow" as EconomicBoundaryMode,
+      getBudgetSnapshot: async () => makeBudget(),
+      reputationTimeoutMs: -5,
+    })
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("reputationTimeoutMs<=0 will time out all asynchronous"),
     )
     warnSpy.mockRestore()
   })
