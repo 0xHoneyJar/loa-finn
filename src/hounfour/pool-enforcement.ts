@@ -333,6 +333,19 @@ export function evaluateAccessPolicyShadow(
   }
 }
 
+// --- v7.11.0 Feature Flags (SDD §2.2) ---
+
+/** When true, native enforcement geometry replaces expression-based evaluation. Default: false. */
+export const NATIVE_ENFORCEMENT_ENABLED = process.env.NATIVE_ENFORCEMENT_ENABLED === "true"
+
+/** Evaluation geometry: "expression" (default, existing) or "native" (direct evaluator call). */
+export const ENFORCEMENT_GEOMETRY: "expression" | "native" = (() => {
+  const raw = process.env.ENFORCEMENT_GEOMETRY ?? "expression"
+  if (raw === "expression" || raw === "native") return raw
+  console.warn(`[pool-enforcement] Invalid ENFORCEMENT_GEOMETRY="${raw}". Defaulting to "expression".`)
+  return "expression"
+})()
+
 // --- Composed HTTP Middleware: hounfourAuth (SDD §3.1.5) ---
 
 /**

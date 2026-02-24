@@ -111,21 +111,21 @@ Directory structure:
 <!-- provenance: DERIVED -->
 ### HTTP Routes
 
-- **DELETE** `/:key_id` (`src/gateway/routes/keys.ts:59`)
-- **GET** `/:key_id/balance` (`src/gateway/routes/keys.ts:73`)
+- **GET** `/:collection/:tokenId` (`src/gateway/routes/agent-homepage.ts:31`)
+- **GET** `/:id/messages` (`src/gateway/routes/conversations.ts:105`)
 - **GET** `/` (`src/gateway/jwks.ts:76`)
-- **GET** `/` (`src/gateway/metrics-endpoint.ts:233`)
-- **GET** `/` (`src/gateway/server.ts:58`)
+- **GET** `/` (`src/gateway/metrics-endpoint.ts:254`)
+- **GET** `/` (`src/gateway/routes/conversations.ts:74`)
 - **GET** `/agent/:tokenId` (`src/gateway/routes/discovery.ts:58`)
 - **GET** `/agents.md` (`src/gateway/routes/discovery.ts:50`)
 - **GET** `/balance` (`src/credits/routes.ts:46`)
-- **GET** `/dashboard` (`src/gateway/server.ts:124`)
 - **GET** `/feature-flags` (`src/gateway/feature-flags.ts:144`)
-- **GET** `/health` (`src/gateway/server.ts:70`)
 - **GET** `/history` (`src/credits/routes.ts:78`)
 - **GET** `/llms.txt` (`src/gateway/routes/discovery.ts:42`)
 - **GET** `/openapi.json` (`src/gateway/routes/discovery.ts:37`)
-- **POST** `/` (`src/gateway/routes/agent-chat.ts:50`)
+- **GET** `/public` (`src/gateway/routes/agent-public-api.ts:49`)
+- **POST** `/` (`src/gateway/routes/agent-chat.ts:53`)
+- **POST** `/` (`src/gateway/routes/conversations.ts:45`)
 
 ### Skill Commands
 
@@ -175,19 +175,19 @@ Directory structure:
 | `docs/` | 34 | Documentation | \u2014 |
 | `drizzle/` | 4 | Drizzle | \u2014 |
 | `evals/` | 122 | Benchmarking and regression framework for the Loa agent development system. Ensures framework changes don't degrade agent behavior through | [evals/README.md](evals/README.md) |
-| `grimoires/` | 763 | Home to all grimoire directories for the Loa | [grimoires/README.md](grimoires/README.md) |
+| `grimoires/` | 908 | Home to all grimoire directories for the Loa | [grimoires/README.md](grimoires/README.md) |
 | `infrastructure/` | 5 | Infrastructure | \u2014 |
 | `packages/` | 5 | Packages | \u2014 |
-| `public/` | 5 | Static assets | \u2014 |
+| `public/` | 16 | Static assets | \u2014 |
 | `schemas/` | 3 | Schemas | \u2014 |
-| `scripts/` | 7 | Utility scripts | \u2014 |
-| `src/` | 311 | Source code | \u2014 |
-| `tests/` | 484 | Test suites | \u2014 |
+| `scripts/` | 8 | Utility scripts | \u2014 |
+| `src/` | 321 | Source code | \u2014 |
+| `tests/` | 493 | Test suites | \u2014 |
 
 ## Verification
 <!-- provenance: CODE-FACTUAL -->
 - Trust Level: **L3 — Property-Based**
-- 499 test files across 1 suite
+- 508 test files across 1 suite
 - CI/CD: GitHub Actions (11 workflows)
 - Type safety: TypeScript
 - Security: SECURITY.md present
@@ -258,16 +258,16 @@ export ANTHROPIC_API_KEY=sk-ant-...
 npm run dev
 ```
 <!-- ground-truth-meta
-head_sha: e7e8658a61a02d13a76ec8fc8ed73d2977d38b91
-generated_at: 2026-02-24T07:43:40Z
+head_sha: dfedce60cb97e96716e242f87e260fe214b886ba
+generated_at: 2026-02-24T10:49:49Z
 generator: butterfreezone-gen v1.0.0
 sections:
   agent_context: 95bd673ed24113b3d1a76cb1920d094fc42d71d22613c112c99f5b89566b3266
   capabilities: ab2576b1f2e7e8141f0e93e807d26ed2b7b155e21c96d787507a3ba933bb9795
   architecture: 228039a98daa4141d7298f982aedbfd0088c1328a6eecfc9060247dfb2c5a195
-  interfaces: 2a5bd37c15009e367a5c0a0eaa88bafa0553900a919b5cd632f3a0728e80b2e3
-  module_map: 3bde05e5d1420233c99b1d42e69ee9128da8cf0d084ccd4794eca7c81bf8563c
-  verification: 7192e2d491277229824234712165ee56c2aacd93740be98240030d23b5e8c3f6
+  interfaces: ee958816c9a4a9151de255e147d02a9cc410e2794126611deebfd0585a8b818f
+  module_map: 0a7a945012e6ddddc3ccbb338e0b0180236611a9222df7138462807ed3bc7aa5
+  verification: 37ad3256397bdc9c123157e207a49aa1e541d57b424694a52f10315a9eb19a94
   agents: ca263d1e05fd123434a21ef574fc8d76b559d22060719640a1f060527ef6a0b6
   ecosystem: 4874e32c0011304eaaf21db5a578ff094727c85104b8272897edbeda0498bb64
   limitations: 5dbb86bb1798604cdafad4930eb8e2265e99837ad33674f99e66de49dad71bfd

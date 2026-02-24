@@ -37,7 +37,7 @@ export interface HandshakeResult {
   message: string
 }
 
-/** Feature detection based on remote version (Task 2.7). */
+/** Feature detection based on remote version (Task 2.7, v7.11.0 convergence). */
 export interface PeerFeatures {
   /** Remote supports trust_scopes (v6.0.0+). */
   trustScopes: boolean
@@ -49,6 +49,34 @@ export interface PeerFeatures {
   economicBoundary: boolean
   /** Remote supports denial codes and evaluation gaps (v7.9.1+). */
   denialCodes: boolean
+  /** Remote supports task-dimensional reputation cohorts (v7.10.0+). */
+  taskDimensionalRep: boolean
+  /** Remote supports protocol-aligned hash chain (v7.10.1+). */
+  hashChain: boolean
+  /** Remote supports open enum task types (v7.11.0+). */
+  openTaskTypes: boolean
+}
+
+/**
+ * Arrakis health endpoint response contract (SDD §2.1.1, IMP-001).
+ *
+ * Versioning rules:
+ *   - Parse contract_version with semver; failure → treat as unknown peer (all features false)
+ *   - capabilities array absence → fall back to semver-only detection (v7.9.2 compat)
+ *   - Unknown capabilities silently ignored (forward-compatible)
+ *   - HTTP errors/timeouts → default PeerFeatures (all false)
+ *
+ * Transport security (SKP-005):
+ *   - Health probes use service mesh mTLS, not per-request auth
+ *   - Capabilities are hints for feature detection, not security-critical
+ *   - Probes rate-limited (max 1 per 30s per peer, cached)
+ *   - No per-request logging for probe responses
+ */
+export interface ArrakisHealthResponse {
+  status: "ok" | "degraded" | "down"
+  contract_version: string
+  capabilities?: string[]
+  trust_scopes?: Record<string, unknown>
 }
 
 /**
@@ -56,11 +84,14 @@ export interface PeerFeatures {
  * Used by detectPeerFeatures() to determine capabilities from remote version.
  */
 export const FEATURE_THRESHOLDS = {
-  trustScopes:      { major: 6, minor: 0, patch: 0 },
-  reputationGated:  { major: 7, minor: 3, patch: 0 },
-  compoundPolicies: { major: 7, minor: 4, patch: 0 },
-  economicBoundary: { major: 7, minor: 7, patch: 0 },
-  denialCodes:      { major: 7, minor: 9, patch: 1 },
+  trustScopes:          { major: 6, minor: 0, patch: 0 },
+  reputationGated:      { major: 7, minor: 3, patch: 0 },
+  compoundPolicies:     { major: 7, minor: 4, patch: 0 },
+  economicBoundary:     { major: 7, minor: 7, patch: 0 },
+  denialCodes:          { major: 7, minor: 9, patch: 1 },
+  taskDimensionalRep:   { major: 7, minor: 10, patch: 0 },
+  hashChain:            { major: 7, minor: 10, patch: 1 },
+  openTaskTypes:        { major: 7, minor: 11, patch: 0 },
 } as const satisfies Record<keyof PeerFeatures, { major: number; minor: number; patch: number }>
 
 // --- Public ---
@@ -253,19 +284,37 @@ function compareSemver(
 
 /**
  * Detect peer features based on remote version and health response.
- * Uses FEATURE_THRESHOLDS for version-gated detection, with health response
- * field presence as a fallback signal for trust_scopes.
+ * Uses dual-strategy detection (SDD §4.2):
+ *   1. Capabilities array (primary) — explicit declaration from peer
+ *   2. Semver FEATURE_THRESHOLDS (fallback) — backward compat with v7.9.2
+ *   3. legacy_field (trustScopes only) — backward compat with pre-v7.0
  */
 function detectPeerFeatures(remoteVersion: string, healthData: Record<string, unknown>): PeerFeatures {
   const remote = parseSemver(remoteVersion)
   const meetsThreshold = (threshold: { major: number; minor: number; patch: number }) =>
     compareSemver(remote, threshold) >= 0
 
+  // Dual-strategy detection (SDD §4.2):
+  // 1. Capabilities array (primary) — explicit declaration from peer
+  // 2. Semver FEATURE_THRESHOLDS (fallback) — backward compat with v7.9.2
+  // 3. legacy_field (trustScopes only) — backward compat with pre-v7.0
+  const capabilities = Array.isArray(healthData.capabilities)
+    ? new Set(healthData.capabilities as string[])
+    : null
+
+  const detect = (capabilityName: string, threshold: { major: number; minor: number; patch: number }): boolean => {
+    if (capabilities?.has(capabilityName)) return true
+    return meetsThreshold(threshold)
+  }
+
   return {
-    trustScopes:      meetsThreshold(FEATURE_THRESHOLDS.trustScopes) || "trust_scopes" in healthData,
-    reputationGated:  meetsThreshold(FEATURE_THRESHOLDS.reputationGated),
-    compoundPolicies: meetsThreshold(FEATURE_THRESHOLDS.compoundPolicies),
-    economicBoundary: meetsThreshold(FEATURE_THRESHOLDS.economicBoundary),
-    denialCodes:      meetsThreshold(FEATURE_THRESHOLDS.denialCodes),
+    trustScopes:        detect("trust_scopes", FEATURE_THRESHOLDS.trustScopes) || "trust_scopes" in healthData,
+    reputationGated:    detect("reputation_gated", FEATURE_THRESHOLDS.reputationGated),
+    compoundPolicies:   detect("compound_policies", FEATURE_THRESHOLDS.compoundPolicies),
+    economicBoundary:   detect("economic_boundary", FEATURE_THRESHOLDS.economicBoundary),
+    denialCodes:        detect("denial_codes", FEATURE_THRESHOLDS.denialCodes),
+    taskDimensionalRep: detect("task_dimensional_reputation", FEATURE_THRESHOLDS.taskDimensionalRep),
+    hashChain:          detect("hash_chain", FEATURE_THRESHOLDS.hashChain),
+    openTaskTypes:      detect("open_task_types", FEATURE_THRESHOLDS.openTaskTypes),
   }
 }

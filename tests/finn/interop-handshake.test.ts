@@ -298,7 +298,7 @@ describe("Interop Handshake Fixtures", () => {
   it("getProtocolInfo returns correct version constants", () => {
     const info = getProtocolInfo()
     expect(info.contract_version).toBe(CONTRACT_VERSION)
-    expect(info.contract_version).toBe("7.9.1")
+    expect(info.contract_version).toBe("7.11.0")
     expect(info.finn_min_supported).toBe(FINN_MIN_SUPPORTED)
     expect(info.finn_min_supported).toBe("4.0.0")
   })

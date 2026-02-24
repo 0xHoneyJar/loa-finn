@@ -495,3 +495,16 @@ export interface StreamErrorData {
 export interface StreamThinkingData {
   thinking: string
 }
+
+// --- v7.11.0 Hono Context Type Augmentation (SDD §4.6.6, IMP-006) ---
+// Module augmentation ensures c.get("taskType") returns TaskType (not unknown)
+// and c.set("taskType", value) requires TaskType at compile time.
+// Index signature preserves backward-compatibility for existing untyped context variables.
+
+declare module "hono" {
+  interface ContextVariableMap {
+    taskType: import("./protocol-types.js").TaskType
+    taskTypeRestricted: boolean
+    [key: string]: unknown
+  }
+}

@@ -32,7 +32,6 @@ import {
   type QualificationCriteria,
   type EconomicBoundaryEvaluationResult,
   type ReputationStateName,
-  type DenialCode,
   REPUTATION_STATES,
 } from "./protocol-types.js"
 
@@ -40,22 +39,8 @@ import {
 
 export type EconomicBoundaryMode = "enforce" | "shadow" | "bypass"
 
-/**
- * Extended evaluation result that includes denial_codes.
- * The protocol's evaluateEconomicBoundary() returns denial_codes at runtime
- * but the exported TypeScript type does not include them yet.
- *
- * This local extension provides type-safe access without inline assertions.
- * It exists because the upstream @0xhoneyjar/loa-hounfour package's
- * EconomicBoundaryEvaluationResult type does not export denial_codes,
- * even though the runtime evaluation function populates them.
- *
- * TODO(loa-hounfour#35): Remove when upstream type includes denial_codes.
- * Filed: https://github.com/0xHoneyJar/loa-hounfour/issues/35
- */
-type EvaluationResultWithDenials = EconomicBoundaryEvaluationResult & {
-  denial_codes?: DenialCode[]
-}
+// v7.11.0: denial_codes now included in upstream EconomicBoundaryEvaluationResult.
+// Local EvaluationResultWithDenials patch removed (loa-hounfour#35 resolved).
 
 // --- Constants ---
 
@@ -112,6 +97,14 @@ export const ECONOMIC_BOUNDARY_MODE: EconomicBoundaryMode = (() => {
   )
   return "shadow"
 })()
+
+// --- v7.11.0 Feature Flags (SDD §2.2) ---
+
+/** When true, cohort queries in economic boundary prefer task-dimensional reputation. Default: false. */
+export const TASK_DIMENSIONAL_REPUTATION_ENABLED = process.env.TASK_DIMENSIONAL_REPUTATION_ENABLED === "true"
+
+/** When true, open task type routing and unknown type denial gate activate. Default: false. */
+export const OPEN_TASK_TYPES_ENABLED = process.env.OPEN_TASK_TYPES_ENABLED === "true"
 
 // --- Blended Score Weighting (Task 5.4: dynamic reputation foundation) ---
 
@@ -548,7 +541,7 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
         component: "economic-boundary",
         mode,
         decision: result.access_decision.granted ? "granted" : "denied",
-        denial_codes: (result as EvaluationResultWithDenials).denial_codes ?? [],
+        denial_codes: result.denial_codes ?? [],
         trust_tier: claims.tier,
         trust_passed: result.trust_evaluation.passed,
         capital_passed: result.capital_evaluation.passed,
@@ -564,7 +557,7 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
           return c.json({
             error: "Forbidden",
             code: "ECONOMIC_BOUNDARY_DENIED",
-            denial_codes: (result as EvaluationResultWithDenials).denial_codes ?? [],
+            denial_codes: result.denial_codes ?? [],
             denial_reason: result.access_decision.denial_reason,
             tenant_id: claims.tenant_id,
           }, 403)

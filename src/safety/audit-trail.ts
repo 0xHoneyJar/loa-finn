@@ -168,6 +168,11 @@ function sortReplacer(_key: string, value: unknown): unknown {
 /** Maximum file size before rotation is recommended: 10 MB. (SDD §4.3) */
 const ROTATION_THRESHOLD_BYTES = 10 * 1024 * 1024
 
+// --- v7.11.0 Feature Flag (SDD §2.2) ---
+
+/** When true, new audit records use protocol_v1 envelope format with RFC 8785 JCS. Default: false. */
+export const PROTOCOL_HASH_CHAIN_ENABLED = process.env.PROTOCOL_HASH_CHAIN_ENABLED === "true"
+
 // ── AuditTrail ──────────────────────────────────────────────
 
 /**
