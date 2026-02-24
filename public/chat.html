@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat — Finn Agent</title>
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/personality.css">
+  <link rel="stylesheet" href="/css/chat.css">
+</head>
+<body>
+  <div id="app" class="chat-layout">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <h2 class="sidebar-title">Conversations</h2>
+        <button id="btn-new-chat" class="btn btn-sm" title="New Chat">+ New</button>
+      </div>
+      <div id="sidebar-toggle" class="sidebar-toggle" title="Toggle sidebar">&#9776;</div>
+      <div id="conversation-list" class="conversation-list"></div>
+      <div class="sidebar-footer">
+        <personality-card id="sidebar-personality"></personality-card>
+      </div>
+    </aside>
+
+    <!-- Main Chat Area -->
+    <main class="chat-main">
+      <header class="chat-header">
+        <button id="btn-menu" class="btn-icon sidebar-trigger" aria-label="Open sidebar">&#9776;</button>
+        <div class="chat-header-info">
+          <h1 id="agent-name" class="agent-name">Agent</h1>
+          <span id="connection-status" class="connection-status disconnected">disconnected</span>
+        </div>
+        <div id="credit-display" class="credit-display" title="Credit balance"></div>
+      </header>
+
+      <!-- Graceful degradation banner (T3.10) -->
+      <div id="degradation-banner" class="degradation-banner hidden" role="status" aria-live="polite">
+        <span id="degradation-message" class="degradation-message">Reconnecting...</span>
+      </div>
+
+      <div id="messages" class="messages-container">
+        <div id="messages-list" class="messages-list"></div>
+        <div id="typing-indicator" class="typing-indicator hidden">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </div>
+        <div id="thinking-indicator" class="thinking-indicator hidden">
+          thinking deeply...
+        </div>
+      </div>
+
+      <footer class="chat-input-area">
+        <div class="input-row">
+          <textarea
+            id="message-input"
+            class="message-input"
+            placeholder="Type a message..."
+            rows="1"
+            maxlength="8192"
+            aria-label="Message input"
+          ></textarea>
+          <button id="btn-send" class="btn btn-primary btn-send" disabled>Send</button>
+          <button id="btn-abort" class="btn btn-danger btn-abort hidden">Stop</button>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <script src="/js/personality-card.js"></script>
+  <script src="/js/reputation-badge.js"></script>
+  <script src="/agent/ws-client.js"></script>
+  <script src="/agent/wallet.js"></script>
+  <script src="/js/chat.js"></script>
+</body>
+</html>

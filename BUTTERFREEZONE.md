@@ -3,7 +3,9 @@ name: loa-finn
 type: framework
 purpose: Minimal persistent Loa agent runtime using Pi SDK
 key_files: [CLAUDE.md, .claude/loa/CLAUDE.loa.md, .loa.config.yaml, .claude/scripts/, .claude/skills/, package.json]
-interfaces: [/auditing-security, /autonomous-agent, /bridgebuilder-review, /browsing-constructs, /bug-triaging]
+interfaces:
+  core: [/auditing-security, /autonomous-agent, /bridgebuilder-review, /browsing-constructs, /bug-triaging]
+  project: [/ground-truth]
 dependencies: [git, jq, yq, node]
 capability_requirements:
   - filesystem: read
@@ -54,40 +56,46 @@ The architecture follows a three-zone model: System (`.claude/`) contains framew
 ```mermaid
 graph TD
     adapters[adapters]
+    config[config]
     deploy[deploy]
+    docker_entrypoint_initdb_d[docker-entrypoint-initdb.d]
     docs[docs]
+    drizzle[drizzle]
     evals[evals]
     grimoires[grimoires]
-    infrastructure[infrastructure]
-    public[public]
-    schemas[schemas]
     Root[Project Root]
     Root --> adapters
+    Root --> config
     Root --> deploy
+    Root --> docker_entrypoint_initdb_d
     Root --> docs
+    Root --> drizzle
     Root --> evals
     Root --> grimoires
-    Root --> infrastructure
-    Root --> public
-    Root --> schemas
 ```
 Directory structure:
 ```
 ./adapters
 ./adapters/__pycache__
 ./adapters/fixtures
+./config
 ./deploy
+./deploy/grafana
 ./deploy/k8s
+./deploy/prometheus
 ./deploy/terraform
 ./deploy/vllm
 ./deploy/workflows
 ./dist
+./docker-entrypoint-initdb.d
 ./docs
 ./docs/adr
 ./docs/architecture
 ./docs/archive
 ./docs/modules
 ./docs/runbooks
+./drizzle
+./drizzle/meta
 ./evals
 ./evals/baselines
 ./evals/fixtures
@@ -97,35 +105,31 @@ Directory structure:
 ./evals/suites
 ./evals/tasks
 ./evals/tests
-./grimoires
-./grimoires/bridgebuilder
-./grimoires/loa
-./grimoires/oracle
-./grimoires/pub
-./infrastructure
 ```
 
 ## Interfaces
 <!-- provenance: DERIVED -->
 ### HTTP Routes
 
-- **GET** `/.well-known/jwks.json` (`src/gateway/server.ts:133`)
+- **DELETE** `/:key_id` (`src/gateway/routes/keys.ts:59`)
+- **GET** `/:key_id/balance` (`src/gateway/routes/keys.ts:73`)
 - **GET** `/` (`src/gateway/jwks.ts:76`)
-- **GET** `/` (`src/gateway/metrics-endpoint.ts:133`)
-- **GET** `/` (`src/gateway/server.ts:57`)
-- **GET** `/` (`src/gateway/waitlist.ts:105`)
-- **GET** `/api/dashboard/activity` (`src/gateway/server.ts:314`)
-- **GET** `/api/sessions/:id` (`src/gateway/server.ts:299`)
-- **GET** `/api/sessions` (`src/gateway/server.ts:294`)
-- **GET** `/api/v1/usage` (`src/gateway/server.ts:215`)
-- **GET** `/dashboard` (`src/gateway/server.ts:123`)
+- **GET** `/` (`src/gateway/metrics-endpoint.ts:233`)
+- **GET** `/` (`src/gateway/server.ts:58`)
+- **GET** `/agent/:tokenId` (`src/gateway/routes/discovery.ts:58`)
+- **GET** `/agents.md` (`src/gateway/routes/discovery.ts:50`)
+- **GET** `/balance` (`src/credits/routes.ts:46`)
+- **GET** `/dashboard` (`src/gateway/server.ts:124`)
 - **GET** `/feature-flags` (`src/gateway/feature-flags.ts:144`)
-- **GET** `/health` (`src/gateway/server.ts:69`)
-- **POST** `/allowlist` (`src/gateway/feature-flags.ts:114`)
-- **POST** `/api/sessions/:id/message` (`src/gateway/server.ts:248`)
-- **POST** `/api/sessions` (`src/gateway/server.ts:230`)
+- **GET** `/health` (`src/gateway/server.ts:70`)
+- **GET** `/history` (`src/credits/routes.ts:78`)
+- **GET** `/llms.txt` (`src/gateway/routes/discovery.ts:42`)
+- **GET** `/openapi.json` (`src/gateway/routes/discovery.ts:37`)
+- **POST** `/` (`src/gateway/routes/agent-chat.ts:50`)
 
 ### Skill Commands
+
+#### Loa Core
 
 - **/auditing-security** — Paranoid Cypherpunk Auditor
 - **/autonomous-agent** — Autonomous agent
@@ -144,7 +148,6 @@ Directory structure:
 - **/flatline-scorer** — Flatline scorer
 - **/flatline-skeptic** — Flatline skeptic
 - **/gpt-reviewer** — Gpt reviewer
-- **/ground-truth** — Ground Truth — Factual GTM Document Generation
 - **/implementing-tasks** — Sprint Task Implementer
 - **/managing-credentials** — /loa-credentials — Credential Management
 - **/mounting-framework** — Create structure (preserve if exists)
@@ -157,28 +160,35 @@ Directory structure:
 - **/run-mode** — Run mode
 - **/simstim-workflow** — Check post-PR state
 - **/translating-for-executives** — Translating for executives
+#### Project-Specific
+
+- **/ground-truth** — Ground Truth — Factual GTM Document Generation
 
 ## Module Map
 <!-- provenance: DERIVED -->
 | Module | Files | Purpose | Documentation |
 |--------|-------|---------|---------------|
 | `adapters/` | 47 | Adapters | \u2014 |
-| `deploy/` | 22 | Infrastructure and deployment | \u2014 |
+| `config/` | 1 | Configuration files | \u2014 |
+| `deploy/` | 24 | Infrastructure and deployment | \u2014 |
+| `docker-entrypoint-initdb.d/` | 1 | Docker entrypoint initdb.d | \u2014 |
 | `docs/` | 34 | Documentation | \u2014 |
+| `drizzle/` | 4 | Drizzle | \u2014 |
 | `evals/` | 122 | Benchmarking and regression framework for the Loa agent development system. Ensures framework changes don't degrade agent behavior through | [evals/README.md](evals/README.md) |
-| `grimoires/` | 630 | Home to all grimoire directories for the Loa | [grimoires/README.md](grimoires/README.md) |
+| `grimoires/` | 763 | Home to all grimoire directories for the Loa | [grimoires/README.md](grimoires/README.md) |
 | `infrastructure/` | 5 | Infrastructure | \u2014 |
+| `packages/` | 5 | Packages | \u2014 |
 | `public/` | 5 | Static assets | \u2014 |
 | `schemas/` | 3 | Schemas | \u2014 |
-| `scripts/` | 5 | Utility scripts | \u2014 |
-| `src/` | 194 | Source code | \u2014 |
-| `tests/` | 374 | Test suites | \u2014 |
+| `scripts/` | 7 | Utility scripts | \u2014 |
+| `src/` | 311 | Source code | \u2014 |
+| `tests/` | 484 | Test suites | \u2014 |
 
 ## Verification
 <!-- provenance: CODE-FACTUAL -->
 - Trust Level: **L3 — Property-Based**
-- 389 test files across 1 suite
-- CI/CD: GitHub Actions (10 workflows)
+- 499 test files across 1 suite
+- CI/CD: GitHub Actions (11 workflows)
 - Type safety: TypeScript
 - Security: SECURITY.md present
 
@@ -200,19 +210,19 @@ The project defines 1 specialized agent persona.
 - `@mariozechner/pi-ai`
 - `@mariozechner/pi-coding-agent`
 - `@sinclair/typebox`
+- `@types/bcrypt`
 - `@types/json-stable-stringify`
 - `@types/node`
 - `@types/ws`
+- `bcrypt`
 - `croner`
+- `drizzle-kit`
+- `drizzle-orm`
 - `eslint`
 - `fast-check`
 - `hono`
 - `jose`
 - `json-stable-stringify`
-- `siwe`
-- `tsx`
-- `typescript`
-- `typescript-eslint`
 
 ## Known Limitations
 <!-- provenance: DERIVED -->
@@ -222,6 +232,8 @@ The project defines 1 specialized agent persona.
 - No horizontal scaling — single Hono instance per deployment (`src/gateway/server.ts:1`)
 - Tool sandbox 30s default timeout — long-running tools may be killed (`src/config.ts:1`)
 - BridgeBuilder can only COMMENT on PRs, not APPROVE or REQUEST_CHANGES (`src/bridgebuilder/entry.ts:1`)
+
+<!-- ground-truth-meta: head_sha=689a777 generated_at=2026-02-11T01:06:00Z features_sha=689a777 limitations_sha=689a777 ride_sha=689a777 -->
 
 ## Quick Start
 <!-- provenance: OPERATIONAL -->
@@ -246,18 +258,18 @@ export ANTHROPIC_API_KEY=sk-ant-...
 npm run dev
 ```
 <!-- ground-truth-meta
-head_sha: bb7bd41f5a0cbefe79970c31f9c0fe7e87f64c28
-generated_at: 2026-02-19T00:49:38Z
+head_sha: e7e8658a61a02d13a76ec8fc8ed73d2977d38b91
+generated_at: 2026-02-24T07:43:40Z
 generator: butterfreezone-gen v1.0.0
 sections:
-  agent_context: 90fb840550f5415b42aedaed74f81068ce3bdc434075510002272e28b4211aa8
+  agent_context: 95bd673ed24113b3d1a76cb1920d094fc42d71d22613c112c99f5b89566b3266
   capabilities: ab2576b1f2e7e8141f0e93e807d26ed2b7b155e21c96d787507a3ba933bb9795
-  architecture: a21d131d443b047022164bb0549e70871489992ec1ab56980def458b3c63a628
-  interfaces: 266bda39095e0c03d61b1f922e518a40bc3b7eea69474eb332cd6eeed9f36c30
-  module_map: 39a9cd9dae7272b08df421bb4cc4a1371c2b31c4da79f08bc45990cd251f60eb
-  verification: e35027536594be81d2e43806f2dd24da8fe03e554544feef175737d6296a896f
+  architecture: 228039a98daa4141d7298f982aedbfd0088c1328a6eecfc9060247dfb2c5a195
+  interfaces: 2a5bd37c15009e367a5c0a0eaa88bafa0553900a919b5cd632f3a0728e80b2e3
+  module_map: 3bde05e5d1420233c99b1d42e69ee9128da8cf0d084ccd4794eca7c81bf8563c
+  verification: 7192e2d491277229824234712165ee56c2aacd93740be98240030d23b5e8c3f6
   agents: ca263d1e05fd123434a21ef574fc8d76b559d22060719640a1f060527ef6a0b6
-  ecosystem: 5152b7042ef4e7999fcac4c74249ddf663cd5e9a7ff55551e9f5e58bd20889ba
+  ecosystem: 4874e32c0011304eaaf21db5a578ff094727c85104b8272897edbeda0498bb64
   limitations: 5dbb86bb1798604cdafad4930eb8e2265e99837ad33674f99e66de49dad71bfd
   quick_start: d1b43139021ae877a9f5d45f030c06b6eb84d4f84bebcf89343117dd668a4b53
 -->
