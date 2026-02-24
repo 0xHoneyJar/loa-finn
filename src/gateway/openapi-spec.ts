@@ -305,7 +305,8 @@ export function buildOpenApiSpec(): Record<string, unknown> {
                   properties: {
                     model: {
                       type: "string",
-                      description: "Agent model identifier (e.g. token ID or model slug)",
+                      description: "Agent model identifier. Defaults to claude-sonnet-4-6 if omitted.",
+                      default: "claude-sonnet-4-6",
                     },
                     max_tokens: {
                       type: "integer",
@@ -316,7 +317,7 @@ export function buildOpenApiSpec(): Record<string, unknown> {
                       description: "The user prompt to send to the agent",
                     },
                   },
-                  required: ["model", "prompt"],
+                  required: ["prompt"],
                 },
               },
             },
@@ -413,7 +414,8 @@ export function buildOpenApiSpec(): Record<string, unknown> {
                   properties: {
                     model: {
                       type: "string",
-                      description: "Agent model identifier (e.g. token ID or model slug)",
+                      description: "Agent model identifier. Defaults to claude-sonnet-4-6 if omitted.",
+                      default: "claude-sonnet-4-6",
                     },
                     max_tokens: {
                       type: "integer",
@@ -424,7 +426,7 @@ export function buildOpenApiSpec(): Record<string, unknown> {
                       description: "The user prompt to send to the agent",
                     },
                   },
-                  required: ["model", "prompt"],
+                  required: ["prompt"],
                 },
               },
             },

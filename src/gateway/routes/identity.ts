@@ -33,6 +33,9 @@ export interface IdentityRouteDeps {
 /** Ethereum wallet address: 0x followed by exactly 40 hex characters. */
 const WALLET_RE = /^0x[a-fA-F0-9]{40}$/
 
+/** Sunset date for deprecated /nft endpoint (RFC 8594). */
+const DEPRECATED_NFT_SUNSET = "2026-09-01T00:00:00Z"
+
 // ---------------------------------------------------------------------------
 // Route Factory
 // ---------------------------------------------------------------------------
@@ -55,7 +58,16 @@ export function createIdentityRoutes(deps: IdentityRouteDeps): Hono {
       )
     }
 
-    const result = await deps.detectNfts(wallet)
+    let result: Awaited<ReturnType<typeof deps.detectNfts>>
+    try {
+      result = await deps.detectNfts(wallet)
+    } catch (err) {
+      console.error("[identity] NFT detection failed:", (err as Error).message)
+      return c.json(
+        { error: "NFT resolution failed", code: "NFT_RESOLUTION_FAILED" },
+        502,
+      )
+    }
 
     return c.json({
       nfts: result.nfts as NFTInfo[],
@@ -74,14 +86,23 @@ export function createIdentityRoutes(deps: IdentityRouteDeps): Hono {
       )
     }
 
-    const result = await deps.detectNfts(wallet)
+    let result: Awaited<ReturnType<typeof deps.detectNfts>>
+    try {
+      result = await deps.detectNfts(wallet)
+    } catch (err) {
+      console.error("[identity] NFT detection failed:", (err as Error).message)
+      return c.json(
+        { error: "NFT resolution failed", code: "NFT_RESOLUTION_FAILED" },
+        502,
+      )
+    }
     const firstNft: NFTInfo | null = result.nfts.length > 0
       ? result.nfts[0] as NFTInfo
       : null
 
     // RFC 8594 deprecation headers
     c.header("Deprecation", "true")
-    c.header("Sunset", "2026-09-01T00:00:00Z")
+    c.header("Sunset", DEPRECATED_NFT_SUNSET)
     c.header("Link", `</wallet/${wallet}/nfts>; rel="successor-version"`)
 
     return c.json({ nft: firstNft })

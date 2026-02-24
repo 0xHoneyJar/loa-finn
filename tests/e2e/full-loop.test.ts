@@ -12,10 +12,8 @@ import { describe, it, expect, beforeAll } from "vitest"
 import { importPKCS8, SignJWT } from "jose"
 import { WebSocket } from "ws"
 import { randomUUID, createHash } from "node:crypto"
-import { readFileSync, existsSync } from "node:fs"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
 import Redis from "ioredis"
+import { loadPrivateKeyPem } from "./helpers.js"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -30,26 +28,6 @@ const TENANT_ID = `e2e-tenant-${randomUUID()}`
 // ---------------------------------------------------------------------------
 
 let privateKey: Awaited<ReturnType<typeof importPKCS8>>
-
-function loadPrivateKeyPem(): string {
-  const fromEnv = process.env.E2E_ES256_PRIVATE_KEY
-  if (fromEnv) return Buffer.from(fromEnv, "base64").toString("utf-8")
-
-  const __filename = fileURLToPath(import.meta.url)
-  const __dir = dirname(__filename)
-  const candidates = [
-    resolve(__dir, ".env.e2e"),
-    resolve(process.cwd(), "tests/e2e/.env.e2e"),
-    resolve(process.cwd(), ".env.e2e"),
-  ]
-  const envPath = candidates.find((p) => existsSync(p))
-  if (!envPath) throw new Error("Unable to locate .env.e2e for FINN_S2S_PRIVATE_KEY")
-
-  const content = readFileSync(envPath, "utf-8")
-  const match = content.match(/^FINN_S2S_PRIVATE_KEY=(.+)$/m)
-  if (!match) throw new Error("FINN_S2S_PRIVATE_KEY not found in .env.e2e")
-  return Buffer.from(match[1].trim(), "base64").toString("utf-8")
-}
 
 beforeAll(async () => {
   const pem = loadPrivateKeyPem()
@@ -111,7 +89,7 @@ describe("E2E: Full Loop — JWT -> Session -> WebSocket -> Inference -> Billing
       body: sessionBody,
     })
 
-    expect(sessionRes.status).toBe(200)
+    expect(sessionRes.status).toBe(201)
     const sessionData = (await sessionRes.json()) as { sessionId: string }
     expect(sessionData).toHaveProperty("sessionId")
     expect(typeof sessionData.sessionId).toBe("string")

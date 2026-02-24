@@ -41,9 +41,8 @@ async function checkRateLimit(
 ): Promise<boolean> {
   const key = `x402:rate:${walletAddress.toLowerCase()}`
   const count = await redis.incrby(key, 1)
-  if (count === 1) {
-    await redis.expire(key, 3600) // 1 hour window
-  }
+  // Always set TTL — idempotent, prevents orphaned keys from INCRBY/EXPIRE race
+  await redis.expire(key, 3600) // 1 hour window
   return count <= X402_RATE_LIMIT_PER_HOUR
 }
 
@@ -143,16 +142,19 @@ export function createX402InvokeHandler(deps: X402RouteDeps) {
       }
     }
 
-    // 6. Rate limit
+    // 5b. Require wallet address unconditionally (needed for rate limiting + settlement)
     const walletAddress = proof.authorization?.from
-    if (walletAddress) {
-      const withinLimit = await checkRateLimit(deps.redis, walletAddress)
-      if (!withinLimit) {
-        return c.json({
-          error: `Rate limit exceeded: ${X402_RATE_LIMIT_PER_HOUR} requests per hour`,
-          code: "RATE_LIMITED",
-        }, 429)
-      }
+    if (!walletAddress) {
+      return c.json({ error: "Payment proof must include authorization.from", code: "INVALID_PAYMENT" }, 400)
+    }
+
+    // 6. Rate limit
+    const withinLimit = await checkRateLimit(deps.redis, walletAddress)
+    if (!withinLimit) {
+      return c.json({
+        error: `Rate limit exceeded: ${X402_RATE_LIMIT_PER_HOUR} requests per hour`,
+        code: "RATE_LIMITED",
+      }, 429)
     }
 
     // 7. Retrieve quote

@@ -124,6 +124,30 @@ await test("GET /wallet/:wallet/nft (deprecated) — returns deprecation headers
   assert.ok(res.headers.get("Link")?.includes("/nfts"), "Link header should point to /nfts endpoint")
 })
 
+await test("GET /wallet/:wallet/nfts — detectNfts failure returns 502", async () => {
+  const failDeps: IdentityRouteDeps = {
+    detectNfts: async () => { throw new Error("upstream timeout") },
+  }
+  const app = makeApp(failDeps)
+  const res = await request(app, `/wallet/${VALID_WALLET}/nfts`)
+
+  assert.equal(res.status, 502)
+  const body = await res.json() as { error: string; code: string }
+  assert.equal(body.code, "NFT_RESOLUTION_FAILED")
+})
+
+await test("GET /wallet/:wallet/nft (deprecated) — detectNfts failure returns 502", async () => {
+  const failDeps: IdentityRouteDeps = {
+    detectNfts: async () => { throw new Error("upstream timeout") },
+  }
+  const app = makeApp(failDeps)
+  const res = await request(app, `/wallet/${VALID_WALLET}/nft`)
+
+  assert.equal(res.status, 502)
+  const body = await res.json() as { error: string; code: string }
+  assert.equal(body.code, "NFT_RESOLUTION_FAILED")
+})
+
 await test("GET /wallet/:wallet/nft (deprecated) — empty wallet returns null nft", async () => {
   const app = makeApp(makeDeps([]))
   const res = await request(app, `/wallet/${VALID_WALLET}/nft`)

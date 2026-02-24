@@ -93,7 +93,8 @@ export interface VerifyResponse {
 // ---------------------------------------------------------------------------
 
 export interface X402InvokeRequest {
-  model: string
+  /** Agent model identifier. Defaults to claude-sonnet-4-6 on server if omitted. */
+  model?: string
   max_tokens?: number
   prompt: string
 }
