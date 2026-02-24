@@ -35,7 +35,8 @@ import {
   REPUTATION_STATES,
 } from "./protocol-types.js"
 import type { TaskType, ScoringPath } from "./protocol-types.js"
-import { computeScoringPathHash, SCORING_PATH_GENESIS_HASH } from "@0xhoneyjar/loa-hounfour/governance"
+// BB-009: Removed unused imports computeScoringPathHash, SCORING_PATH_GENESIS_HASH
+// from "@0xhoneyjar/loa-hounfour/governance" — re-add when governance scoring is wired.
 
 // --- Types ---
 
@@ -418,7 +419,7 @@ export async function evaluateBoundary(
         const divergence = Math.abs(cohortScore - blendedScore)
         if (divergence > 10) {
           console.log(
-            `[economic-boundary] Task-dimensional divergence: cohort=${cohortScore} blended=${blendedScore} delta=${divergence} taskType=${opts.taskType} tenant=${claims.tenant_id}`,
+            `[economic-boundary] Task-dimensional divergence: cohort=${cohortScore} blended=${blendedScore} delta=${divergence} taskType=${opts.taskType} tenant_hash=${hashTenantId(claims.tenant_id)}`,
           )
         }
         // Replace blended_score with cohort score
@@ -579,8 +580,11 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
         return next()
       }
 
+      // BB-005: Extract taskType from Hono context (set by hounfourAuth middleware)
+      const taskType = c.get("taskType") as string | undefined
+
       // Evaluate boundary
-      const result = await evaluateBoundary(claims, budget, opts.peerFeatures, opts.criteria, { reputationProvider: opts.reputationProvider, reputationTimeoutMs: opts.reputationTimeoutMs })
+      const result = await evaluateBoundary(claims, budget, opts.peerFeatures, opts.criteria, { reputationProvider: opts.reputationProvider, reputationTimeoutMs: opts.reputationTimeoutMs, taskType })
       const latencyMs = performance.now() - startMs
 
       if (!result) {

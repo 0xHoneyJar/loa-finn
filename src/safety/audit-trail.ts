@@ -324,15 +324,17 @@ export function computePayloadHash(payload: Record<string, unknown>): string | n
 }
 
 /**
- * Compute the entry hash for a protocol_v1 envelope.
- * Hashes all envelope fields EXCEPT entry_hash itself (circular exclusion).
+ * Compute the entry hash for a protocol_v1 envelope (SDD §4.5.2).
+ * entry_hash = SHA-256(prevHashProtocol_hex + '\n' + JCS(envelope_without_prevHashProtocol_and_entry_hash))
+ *
+ * The prevHashProtocol is concatenated as a prefix (not inside the JCS object)
+ * to ensure chain binding is structurally separated from envelope content.
  */
 export function computeProtocolEntryHash(envelope: Omit<ProtocolEnvelope, "entry_hash">): string | null {
   const hashable: Record<string, unknown> = {
     format: envelope.format,
     version: envelope.version,
     payload_hash: envelope.payload_hash,
-    prevHashProtocol: envelope.prevHashProtocol,
     ts: envelope.ts,
     seq: envelope.seq,
   }
@@ -341,7 +343,8 @@ export function computeProtocolEntryHash(envelope: Omit<ProtocolEnvelope, "entry
   }
   const canonical = canonicalizeProtocol(hashable)
   if (!canonical) return null
-  return createHash("sha256").update(canonical).digest("hex")
+  const preimage = envelope.prevHashProtocol + "\n" + canonical
+  return createHash("sha256").update(preimage).digest("hex")
 }
 
 /**
@@ -601,6 +604,7 @@ export class AuditTrail {
       } else {
         // Legacy record
         this.lastHash = record.hash as string
+        this.lastHashLegacy = record.hash as string
       }
     }
 

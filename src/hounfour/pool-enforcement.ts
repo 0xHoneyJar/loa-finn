@@ -349,12 +349,12 @@ export const ENFORCEMENT_GEOMETRY: "expression" | "native" = (() => {
   return "expression"
 })()
 
-/** Policy for unknown (unregistered, non-allowlisted) task types. */
+/** Policy for unknown (unregistered, non-allowlisted) task types. SDD mandates deny-by-default. */
 export const UNKNOWN_TASK_TYPE_POLICY: "safe_default" | "deny" = (() => {
-  const raw = process.env.UNKNOWN_TASK_TYPE_POLICY ?? "safe_default"
+  const raw = process.env.UNKNOWN_TASK_TYPE_POLICY ?? "deny"
   if (raw === "safe_default" || raw === "deny") return raw
-  console.warn(`[pool-enforcement] Invalid UNKNOWN_TASK_TYPE_POLICY="${raw}". Defaulting to "safe_default".`)
-  return "safe_default"
+  console.warn(`[pool-enforcement] Invalid UNKNOWN_TASK_TYPE_POLICY="${raw}". Defaulting to "deny".`)
+  return "deny"
 })()
 
 // --- Native Enforcement Path (SDD §4.4, Task 3.1) ---
