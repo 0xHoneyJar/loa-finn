@@ -31,6 +31,9 @@ import { createAgentPublicApiRoutes, type AgentPublicApiDeps } from "./routes/ag
 import { createConversationRoutes, type ConversationRouteDeps } from "./routes/conversations.js"
 import { cspMiddleware } from "./csp.js"
 import { createAdminRoutes, type AdminRouteDeps } from "./routes/admin.js"
+import { x402Routes, createX402InvokeHandler, type X402RouteDeps } from "./x402-routes.js"
+import { createIdentityRoutes, type IdentityRouteDeps } from "./routes/identity.js"
+import { corpusVersionMiddleware } from "./corpus-version.js"
 import type { ConversationManager } from "../nft/conversation.js"
 import type { PersonalityProvider } from "../nft/personality-provider.js"
 
@@ -56,6 +59,10 @@ export interface AppOptions {
   personalityProvider?: PersonalityProvider
   /** Conversation manager for CRUD routes (Sprint 2) */
   conversationManager?: ConversationManager
+  /** x402 route dependencies — when provided, x402 and /pay/chat routes are mounted */
+  x402Deps?: X402RouteDeps
+  /** Identity route dependencies — when provided, /api/identity routes are mounted (Sprint 3 T3.2) */
+  identityDeps?: IdentityRouteDeps
 }
 
 export function createApp(config: FinnConfig, options: AppOptions) {
@@ -173,6 +180,7 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     oracleApp.use("*", oracleAuthMiddleware(options.redisClient, { trustXff: config.oracle.trustXff }))
     oracleApp.use("*", oracleRateLimitMiddleware(options.oracleRateLimiter))
     oracleApp.use("*", oracleConcurrencyMiddleware(concurrencyLimiter))
+    oracleApp.use("*", corpusVersionMiddleware())
     oracleApp.post("/", createOracleHandler(options.hounfour, options.oracleRateLimiter, config))
     app.route("/api/v1/oracle", oracleApp)
   }
@@ -181,11 +189,14 @@ export function createApp(config: FinnConfig, options: AppOptions) {
   const isOraclePath = (path: string) =>
     path === "/api/v1/oracle" || path.startsWith("/api/v1/oracle/")
 
-  // Skip guard for product/admin paths — these use their own auth (SIWE, none, or FINN_AUTH_TOKEN)
+  // Skip guard for product/admin/x402/identity paths — these use their own auth (SIWE, none, FINN_AUTH_TOKEN, x402 payment, or public)
   const isProductApiPath = (path: string) =>
     path === "/api/v1/public" || path.startsWith("/api/v1/public/") ||
     path === "/api/v1/conversations" || path.startsWith("/api/v1/conversations/") ||
-    path === "/api/v1/admin" || path.startsWith("/api/v1/admin/")
+    path === "/api/v1/admin" || path.startsWith("/api/v1/admin/") ||
+    path === "/api/v1/x402" || path.startsWith("/api/v1/x402/") ||
+    path === "/api/v1/pay" || path.startsWith("/api/v1/pay/") ||
+    path === "/api/identity" || path.startsWith("/api/identity/")
 
   // WHY: Zero-trust defense — strip x-internal-reservation-id before ANY processing.
   // External clients could inject this header to spoof reservations. Even though JWT
@@ -408,8 +419,29 @@ export function createApp(config: FinnConfig, options: AppOptions) {
   })
 
   // ---------------------------------------------------------------------------
-  // Sprint 3: Admin / E2E Support Routes
+  // x402 Payment Routes (Sprint 2 T2.2)
+  // Mounted as isolated sub-app — NOT behind JWT middleware.
+  // /api/v1/x402/invoke is canonical, /api/v1/pay/chat is the single alias.
   // ---------------------------------------------------------------------------
+
+  if (options.x402Deps) {
+    // Canonical x402 routes: /api/v1/x402/invoke
+    app.route("/api/v1/x402", x402Routes(options.x402Deps))
+
+    // Alias: POST /api/v1/pay/chat → same handler as /api/v1/x402/invoke
+    const payApp = new Hono()
+    payApp.post("/chat", createX402InvokeHandler(options.x402Deps))
+    app.route("/api/v1/pay", payApp)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sprint 3: Identity / Admin / E2E Support Routes
+  // ---------------------------------------------------------------------------
+
+  // Identity resolution — public endpoints, no auth (T3.2)
+  if (options.identityDeps) {
+    app.route("/api/identity", createIdentityRoutes(options.identityDeps))
+  }
 
   // Admin seed endpoint — FINN_AUTH_TOKEN auth, for E2E/CI only (T3.9)
   {

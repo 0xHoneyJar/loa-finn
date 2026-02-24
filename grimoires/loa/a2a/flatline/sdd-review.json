@@ -1,19 +1,83 @@
 {
   "phase": "sdd",
   "document": "grimoires/loa/sdd.md",
-  "timestamp": "2026-02-24T10:20:04Z",
+  "timestamp": "2026-02-25T15:50:00Z",
   "consensus_summary": {
-    "high_consensus_count": 5,
+    "high_consensus_count": 4,
     "disputed_count": 1,
     "low_value_count": 0,
-    "blocker_count": 5,
+    "blocker_count": 4,
     "model_agreement_percent": 90,
     "confidence": "full"
   },
-  "high_consensus": ["IMP-001", "IMP-002", "IMP-003", "IMP-004", "IMP-010"],
-  "disputed": ["IMP-006"],
-  "blockers": ["SKP-001", "SKP-002", "SKP-003", "SKP-004", "SKP-005"],
+  "high_consensus": [
+    {
+      "id": "IMP-001",
+      "description": "JWKS fetch resilience: timeouts, retry/backoff, stale-while-revalidate cache",
+      "average_score": 815,
+      "integrated": true
+    },
+    {
+      "id": "IMP-002",
+      "description": "Freeside cross-service contract: pin API schema and Redis key patterns",
+      "average_score": 855,
+      "integrated": true
+    },
+    {
+      "id": "IMP-003",
+      "description": "x402 payment failure modes: error schemas and edge cases",
+      "average_score": 855,
+      "integrated": true
+    },
+    {
+      "id": "IMP-004",
+      "description": "WebSocket auth details for E2E harness",
+      "average_score": 750,
+      "integrated": true
+    }
+  ],
+  "disputed": [
+    {
+      "id": "IMP-010",
+      "description": "Multi-NFT array is breaking change — needs backward-compat strategy",
+      "gpt_score": 780,
+      "opus_score": 450,
+      "decision": "accept",
+      "rationale": "Valid — adding versioning note"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "SKP-003",
+      "concern": "Admin auth shares JWKS with user auth",
+      "severity_score": 860,
+      "decision": "override",
+      "rationale": "Production hardening deferred to Fly.io cycle. Adding future-hardening note."
+    },
+    {
+      "id": "SKP-001",
+      "concern": "Self-referential JWKS doesn't validate real-world discovery/rotation",
+      "severity_score": 740,
+      "decision": "override",
+      "rationale": "Proves ES256+JWKS machinery. External JWKS deferred to staging."
+    },
+    {
+      "id": "SKP-004",
+      "concern": "Freeside Redis KEYS command O(N) and brittle",
+      "severity_score": 720,
+      "decision": "accept",
+      "rationale": "Switching to SCAN, pinning freeside image version."
+    },
+    {
+      "id": "SKP-002",
+      "concern": "JWT trust model underspecified",
+      "severity_score": 900,
+      "decision": "accept",
+      "rationale": "Adding JWT claim contract table and negative E2E tests."
+    }
+  ],
   "execution": {
-    "mode": "interactive"
+    "mode": "hitl",
+    "mode_reason": "Simstim workflow"
   }
 }

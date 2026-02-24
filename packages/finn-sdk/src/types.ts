@@ -89,6 +89,77 @@ export interface VerifyResponse {
 }
 
 // ---------------------------------------------------------------------------
+// x402 Invoke (Sprint 3 T3.4)
+// ---------------------------------------------------------------------------
+
+export interface X402InvokeRequest {
+  model: string
+  max_tokens?: number
+  prompt: string
+}
+
+export interface X402InvokeResponse {
+  result: string
+  payment_id: string
+  quote_id: string
+}
+
+export interface X402Quote {
+  quote_id: string
+  model: string
+  max_tokens: number
+  max_cost: string
+  payment_address: string
+  chain_id: number
+  token_address: string
+  valid_until: string
+}
+
+export interface X402QuoteResponse {
+  error: string
+  code: "PAYMENT_REQUIRED"
+  quote: X402Quote
+}
+
+// ---------------------------------------------------------------------------
+// Identity (Sprint 3 T3.4)
+// ---------------------------------------------------------------------------
+
+export interface NFTInfo {
+  collection: string
+  tokenId: string
+  title: string
+}
+
+export interface WalletNftsResponse {
+  nfts: NFTInfo[]
+  total: number
+}
+
+// ---------------------------------------------------------------------------
+// Admin (Sprint 3 T3.4)
+// ---------------------------------------------------------------------------
+
+export interface ToggleFlagRequest {
+  flag: string
+  enabled: boolean
+}
+
+export interface ToggleFlagResponse {
+  flag: string
+  enabled: boolean
+}
+
+export interface GetFlagsResponse {
+  flags: Record<string, boolean>
+}
+
+export interface AllowlistRequest {
+  action: "add" | "remove"
+  addresses: string[]
+}
+
+// ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 

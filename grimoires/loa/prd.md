@@ -1,413 +1,323 @@
-# PRD: Hounfour v7.11.0 Protocol Convergence
+# PRD: Launch Readiness — Product Integration & Live Testing
 
-**Cycle**: 034 (Protocol Convergence)
-**Status**: Draft
-**Author**: Claude Opus 4.6 + Jani (strategic direction)
-**Date**: 2026-02-24
-**References**: [#66 Launch Readiness](https://github.com/0xHoneyJar/loa-finn/issues/66) · [loa-hounfour v7.11.0](https://github.com/0xHoneyJar/loa-hounfour) · [#31 Hounfour RFC](https://github.com/0xHoneyJar/loa-finn/issues/31)
-**GPT-5.2 Review**: Iteration 1 — 7 blocking issues addressed
+**Status:** Approved
+**Author:** Jani (via Loa)
+**Date:** 2026-02-25
+**Cycle:** cycle-035
+**References:** [Issue #66](https://github.com/0xHoneyJar/loa-finn/issues/66) · [PR #103](https://github.com/0xHoneyJar/loa-finn/pull/103) · [PR #104](https://github.com/0xHoneyJar/loa-finn/pull/104) · [Issue #84](https://github.com/0xHoneyJar/loa-finn/issues/84) · [Issue #85](https://github.com/0xHoneyJar/loa-finn/issues/85)
+
+> Sources: Issue #66 command deck (106 comments), reality/routes.md, reality/interfaces.md, reality/auth.md, reality/env-vars.md, context/hounfour-rfc.md, PR #103 (merged), PR #104 (merged), issues #84-#95
 
 ---
 
 ## 1. Problem Statement
 
-**finn speaks hounfour v7.9.2. The protocol has moved to v7.11.0.**
+loa-finn has completed its infrastructure-to-protocol transition. Across 34 development cycles and 131 global sprints, the system has accumulated:
 
-Three releases (v7.10.0, v7.10.1, v7.11.0) have shipped upstream since finn pinned its dependency at commit `ff8c16b`. These releases are **additive by intent** (no deliberate breaking changes), but any dependency upgrade can surface type changes, stricter validation, or changed defaults that require adaptation. The upgrade must be validated through compile-check, compatibility matrix testing, and per-feature enablement flags before any new behavior activates. The capabilities delivered:
+- **Multi-model inference engine** with pool routing, ensemble orchestration, and budget enforcement (Hounfour v7.11.0 — adopted)
+- **Product layer** with conversation persistence, agent homepages, chat UI, and WebSocket streaming (PR #103 — merged)
+- **Protocol convergence** with branded TaskType, hash chains, native enforcement, and Goodhart protection (PR #104 — merged)
+- **Economic boundary** with conservation invariants, credit lots, and reconciliation sweeps (loa-freeside)
+- **Knowledge governance** with constitutional architecture and 1,090 tests (loa-dixie v2.0.0)
 
-1. **Task-Dimensional Reputation** — Reputation scores are currently a single blended number per tenant (`blended_score` in `TIER_TRUST_MAP`). v7.11.0 introduces per-task-type cohorts (`TaskTypeCohort`, `ReputationEvent`, `ScoringPathLog`), meaning a tenant can be "established" for conversation but "cold" for code generation. finn's economic boundary and pool routing currently cannot express this.
+**The problem is no longer "can we build it?" — it is "does it compose?"**
 
-2. **Native Enforcement Interface** — finn's `pool-enforcement.ts` and `economic-boundary.ts` use expression-based evaluation (`evaluateEconomicBoundary()`, `evaluateAccessPolicy()`). v7.11.0 adds `evaluation_geometry: 'native'` — a local evaluator optimization that calls enforcement functions directly instead of parsing expressions. This is a **local configuration choice** (not a peer-negotiated capability) — the wire protocol is unchanged; only the internal evaluation path differs.
+The individual subsystems are unit-tested and bridge-reviewed. But no E2E test has ever exercised the full flow: `user request → JWT validation → model routing → inference → billing debit → response delivery`. The infrastructure promises are proven in isolation but unproven in composition.
 
-3. **Tamper-Evident Hash Chain** — finn's `AuditTrail` (`src/safety/audit-trail.ts`) already maintains a hash chain, but v7.11.0 provides a protocol-level chain (SHA-256 + RFC 8785 canonical JSON). Aligning these creates cross-system auditability between finn and arrakis.
+Until the system can be started with `docker compose up` and a test client can complete an authenticated inference request with billing, the product is infrastructure — not a product.
 
-4. **Open Enum TaskType** — finn currently hardcodes task routing in `nft-routing-config.ts` with string literals. v7.11.0 introduces `namespace:type` extensible task types, enabling `finn:conversation`, `finn:summarize`, `finn:memory_inject` as first-class protocol citizens.
-
-5. **Protocol Handshake Gap** — `protocol-handshake.ts` detects features up to v7.9.1 (`denialCodes`). None of the v7.10.0+ features are discoverable. The current handshake relies solely on semver thresholds, but arrakis spans v4.6.0–v7.x and older peers may not report semver reliably or may backport features. A dual-strategy approach (explicit peer-advertised capabilities with semver fallback) is needed.
-
-> Sources: loa-hounfour CHANGELOG, issue #66 Command Center, codebase analysis of `src/hounfour/`
-
----
-
-## 2. Vision
-
-**"The protocol speaks for itself."**
-
-After this cycle, finn doesn't just _use_ hounfour — it _converges_ with it. Task-dimensional reputation means an NFT agent's conversation skill and code generation skill have independent reputations. The hash chain means every enforcement decision is cryptographically auditable across finn and arrakis. Open task types mean finn can register its own capabilities (conversation, memory, summarization) as protocol-native operations. The handshake knows about all of it.
-
-This is the last structural gap between finn's runtime and the protocol's design intent. After this, capability expansion is configuration, not code.
+> Source: Issue #66 body ("What's the gap between infrastructure ready and users can use it?"), Issue #84 description, Issue #66 Command Center Feb 24
 
 ---
 
-## 3. What Already Exists
+## 2. Vision & Goals
 
-| Component | File(s) | Status | Gap |
-|-----------|---------|--------|-----|
-| **Protocol Handshake** | `protocol-handshake.ts` | Built (v7.9.1) | Missing v7.10.0+ feature thresholds; semver-only detection |
-| **Economic Boundary** | `economic-boundary.ts` | Built | Flat tier→reputation mapping, no task-dimensional cohorts |
-| **Pool Enforcement** | `pool-enforcement.ts` | Built | Expression-only, no native geometry |
-| **Tier Bridge** | `tier-bridge.ts` | Built | Static tier→pool mapping |
-| **NFT Routing Config** | `nft-routing-config.ts` | Built | Hardcoded string task types |
-| **Audit Trail** | `safety/audit-trail.ts` | Built | Independent hash chain, not protocol-aligned |
-| **Protocol Types** | `protocol-types.ts` | Built | Re-exports from v7.9.2 — missing new types |
-| **Wire Boundary** | `wire-boundary.ts` | Built | Branded type parsers — needs new branded types |
-| **Types** | `types.ts` | Built | Re-exports from v7.9.2 |
-| **Package.json** | `package.json:32` | `@0xhoneyjar/loa-hounfour#ff8c16b` | Pinned to v7.9.2 commit |
+### Vision
 
-> Sources: `src/hounfour/protocol-handshake.ts`, `src/hounfour/economic-boundary.ts`, `package.json`
+Close the gap between infrastructure and product by proving the full economic inference loop works end-to-end in a real deployment environment, then exposing it through a developer-consumable API surface.
 
----
+### Goals
 
-## 4. Goals & Success Metrics
+| ID | Goal | Success Metric | Priority |
+|----|------|---------------|----------|
+| G1 | **Prove composition** | E2E test passes: JWT auth → inference → billing debit → response | P0 |
+| G2 | **Enable deployment** | `docker compose up` starts finn + redis + freeside, health checks green | P0 |
+| G3 | **Activate feature flags** | All 6 PR #104 flags promotable in staging without regression | P0 |
+| G4 | **Enable revenue** | x402 pay-per-request returns inference for valid USDC payment | P1 |
+| G5 | **Enable developer adoption** | OpenAPI spec served at `/openapi.json`, TypeScript SDK installable | P1 |
+| G6 | **Enable cross-service contracts** | Dixie can consume finn API with typed client, multi-NFT resolved | P2 |
 
-| ID | Goal | Metric | Target |
-|----|------|--------|--------|
-| G-1 | **Upgrade dependency** | `@0xhoneyjar/loa-hounfour` resolves to v7.11.0 exact commit | package.json pin updated, `npm test` passes, upstream CHANGELOG diff reviewed |
-| G-2 | **Feature detection complete** | Protocol handshake detects all v7.11.0 features | `PeerFeatures` includes 4 new fields; capability + semver dual detection |
-| G-3 | **Task-dimensional reputation** | Economic boundary evaluates per-task-type cohorts | Unit tests cover multi-cohort scenarios with TaskType propagation |
-| G-4 | **Native enforcement path** | Pool enforcement supports `evaluation_geometry: 'native'` | CI microbenchmark: native >= 3x faster than expression in same harness |
-| G-5 | **Hash chain alignment** | Audit trail uses protocol hash chain format | Chain validates with shared test vectors; versioned envelope format |
-| G-6 | **Open task types** | NFT routing uses `namespace:type` pattern | `finn:conversation`, `finn:summarize`, `finn:memory_inject` registered |
-| G-7 | **Zero regression** | All existing tests pass under compatibility matrix | 779+ tests green against v7.9.2 behavior and v7.11.0 behavior |
-| G-8 | **Upstream TODO resolved** | `economic-boundary.ts` TODO for `denial_codes` type removed | No local type extensions for upstream gaps |
+### Non-Goals (Explicit)
+
+- Production deployment to Fly.io (next cycle)
+- Arrakis integration or Discord/Telegram bot work
+- NFT personality pipeline (BEAUVOIR.md customization)
+- Community governance UI
+- Oracle metacognition (#95 — depends on Dixie endpoint not yet available)
+
+> Source: Issue #66 critical path (Feb 25 command deck), issues #84/#85/#91/#93
 
 ---
 
-## 5. User Stories
+## 3. User & Stakeholder Context
 
-### US-1: Protocol Handshake Detects v7.11.0 Features (Dual-Strategy)
+### Primary Personas
 
-```
-As the loa-finn boot sequence,
-I want to detect task-dimensional reputation, hash chain,
-and open task types from the remote arrakis health response,
-using both explicit peer-advertised capabilities and semver fallback,
-so that I can enable or degrade features correctly even when
-the peer's version is absent, unparsable, or backported.
+| Persona | Description | Needs from This Cycle |
+|---------|-------------|----------------------|
+| **Internal QA** | The team validating the full loop before external users touch it | E2E harness that exercises real JWT + real inference + real billing |
+| **Developer integrator** | Future SDK consumer building on the finn API | OpenAPI spec, TypeScript SDK, auth documentation |
+| **x402 payer** | Permissionless user paying per-request with USDC | 402 response with pricing, payment verification, inference delivery |
 
-Acceptance Criteria:
-- PeerFeatures includes: taskDimensionalReputation (v7.10.0+),
-  hashChain (v7.10.1+), openTaskTypes (v7.11.0+)
-- Primary detection: peer-advertised "capabilities" array/bitset
-  in health response (when present)
-- Fallback detection: FEATURE_THRESHOLDS semver comparison
-  (when capabilities field is absent)
-- Unknown state: when neither source is available, feature defaults
-  to false (conservative)
-- Backward compatibility: features remain false for v7.9.x peers
-- Tests cover: v4.6.0, v7.9.x, v7.11.0, absent version,
-  unparsable version, and backported-feature scenarios
-- Log line shows detection method (capability/semver/unknown) per feature
-```
+### Secondary Personas
 
-### US-2: Task-Dimensional Reputation in Economic Boundary
+| Persona | Description | Needs (Deferred) |
+|---------|-------------|-------------------|
+| **NFT holder** | Community member with personality-routed agent | Agent homepage + chat (PR #103, already merged) |
+| **Dixie consumer** | Knowledge governance service calling finn APIs | Typed client, multi-NFT resolution (#93) |
 
-```
-As the economic boundary evaluator,
-I want to use per-task-type reputation cohorts instead of a single
-blended score,
-so that a tenant with high conversation reputation but low code
-generation reputation gets appropriate access for each task type.
-
-Acceptance Criteria:
-- TIER_TRUST_MAP replaced or augmented with task-type cohort mapping
-- evaluateEconomicBoundary receives task type context
-- TaskType is sourced from wire-boundary.ts parsing of inbound request
-- TaskType is stored in WAL/audit record payloads
-- TaskType propagates through enforcement → reputation event emission
-- Fallback: if peer doesn't support task-dimensional reputation,
-  use blended score (current behavior)
-- Shadow mode logs cohort-vs-blended divergence for observability
-```
-
-### US-3: Native Enforcement Geometry (Local Evaluator)
-
-```
-As the pool enforcement middleware,
-I want to use native function-call enforcement as a local optimization,
-so that enforcement evaluation is faster without changing the wire protocol.
-
-Acceptance Criteria:
-- evaluateAccessPolicy supports evaluation_geometry: 'native'
-- Native path calls local enforcement function directly
-  (no expression parsing)
-- Expression path remains default for backward compatibility
-- This is a LOCAL config choice — not gated on peer capabilities
-- Config: ENFORCEMENT_GEOMETRY=expression|native (default: expression)
-- Wire protocol request/response format is identical for both paths
-- Compatibility tests: v7.9.x peer interaction is byte-for-byte
-  compatible regardless of local geometry choice
-- CI microbenchmark: native path >= 3x faster than expression path
-  in same harness (same input rules, logging off, Node 22, single-thread)
-```
-
-### US-4: Protocol-Aligned Hash Chain (Versioned Envelope)
-
-```
-As the audit trail,
-I want to produce hash chain entries in a versioned envelope format
-using the protocol's canonical serialization (SHA-256 + RFC 8785),
-so that chain entries can be verified cross-system by arrakis.
-
-Acceptance Criteria:
-- Each entry hashes: prev_hash || canonical_json({version, algo,
-  format, timestamp, action, payload_hash})
-  where canonical_json uses RFC 8785 serialization
-- Entry includes explicit "format" field: "protocol_v1" or "legacy"
-- Verifiers select format per entry using the "format" field
-- SHA-256 used for protocol_v1 (matching protocol spec)
-- Migration: bridge entry computed with both legacy_prev_hash and
-  protocol_prev_hash, marking the transition point
-- Dual-write period: both legacy and protocol hashes computed for
-  a configurable number of entries (default: 1000) after migration
-- Shared test vectors: finn and arrakis validate identical chains
-  from the same input data
-- Replay test: existing chain replays correctly through the
-  bridge entry and into protocol_v1 entries
-```
-
-### US-5: Open Enum Task Types for finn
-
-```
-As the NFT routing config,
-I want to register finn-specific task types using the namespace:type pattern,
-so that conversation, summarization, and memory injection are protocol-native
-operations with their own reputation cohorts.
-
-Acceptance Criteria:
-- TaskType is a first-class field on the request context produced by
-  wire-boundary.ts parsing
-- Validation: namespace:type format, allowed charset [a-z0-9_-],
-  max 64 chars, lowercase normalized
-- finn-native types: "finn:conversation", "finn:summarize",
-  "finn:memory_inject"
-- nft-routing-config.ts routes by TaskType instead of string literals
-- TaskType stored in WAL/audit record payloads, passed through all
-  enforcement and reputation interfaces
-- Unknown task types: DENY with denial code "unknown_task_type"
-  unless explicitly allowlisted per tenant in config
-- Configurable fallback: UNKNOWN_TASK_TYPE_POLICY=deny|safe_default
-  (deny = reject with denial code; safe_default = route to
-  rate-limited pool with strict budget)
-- Legacy callers without TaskType: deterministic fallback mapping
-  based on endpoint (e.g., /chat → finn:conversation)
-- Tests cover: valid types, invalid format, unknown type denial,
-  allowlisted unknown type, legacy caller fallback
-```
-
-### US-6: Dependency Upgrade with Zero Regression
-
-```
-As the CI pipeline,
-I want the hounfour dependency upgraded from v7.9.2 to v7.11.0,
-so that all new types and functions are available at compile time.
-
-Acceptance Criteria:
-- package.json points to exact v7.11.0 commit hash (not just tag)
-- Upstream CHANGELOG diff (v7.9.2→v7.11.0) reviewed and documented
-  in grimoires/loa/NOTES.md
-- TypeScript compiles cleanly (no new errors)
-- All 779+ existing tests pass
-- Compatibility matrix test suite validates against:
-  - v7.9.2 runtime behavior (existing tests)
-  - v7.11.0 compile-time types (new imports resolve)
-- Local type extensions (EvaluationResultWithDenials) removed
-  if upstream now exports denial_codes
-- Each new capability gated behind individual feature flag:
-  - TASK_DIMENSIONAL_REPUTATION_ENABLED (default: false)
-  - NATIVE_ENFORCEMENT_ENABLED (default: false)
-  - PROTOCOL_HASH_CHAIN_ENABLED (default: false)
-  - OPEN_TASK_TYPES_ENABLED (default: false)
-- No runtime behavior change without explicit feature enablement
-```
+> Source: Issue #66 Section 3 (personas), Issue #85 (x402 user), Issue #91 (developer)
 
 ---
 
-## 6. Functional Requirements
+## 4. Functional Requirements
 
-### FR-1: Dependency Upgrade (with Compatibility Validation)
+### FR-1: Dockerized Deployment (Issue #84)
 
-- Update `@0xhoneyjar/loa-hounfour` from commit `ff8c16b` (v7.9.2) to exact v7.11.0 commit hash
-- Review upstream CHANGELOG diff and document type/default changes in NOTES.md
-- Remove local type patches (`EvaluationResultWithDenials` in `economic-boundary.ts`) if upstream types now include `denial_codes`
-- Verify all existing imports from `@0xhoneyjar/loa-hounfour` still resolve
-- Re-export any new branded types through `types.ts` and `wire-boundary.ts`
-- Run compatibility matrix: compile against v7.11.0 types, test against v7.9.2 behavior expectations
-- Gate each new capability behind individual feature flag (all default to `false`)
+**What**: Multi-stage Dockerfile + docker-compose for local and CI environments.
 
-### FR-2: Protocol Handshake Extension (Dual-Strategy Detection)
+| ID | Requirement | Acceptance Criteria |
+|----|------------|-------------------|
+| FR-1.1 | Multi-stage Dockerfile | `docker build .` produces working image under 500MB. Node.js 22 LTS, non-root user, health check instruction. |
+| FR-1.2 | Docker Compose | `docker compose up` starts loa-finn + Redis + loa-freeside (billing sidecar). Health endpoints for both services respond within 30s. Freeside connects to the same Redis instance for shared budget state. |
+| FR-1.3 | Environment configuration | All env vars from `reality/env-vars.md` configurable via `.env` file or compose environment block. Secrets never baked into image. |
+| FR-1.4 | Graceful shutdown | `docker compose down` completes within 15s. WAL flushes, connections drain. |
 
-- Add 3 new fields to `PeerFeatures` (capabilities negotiated with peer):
-  - `taskDimensionalReputation: boolean` (v7.10.0+)
-  - `hashChain: boolean` (v7.10.1+)
-  - `openTaskTypes: boolean` (v7.11.0+)
-- **Note**: `nativeEnforcement` is NOT a peer feature — it is a local evaluator choice (see FR-4)
-- Implement dual-strategy detection:
-  1. **Primary**: Parse `capabilities` array from health response if present (explicit peer advertisement)
-  2. **Fallback**: Use `FEATURE_THRESHOLDS` semver comparison if `capabilities` absent
-  3. **Unknown**: If neither source available, default to `false` (conservative)
-- Add corresponding entries to `FEATURE_THRESHOLDS` for semver fallback
-- Maintain existing fields unchanged
-- Log detection method per feature: `method=capability|semver|unknown`
-- Tests: v4.6.0, v7.9.x, v7.11.0, absent version, unparsable version, backported features
+> Source: Issue #84 acceptance criteria, reality/env-vars.md
 
-### FR-3: Task-Dimensional Reputation Integration
+### FR-2: Cross-System E2E Test Harness (Issue #84)
 
-- Import `TaskTypeCohort`, `ReputationEvent`, `ScoringPathLog` from upstream
-- Extend `ReputationProvider` interface (in `types.ts`) to support cohort-based queries
-- Modify economic boundary to accept `taskType` parameter (required when feature enabled)
-- **TaskType data flow**: `wire-boundary.ts` parse → request context → enforcement → reputation event → WAL/audit
-- When `peerFeatures.taskDimensionalReputation` is true AND feature flag enabled, query cohort-specific scores
-- When false or disabled, fall back to current `TIER_TRUST_MAP` blended scores
-- Add shadow-mode metric: `hounfour_reputation_cohort_vs_blended_delta`
+**What**: Integration test exercising the full inference loop with real auth, not mocks.
 
-### FR-4: Native Enforcement Path (Local Configuration)
+| ID | Requirement | Acceptance Criteria |
+|----|------------|-------------------|
+| FR-2.1 | ES256 JWT exchange | Test generates ES256 keypair, starts a JWKS sidecar container in compose that serves the public key at `/.well-known/jwks.json`. Finn is configured with `FINN_JWKS_URL` pointing to this sidecar. Test signs JWT with valid claims (`tenant_id`, `tier`, `req_hash`), finn validates via the sidecar's JWKS endpoint. No mocked auth — real JWKS discovery and ES256 validation. |
+| FR-2.2 | Inference request | Authenticated POST to `/api/v1/chat` returns streamed inference response via **WebSocket** (the existing transport — see `src/gateway/ws.ts`). The E2E test connects to `/ws/:sessionId` with bearer token auth, sends a `prompt` message, and asserts receipt of `text_delta` + `turn_end` messages. SSE is not in scope for this cycle. |
+| FR-2.3 | Budget debit flow | Inference request triggers cost recording in finn's budget engine (`BudgetSnapshot.spent_usd` increases) AND a corresponding debit event in freeside's ledger. E2E test asserts both: finn-side cost tracking and freeside-side lot entry creation. |
+| FR-2.4 | Conservation check | If budget limit reached, subsequent requests return 429 with `evaluation_gap` diagnostic. |
+| FR-2.5 | CI integration | E2E test runnable in GitHub Actions with `docker compose up -d` setup step. Fails CI if any assertion fails. |
 
-- Add `ENFORCEMENT_GEOMETRY` env var (values: `expression`, `native`; default: `expression`)
-- Implement native enforcement function matching protocol's evaluation interface
-- **This is a local evaluator optimization** — not gated on peer capabilities or health response
-- The wire protocol request/response format is identical regardless of geometry
-- Expression path remains default; native is opt-in via config
-- Compatibility requirement: v7.9.x peer interaction must produce identical enforcement results regardless of local geometry choice
-- CI microbenchmark: same input rules, logging disabled, Node 22, single-threaded. Target: native >= 3x faster than expression
+> Source: Issue #84 body, reality/auth.md (JWT validation order), reality/interfaces.md (BudgetSnapshot)
 
-### FR-5: Hash Chain Alignment (Versioned Envelope)
+### FR-3: Feature Flag Promotion Readiness (PR #104 Activation)
 
-- Define versioned hash chain envelope format:
-  ```
-  entry_hash = SHA-256(prev_hash || canonical_json({
-    version: 1,
-    algo: "sha256",
-    format: "protocol_v1",
-    timestamp: <ISO-8601>,
-    action: <string>,
-    payload_hash: SHA-256(canonical_json(payload))
-  }))
-  ```
-  where `canonical_json` uses RFC 8785 serialization
-- Each `AuditRecord` includes explicit `format` field (`"protocol_v1"` or `"legacy"`)
-- Verifiers select hash computation method per entry based on `format` field
-- Migration bridge entry:
-  - Computed with `legacy_prev_hash` (last legacy entry's hash)
-  - Contains both `legacy_prev_hash` and `protocol_prev_hash` (same value for bridge)
-  - Marks the deterministic transition point
-- Dual-write period: both legacy and protocol hashes computed for configurable period (default: 1000 entries)
-- After dual-write: legacy computation drops, only `protocol_v1` continues
-- Shared test vectors: document in `tests/safety/hash-chain-vectors.json` for cross-system validation
-- Never rewrite existing chain entries
+**What**: Validate the 6 feature flags from PR #104 are safe to enable, using the Docker Compose environment as "staging."
 
-### FR-6: Open Task Types (with Conservative Unknown Handling)
+**Staging definition**: For this cycle, "staging" means the Docker Compose environment from FR-1.2 with all services running. Flags are toggled via environment variables in the compose `.env` file. Actual cloud staging (Fly.io) is deferred to the production deployment cycle.
 
-- Import `TaskType` branded type from upstream (or define with `wire-boundary.ts` parser)
-- Validation: `namespace:type` format, charset `[a-z0-9_-]`, max 64 chars, lowercase normalized
-- `TaskType` is a first-class field on request context (`wire-boundary.ts` → all downstream)
-- `TaskType` stored in WAL entry payloads and `AuditRecord` payloads
-- `TaskType` propagated through: pool routing → enforcement → reputation event emission
-- Define finn-native task types: `finn:conversation`, `finn:summarize`, `finn:memory_inject`
-- Refactor `nft-routing-config.ts` to route by `TaskType` instead of string literals
-- Register finn task types in protocol-handshake health response
-- **Unknown task type handling** (configurable via `UNKNOWN_TASK_TYPE_POLICY`):
-  - `deny` (default): reject with denial code `unknown_task_type`
-  - `safe_default`: route to rate-limited pool with strict budget enforcement
-- Per-tenant allowlist: config can allowlist specific unknown task types per tenant
-- Legacy caller fallback: deterministic mapping from endpoint to TaskType (e.g., `/chat` → `finn:conversation`)
+| ID | Requirement | Acceptance Criteria |
+|----|------------|-------------------|
+| FR-3.1 | Flag inventory | Document all 6 flags with expected behavior when ON vs OFF, including env var names and default values. |
+| FR-3.2 | Flag-by-flag validation | Each flag can be turned ON independently in compose `.env` without regression. Full test suite passes with each flag individually enabled. |
+| FR-3.3 | All-flags-on validation | Full test suite passes with all 6 flags enabled simultaneously in compose. |
+| FR-3.4 | Rollback verification | Each flag can be turned OFF after enablement without side effects. |
+| FR-3.5 | Promotion runbook | Document the recommended promotion order and monitoring checkpoints for future cloud staging deployment. |
 
-### FR-7: Goodhart Protection (ADR-004)
+> Source: PR #104 summary ("6 new feature flags, all defaulting to OFF")
 
-- Implement scoring path logging when `ScoringPathLog` is available
-- Ensure reputation events include `TaskType` context for dimensional scoring
-- No single metric can determine enforcement outcome alone
+### FR-4: x402 Pay-Per-Request Middleware (Issue #85)
+
+**What**: HTTP 402 payment flow for permissionless inference access.
+
+| ID | Requirement | Acceptance Criteria |
+|----|------------|-------------------|
+| FR-4.1 | 402 pricing response | Request to `/api/v1/pay/chat` (dedicated x402 endpoint, separate from JWT-gated `/api/v1/chat`) without `X-Payment` header returns HTTP 402 with `X-Price`, `X-Currency`, `X-Payment-Address` headers. |
+| FR-4.2 | Payment verification | Valid `X-Payment` header with EIP-3009 `transferWithAuthorization` signature is verified. **E2E/compose**: off-chain signature verification against a mock payment provider (no on-chain call). **Future staging**: on-chain verification against Base testnet. |
+| FR-4.3 | Nonce replay protection | Replayed payment nonces are rejected with 409. Nonce is recorded in DB only after payment signature is verified and inference request is accepted (atomicity = DB transaction, not on-chain atomicity). |
+| FR-4.4 | Conservation guard | Payment amount verified >= estimated cost before model invocation. Uses `MicroUSDC` branded type from loa-hounfour. Quote is the maximum possible cost (conservative). |
+| FR-4.5 | Credit-back | If actual cost < quoted price, difference is credited to an off-chain credit balance (not an on-chain refund). `actualMicro <= quotedMicro` enforced as invariant. On-chain refunds are out of scope for this cycle. |
+
+**Auth/payment precedence for `/api/v1/*` routes:**
+
+| Endpoint | Auth Mode | Behavior |
+|----------|-----------|----------|
+| `/api/v1/chat` | JWT only | 401 if missing/invalid JWT. No x402 fallback. |
+| `/api/v1/pay/chat` | x402 only | 402 if missing payment. No JWT required. Maps to synthetic tenant `x402-anon` with `free` tier. |
+
+> Source: Issue #85 acceptance criteria, PR #104 Bridgebuilder deep review (conservative-quote-settle pattern)
+
+### FR-5: OpenAPI Specification + TypeScript SDK (Issue #91)
+
+**What**: Developer-consumable API surface generated from existing Hono routes + Zod schemas.
+
+| ID | Requirement | Acceptance Criteria |
+|----|------------|-------------------|
+| FR-5.1 | OpenAPI 3.1 spec | `GET /openapi.json` returns valid spec. All `/api/v1/*` REST endpoints documented with auth requirements, request/response schemas, and pool descriptions. WebSocket `/ws/:sessionId` is documented as a separate section (OpenAPI 3.1 `x-websocket` extension or prose description) since OpenAPI cannot natively describe WebSocket protocols. |
+| FR-5.2 | TypeScript SDK | `@0xhoneyjar/loa-finn-sdk` installable via npm. Supports JWT auth, REST inference requests, and **WebSocket streaming** (connects to `/ws/:sessionId`, handles `text_delta`/`turn_end` message types). |
+| FR-5.3 | Developer docs | Auth flow, pool model, billing, and code examples documented. Served at `/docs` or as static site. |
+
+> Source: Issue #91 body, reality/routes.md (existing route inventory)
+
+### FR-6: Dixie API Contract Alignment (Issue #93)
+
+**What**: Resolve cross-service contract gaps between finn and dixie.
+
+| ID | Requirement | Acceptance Criteria |
+|----|------------|-------------------|
+| FR-6.1 | Multi-NFT resolution | `/api/identity/wallet/:wallet/nfts` (plural) endpoint returns all NFTs for a wallet, not just the first. |
+| FR-6.2 | Contract documentation | All 10+ dixie-consumed endpoints documented with request/response types aligned to OpenAPI spec (#91). |
+| FR-6.3 | Corpus version header | `x-corpus-version` header added to all `/api/knowledge/*` responses per Issue #94. |
+
+> Source: Issue #93 (single-NFT limitation), Issue #94 (corpus version)
 
 ---
 
-## 7. Non-Functional Requirements
+## 5. Technical & Non-Functional Requirements
 
-| ID | Requirement | Target |
-|----|-------------|--------|
-| NFR-1 | Native enforcement latency | >= 3x faster than expression in CI microbenchmark (same harness, Node 22, single-threaded, logging off) |
-| NFR-2 | Backward compatibility | All v7.9.x and v4.6.0 peers continue working identically |
-| NFR-3 | Hash chain validation | < 10ms per entry verification |
-| NFR-4 | Zero downtime upgrade | Existing sessions unaffected; all features behind flags (default off) |
-| NFR-5 | Type safety | No `any` casts on new upstream types; all branded types through wire-boundary |
+### NFR-1: Performance
+
+| Metric | Target | Rationale |
+|--------|--------|-----------|
+| Docker build time | < 3 minutes | CI pipeline should not be bottlenecked by build |
+| Container startup to healthy | < 30 seconds | E2E tests need fast setup/teardown |
+| E2E test suite runtime | < 5 minutes | Must fit in CI time budget |
+| x402 payment verification (off-chain) | < 500ms | Signature verification only; on-chain confirmation is async and out of scope |
+
+### NFR-2: Security
+
+| Requirement | Implementation |
+|-------------|---------------|
+| No secrets in Docker image | Multi-stage build, runtime env vars only |
+| ES256 JWT validation | Real key validation in E2E, no mock bypass |
+| x402 nonce atomicity | Nonce recorded in DB only after signature verified and request accepted (DB transaction, not on-chain atomicity) |
+| CORS restricted | Only configured origins in production |
+| Request hash verification | SHA-256 body hash in JWT `req_hash` claim |
+
+> Source: reality/auth.md (JWT validation, CSRF, response redaction)
+
+### NFR-3: Observability
+
+| Requirement | Implementation |
+|-------------|---------------|
+| Health endpoint | `GET /health` returns subsystem status (already exists) |
+| Prometheus metrics | PR #103 added Grafana dashboards + alert rules |
+| E2E test reporting | JUnit XML output for CI integration |
+
+### NFR-4: Compatibility
+
+| Constraint | Value |
+|-----------|-------|
+| Node.js | 22 LTS (ESM-only) |
+| loa-hounfour | >= 7.11.0 |
+| Docker | 24+ with BuildKit |
+| Redis | 7.x |
+
+> Source: reality/index.md (Node.js 22+, Hono v4), reality/dependencies.md
 
 ---
 
-## 8. Scope & Prioritization
+## 6. Scope & Prioritization
 
-### In Scope (This Cycle)
+### MVP (P0) — Must Ship This Cycle
 
-1. **P0**: Dependency upgrade to v7.11.0 with compatibility matrix (FR-1)
-2. **P0**: Protocol handshake extension with dual-strategy detection (FR-2)
-3. **P1**: Task-dimensional reputation integration with TaskType data flow (FR-3)
-4. **P1**: Open task types registration with conservative unknown handling (FR-6)
-5. **P1**: Native enforcement path as local config (FR-4)
-6. **P2**: Hash chain alignment with versioned envelope and migration (FR-5)
-7. **P2**: Goodhart protection wiring (FR-7)
+| Track | Issues | What | Why |
+|-------|--------|------|-----|
+| **Dockerization** | #84 | Dockerfile + compose | Can't test composition without running it |
+| **E2E harness** | #84 | Real JWT + inference + billing test | Proves the loop works |
+| **Flag promotion** | PR #104 | Validate 6 flags in staging | Activates protocol convergence |
+
+### P1 — Should Ship This Cycle
+
+| Track | Issues | What | Why |
+|-------|--------|------|-----|
+| **x402** | #85 | Pay-per-request middleware | Revenue path |
+| **OpenAPI** | #91 | Spec + SDK | Developer adoption surface |
+
+### P2 — If Time Permits
+
+| Track | Issues | What | Why |
+|-------|--------|------|-----|
+| **Dixie contracts** | #93, #94 | Multi-NFT + corpus version | Cross-service parity |
 
 ### Out of Scope
 
-- Arrakis v7.11.0 upgrade (separate workstream per issue #66)
-- Freeside hounfour adoption (workstream #2 per issue #66)
-- Dixie hounfour adoption (workstream #5 per issue #66)
-- Governance explorer UI (workstream #7 per issue #66)
-- Personality authoring pipeline (workstream #4 per issue #66)
-- New model providers or pool configuration changes
+| Item | Why Deferred |
+|------|-------------|
+| Production Fly.io deployment | Needs E2E proof first (next cycle) |
+| Arrakis adoption of v7.11.0 | Separate repo, separate cycle |
+| Oracle metacognition (#95) | Depends on Dixie endpoint not yet available |
+| NFT personality pipeline | Product layer (PR #103) already merged, personality customization is post-launch |
+| Community governance UI | Ostrom principles implicit in architecture; explicit governance is future work |
+
+> Source: Issue #66 command deck critical path (Feb 25), Bridgebuilder deep review Part IV
 
 ---
 
-## 9. Risks & Dependencies
+## 7. Risks & Dependencies
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| v7.11.0 has undocumented type changes | Medium | Pin to exact commit hash, review CHANGELOG diff, compile-check before behavior changes |
-| Additive changes break pinned integration | Medium | Compatibility matrix tests validate v7.9.2 behavior preserved under v7.11.0 types |
-| Shadow mode masks issues in production | Low | Structured logging with alerts on divergence > threshold |
-| Hash chain migration corrupts existing trail | High | Versioned envelope with bridge entry; dual-write period; never rewrite history; shared test vectors |
-| Expression → native enforcement edge cases | Medium | Wire protocol unchanged; CI tests confirm identical results for both geometry paths |
-| Unknown task types exploit cheap routing | High | Conservative default: deny unknown task types; per-tenant allowlist required |
-| Capability detection disagrees with semver | Medium | Explicit priority: capability field > semver > unknown (conservative) |
+### Risks
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| E2E test reveals integration bugs between JWT auth and hounfour router | High | Medium | Budget extra time for integration debugging; this is the *purpose* of the E2E harness |
+| x402 on-chain verification complexity | Medium | High | Use mock payment provider in E2E; real on-chain in staging only |
+| Feature flag interactions (6 flags, 64 combinations) | Medium | Medium | Test flags individually first, then all-on; don't test every combination |
+| Docker image size bloats past 500MB | Low | Low | Multi-stage build, `.dockerignore`, no dev deps in production |
 
 ### Dependencies
 
-- `@0xhoneyjar/loa-hounfour` v7.11.0 must be published/tagged with stable commit
-- Issue #66 workstream #1 (merge protocol-convergence-v7) should be complete first
-- No dependency on arrakis upgrade — finn upgrades first per issue #66 command center
+| Dependency | Status | Blocking |
+|-----------|--------|----------|
+| loa-hounfour v7.11.0 | Released ✅ | — |
+| loa-finn PR #103 (product layer) | Merged ✅ | — |
+| loa-finn PR #104 (protocol convergence) | Merged ✅ | — |
+| loa-freeside PR #96 (v7.11.0 adoption) | Merged ✅ | — |
+| loa-dixie PR #9 (v7.11.0 adoption) | Merged ✅ | — |
+| Redis 7.x | Available via Docker | FR-1.2 |
+| `@hono/zod-openapi` | npm package | FR-5.1 |
+| EIP-3009 reference implementation | Public | FR-4.2 |
+
+> Source: Issue #66 ecosystem status map (Feb 25 update)
 
 ---
 
-## 10. Technical Constraints
+## 8. Success Criteria
 
-- **Existing file count**: 57 TypeScript files in `src/hounfour/` — changes must be surgical
-- **Branded types**: All protocol values use branded types (`MicroUSD`, `PoolId`, `AccountId`) — new types (including `TaskType`) must follow the same pattern through `wire-boundary.ts`
-- **Three enforcement modes**: `bypass`, `shadow`, `enforce` — new features must respect all three
-- **Dev/prod divergence**: Handshake skips in dev, fails-fast in prod — new features follow same pattern
-- **No FinnConfig schema enforcement for pools**: Existing tech debt (pools config not validated in schema) — don't add to this debt
-- **Feature flags**: All new capabilities default to `false` — no behavior change on upgrade alone
-- **TaskType as first-class field**: Must propagate end-to-end: wire-boundary parse → request context → enforcement → reputation → WAL → audit
+This cycle is complete when:
+
+1. `docker compose up` starts loa-finn + Redis + loa-freeside, all health endpoints return 200 within 30s
+2. E2E test completes: generate ES256 keypair → sign JWT → POST `/api/v1/chat` → receive streamed response → verify budget debit
+3. All 6 feature flags from PR #104 are validated individually and collectively
+4. x402 middleware returns 402 with pricing headers for unauthenticated requests, and delivers inference for valid payment
+5. `GET /openapi.json` returns valid OpenAPI 3.1 spec covering all `/api/v1/*` endpoints
+6. E2E test runs in GitHub Actions CI without manual intervention
+
+**The atomic success metric**: A single command (`docker compose up && npm run test:e2e`) that proves the full economic inference loop works.
+
+> Source: Issue #66 ("What bridges infrastructure to product?"), Issue #84, PR #104 Bridgebuilder meditation Part V
 
 ---
 
-## 11. Upgrade Plan
+## Appendix A: Ecosystem State at Cycle Start
 
-### Phase A: Compile-Time Upgrade (Sprint 1)
+```
+loa-hounfour v7.11.0  ── RELEASED ✅
+loa-finn main         ── PR #103 + #104 merged ✅
+loa-freeside main     ── PR #96 merged ✅
+loa-dixie v2.0.0      ── PR #9 merged ✅
 
-1. Pin `@0xhoneyjar/loa-hounfour` to exact v7.11.0 commit hash
-2. Review upstream CHANGELOG diff (v7.9.2 → v7.11.0), document in NOTES.md
-3. Fix any compile errors from type changes
-4. Remove local type patches if upstream now exports them
-5. Verify all 779+ tests pass with zero behavior change
-6. Add feature flag env vars (all default `false`)
+Global sprints: 131+ across 4 repos
+Total tests: 9,874+
+Protocol version: v7.11.0 (4 of 4 repos converged)
+```
 
-### Phase B: Protocol Extension (Sprint 2)
+## Appendix B: Issue Cross-Reference
 
-1. Extend handshake with dual-strategy detection
-2. Wire TaskType through request context and all downstream interfaces
-3. Implement open task types with deny-by-default for unknowns
-4. Implement task-dimensional reputation with shadow mode
-
-### Phase C: Internal Optimizations (Sprint 3)
-
-1. Native enforcement geometry (local config, no wire change)
-2. Hash chain versioned envelope with migration bridge
-3. Goodhart protection scoring path logging
-4. CI microbenchmarks and shared test vectors
+| Issue | Title | PRD Section |
+|-------|-------|-------------|
+| #84 | Dockerize + E2E Harness | FR-1, FR-2 |
+| #85 | x402 Pay-Per-Request | FR-4 |
+| #91 | OpenAPI + SDK | FR-5 |
+| #93 | Dixie API Contracts | FR-6 |
+| #94 | Corpus Version Header | FR-6.3 |
+| #95 | Oracle Metacognition | Out of Scope |
