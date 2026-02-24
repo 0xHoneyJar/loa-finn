@@ -25,6 +25,11 @@ import {
 } from "./tier-bridge.js"
 import { allowedPoolsForTier } from "../nft/routing-affinity.js"
 import { parsePoolId } from "./wire-boundary.js"
+import {
+  evaluateAccessPolicy,
+  type AccessPolicyContext,
+  type AccessPolicyResult,
+} from "./protocol-types.js"
 
 // --- Types (SDD §3.1.1) ---
 
@@ -205,6 +210,129 @@ export function getPoolConfig(): PoolEnforcementConfig {
   }
 }
 
+// --- Access Policy Shadow Evaluation (Task 2.6) ---
+
+/**
+ * Enforcement mode for protocol access policy evaluation.
+ * Rollout ladder: observe → asymmetric → enforce.
+ *
+ *   observe    — Log-only. Protocol result logged, local result always used.
+ *   asymmetric — Protocol-deny overrides local-allow (fail-safe tightening).
+ *                Protocol-allow does NOT override local-deny (no privilege escalation).
+ *   enforce    — Protocol result replaces local result entirely.
+ */
+export type AccessPolicyEnforcementMode = "observe" | "asymmetric" | "enforce"
+
+const VALID_ENFORCEMENT_MODES = new Set<string>(["observe", "asymmetric", "enforce"])
+
+/**
+ * Parse enforcement mode from env var with safe default.
+ * Invalid values fall back to "observe" (safest mode).
+ */
+export const ACCESS_POLICY_ENFORCEMENT_MODE: AccessPolicyEnforcementMode = (() => {
+  const raw = process.env.ECONOMIC_BOUNDARY_ACCESS_POLICY_ENFORCEMENT ?? "observe"
+  if (VALID_ENFORCEMENT_MODES.has(raw)) return raw as AccessPolicyEnforcementMode
+  console.warn(
+    `[pool-enforcement] Invalid ACCESS_POLICY_ENFORCEMENT mode "${raw}", falling back to "observe"`,
+  )
+  return "observe"
+})()
+
+/** Structured divergence log entry for shadow evaluation */
+interface AccessPolicyDivergence {
+  event: "access_policy_divergence"
+  mode: AccessPolicyEnforcementMode
+  tenant_id: string
+  tier: string
+  local_allowed: boolean
+  protocol_allowed: boolean
+  protocol_reason: string
+  action_taken: "local_wins" | "protocol_deny_wins" | "protocol_wins"
+}
+
+/**
+ * Evaluate protocol access policy in shadow mode alongside local enforcement.
+ *
+ * Called AFTER local pool enforcement succeeds. If no access_policy is present
+ * in the claims, this is a no-op (returns localAllowed unchanged).
+ *
+ * @returns Whether the request should proceed (true = allowed).
+ */
+export function evaluateAccessPolicyShadow(
+  claims: JWTClaims,
+  localAllowed: boolean,
+  mode: AccessPolicyEnforcementMode = ACCESS_POLICY_ENFORCEMENT_MODE,
+): boolean {
+  // No access_policy in claims → no protocol evaluation, pass through
+  const accessPolicy = (claims as Record<string, unknown>).access_policy
+  if (accessPolicy == null) return localAllowed
+
+  // Build protocol context from JWT claims
+  const context: AccessPolicyContext = {
+    action: "read", // Default action for API requests
+    timestamp: new Date().toISOString(),
+    role: claims.tier,
+    previously_granted: localAllowed,
+  }
+
+  let protocolResult: AccessPolicyResult | undefined
+  try {
+    protocolResult = evaluateAccessPolicy(accessPolicy as Parameters<typeof evaluateAccessPolicy>[0], context)
+  } catch (err) {
+    // Protocol evaluation failure → fail open in observe/asymmetric, fail closed in enforce
+    console.error("[pool-enforcement] access_policy evaluation error:", err)
+    return mode === "enforce" ? false : localAllowed
+  }
+
+  // Guard: undefined/null result treated same as evaluation error
+  if (protocolResult == null || typeof protocolResult.allowed !== "boolean") {
+    console.error("[pool-enforcement] access_policy evaluation returned invalid result:", protocolResult)
+    return mode === "enforce" ? false : localAllowed
+  }
+
+  // No divergence → pass through (no logging needed)
+  if (protocolResult.allowed === localAllowed) return localAllowed
+
+  // Divergence detected — log and apply mode-specific logic
+  const actionTaken: AccessPolicyDivergence["action_taken"] =
+    mode === "observe"
+      ? "local_wins"
+      : mode === "asymmetric"
+        ? protocolResult.allowed ? "local_wins" : "protocol_deny_wins"
+        : "protocol_wins"
+
+  const entry: AccessPolicyDivergence = {
+    event: "access_policy_divergence",
+    mode,
+    tenant_id: claims.tenant_id,
+    tier: claims.tier,
+    local_allowed: localAllowed,
+    protocol_allowed: protocolResult.allowed,
+    protocol_reason: protocolResult.reason,
+    action_taken: actionTaken,
+  }
+
+  // Graduate log level by divergence severity
+  if (!protocolResult.allowed && localAllowed) {
+    // Protocol would DENY what local allows — security-relevant
+    console.warn("[pool-enforcement]", JSON.stringify(entry))
+  } else {
+    // Protocol would ALLOW what local denies — informational only
+    console.info("[pool-enforcement]", JSON.stringify(entry))
+  }
+
+  switch (mode) {
+    case "observe":
+      return localAllowed
+    case "asymmetric":
+      // Protocol-deny overrides local-allow (tightening)
+      // Protocol-allow does NOT override local-deny (no escalation)
+      return protocolResult.allowed ? localAllowed : false
+    case "enforce":
+      return protocolResult.allowed
+  }
+}
+
 // --- Composed HTTP Middleware: hounfourAuth (SDD §3.1.5) ---
 
 /**
@@ -245,7 +373,13 @@ export function hounfourAuth(
       logPoolMismatch(authResult.context.claims, enforcement.mismatch, poolConfig)
     }
 
-    // 4. Set enriched TenantContext
+    // 4. Shadow access policy evaluation (graduated rollout — Task 2.6)
+    const accessAllowed = evaluateAccessPolicyShadow(authResult.context.claims, true)
+    if (!accessAllowed) {
+      return c.json({ error: "Forbidden", code: "ACCESS_POLICY_DENIED" }, 403)
+    }
+
+    // 5. Set enriched TenantContext
     const tenantContext: TenantContext = {
       ...authResult.context,
       // Shallow copy: enforcement result is readonly, TenantContext consumers should not mutate
@@ -281,6 +415,12 @@ export async function validateAndEnforceWsJWT(
 
   if (result.mismatch) {
     logPoolMismatch(ctx.claims, result.mismatch, enforcementConfig)
+  }
+
+  // Shadow access policy evaluation (graduated rollout — Task 2.6)
+  const accessAllowed = evaluateAccessPolicyShadow(ctx.claims, true)
+  if (!accessAllowed) {
+    return { ok: false, reason: "FORBIDDEN", code: "ACCESS_POLICY_DENIED", message: "Forbidden" }
   }
 
   return {

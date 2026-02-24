@@ -1,15 +1,28 @@
 {
-  "generated_at": "2026-02-19T03:32:46Z",
-  "git_sha": "95620344816eb6580171697f5d67ba72f1ec4159",
+  "generated_at": "2026-02-24T01:40:57Z",
+  "git_sha": "aac80ed4aeee3876998935a94f0bf6e8d76330dc",
   "algorithm": "sha256",
   "files": {
-    "grimoires/loa/reality/background-jobs.md": "2dd051442bad3501d973a08f44b8e0504723f6b8150296d90f07dab63a81aeed",
-    "grimoires/loa/reality/auth.md": "30b22c47f75a295c84a1ab18c4106f12611cd3de25783a241243f091d2f273dd",
-    "grimoires/loa/reality/dependencies.md": "a43b696bd98902c6a64bc4b4b073e8a36b3cdc037bcbd2dd443532d0803a9bfe",
-    "grimoires/loa/reality/interfaces.md": "ab59ee7f5b6240b4a3cf7adf8eaf821ee9810916569d3b4aa6508bca9d4a3390",
-    "grimoires/loa/reality/index.md": "89dade9f80f2d94af8f36c9391709a9e0515ace9877a353b3766821bcdbc456c",
-    "grimoires/loa/reality/routes.md": "149ce2f281a7fccf411af7bc192b9d5e408ffb2db2d5326375a749b836aec753",
-    "grimoires/loa/reality/env-vars.md": "8d915b77a550c014acb2da8f303d8353011ea26ba99e4b5a2a23c5348a44ac26",
-    "grimoires/loa/reality/README.md": "cec7549e6f34591ddd6d0aca39a2879d90b02c459a5c327da3c3cbd1f59c795a"
+    "grimoires/oracle/onboarding-guide.md": "fa6280c8d39e6e2d88cebefeb05d41c80369c73672f4f090e456043efbe7e3f1",
+    "grimoires/oracle/naming-mythology.md": "f41e079b4c99bf06f2a9d898a172436a6152ef221cd3871f856353c95da1c97c",
+    "grimoires/oracle/code-reality-finn.md": "94b4ac47b713c0e2cbc26ff0fdaf772cc4948d1bc451f082edadef0c5e17ddf2",
+    "grimoires/oracle/ecosystem-architecture.md": "6d90eaf56c11d22bb7b1e800b98b5d94265ac8de3d0dd6d62015f0d084f665c8",
+    "grimoires/oracle/web4-manifesto.md": "49aa1c88fdd953a1790c26cb7722d171a6b4170753de1eb41278fad9eaa0a7f4",
+    "grimoires/oracle/bridgebuilder-reports.md": "14b631f9f4766af09569e0883cab1b7fadec87e2620e2c65e534ed61558778e1",
+    "grimoires/oracle/glossary.md": "bc62d7ebae04334b7ed5573793ae5769c07065e455b503e3b624284c383d3a50",
+    "grimoires/oracle/code-reality-hounfour.md": "6e458a82bbc88e2531a75358107da861273dcce9b0cdcb7dec34ead50275be9e",
+    "grimoires/oracle/architecture-decisions.md": "eccaea7de78029bbb2d7b416326247235a35de56e978f0240fefb4709feebffd",
+    "grimoires/oracle/product-vision.md": "9150ccd4d4171a92e925bfa8c7b3f1273d9d06fd165bb101093cdaa03e3cfd07",
+    "grimoires/oracle/community-principles.md": "d8c1cc419efbb6cb07221277e692b877883f4dac17ce216c8506502cbb7dbbbb",
+    "grimoires/oracle/oracle-persona.md": "27905de2282b850a9b18d6877d706dbebf2961ac443808f6d38279ca57e4aa58",
+    "grimoires/oracle/development-history.md": "d66da87c38bdea343079f65a8a15666dd627aa4320a81dd805647a5a208b92f7",
+    "grimoires/oracle/sprint-patterns.md": "bc51d2e2f4ca23a24b21daba0ef0e55574100ed70aa6ac8b952172a4b553e019",
+    "grimoires/oracle/feature-matrix.md": "0cb386e8ebb0cbf7285720ff2c910f3e6ddc08e29e461fd979d8cdb718914288",
+    "grimoires/oracle/tokenomics-overview.md": "6a32d4dfbf8378d7805ad34f3278ffe84e0d301a28b093a311c08d80ee147a7f",
+    "grimoires/oracle/rfcs.md": "417734a7b4cdc961abcfa74cdef7b463a35c973d69acb23700f49e3bc7309cc6",
+    "grimoires/oracle/pricing-model.md": "efef720ea599b3c23c1de20d27ed08b31d96c8be05481a6085768c0b20319dfa",
+    "grimoires/oracle/code-reality-loa.md": "808d5ccf07c67713bde707c2724e117c7e70e9991117df918375a2da56c61051",
+    "grimoires/oracle/code-reality-arrakis.md": "ae6d4a89925ec23f2a08dd17b6d5a8375be119dee32f8b2a76f3838ba1f1dcd9",
+    "grimoires/oracle/meeting-geometries.md": "d8b4efb04678ce5c6b4ef1ee05b1c4849a197d166ab15098edaf8f3b86607ffc"
   }
 }

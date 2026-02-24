@@ -37,11 +37,31 @@ export interface HandshakeResult {
   message: string
 }
 
-/** Feature detection based on remote version. */
+/** Feature detection based on remote version (Task 2.7). */
 export interface PeerFeatures {
   /** Remote supports trust_scopes (v6.0.0+). */
   trustScopes: boolean
+  /** Remote supports reputation_gated access policies (v7.3.0+). */
+  reputationGated: boolean
+  /** Remote supports compound access policies with AND/OR (v7.4.0+). */
+  compoundPolicies: boolean
+  /** Remote supports economic boundary evaluation (v7.7.0+). */
+  economicBoundary: boolean
+  /** Remote supports denial codes and evaluation gaps (v7.9.1+). */
+  denialCodes: boolean
 }
+
+/**
+ * Version thresholds for protocol features.
+ * Used by detectPeerFeatures() to determine capabilities from remote version.
+ */
+export const FEATURE_THRESHOLDS = {
+  trustScopes:      { major: 6, minor: 0, patch: 0 },
+  reputationGated:  { major: 7, minor: 3, patch: 0 },
+  compoundPolicies: { major: 7, minor: 4, patch: 0 },
+  economicBoundary: { major: 7, minor: 7, patch: 0 },
+  denialCodes:      { major: 7, minor: 9, patch: 1 },
+} as const satisfies Record<keyof PeerFeatures, { major: number; minor: number; patch: number }>
 
 // --- Public ---
 
@@ -83,11 +103,11 @@ export async function validateProtocolAtBoot(config: HandshakeConfig): Promise<H
   const healthUrl = `${baseUrl}/api/internal/health`
   let healthData: Record<string, unknown>
 
+  let fetchTimeout: ReturnType<typeof setTimeout> | undefined
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 5000)
+    fetchTimeout = setTimeout(() => controller.abort(), 5000)
     const response = await fetch(healthUrl, { signal: controller.signal })
-    clearTimeout(timeout)
 
     if (!response.ok) {
       const msg = `health endpoint returned ${response.status}`
@@ -104,6 +124,8 @@ export async function validateProtocolAtBoot(config: HandshakeConfig): Promise<H
     if (isProd) throw new Error(`[protocol-handshake] FATAL: ${msg}`)
     console.warn(`[protocol-handshake] ${msg} — continuing (dev mode)`)
     return { ok: true, status: "degraded", message: `warn: ${msg}` }
+  } finally {
+    if (fetchTimeout) clearTimeout(fetchTimeout)
   }
 
   // Extract contract_version
@@ -128,7 +150,11 @@ export async function validateProtocolAtBoot(config: HandshakeConfig): Promise<H
   const peerFeatures = detectPeerFeatures(remoteVersion, healthData)
 
   const warnSuffix = compat.warning ? ` (${compat.warning})` : ""
-  console.log(`[protocol-handshake] status=compatible remote=${remoteVersion} trustScopes=${peerFeatures.trustScopes}${warnSuffix}`)
+  const featureSummary = Object.entries(peerFeatures)
+    .filter(([, v]) => v)
+    .map(([k]) => k)
+    .join(",") || "none"
+  console.log(`[protocol-handshake] status=compatible remote=${remoteVersion} features=${featureSummary}${warnSuffix}`)
   return {
     ok: true,
     status: "compatible",
@@ -227,11 +253,19 @@ function compareSemver(
 
 /**
  * Detect peer features based on remote version and health response.
- * trust_scopes is a v6.0.0+ feature.
+ * Uses FEATURE_THRESHOLDS for version-gated detection, with health response
+ * field presence as a fallback signal for trust_scopes.
  */
 function detectPeerFeatures(remoteVersion: string, healthData: Record<string, unknown>): PeerFeatures {
   const remote = parseSemver(remoteVersion)
+  const meetsThreshold = (threshold: { major: number; minor: number; patch: number }) =>
+    compareSemver(remote, threshold) >= 0
+
   return {
-    trustScopes: remote.major >= 6 || "trust_scopes" in healthData,
+    trustScopes:      meetsThreshold(FEATURE_THRESHOLDS.trustScopes) || "trust_scopes" in healthData,
+    reputationGated:  meetsThreshold(FEATURE_THRESHOLDS.reputationGated),
+    compoundPolicies: meetsThreshold(FEATURE_THRESHOLDS.compoundPolicies),
+    economicBoundary: meetsThreshold(FEATURE_THRESHOLDS.economicBoundary),
+    denialCodes:      meetsThreshold(FEATURE_THRESHOLDS.denialCodes),
   }
 }

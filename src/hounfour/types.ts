@@ -1,8 +1,9 @@
 // src/hounfour/types.ts — Hounfour shared types (SDD §4.2, T-14.4)
 // All interfaces for the multi-model provider abstraction layer.
 //
-// Canonical branded types re-exported from @0xhoneyjar/loa-hounfour (v7.0.0).
+// Canonical branded types re-exported from @0xhoneyjar/loa-hounfour (v7.9.2).
 // Use wire-boundary.ts parse functions to construct branded values.
+// Protocol schemas and types centralized in protocol-types.ts (Task 2.4).
 
 export type { MicroUSD, BasisPoints, AccountId } from "@0xhoneyjar/loa-hounfour"
 export type { PoolId } from "@0xhoneyjar/loa-hounfour"
@@ -255,6 +256,18 @@ export interface ModelPortBase {
 
 // --- Budget ---
 
+/**
+ * Budget epoch classification for temporal diversity.
+ * Log-only metadata — does NOT mutate protocol CapitalLayerSnapshot.
+ * Enables communities to express calendar, event-based, or governance-synced budget rhythms.
+ */
+export interface BudgetEpoch {
+  /** Epoch type: calendar (monthly/quarterly), event (campaign/launch), or community-sync (DAO vote cycle). */
+  epoch_type: "calendar" | "event" | "community-sync"
+  /** Community-provided epoch identifier (e.g., "Q1-2026", "launch-campaign-3", "governance-cycle-7"). */
+  epoch_id: string
+}
+
 export interface BudgetSnapshot {
   scope: string
   spent_usd: number
@@ -262,6 +275,15 @@ export interface BudgetSnapshot {
   percent_used: number
   warning: boolean
   exceeded: boolean
+  /** Optional ISO 8601 budget period end from upstream provider. When absent, 30-day default used. */
+  budget_period_end?: string
+  /** Optional epoch metadata for temporal diversity. Log-only — not stored in protocol snapshot. */
+  budget_epoch?: BudgetEpoch
+}
+
+/** Provider for dynamic reputation scoring (Sprint 5, Task 5.3). */
+export interface ReputationProvider {
+  getReputationBoost(tenantId: string): Promise<{ boost: number; source: string } | null>
 }
 
 // --- Ledger Entry (16 fields per SDD §5.2) ---
