@@ -697,6 +697,14 @@ export function buildOpenApiSpec(): Record<string, unknown> {
                 },
               },
             },
+            "502": {
+              description: "NFT resolution upstream failure",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
+                },
+              },
+            },
           },
         },
       },

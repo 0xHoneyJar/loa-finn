@@ -151,6 +151,7 @@ export function createX402InvokeHandler(deps: X402RouteDeps) {
     // 6. Rate limit
     const withinLimit = await checkRateLimit(deps.redis, walletAddress)
     if (!withinLimit) {
+      c.header("Retry-After", "3600")
       return c.json({
         error: `Rate limit exceeded: ${X402_RATE_LIMIT_PER_HOUR} requests per hour`,
         code: "RATE_LIMITED",
