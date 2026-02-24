@@ -1493,6 +1493,21 @@ describe("Sprint 6 — Configurable ReputationProvider timeout (Task 6.1)", () =
     warnSpy.mockRestore()
   })
 
+  it("R13: warns and defaults when reputationTimeoutMs is NaN", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    createTestApp({
+      mode: "shadow" as EconomicBoundaryMode,
+      getBudgetSnapshot: async () => makeBudget(),
+      reputationTimeoutMs: NaN,
+    })
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("is not a finite number"),
+    )
+    warnSpy.mockRestore()
+  })
+
   it("R13: no warning when reputationTimeoutMs is within 50ms ceiling", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
 
