@@ -1,386 +1,413 @@
-# PRD: Protocol Convergence v7.9.2 — Full Adoption
+# PRD: Hounfour v7.11.0 Protocol Convergence
 
-> **Version**: 1.1.0
-> **Date**: 2026-02-23
-> **Author**: @janitooor + Claude Opus 4.6 (Bridgebuilder)
-> **Status**: Draft
-> **Cycle**: cycle-032
-> **Origin**: [Launch Readiness RFC — Issue #66](https://github.com/0xHoneyJar/loa-finn/issues/66) Sprint A: Protocol Adoption
-> **Predecessor**: cycle-030 "Forward Architecture" (sprints 121-123, 562 tests), cycle-026 "Protocol Convergence v7.0.0" (sprint 65)
-> **Protocol Package**: [@0xhoneyjar/loa-hounfour v7.9.2](https://github.com/0xHoneyJar/loa-hounfour/releases/tag/v7.9.2) (released 2026-02-23)
-
----
-
-## 0. Framing — Why This Matters Now
-
-loa-finn currently pins `@0xhoneyjar/loa-hounfour` at commit `d091a3c0` (v7.0.0). That version was published with a **stale dist build** requiring a postinstall patch script (`scripts/patch-hounfour-dist.sh`) that clones the repo, checks out the commit, and rebuilds from source on every `pnpm install`.
-
-v7.9.2 was released today (2026-02-23) with:
-- **Clean dist** — Loa development framework ejected, protocol-only distribution
-- **Additive-only changes** — all new features are opt-in imports (but see §4.2 for dist/export-map verification requirements)
-- **111 new conformance vectors** (91 → 202) — doubled cross-language validation coverage
-- **11 new evaluator builtins** (31 → 42) — conservation, bigint, temporal governance
-- **Decision engine** — `evaluateEconomicBoundary()` for trust × capital access decisions
-- **Strict BigInt parser** — `parseMicroUsd()` with discriminated union return
-- **6-dimensional trust** — `CapabilityScopedTrust` replacing flat trust_level
-- **Constraint provenance** — `ConstraintOrigin` on all 72 constraint files
-
-The gap between v7.0.0 and v7.9.2 represents 9 minor versions of additive protocol evolution. Every feature loa-finn's billing, trust, reputation, and governance systems need is now available as a shared contract. Continuing to maintain local implementations of protocol-level concerns creates drift risk and doubles the maintenance surface.
-
-Issue #66 identifies "Arrakis adopts loa-hounfour" as a P0 Sprint A deliverable. This cycle completes the **loa-finn side** of that convergence — ensuring finn is a model consumer that arrakis can reference.
+**Cycle**: 034 (Protocol Convergence)
+**Status**: Draft
+**Author**: Claude Opus 4.6 + Jani (strategic direction)
+**Date**: 2026-02-24
+**References**: [#66 Launch Readiness](https://github.com/0xHoneyJar/loa-finn/issues/66) · [loa-hounfour v7.11.0](https://github.com/0xHoneyJar/loa-hounfour) · [#31 Hounfour RFC](https://github.com/0xHoneyJar/loa-finn/issues/31)
+**GPT-5.2 Review**: Iteration 1 — 7 blocking issues addressed
 
 ---
 
 ## 1. Problem Statement
 
-### 1.1 Stale Dependency
+**finn speaks hounfour v7.9.2. The protocol has moved to v7.11.0.**
 
-The v7.0.0 pin requires a postinstall patch that:
-- Clones the full repo on every `pnpm install` (slow CI, flaky in air-gapped environments)
-- Hardcodes a commit SHA (`d091a3c0`) that must match the pin (fragile coupling)
-- Exits silently if the package isn't installed (hides failures)
+Three releases (v7.10.0, v7.10.1, v7.11.0) have shipped upstream since finn pinned its dependency at commit `ff8c16b`. These releases are **additive by intent** (no deliberate breaking changes), but any dependency upgrade can surface type changes, stricter validation, or changed defaults that require adaptation. The upgrade must be validated through compile-check, compatibility matrix testing, and per-feature enablement flags before any new behavior activates. The capabilities delivered:
 
-> Source: `scripts/patch-hounfour-dist.sh:1-52`, `package.json:29,32`
+1. **Task-Dimensional Reputation** — Reputation scores are currently a single blended number per tenant (`blended_score` in `TIER_TRUST_MAP`). v7.11.0 introduces per-task-type cohorts (`TaskTypeCohort`, `ReputationEvent`, `ScoringPathLog`), meaning a tenant can be "established" for conversation but "cold" for code generation. finn's economic boundary and pool routing currently cannot express this.
 
-### 1.2 Protocol Drift
+2. **Native Enforcement Interface** — finn's `pool-enforcement.ts` and `economic-boundary.ts` use expression-based evaluation (`evaluateEconomicBoundary()`, `evaluateAccessPolicy()`). v7.11.0 adds `evaluation_geometry: 'native'` — a local evaluator optimization that calls enforcement functions directly instead of parsing expressions. This is a **local configuration choice** (not a peer-negotiated capability) — the wire protocol is unchanged; only the internal evaluation path differs.
 
-Local implementations diverge from protocol contracts:
+3. **Tamper-Evident Hash Chain** — finn's `AuditTrail` (`src/safety/audit-trail.ts`) already maintains a hash chain, but v7.11.0 provides a protocol-level chain (SHA-256 + RFC 8785 canonical JSON). Aligning these creates cross-system auditability between finn and arrakis.
 
-| Local Implementation | Protocol Counterpart (v7.9.2) | Relationship |
-|---------------------|-------------------------------|-------------|
-| `wire-boundary.ts:parseMicroUSD()` — throws, allows negatives | `parseMicroUsd()` — discriminated union, non-negative only | **Complementary**: protocol for strict boundaries, local for internal accounting |
-| `billing-conservation-guard.ts` — post-invocation invariant checks | `evaluateEconomicBoundary()` — pre-invocation trust×capital decision | **Complementary**: different lifecycle phases (see §4.5 choreography) |
-| No trust scoping | `CapabilityScopedTrust` — 6-dimensional | Missing capability granularity |
-| No constraint provenance | `ConstraintOrigin` — genesis/enacted/migrated | No constraint audit trail |
-| 91 conformance vectors | 202 conformance vectors | 111 untested protocol paths |
+4. **Open Enum TaskType** — finn currently hardcodes task routing in `nft-routing-config.ts` with string literals. v7.11.0 introduces `namespace:type` extensible task types, enabling `finn:conversation`, `finn:summarize`, `finn:memory_inject` as first-class protocol citizens.
 
-> Source: `src/hounfour/wire-boundary.ts:55-95`, `src/hounfour/billing-conservation-guard.ts:55-67`
+5. **Protocol Handshake Gap** — `protocol-handshake.ts` detects features up to v7.9.1 (`denialCodes`). None of the v7.10.0+ features are discoverable. The current handshake relies solely on semver thresholds, but arrakis spans v4.6.0–v7.x and older peers may not report semver reliably or may backport features. A dual-strategy approach (explicit peer-advertised capabilities with semver fallback) is needed.
 
-### 1.3 Missing Protocol Features
-
-v7.1.0–v7.9.2 introduced features loa-finn already needs but implements locally:
-
-- **Reputation event sourcing** (v7.3.0): `reconstructAggregateFromEvents()`, `verifyAggregateConsistency()` — loa-finn has `EventStore` (cycle-030) but no protocol-level aggregate verification
-- **Access policy evaluation** (v7.1.0): `evaluateAccessPolicy()` — loa-finn has ad-hoc tier checks in `pool-enforcement.ts`
-- **Constraint namespace validation** (v7.8.0): `detectReservedNameCollisions()` — no equivalent in loa-finn
-- **Model economic profiles** (v7.7.0): `ModelEconomicProfileSchema` — loa-finn uses untyped provider config
+> Sources: loa-hounfour CHANGELOG, issue #66 Command Center, codebase analysis of `src/hounfour/`
 
 ---
 
-## 2. Goals & Success Metrics
+## 2. Vision
 
-### 2.1 Primary Goals
+**"The protocol speaks for itself."**
 
-| # | Goal | Measurable Outcome |
-|---|------|--------------------|
-| G1 | **Bump to v7.9.2** | `package.json` pins `ff8c16b8` (v7.9.2 tag SHA) |
-| G2 | **Remove postinstall patch** | `scripts/patch-hounfour-dist.sh` deleted, `postinstall` hook removed |
-| G3 | **Adopt protocol decision engine** | `evaluateEconomicBoundary()` integrated at access control boundary |
-| G4 | **Adopt protocol BigInt parser** | `parseMicroUsd()` used at strict non-negative boundaries |
-| G5 | **Adopt protocol type system** | Branded types, schemas, and vocabulary from v7.1.0–v7.9.2 imported where applicable |
-| G6 | **Run all 202 conformance vectors** | Test suite validates against full v7.9.2 vector set |
-| G7 | **Update protocol handshake** | `CONTRACT_VERSION` reflects v7.9.2, feature detection updated |
+After this cycle, finn doesn't just _use_ hounfour — it _converges_ with it. Task-dimensional reputation means an NFT agent's conversation skill and code generation skill have independent reputations. The hash chain means every enforcement decision is cryptographically auditable across finn and arrakis. Open task types mean finn can register its own capabilities (conversation, memory, summarization) as protocol-native operations. The handshake knows about all of it.
 
-### 2.2 Success Criteria
-
-- **Zero regressions**: All existing tests pass (currently ~1,105+)
-- **Full vector coverage**: 202/202 conformance vectors pass
-- **No local duplication**: Every protocol-level function that has a v7.9.2 equivalent either delegates to the protocol version or documents why it doesn't
-- **Clean install**: `pnpm install` completes without postinstall patching
-- **Type safety**: No `as unknown as` casts at protocol boundaries
-
-### 2.3 Non-Goals
-
-- Arrakis-side adoption (tracked in [arrakis#54](https://github.com/0xHoneyJar/arrakis/issues/54))
-- New feature development beyond adoption
-- Breaking changes to loa-finn's public API surface
-- Constraint authoring (v7.8.0 grammar) — adopt types only, defer authoring tools
+This is the last structural gap between finn's runtime and the protocol's design intent. After this, capability expansion is configuration, not code.
 
 ---
 
-## 3. Scope & Requirements
+## 3. What Already Exists
 
-### 3.1 Bump & Clean (G1, G2)
+| Component | File(s) | Status | Gap |
+|-----------|---------|--------|-----|
+| **Protocol Handshake** | `protocol-handshake.ts` | Built (v7.9.1) | Missing v7.10.0+ feature thresholds; semver-only detection |
+| **Economic Boundary** | `economic-boundary.ts` | Built | Flat tier→reputation mapping, no task-dimensional cohorts |
+| **Pool Enforcement** | `pool-enforcement.ts` | Built | Expression-only, no native geometry |
+| **Tier Bridge** | `tier-bridge.ts` | Built | Static tier→pool mapping |
+| **NFT Routing Config** | `nft-routing-config.ts` | Built | Hardcoded string task types |
+| **Audit Trail** | `safety/audit-trail.ts` | Built | Independent hash chain, not protocol-aligned |
+| **Protocol Types** | `protocol-types.ts` | Built | Re-exports from v7.9.2 — missing new types |
+| **Wire Boundary** | `wire-boundary.ts` | Built | Branded type parsers — needs new branded types |
+| **Types** | `types.ts` | Built | Re-exports from v7.9.2 |
+| **Package.json** | `package.json:32` | `@0xhoneyjar/loa-hounfour#ff8c16b` | Pinned to v7.9.2 commit |
 
-**FR-1**: Update `package.json` dependency from `d091a3c0` to `ff8c16b899b5bbebb9bf1a5e3f9e791342b49bea` (v7.9.2 tag).
-
-**FR-2**: Delete `scripts/patch-hounfour-dist.sh` and remove `"postinstall"` from `package.json` scripts.
-
-**FR-3**: Run `pnpm install` and verify clean resolution without patching.
-
-**FR-3a** (Resolution Audit Gate): Before any adoption work, enumerate ALL current import specifiers used across loa-finn (including deep JSON paths like `vectors/jwt/conformance.json` and sub-module paths like `@0xhoneyjar/loa-hounfour/economy`). Verify each resolves under v7.9.2's `exports` map. If any deep path is not exported, switch to an exported loader API or vendor vectors into test fixtures. This gate MUST pass before Sprint 1 tasks beyond the bump itself can proceed.
-
-Verification steps:
-1. `pnpm install && pnpm typecheck` — compile-time import resolution
-2. `node -e "require.resolve('@0xhoneyjar/loa-hounfour')"` — runtime resolution
-3. Grep all `from '@0xhoneyjar/loa-hounfour` import paths, attempt dynamic import of each
-4. Verify `vectors/` directory structure is preserved in v7.9.2 dist
-
-### 3.2 Decision Engine Adoption (G3)
-
-**FR-4**: Integrate `evaluateEconomicBoundary()` at the access control layer (invoke handler, oracle handler) as a pre-flight check alongside existing pool enforcement.
-
-**Design considerations**:
-- `evaluateEconomicBoundary()` evaluates trust × capital to produce an access decision with structured denial reasons and gap analysis
-- This **complements** (does not replace) `BillingConservationGuard` — they operate at different points in the request lifecycle (see §4.5 Enforcement Choreography)
-- The function is total (never throws), deterministic (caller-provided `evaluatedAt`), and fail-closed
-- Requires `TrustLayerSnapshot` and `CapitalLayerSnapshot` — wire these from existing tier/budget state
-
-**FR-5**: Integrate `evaluateFromBoundary()` convenience overload where `EconomicBoundary` objects are available (prevents confused deputy with caller-provided criteria).
-
-**FR-5a**: Reference `ECONOMIC_CHOREOGRAPHY` and `TRANSFER_INVARIANTS` from protocol vocabulary to document the enforcement ordering. Require tests that simulate each failure point in the choreography (boundary denies → no provider call; boundary allows but guard fails → no billing commit).
-
-### 3.3 BigInt Parser Adoption (G4)
-
-**FR-6**: Adopt `parseMicroUsd()` from protocol at **strict non-negative boundaries** (HTTP ingress, JWT claim parsing, billing finalize wire).
-
-**Design constraint**: loa-finn's local `parseMicroUSD()` allows **negatives** (deficit tracking) and performs **normalization** (leading zero stripping, "-0" → "0"). The protocol `parseMicroUsd()` is non-negative only with discriminated union return. These serve different purposes:
-
-| Boundary | Parser | Reason |
-|----------|--------|--------|
-| HTTP ingress (JWT claims, request bodies) | **Protocol** `parseMicroUsd()` | Wire values are always non-negative |
-| Billing finalize wire | **Protocol** `parseMicroUsd()` | Costs are always non-negative |
-| Internal accounting (budget tracking, deficit) | **Local** `parseMicroUSD()` | Needs negative support |
-| Persistence read (WAL, R2) | **Local** `parseMicroUSDLenient()` | Needs normalization + negative |
-
-**FR-7**: Add protocol `parseMicroUsd` as an import in `wire-boundary.ts` and create a delegating wrapper. The wrapper imports `MicroUSD` from the same module that produces `result.amount` to avoid brand-symbol mismatch:
-```typescript
-import { parseMicroUsd, type MicroUSD as ProtocolMicroUSD } from '@0xhoneyjar/loa-hounfour';
-// Re-export the protocol type as the canonical MicroUSD
-export type { ProtocolMicroUSD as StrictMicroUSD };
-
-// At strict non-negative boundaries, delegate to protocol parser
-export function parseStrictMicroUSD(raw: string): ProtocolMicroUSD {
-  const result = parseMicroUsd(raw);
-  if (!result.valid) throw new WireBoundaryError("micro_usd", raw, result.reason);
-  return result.amount;  // No cast — same type provenance
-}
-```
-
-**FR-7a** (Negative Value Boundary Invariant): Define and enforce a hard invariant:
-- **Negative MicroUSD values** (deficit tracking) are ONLY permitted in internal accounting contexts: `budget.ts`, `ledger.ts`, `ledger-v2.ts`, `billing/state-machine.ts`
-- **Negative values MUST NEVER cross** strict non-negative boundaries: JWT claims, HTTP request/response bodies, billing finalize wire, cost ledger JSONL entries
-- If a deficit must be communicated externally, use a separate signed field (e.g., `balance_delta`) with its own schema
-- **Required tests**: Round-trip WAL → internal → outbound wire to verify no negative leaks. Property test: any value entering `parseStrictMicroUSD` that is negative produces a `WireBoundaryError`
-
-### 3.4 Type System Adoption (G5)
-
-**FR-8**: Import and use the following v7.1.0–v7.9.2 types where applicable:
-
-| Type/Schema | Version | Use In |
-|-------------|---------|--------|
-| `JwtClaimsSchema` | v7.0.0 | `jwt-auth.ts` — validate JWT claims at parse boundary |
-| `BillingEntrySchema` | v7.0.0 | `billing/types.ts` — validate billing entries |
-| `EconomicBoundarySchema` | v7.7.0 | New access control layer |
-| `QualificationCriteria` | v7.9.0 | Economic boundary evaluation |
-| `DenialCode` | v7.9.1 | Structured denial reasons in access decisions |
-| `EvaluationGap` | v7.9.1 | Gap analysis in denied access decisions |
-| `ModelEconomicProfileSchema` | v7.7.0 | Provider config typing |
-| `MicroUSDC` (branded) | v7.1.0 | Replace local `MicroUSDC` in `wire-boundary.ts` |
-| `ConstraintOrigin` | v7.9.0 | Constraint provenance tracking |
-| `ReputationStateName` | v7.9.0 | Type-safe reputation state references |
-
-**FR-9**: Replace local `MicroUSDC` branded type in `wire-boundary.ts:236-265` with import from `@0xhoneyjar/loa-hounfour/economy` (`MicroUSDC`, `microUSDC`, `readMicroUSDC`).
-
-**FR-9a** (Branded Type Migration Plan): Systematic migration to ensure exactly ONE source of truth per brand:
-
-| Branded Type | Current Source | Target Source (v7.9.2) | Migration |
-|-------------|---------------|----------------------|-----------|
-| `MicroUSD` | Protocol (`BrandedMicroUSD as MicroUSD`) | Protocol (same) | No change — already canonical |
-| `BasisPoints` | Protocol | Protocol (same) | No change |
-| `AccountId` | Protocol | Protocol (same) | No change |
-| `PoolId` | Protocol | Protocol (same) | No change |
-| `MicroUSDC` | **Local** (`wire-boundary.ts:236`) | **Protocol** (`economy/branded-types.ts`) | **Migrate** — replace local brand symbol with protocol import |
-| `CreditUnit` | Local (`wire-boundary.ts:186`) | Local (no protocol equivalent) | Keep local — finn-specific denomination |
-
-Migration steps:
-1. Inventory all branded money types and their constructors/readers across codebase
-2. Replace local `MicroUSDC` declaration with protocol import; use `readMicroUSDC()` as adapter where old constructors were used
-3. Provide temporary adapter: `wire-boundary.ts` re-exports protocol `MicroUSDC` for backward-compatible import paths
-4. After Sprint 2: forbid parallel local brand symbols for any type that has a protocol equivalent (enforced via ESLint rule or grep in CI)
-
-**FR-10**: Import `JTI_POLICY` from protocol (`@0xhoneyjar/loa-hounfour/economy`) and validate consistency with local JTI policy constants in `jwt-auth.ts`.
-
-### 3.5 Vocabulary & Utilities Adoption (G5)
-
-**FR-11**: Import and use the following vocabulary/utility exports:
-
-| Export | Version | Replaces/Complements |
-|--------|---------|---------------------|
-| `computeCostMicro()` / `computeCostMicroSafe()` | v5.1.0 | Validate against local `calculateCostMicro` in `pricing.ts` |
-| `verifyPricingConservation()` | v5.1.0 | Protocol-level pricing invariant |
-| `validateBillingEntry()` | v5.1.0 | Protocol-level billing entry validation |
-| `isValidNftId()` / `parseNftId()` | v5.1.0 | NFT ID validation in routing config |
-| `isKnownReputationState()` | v7.9.1 | Type guard for reputation state references |
-| `REPUTATION_STATES` / `REPUTATION_STATE_ORDER` | v7.9.0 | Canonical reputation vocabulary |
-| `ECONOMIC_CHOREOGRAPHY` | v7.7.0 | Document billing flow ordering |
-| `TRANSFER_CHOREOGRAPHY` / `TRANSFER_INVARIANTS` | v7.0.0 | Transfer flow validation |
-
-**FR-12**: Import `evaluateAccessPolicy()` (v7.1.0) and evaluate for use in `pool-enforcement.ts` alongside existing tier checks.
-
-### 3.6 Conformance Vectors (G6)
-
-**FR-13**: Update conformance vector test infrastructure to load all 202 vectors from the v7.9.2 package. Vector loading MUST be self-verifying:
-1. Discover vectors by enumerating the `vectors/` directory in the installed package (glob `vectors/**/*.json`)
-2. Assert total vector count equals 202 (hard-coded expected count from release notes)
-3. Assert category coverage includes at minimum: `jwt`, plus any new categories (billing, economic-boundary, constraint)
-4. If v7.9.2 exports a manifest file (`vectors/manifest.json` or similar), use it as the authoritative source; otherwise vendor a pinned manifest in `tests/fixtures/` for this release
-
-**FR-14**: Current JWT conformance test (`tests/finn/jwt-auth.test.ts:31`) loads vectors from `node_modules/@0xhoneyjar/loa-hounfour/vectors/jwt/conformance.json`. Verify this path is valid in v7.9.2 (part of FR-3a resolution audit). If the path changed, update accordingly.
-
-**FR-15**: Add conformance vector tests for every new vector category introduced in v7.1.0–v7.9.2. Each category gets its own test file following the pattern `tests/finn/conformance-{category}.test.ts`. A test that loads zero vectors from a category MUST fail (prevents silent empty-directory pass).
-
-### 3.7 Protocol Handshake Update (G7)
-
-**FR-16**: After bumping, `CONTRACT_VERSION` will be `7.9.2`. Verify `protocol-handshake.ts` compatibility logic works correctly:
-- `FINN_MIN_SUPPORTED` remains `4.0.0` (arrakis transition still in progress)
-- Feature detection MUST derive from `CONTRACT_VERSION` semver comparison against each feature's introduction version — NOT from hardcoded boolean assumptions
-- Add feature detection for v7.9.0+ features: `economicBoundary`, `constraintOrigin`
-
-**FR-17**: Update `PeerFeatures` interface to include new feature flags. Each flag is derived from the remote peer's advertised `contract_version` by comparing against the feature's introduction version:
-```typescript
-interface PeerFeatures {
-  trustScopes: boolean;              // introduced v6.0.0
-  capabilityScopedTrust: boolean;    // introduced v7.6.0
-  economicBoundary: boolean;         // introduced v7.9.0
-  constraintOrigin: boolean;         // introduced v7.9.0
-}
-
-// Derive from remote version, not hardcoded
-function detectPeerFeatures(remoteVersion: string): PeerFeatures {
-  const remote = parseSemver(remoteVersion);
-  const gte = (major: number, minor: number) =>
-    remote.major > major || (remote.major === major && remote.minor >= minor);
-  return {
-    trustScopes: gte(6, 0),
-    capabilityScopedTrust: gte(7, 6),
-    economicBoundary: gte(7, 9),
-    constraintOrigin: gte(7, 9),
-  };
-}
-```
-
-**FR-17a** (Handshake Behavioral Compatibility): Version compatibility is necessary but not sufficient for behavioral compatibility. Define which side enforces which check for each feature:
-
-| Feature | Finn Enforces | Arrakis Enforces | Graceful Degradation |
-|---------|--------------|-----------------|---------------------|
-| `trustScopes` | Economic boundary uses 6D trust if peer supports | Sends trust scopes in JWT if available | Falls back to flat trust_level |
-| `economicBoundary` | Runs evaluation if peer advertises | N/A (finn-side only) | Skips evaluation, logs warning |
-| `constraintOrigin` | Validates provenance if peer supports | Includes origin in constraint payloads | Accepts constraints without origin |
-
-Require integration tests with simulated peers advertising v4.6.0, v6.0.0, v7.0.0, and v7.9.2 to verify graceful degradation at each feature boundary.
-
-### 3.8 Documentation & Reality Update
-
-**FR-18**: Update `grimoires/oracle/code-reality-hounfour.md` to reflect v7.9.2 exports, new modules, and updated import map.
+> Sources: `src/hounfour/protocol-handshake.ts`, `src/hounfour/economic-boundary.ts`, `package.json`
 
 ---
 
-## 4. Architecture Constraints
+## 4. Goals & Success Metrics
 
-### 4.1 No Breaking Changes to loa-finn API
+| ID | Goal | Metric | Target |
+|----|------|--------|--------|
+| G-1 | **Upgrade dependency** | `@0xhoneyjar/loa-hounfour` resolves to v7.11.0 exact commit | package.json pin updated, `npm test` passes, upstream CHANGELOG diff reviewed |
+| G-2 | **Feature detection complete** | Protocol handshake detects all v7.11.0 features | `PeerFeatures` includes 4 new fields; capability + semver dual detection |
+| G-3 | **Task-dimensional reputation** | Economic boundary evaluates per-task-type cohorts | Unit tests cover multi-cohort scenarios with TaskType propagation |
+| G-4 | **Native enforcement path** | Pool enforcement supports `evaluation_geometry: 'native'` | CI microbenchmark: native >= 3x faster than expression in same harness |
+| G-5 | **Hash chain alignment** | Audit trail uses protocol hash chain format | Chain validates with shared test vectors; versioned envelope format |
+| G-6 | **Open task types** | NFT routing uses `namespace:type` pattern | `finn:conversation`, `finn:summarize`, `finn:memory_inject` registered |
+| G-7 | **Zero regression** | All existing tests pass under compatibility matrix | 779+ tests green against v7.9.2 behavior and v7.11.0 behavior |
+| G-8 | **Upstream TODO resolved** | `economic-boundary.ts` TODO for `denial_codes` type removed | No local type extensions for upstream gaps |
 
-All changes are internal. The HTTP API surface (`/api/v1/*`, `/ws/*`, `/health`) remains identical. Callers see no difference.
+---
 
-### 4.2 Additive Adoption Only (With Verification)
+## 5. User Stories
 
-v7.9.2 is additive-only per release notes. However, the "clean dist" (Loa framework ejected) release is exactly where module/export paths, ESM/CJS conditions, or file layout can change without API-level breaking changes. The upgrade path includes mandatory verification gates:
-
-1. Bump pin → **FR-3a resolution audit** (verify all import specifiers resolve) → verify existing tests pass
-2. Remove patch → verify clean install (no postinstall, no manual rebuild)
-3. Adopt new features → add new imports and integration points
-4. Run vectors → verify protocol compliance (self-verifying count assertion)
-
-### 4.3 Local Implementations Preserved Where Needed
-
-The local `parseMicroUSD()` (negative-capable, normalizing) is **not replaced** — it serves a different purpose than the protocol's strict non-negative `parseMicroUsd()`. Similarly, `BillingConservationGuard` remains — the protocol decision engine is complementary, not a replacement.
-
-### 4.4 Branded Type Compatibility
-
-loa-finn imports `BrandedMicroUSD as MicroUSD` from the protocol. v7.9.2 maintains the same branded type definition. The `MicroUSDC` type in `wire-boundary.ts` uses a local brand symbol — this MUST be migrated to the protocol version per FR-9a to ensure cross-system type compatibility and prevent brand-symbol mismatch at compile time.
-
-### 4.5 Enforcement Choreography
-
-The economic boundary evaluator and conservation guard operate at different points in the request lifecycle. The authoritative fail-closed enforcement ordering is:
+### US-1: Protocol Handshake Detects v7.11.0 Features (Dual-Strategy)
 
 ```
-Request Arrives
-  │
-  ├─ 1. JWT Auth (pool-enforcement.ts)
-  │     └─ Tier/pool validation, JTI replay check
-  │
-  ├─ 2. Economic Boundary Evaluation (NEW — evaluateEconomicBoundary)
-  │     └─ Trust × Capital pre-flight. If DENIED → 403 + structured denial_codes
-  │     └─ No provider call. No billing entry. Request terminates.
-  │
-  ├─ 3. Budget Reserve (budget.ts)
-  │     └─ Atomic reserve against daily budget
-  │
-  ├─ 4. Provider Call (cheval-invoker.ts / native-adapter.ts)
-  │     └─ Model invocation with tool-call orchestration
-  │
-  ├─ 5. Conservation Guard (billing-conservation-guard.ts)
-  │     └─ Post-invocation invariant checks (cost ≥ 0, spent ≤ limit)
-  │     └─ If FAIL → no billing commit, compensating entry written, 500 returned
-  │
-  └─ 6. Billing Finalize (billing-finalize-client.ts)
-        └─ Commit actual cost to arrakis. DLQ on transient failure.
+As the loa-finn boot sequence,
+I want to detect task-dimensional reputation, hash chain,
+and open task types from the remote arrakis health response,
+using both explicit peer-advertised capabilities and semver fallback,
+so that I can enable or degrade features correctly even when
+the peer's version is absent, unparsable, or backported.
+
+Acceptance Criteria:
+- PeerFeatures includes: taskDimensionalReputation (v7.10.0+),
+  hashChain (v7.10.1+), openTaskTypes (v7.11.0+)
+- Primary detection: peer-advertised "capabilities" array/bitset
+  in health response (when present)
+- Fallback detection: FEATURE_THRESHOLDS semver comparison
+  (when capabilities field is absent)
+- Unknown state: when neither source is available, feature defaults
+  to false (conservative)
+- Backward compatibility: features remain false for v7.9.x peers
+- Tests cover: v4.6.0, v7.9.x, v7.11.0, absent version,
+  unparsable version, and backported-feature scenarios
+- Log line shows detection method (capability/semver/unknown) per feature
 ```
 
-**Failure semantics**:
-- Step 2 denies → no provider call, no billing, client gets structured denial with gap analysis
-- Step 5 fails → provider call happened but billing is NOT committed, compensating WAL entry
-- Step 6 fails transiently → DLQ with replay (existing dead-letter infrastructure)
+### US-2: Task-Dimensional Reputation in Economic Boundary
 
-**Invariant**: A billing commit (step 6) MUST NOT occur unless conservation guard (step 5) passes. Tests MUST simulate each failure point.
+```
+As the economic boundary evaluator,
+I want to use per-task-type reputation cohorts instead of a single
+blended score,
+so that a tenant with high conversation reputation but low code
+generation reputation gets appropriate access for each task type.
+
+Acceptance Criteria:
+- TIER_TRUST_MAP replaced or augmented with task-type cohort mapping
+- evaluateEconomicBoundary receives task type context
+- TaskType is sourced from wire-boundary.ts parsing of inbound request
+- TaskType is stored in WAL/audit record payloads
+- TaskType propagates through enforcement → reputation event emission
+- Fallback: if peer doesn't support task-dimensional reputation,
+  use blended score (current behavior)
+- Shadow mode logs cohort-vs-blended divergence for observability
+```
+
+### US-3: Native Enforcement Geometry (Local Evaluator)
+
+```
+As the pool enforcement middleware,
+I want to use native function-call enforcement as a local optimization,
+so that enforcement evaluation is faster without changing the wire protocol.
+
+Acceptance Criteria:
+- evaluateAccessPolicy supports evaluation_geometry: 'native'
+- Native path calls local enforcement function directly
+  (no expression parsing)
+- Expression path remains default for backward compatibility
+- This is a LOCAL config choice — not gated on peer capabilities
+- Config: ENFORCEMENT_GEOMETRY=expression|native (default: expression)
+- Wire protocol request/response format is identical for both paths
+- Compatibility tests: v7.9.x peer interaction is byte-for-byte
+  compatible regardless of local geometry choice
+- CI microbenchmark: native path >= 3x faster than expression path
+  in same harness (same input rules, logging off, Node 22, single-thread)
+```
+
+### US-4: Protocol-Aligned Hash Chain (Versioned Envelope)
+
+```
+As the audit trail,
+I want to produce hash chain entries in a versioned envelope format
+using the protocol's canonical serialization (SHA-256 + RFC 8785),
+so that chain entries can be verified cross-system by arrakis.
+
+Acceptance Criteria:
+- Each entry hashes: prev_hash || canonical_json({version, algo,
+  format, timestamp, action, payload_hash})
+  where canonical_json uses RFC 8785 serialization
+- Entry includes explicit "format" field: "protocol_v1" or "legacy"
+- Verifiers select format per entry using the "format" field
+- SHA-256 used for protocol_v1 (matching protocol spec)
+- Migration: bridge entry computed with both legacy_prev_hash and
+  protocol_prev_hash, marking the transition point
+- Dual-write period: both legacy and protocol hashes computed for
+  a configurable number of entries (default: 1000) after migration
+- Shared test vectors: finn and arrakis validate identical chains
+  from the same input data
+- Replay test: existing chain replays correctly through the
+  bridge entry and into protocol_v1 entries
+```
+
+### US-5: Open Enum Task Types for finn
+
+```
+As the NFT routing config,
+I want to register finn-specific task types using the namespace:type pattern,
+so that conversation, summarization, and memory injection are protocol-native
+operations with their own reputation cohorts.
+
+Acceptance Criteria:
+- TaskType is a first-class field on the request context produced by
+  wire-boundary.ts parsing
+- Validation: namespace:type format, allowed charset [a-z0-9_-],
+  max 64 chars, lowercase normalized
+- finn-native types: "finn:conversation", "finn:summarize",
+  "finn:memory_inject"
+- nft-routing-config.ts routes by TaskType instead of string literals
+- TaskType stored in WAL/audit record payloads, passed through all
+  enforcement and reputation interfaces
+- Unknown task types: DENY with denial code "unknown_task_type"
+  unless explicitly allowlisted per tenant in config
+- Configurable fallback: UNKNOWN_TASK_TYPE_POLICY=deny|safe_default
+  (deny = reject with denial code; safe_default = route to
+  rate-limited pool with strict budget)
+- Legacy callers without TaskType: deterministic fallback mapping
+  based on endpoint (e.g., /chat → finn:conversation)
+- Tests cover: valid types, invalid format, unknown type denial,
+  allowlisted unknown type, legacy caller fallback
+```
+
+### US-6: Dependency Upgrade with Zero Regression
+
+```
+As the CI pipeline,
+I want the hounfour dependency upgraded from v7.9.2 to v7.11.0,
+so that all new types and functions are available at compile time.
+
+Acceptance Criteria:
+- package.json points to exact v7.11.0 commit hash (not just tag)
+- Upstream CHANGELOG diff (v7.9.2→v7.11.0) reviewed and documented
+  in grimoires/loa/NOTES.md
+- TypeScript compiles cleanly (no new errors)
+- All 779+ existing tests pass
+- Compatibility matrix test suite validates against:
+  - v7.9.2 runtime behavior (existing tests)
+  - v7.11.0 compile-time types (new imports resolve)
+- Local type extensions (EvaluationResultWithDenials) removed
+  if upstream now exports denial_codes
+- Each new capability gated behind individual feature flag:
+  - TASK_DIMENSIONAL_REPUTATION_ENABLED (default: false)
+  - NATIVE_ENFORCEMENT_ENABLED (default: false)
+  - PROTOCOL_HASH_CHAIN_ENABLED (default: false)
+  - OPEN_TASK_TYPES_ENABLED (default: false)
+- No runtime behavior change without explicit feature enablement
+```
 
 ---
 
-## 5. Risks & Mitigations
+## 6. Functional Requirements
 
-| # | Risk | Likelihood | Impact | Mitigation |
-|---|------|-----------|--------|------------|
-| R1 | v7.9.2 dist has unexpected module/export-map changes (ejected framework may alter file layout) | Medium | High | FR-3a resolution audit gate: enumerate all import specifiers, verify resolution before proceeding. Abort Sprint 1 if any path breaks. |
-| R2 | Conformance vector directory structure changed or vector count doesn't match 202 | Low | Medium | FR-13 self-verifying loader: assert count == 202, assert category coverage, fail loudly on mismatch |
-| R3 | `evaluateEconomicBoundary()` integration adds latency to request path | Medium | Low | Function is pure computation (<1ms); benchmark before/after |
-| R4 | Local `MicroUSDC` brand symbol mismatch with protocol brand causes widespread compile errors or pressure to add unsafe casts | Medium | High | FR-9a migration plan: inventory all branded types, migrate systematically with adapter functions via `readMicroUSDC()`, forbid parallel local brands after Sprint 2 |
-| R5 | Handshake version compatibility ≠ behavioral compatibility — feature flags gate security decisions | Medium | Medium | FR-17a behavioral compatibility matrix: define per-feature enforcement responsibility, graceful degradation, integration tests with simulated peers at v4.6.0/v6.0.0/v7.0.0/v7.9.2 |
-| R6 | Negative MicroUSD values leak from internal accounting to strict non-negative wire boundaries | Low | High | FR-7a negative invariant: explicit boundary rules, round-trip WAL→internal→wire tests, property tests for parseStrictMicroUSD |
+### FR-1: Dependency Upgrade (with Compatibility Validation)
+
+- Update `@0xhoneyjar/loa-hounfour` from commit `ff8c16b` (v7.9.2) to exact v7.11.0 commit hash
+- Review upstream CHANGELOG diff and document type/default changes in NOTES.md
+- Remove local type patches (`EvaluationResultWithDenials` in `economic-boundary.ts`) if upstream types now include `denial_codes`
+- Verify all existing imports from `@0xhoneyjar/loa-hounfour` still resolve
+- Re-export any new branded types through `types.ts` and `wire-boundary.ts`
+- Run compatibility matrix: compile against v7.11.0 types, test against v7.9.2 behavior expectations
+- Gate each new capability behind individual feature flag (all default to `false`)
+
+### FR-2: Protocol Handshake Extension (Dual-Strategy Detection)
+
+- Add 3 new fields to `PeerFeatures` (capabilities negotiated with peer):
+  - `taskDimensionalReputation: boolean` (v7.10.0+)
+  - `hashChain: boolean` (v7.10.1+)
+  - `openTaskTypes: boolean` (v7.11.0+)
+- **Note**: `nativeEnforcement` is NOT a peer feature — it is a local evaluator choice (see FR-4)
+- Implement dual-strategy detection:
+  1. **Primary**: Parse `capabilities` array from health response if present (explicit peer advertisement)
+  2. **Fallback**: Use `FEATURE_THRESHOLDS` semver comparison if `capabilities` absent
+  3. **Unknown**: If neither source available, default to `false` (conservative)
+- Add corresponding entries to `FEATURE_THRESHOLDS` for semver fallback
+- Maintain existing fields unchanged
+- Log detection method per feature: `method=capability|semver|unknown`
+- Tests: v4.6.0, v7.9.x, v7.11.0, absent version, unparsable version, backported features
+
+### FR-3: Task-Dimensional Reputation Integration
+
+- Import `TaskTypeCohort`, `ReputationEvent`, `ScoringPathLog` from upstream
+- Extend `ReputationProvider` interface (in `types.ts`) to support cohort-based queries
+- Modify economic boundary to accept `taskType` parameter (required when feature enabled)
+- **TaskType data flow**: `wire-boundary.ts` parse → request context → enforcement → reputation event → WAL/audit
+- When `peerFeatures.taskDimensionalReputation` is true AND feature flag enabled, query cohort-specific scores
+- When false or disabled, fall back to current `TIER_TRUST_MAP` blended scores
+- Add shadow-mode metric: `hounfour_reputation_cohort_vs_blended_delta`
+
+### FR-4: Native Enforcement Path (Local Configuration)
+
+- Add `ENFORCEMENT_GEOMETRY` env var (values: `expression`, `native`; default: `expression`)
+- Implement native enforcement function matching protocol's evaluation interface
+- **This is a local evaluator optimization** — not gated on peer capabilities or health response
+- The wire protocol request/response format is identical regardless of geometry
+- Expression path remains default; native is opt-in via config
+- Compatibility requirement: v7.9.x peer interaction must produce identical enforcement results regardless of local geometry choice
+- CI microbenchmark: same input rules, logging disabled, Node 22, single-threaded. Target: native >= 3x faster than expression
+
+### FR-5: Hash Chain Alignment (Versioned Envelope)
+
+- Define versioned hash chain envelope format:
+  ```
+  entry_hash = SHA-256(prev_hash || canonical_json({
+    version: 1,
+    algo: "sha256",
+    format: "protocol_v1",
+    timestamp: <ISO-8601>,
+    action: <string>,
+    payload_hash: SHA-256(canonical_json(payload))
+  }))
+  ```
+  where `canonical_json` uses RFC 8785 serialization
+- Each `AuditRecord` includes explicit `format` field (`"protocol_v1"` or `"legacy"`)
+- Verifiers select hash computation method per entry based on `format` field
+- Migration bridge entry:
+  - Computed with `legacy_prev_hash` (last legacy entry's hash)
+  - Contains both `legacy_prev_hash` and `protocol_prev_hash` (same value for bridge)
+  - Marks the deterministic transition point
+- Dual-write period: both legacy and protocol hashes computed for configurable period (default: 1000 entries)
+- After dual-write: legacy computation drops, only `protocol_v1` continues
+- Shared test vectors: document in `tests/safety/hash-chain-vectors.json` for cross-system validation
+- Never rewrite existing chain entries
+
+### FR-6: Open Task Types (with Conservative Unknown Handling)
+
+- Import `TaskType` branded type from upstream (or define with `wire-boundary.ts` parser)
+- Validation: `namespace:type` format, charset `[a-z0-9_-]`, max 64 chars, lowercase normalized
+- `TaskType` is a first-class field on request context (`wire-boundary.ts` → all downstream)
+- `TaskType` stored in WAL entry payloads and `AuditRecord` payloads
+- `TaskType` propagated through: pool routing → enforcement → reputation event emission
+- Define finn-native task types: `finn:conversation`, `finn:summarize`, `finn:memory_inject`
+- Refactor `nft-routing-config.ts` to route by `TaskType` instead of string literals
+- Register finn task types in protocol-handshake health response
+- **Unknown task type handling** (configurable via `UNKNOWN_TASK_TYPE_POLICY`):
+  - `deny` (default): reject with denial code `unknown_task_type`
+  - `safe_default`: route to rate-limited pool with strict budget enforcement
+- Per-tenant allowlist: config can allowlist specific unknown task types per tenant
+- Legacy caller fallback: deterministic mapping from endpoint to TaskType (e.g., `/chat` → `finn:conversation`)
+
+### FR-7: Goodhart Protection (ADR-004)
+
+- Implement scoring path logging when `ScoringPathLog` is available
+- Ensure reputation events include `TaskType` context for dimensional scoring
+- No single metric can determine enforcement outcome alone
 
 ---
 
-## 6. Out of Scope
+## 7. Non-Functional Requirements
 
-- **Arrakis protocol adoption** — tracked separately in arrakis#54
-- **Constraint authoring tools** — adopt types only; grammar/tokenizer/type-checker are protocol internals
-- **Reputation credential system** — `computeCredentialPrior()` available but needs persistence design
-- **Schema graph visualization** — `buildSchemaGraph()` available but no UI exists
-- **Event subscription system** — `EventSubscriptionSchema` available but needs runtime design
-- **Saga orchestration** — `BridgeTransferSagaSchema` available but cross-system; needs arrakis coordination
-
----
-
-## 7. Sprint Estimation
-
-| Sprint | Focus | Estimated Tasks |
-|--------|-------|-----------------|
-| Sprint 1 | **Bump + Clean + Vectors** — Pin v7.9.2, remove patch, verify all tests, run 202 vectors | ~6 tasks |
-| Sprint 2 | **Type System + Vocabulary Adoption** — Import schemas, replace local MicroUSDC, adopt utilities, update handshake | ~7 tasks |
-| Sprint 3 | **Decision Engine + Access Control** — Integrate `evaluateEconomicBoundary()`, wire trust/capital snapshots, adopt access policy | ~6 tasks |
-
-**Total**: ~19 tasks across 3 sprints. No new infrastructure — pure adoption and integration.
+| ID | Requirement | Target |
+|----|-------------|--------|
+| NFR-1 | Native enforcement latency | >= 3x faster than expression in CI microbenchmark (same harness, Node 22, single-threaded, logging off) |
+| NFR-2 | Backward compatibility | All v7.9.x and v4.6.0 peers continue working identically |
+| NFR-3 | Hash chain validation | < 10ms per entry verification |
+| NFR-4 | Zero downtime upgrade | Existing sessions unaffected; all features behind flags (default off) |
+| NFR-5 | Type safety | No `any` casts on new upstream types; all branded types through wire-boundary |
 
 ---
 
-## 8. References
+## 8. Scope & Prioritization
 
-| Document | Location |
-|----------|----------|
-| Issue #66 — Launch Readiness RFC | [GitHub](https://github.com/0xHoneyJar/loa-finn/issues/66) |
-| loa-hounfour v7.9.2 Release | [GitHub](https://github.com/0xHoneyJar/loa-hounfour/releases/tag/v7.9.2) |
-| Hounfour Code Reality | `grimoires/oracle/code-reality-hounfour.md` |
-| Protocol Handshake (SDD §3.2) | `src/hounfour/protocol-handshake.ts` |
-| Wire Boundary (SDD §4.1) | `src/hounfour/wire-boundary.ts` |
-| Conservation Guard (SDD §4.2, §7.2) | `src/hounfour/billing-conservation-guard.ts` |
-| Current package pin | `package.json:32` — `d091a3c0` (v7.0.0) |
-| Target tag SHA | `ff8c16b899b5bbebb9bf1a5e3f9e791342b49bea` (v7.9.2) |
+### In Scope (This Cycle)
+
+1. **P0**: Dependency upgrade to v7.11.0 with compatibility matrix (FR-1)
+2. **P0**: Protocol handshake extension with dual-strategy detection (FR-2)
+3. **P1**: Task-dimensional reputation integration with TaskType data flow (FR-3)
+4. **P1**: Open task types registration with conservative unknown handling (FR-6)
+5. **P1**: Native enforcement path as local config (FR-4)
+6. **P2**: Hash chain alignment with versioned envelope and migration (FR-5)
+7. **P2**: Goodhart protection wiring (FR-7)
+
+### Out of Scope
+
+- Arrakis v7.11.0 upgrade (separate workstream per issue #66)
+- Freeside hounfour adoption (workstream #2 per issue #66)
+- Dixie hounfour adoption (workstream #5 per issue #66)
+- Governance explorer UI (workstream #7 per issue #66)
+- Personality authoring pipeline (workstream #4 per issue #66)
+- New model providers or pool configuration changes
+
+---
+
+## 9. Risks & Dependencies
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| v7.11.0 has undocumented type changes | Medium | Pin to exact commit hash, review CHANGELOG diff, compile-check before behavior changes |
+| Additive changes break pinned integration | Medium | Compatibility matrix tests validate v7.9.2 behavior preserved under v7.11.0 types |
+| Shadow mode masks issues in production | Low | Structured logging with alerts on divergence > threshold |
+| Hash chain migration corrupts existing trail | High | Versioned envelope with bridge entry; dual-write period; never rewrite history; shared test vectors |
+| Expression → native enforcement edge cases | Medium | Wire protocol unchanged; CI tests confirm identical results for both geometry paths |
+| Unknown task types exploit cheap routing | High | Conservative default: deny unknown task types; per-tenant allowlist required |
+| Capability detection disagrees with semver | Medium | Explicit priority: capability field > semver > unknown (conservative) |
+
+### Dependencies
+
+- `@0xhoneyjar/loa-hounfour` v7.11.0 must be published/tagged with stable commit
+- Issue #66 workstream #1 (merge protocol-convergence-v7) should be complete first
+- No dependency on arrakis upgrade — finn upgrades first per issue #66 command center
+
+---
+
+## 10. Technical Constraints
+
+- **Existing file count**: 57 TypeScript files in `src/hounfour/` — changes must be surgical
+- **Branded types**: All protocol values use branded types (`MicroUSD`, `PoolId`, `AccountId`) — new types (including `TaskType`) must follow the same pattern through `wire-boundary.ts`
+- **Three enforcement modes**: `bypass`, `shadow`, `enforce` — new features must respect all three
+- **Dev/prod divergence**: Handshake skips in dev, fails-fast in prod — new features follow same pattern
+- **No FinnConfig schema enforcement for pools**: Existing tech debt (pools config not validated in schema) — don't add to this debt
+- **Feature flags**: All new capabilities default to `false` — no behavior change on upgrade alone
+- **TaskType as first-class field**: Must propagate end-to-end: wire-boundary parse → request context → enforcement → reputation → WAL → audit
+
+---
+
+## 11. Upgrade Plan
+
+### Phase A: Compile-Time Upgrade (Sprint 1)
+
+1. Pin `@0xhoneyjar/loa-hounfour` to exact v7.11.0 commit hash
+2. Review upstream CHANGELOG diff (v7.9.2 → v7.11.0), document in NOTES.md
+3. Fix any compile errors from type changes
+4. Remove local type patches if upstream now exports them
+5. Verify all 779+ tests pass with zero behavior change
+6. Add feature flag env vars (all default `false`)
+
+### Phase B: Protocol Extension (Sprint 2)
+
+1. Extend handshake with dual-strategy detection
+2. Wire TaskType through request context and all downstream interfaces
+3. Implement open task types with deny-by-default for unknowns
+4. Implement task-dimensional reputation with shadow mode
+
+### Phase C: Internal Optimizations (Sprint 3)
+
+1. Native enforcement geometry (local config, no wire change)
+2. Hash chain versioned envelope with migration bridge
+3. Goodhart protection scoring path logging
+4. CI microbenchmarks and shared test vectors
