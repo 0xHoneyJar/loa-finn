@@ -26,6 +26,12 @@ import { oracleConcurrencyMiddleware, ConcurrencyLimiter } from "./oracle-concur
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import { getProtocolInfo } from "../hounfour/protocol-handshake.js"
 import { economicBoundaryMiddleware } from "../hounfour/economic-boundary.js"
+import { createAgentHomepageRoutes, type AgentHomepageDeps } from "./routes/agent-homepage.js"
+import { createAgentPublicApiRoutes, type AgentPublicApiDeps } from "./routes/agent-public-api.js"
+import { createConversationRoutes, type ConversationRouteDeps } from "./routes/conversations.js"
+import { cspMiddleware } from "./csp.js"
+import type { ConversationManager } from "../nft/conversation.js"
+import type { PersonalityProvider } from "../nft/personality-provider.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
@@ -45,6 +51,10 @@ export interface AppOptions {
   oracleRateLimiter?: OracleRateLimiter
   /** Redis client for Oracle auth (Phase 1) */
   redisClient?: RedisCommandClient
+  /** Personality provider for agent homepage & public API (Sprint 2) */
+  personalityProvider?: PersonalityProvider
+  /** Conversation manager for CRUD routes (Sprint 2) */
+  conversationManager?: ConversationManager
 }
 
 export function createApp(config: FinnConfig, options: AppOptions) {
@@ -170,25 +180,31 @@ export function createApp(config: FinnConfig, options: AppOptions) {
   const isOraclePath = (path: string) =>
     path === "/api/v1/oracle" || path.startsWith("/api/v1/oracle/")
 
+  // Skip guard for product paths — these use their own auth (SIWE or none)
+  const isProductApiPath = (path: string) =>
+    path === "/api/v1/public" || path.startsWith("/api/v1/public/") ||
+    path === "/api/v1/conversations" || path.startsWith("/api/v1/conversations/")
+
   // WHY: Zero-trust defense — strip x-internal-reservation-id before ANY processing.
   // External clients could inject this header to spoof reservations. Even though JWT
   // claims are the primary trust boundary, defense-in-depth means removing the attack
   // surface entirely. Google BeyondCorp: "never trust the network."
   // See Bridgebuilder Finding #4 PRAISE + Finding #9 (PR #68).
   app.use("/api/v1/*", async (c, next) => {
-    if (isOraclePath(c.req.path)) return next()
+    if (isOraclePath(c.req.path) || isProductApiPath(c.req.path)) return next()
     c.req.raw.headers.delete("x-internal-reservation-id")
     return next()
   })
 
   // JWT auth for arrakis-originated requests (T-A.2)
   // Skip Oracle path — handled by oracleApp's own middleware chain
+  // Skip product API paths — /public needs no auth, /conversations uses SIWE
   app.use("/api/v1/*", async (c, next) => {
-    if (isOraclePath(c.req.path)) return next()
+    if (isOraclePath(c.req.path) || isProductApiPath(c.req.path)) return next()
     return rateLimitMiddleware(config)(c, next)
   })
   app.use("/api/v1/*", async (c, next) => {
-    if (isOraclePath(c.req.path)) return next()
+    if (isOraclePath(c.req.path) || isProductApiPath(c.req.path)) return next()
     return hounfourAuth(config)(c, next)
   })
 
@@ -333,6 +349,60 @@ export function createApp(config: FinnConfig, options: AppOptions) {
 
   // GET /api/dashboard/activity — Bridgebuilder activity feed (SDD §3.2)
   app.get("/api/dashboard/activity", createActivityHandler(options?.activityFeed))
+
+  // ---------------------------------------------------------------------------
+  // Sprint 2: Product Experience Routes
+  // ---------------------------------------------------------------------------
+
+  // CSP middleware — applies Content-Security-Policy to HTML responses only
+  app.use("*", cspMiddleware())
+
+  // Public API — no auth required (T2.5)
+  if (options.personalityProvider && options.redisClient) {
+    const publicApiDeps: AgentPublicApiDeps = {
+      personalityProvider: options.personalityProvider,
+      redis: options.redisClient,
+    }
+    app.route("/api/v1", createAgentPublicApiRoutes(publicApiDeps))
+  }
+
+  // Conversation CRUD — auth required, mounted under /api/v1/conversations (T2.8)
+  if (options.conversationManager) {
+    const convDeps: ConversationRouteDeps = {
+      conversationManager: options.conversationManager,
+    }
+    app.route("/api/v1/conversations", createConversationRoutes(convDeps))
+  }
+
+  // Agent homepage — SSR at /agent/:collection/:tokenId (T2.4)
+  if (options.personalityProvider && options.redisClient) {
+    const homepageDeps: AgentHomepageDeps = {
+      personalityProvider: options.personalityProvider,
+      redis: options.redisClient,
+      baseUrl: "",
+    }
+    app.route("/agent", createAgentHomepageRoutes(homepageDeps))
+  }
+
+  // Onboarding page (T2.11)
+  app.get("/onboarding", async (c) => {
+    try {
+      const html = await readFile(resolve("public/onboarding.html"), "utf-8")
+      return c.html(html)
+    } catch {
+      return c.text("Onboarding page not found.", 404)
+    }
+  })
+
+  // Chat page (T2.7) — /chat/:collection/:tokenId
+  app.get("/chat/:collection/:tokenId", async (c) => {
+    try {
+      const html = await readFile(resolve("public/chat.html"), "utf-8")
+      return c.html(html)
+    } catch {
+      return c.text("Chat page not found.", 404)
+    }
+  })
 
   return { app, router }
 }
