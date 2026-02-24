@@ -256,6 +256,18 @@ export interface ModelPortBase {
 
 // --- Budget ---
 
+/**
+ * Budget epoch classification for temporal diversity.
+ * Log-only metadata — does NOT mutate protocol CapitalLayerSnapshot.
+ * Enables communities to express calendar, event-based, or governance-synced budget rhythms.
+ */
+export interface BudgetEpoch {
+  /** Epoch type: calendar (monthly/quarterly), event (campaign/launch), or community-sync (DAO vote cycle). */
+  epoch_type: "calendar" | "event" | "community-sync"
+  /** Community-provided epoch identifier (e.g., "Q1-2026", "launch-campaign-3", "governance-cycle-7"). */
+  epoch_id: string
+}
+
 export interface BudgetSnapshot {
   scope: string
   spent_usd: number
@@ -265,6 +277,8 @@ export interface BudgetSnapshot {
   exceeded: boolean
   /** Optional ISO 8601 budget period end from upstream provider. When absent, 30-day default used. */
   budget_period_end?: string
+  /** Optional epoch metadata for temporal diversity. Log-only — not stored in protocol snapshot. */
+  budget_epoch?: BudgetEpoch
 }
 
 /** Provider for dynamic reputation scoring (Sprint 5, Task 5.3). */

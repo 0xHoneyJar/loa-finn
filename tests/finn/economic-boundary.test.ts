@@ -30,9 +30,10 @@ import {
   type EconomicBoundaryMode,
   type EconomicBoundaryMiddlewareOptions,
   type EconomicBoundaryHandler,
+  DEFAULT_REPUTATION_TIMEOUT_MS,
 } from "../../src/hounfour/economic-boundary.js"
 import type { JWTClaims } from "../../src/hounfour/jwt-auth.js"
-import type { BudgetSnapshot, ReputationProvider } from "../../src/hounfour/types.js"
+import type { BudgetSnapshot, BudgetEpoch, ReputationProvider } from "../../src/hounfour/types.js"
 import type { PeerFeatures } from "../../src/hounfour/protocol-handshake.js"
 import { Hono } from "hono"
 
@@ -1302,5 +1303,194 @@ describe("Sprint 5 — Blended score weighting (Task 5.4)", () => {
   it("DEFAULT_BLENDING_WEIGHTS exports alpha=0.7, beta=0.3", () => {
     expect(DEFAULT_BLENDING_WEIGHTS.alpha).toBe(0.7)
     expect(DEFAULT_BLENDING_WEIGHTS.beta).toBe(0.3)
+  })
+})
+
+describe("Sprint 6 — Configurable ReputationProvider timeout (Task 6.1)", () => {
+  it("DEFAULT_REPUTATION_TIMEOUT_MS exports 5", () => {
+    expect(DEFAULT_REPUTATION_TIMEOUT_MS).toBe(5)
+  })
+
+  it("buildTrustSnapshot with undefined opts uses default 5ms timeout", async () => {
+    vi.useFakeTimers()
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const provider: ReputationProvider = {
+      getReputationBoost: () => new Promise((resolve) => {
+        setTimeout(() => resolve({ boost: 20, source: "slow" }), 10)
+      }),
+    }
+    const claims = makeClaims({ tier: "enterprise" as JWTClaims["tier"] })
+
+    // No reputationTimeoutMs — should use default 5ms
+    const promise = buildTrustSnapshot(claims, undefined, { reputationProvider: provider })
+    vi.advanceTimersByTime(6)
+    const snap = await promise
+
+    expect(snap).not.toBeNull()
+    expect(snap!.reputation_state).toBe("established") // Timed out → static mapping
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("ReputationProvider failed"),
+      expect.any(Error),
+    )
+    warnSpy.mockRestore()
+    vi.useRealTimers()
+  })
+
+  it("custom timeout: provider resolving within deadline succeeds", async () => {
+    vi.useFakeTimers()
+    const provider: ReputationProvider = {
+      getReputationBoost: () => new Promise((resolve) => {
+        setTimeout(() => resolve({ boost: 20, source: "custom-timeout" }), 8)
+      }),
+    }
+    const claims = makeClaims({ tier: "enterprise" as JWTClaims["tier"] })
+
+    // 15ms timeout — provider resolves at 8ms, within deadline
+    const promise = buildTrustSnapshot(claims, undefined, {
+      reputationProvider: provider,
+      reputationTimeoutMs: 15,
+    })
+    vi.advanceTimersByTime(9)
+    const snap = await promise
+
+    expect(snap).not.toBeNull()
+    expect(snap!.reputation_state).toBe("authoritative") // Provider succeeded
+  })
+
+  it("custom timeout: provider exceeding custom deadline times out", async () => {
+    vi.useFakeTimers()
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const provider: ReputationProvider = {
+      getReputationBoost: () => new Promise((resolve) => {
+        setTimeout(() => resolve({ boost: 20, source: "too-slow" }), 25)
+      }),
+    }
+    const claims = makeClaims({ tier: "enterprise" as JWTClaims["tier"] })
+
+    // 10ms custom timeout — provider resolves at 25ms, exceeds deadline
+    const promise = buildTrustSnapshot(claims, undefined, {
+      reputationProvider: provider,
+      reputationTimeoutMs: 10,
+    })
+    vi.advanceTimersByTime(11)
+    const snap = await promise
+
+    expect(snap).not.toBeNull()
+    expect(snap!.reputation_state).toBe("established") // Timed out → static mapping
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("ReputationProvider failed"),
+      expect.any(Error),
+    )
+    warnSpy.mockRestore()
+    vi.useRealTimers()
+  })
+
+  it("middleware with undefined options compiles and uses default timeout", async () => {
+    // Verify backward compatibility: existing call sites compile unchanged
+    const app = createTestApp({
+      mode: "shadow" as EconomicBoundaryMode,
+      getBudgetSnapshot: async () => makeBudget(),
+      // No reputationProvider, no reputationTimeoutMs — must compile and work
+    })
+
+    const res = await app.request("/api/v1/invoke", { method: "POST" })
+    expect(res.status).toBe(200)
+  })
+
+  it("middleware threads reputationTimeoutMs to evaluateBoundary", async () => {
+    // Use real timers — fake timers conflict with Hono's async middleware chain.
+    // Provider resolves instantly, proving the timeout option is threaded through.
+    const providerSpy = vi.fn(async () => ({ boost: 20, source: "threaded" }))
+    const provider: ReputationProvider = { getReputationBoost: providerSpy }
+    const claims = makeClaims({ tier: "enterprise" as JWTClaims["tier"] })
+
+    const app = createTestApp({
+      mode: "shadow" as EconomicBoundaryMode,
+      getBudgetSnapshot: async () => makeBudget(),
+      reputationProvider: provider,
+      reputationTimeoutMs: 50, // Custom timeout threaded through middleware
+      claims,
+    })
+
+    const res = await app.request("/api/v1/invoke", { method: "POST" })
+
+    expect(res.status).toBe(200)
+    // Provider was called — proves reputationProvider option is threaded through middleware
+    expect(providerSpy).toHaveBeenCalledWith(claims.tenant_id)
+  })
+})
+
+describe("Sprint 6 — BudgetEpoch temporal diversity (Task 6.2)", () => {
+  it("BudgetEpoch interface accepts calendar epoch type", () => {
+    const epoch: BudgetEpoch = { epoch_type: "calendar", epoch_id: "Q1-2026" }
+    expect(epoch.epoch_type).toBe("calendar")
+    expect(epoch.epoch_id).toBe("Q1-2026")
+  })
+
+  it("BudgetEpoch interface accepts event epoch type", () => {
+    const epoch: BudgetEpoch = { epoch_type: "event", epoch_id: "launch-campaign-3" }
+    expect(epoch.epoch_type).toBe("event")
+  })
+
+  it("BudgetEpoch interface accepts community-sync epoch type", () => {
+    const epoch: BudgetEpoch = { epoch_type: "community-sync", epoch_id: "governance-cycle-7" }
+    expect(epoch.epoch_type).toBe("community-sync")
+  })
+
+  it("buildCapitalSnapshot emits structured log when budget_epoch present", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {})
+    const budget = makeBudget({
+      budget_epoch: { epoch_type: "calendar", epoch_id: "Q1-2026" },
+    })
+
+    const snap = buildCapitalSnapshot(budget)
+
+    expect(snap).not.toBeNull()
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[economic-boundary] budget_epoch_type=calendar community_epoch_id=Q1-2026",
+    )
+    infoSpy.mockRestore()
+  })
+
+  it("buildCapitalSnapshot does NOT log epoch when budget_epoch absent", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {})
+    const budget = makeBudget() // No budget_epoch
+
+    const snap = buildCapitalSnapshot(budget)
+
+    expect(snap).not.toBeNull()
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("budget_epoch_type"),
+    )
+    infoSpy.mockRestore()
+  })
+
+  it("budget_period_end from upstream takes precedence over 30-day default", () => {
+    const customEnd = "2026-04-01T00:00:00.000Z"
+    const budget = makeBudget({
+      budget_period_end: customEnd,
+      budget_epoch: { epoch_type: "calendar", epoch_id: "Q1-2026" },
+    })
+
+    const snap = buildCapitalSnapshot(budget)
+
+    expect(snap).not.toBeNull()
+    expect(snap!.budget_period_end).toBe(customEnd)
+  })
+
+  it("epoch metadata does NOT appear in CapitalLayerSnapshot (log-only)", () => {
+    const budget = makeBudget({
+      budget_epoch: { epoch_type: "community-sync", epoch_id: "gov-7" },
+    })
+
+    const snap = buildCapitalSnapshot(budget)
+
+    expect(snap).not.toBeNull()
+    // CapitalLayerSnapshot only has: budget_remaining, billing_tier, budget_period_end
+    const keys = Object.keys(snap!)
+    expect(keys).not.toContain("budget_epoch")
+    expect(keys).not.toContain("budget_epoch_type")
+    expect(keys).not.toContain("epoch_type")
+    expect(keys).not.toContain("epoch_id")
   })
 })

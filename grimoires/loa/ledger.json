@@ -1266,7 +1266,7 @@
     }
   ],
   "current_cycle": "cycle-032",
-  "next_global_sprint_id": 131,
+  "next_global_sprint_id": 132,
   "active_cycle": {
     "label": "Protocol Convergence v7.9.2 — Full Adoption",
     "status": "active",
@@ -1274,7 +1274,7 @@
     "prd": "grimoires/loa/prd.md",
     "sdd": "grimoires/loa/sdd.md",
     "sprint_plan": "grimoires/loa/sprint.md",
-    "notes": "Issue #66 Sprint A. loa-hounfour v7.0.0 → v7.9.2. PRD v1.1.0: GPT-5.2 APPROVED (iteration 2, 7 blocking issues resolved). SDD v1.0.0: GPT-5.2 APPROVED + Flatline APPROVED. Sprint v1.0.0: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Sprint v1.1.0 (Sprints 4-5): GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved — circuit breaker mode-awareness, log capture strategy, dependency chain, timeout specification, float precision).",
+    "notes": "Issue #66 Sprint A. loa-hounfour v7.0.0 → v7.9.2. PRD v1.1.0: GPT-5.2 APPROVED (iteration 2, 7 blocking issues resolved). SDD v1.0.0: GPT-5.2 APPROVED + Flatline APPROVED. Sprint v1.0.0: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Sprint v1.1.0 (Sprints 4-5): GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Sprint v1.2.0 (Sprint 6): GPT-5.2 APPROVED (iteration 2, 4 findings resolved — ADR location, test-count consistency, BudgetEpoch log-only, timeout backward-compat).",
     "sprints": [
       {
         "local_id": "sprint-1",
@@ -1308,6 +1308,13 @@
         "local_id": "sprint-5",
         "global_id": 130,
         "label": "Test Depth + Dynamic Reputation Foundation",
+        "status": "completed",
+        "tasks": 5
+      },
+      {
+        "local_id": "sprint-6",
+        "global_id": 131,
+        "label": "Merge Readiness + Governance Documentation",
         "status": "completed",
         "tasks": 5
       }

@@ -19,7 +19,7 @@ specific commit SHA (v7.9.2 tag):
 "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#ff8c16b899b5bbebb9bf1a5e3f9e791342b49bea"
 ```
 
-**Contract version**: `7.9.1` (CONTRACT_VERSION constant from the package).
+**Contract version**: `7.9.2` (CONTRACT_VERSION constant from the package).
 
 ---
 
@@ -57,7 +57,7 @@ The package exports from multiple subpaths:
 | `POOL_IDS` | Canonical set of valid pool IDs |
 | `TIER_POOL_ACCESS` | Map: Tier to readonly PoolId[] |
 | `TIER_DEFAULT_POOL` | Map: Tier to default PoolId |
-| `CONTRACT_VERSION` | Protocol version string (`"7.9.1"`) |
+| `CONTRACT_VERSION` | Protocol version string (`"7.9.2"`) |
 | `REPUTATION_STATES` | Array of valid reputation state names |
 | `REPUTATION_STATE_ORDER` | Map: state name → numeric order (cold=0, warming=1, established=2, authoritative=3) |
 
@@ -235,6 +235,24 @@ Known denial codes: `TRUST_SCORE_BELOW_THRESHOLD`, `TRUST_STATE_BELOW_THRESHOLD`
 - **ReputationProvider** (Sprint 5, Task 5.3): Optional async interface `{ getReputationBoost(tenantId): Promise<{boost, source} | null> }` exported from `types.ts`. When provided to `buildTrustSnapshot()` and tenant tier is "enterprise", queried with 5ms `Promise.race` timeout. Boost >= 15 upgrades reputation to "authoritative" with blended score. Provider absent, returning null, throwing, or timing out → static mapping (fail-closed). Only queried for enterprise tier.
 - **Blended score weighting** (Sprint 5, Task 5.4): `computeBlendedScore(tierBase, behavioralBoost, weights?)` computes `α × tierBase + β × behavioralBoost`. Default weights: `{alpha: 0.7, beta: 0.3}` (tier-dominant). Result: integer in `[0, 100]` via `Math.round()` + clamp. Epsilon weight validation: `Math.abs(α + β - 1) < 1e-9` handles IEEE-754 non-terminating decimals. Exported as `DEFAULT_BLENDING_WEIGHTS`.
 - **Interaction matrix** (Sprint 5, Task 5.2): 9-cell matrix of `ECONOMIC_BOUNDARY_MODE × AP_ENFORCEMENT`. Key cells: shadow × observe → both log, neither enforces. shadow × enforce → AP enforces, EB logs. enforce × observe → EB enforces (403), AP never reached. enforce × enforce → EB denial takes precedence (short-circuits chain). EB is upstream of AP in the middleware chain.
+- **Configurable timeout** (Sprint 6, Task 6.1): `reputationTimeoutMs` option added to `buildTrustSnapshot()`, `evaluateBoundary()`, and `EconomicBoundaryMiddlewareOptions`. Fully optional — existing call sites compile unchanged. Default: `DEFAULT_REPUTATION_TIMEOUT_MS = 5` (5ms). Exported constant preserves the performance contract.
+- **BudgetEpoch** (Sprint 6, Task 6.2): `BudgetEpoch` interface in `types.ts` with `epoch_type: "calendar" | "event" | "community-sync"` and `epoch_id: string`. Added as optional `budget_epoch` field on `BudgetSnapshot`. Log-only metadata — does NOT mutate protocol `CapitalLayerSnapshot`. Structured log emitted via `console.info` when present.
+
+### 3.5 ADR: Blended Score Governance — Radical Meritocracy
+
+**Status**: Accepted (Sprint 6, Task 6.3)
+**Context**: The blended score weighting system (`computeBlendedScore`) makes a value judgment: how much should subscription tier (capital) versus behavioral evidence (reputation) influence access decisions?
+
+**Decision**: Default weights are `{alpha: 0.7, beta: 0.3}` — tier-dominant, meaning subscription level has 70% influence on the blended score. This is a deliberate choice: the system privileges paying customers while reserving 30% for behavioral merit. The "authoritative" tier exists as an escape valve — it can only be reached through behavioral evidence (ReputationProvider boost >= 15), never purchased directly.
+
+**Consequences**:
+- The weight ratio is a governance parameter, not an engineering constant. Changes to `alpha/beta` shift the system's values between plutocracy (alpha→1.0) and pure meritocracy (beta→1.0).
+- Weight changes MUST be treated as governance decisions requiring stakeholder review, not routine parameter tuning.
+- The epsilon validation (`|α + β - 1| < 1e-9`) ensures weights form a proper convex combination, preventing accidental score inflation.
+- Future consideration: community-configurable weights per tenant (e.g., DAOs choosing their own merit/capital balance). This would require per-tenant weight storage and validation.
+- The BudgetEpoch system (Task 6.2) extends this philosophy to temporal governance — communities can express their own budget rhythms without protocol changes.
+
+**Architectural parallel**: Google's PageRank faced the same tension — link authority (capital, who links to you) versus content relevance (merit, what you say). Their `alpha` damping factor (0.85) similarly encoded a value judgment about how much structure versus content should matter.
 
 ---
 
@@ -254,7 +272,7 @@ Four-state reputation model with strict ordering:
 ## 5. Protocol Versioning
 
 `validateCompatibility()` performs semver-based compatibility checking.
-`CONTRACT_VERSION` is `"7.9.1"`. loa-finn's `FINN_MIN_SUPPORTED` is `"4.0.0"`.
+`CONTRACT_VERSION` is `"7.9.2"`. loa-finn's `FINN_MIN_SUPPORTED` is `"4.0.0"`.
 
 ### 5.1 Feature Detection Thresholds
 

@@ -5,8 +5,8 @@
 > **Cycle**: cycle-032
 > **PRD**: grimoires/loa/prd.md (v1.1.0 — GPT-5.2 APPROVED)
 > **SDD**: grimoires/loa/sdd.md (v1.0.0 — GPT-5.2 APPROVED + Flatline APPROVED)
-> **Total**: 30 tasks across 5 sprints
-> **Global Sprint IDs**: 126–130
+> **Total**: 35 tasks across 6 sprints
+> **Global Sprint IDs**: 126–131
 
 ---
 
@@ -19,8 +19,9 @@
 | Sprint 3 (global-128) | Decision Engine + Choreography | 6 | Economic boundary adapter, middleware, choreography tests, reality update |
 | Sprint 4 (global-129) | Economic Boundary Hardening | 6 | Instance circuit breaker, configurable period, type alignment, tenant hash |
 | Sprint 5 (global-130) | Test Depth + Dynamic Reputation | 5 | Half-open tests, interaction matrix, authoritative mapping, blended scoring |
+| Sprint 6 (global-131) | Merge Readiness + Governance Documentation | 5 | Configurable timeout, temporal epoch types, value judgment ADR, merge prep |
 
-**Dependencies**: Sprint 1 → Sprint 2 (dependency resolution required). Sprint 2 → Sprint 3 (type imports and handshake features needed by economic boundary). Sprint 3 → Sprint 4 (builds on economic boundary implementation). Sprint 3 → Sprint 5 (tests and extensions of economic boundary).
+**Dependencies**: Sprint 1 → Sprint 2 (dependency resolution required). Sprint 2 → Sprint 3 (type imports and handshake features needed by economic boundary). Sprint 3 → Sprint 4 (builds on economic boundary implementation). Sprint 3 → Sprint 5 (tests and extensions of economic boundary). Sprint 5 → Sprint 6 (addresses Bridgebuilder Part 3 review findings + merge prep).
 
 **Risk gates**: Sprint 1 has an abort gate at Task 1.3 — if resolution audit fails, the sprint stops and we investigate export map changes before proceeding.
 
@@ -404,6 +405,66 @@
 
 ---
 
+## Sprint 6: Merge Readiness + Governance Documentation (global-131) — COMPLETED
+
+**Goal**: Address remaining MEDIUM and LOW findings from [Bridgebuilder Deep Review Part 3 (PR #102)](https://github.com/0xHoneyJar/loa-finn/pull/102). Make ReputationProvider timeout configurable, add temporal epoch awareness to budget snapshots, document the blended score value judgment explicitly, update code reality, and prepare the PR for merge.
+
+**Exit criteria**: ReputationProvider timeout configurable with documented performance contract. BudgetEpoch type exported for future temporal diversity. Governance value judgment documented as ADR. Code reality updated. All 77+ tests pass. PR description updated with complete sprint-by-sprint summary.
+
+**Source**: Bridgebuilder Deep Review Part 3 — BB-102-P3-01 (MEDIUM), BB-102-P3-02 (LOW), BB-102-P3-03 (SPECULATION → document), BB-102-P3-06 (SPECULATION → document).
+
+### Task 6.1 — Configurable ReputationProvider timeout (LOW)
+
+| Field | Value |
+|-------|-------|
+| **Finding** | BB-102-P3-02: 5ms timeout constrains ReputationProvider to cache-only implementations |
+| **Files** | `src/hounfour/economic-boundary.ts`, `src/hounfour/types.ts`, `tests/finn/economic-boundary.test.ts` |
+| **Description** | Extract the hardcoded `5` in `rejectAfter(5)` to a configurable option. Add `reputationTimeoutMs?: number` to `EconomicBoundaryMiddlewareOptions` (default: 5). Thread through to `buildTrustSnapshot()` opts. Add JSDoc performance contract: "Providers must respond within the configured timeout or be silently bypassed. The default 5ms ceiling is designed for in-memory or Redis-backed lookups. Increase for providers that perform computation or cross-service queries." Add tests: (1) default 5ms timeout preserved, (2) custom timeout (e.g., 50ms) respected, (3) provider that resolves at 4ms succeeds with default timeout, (4) middleware constructed with `undefined` options verifies default timeout = 5ms. |
+| **Acceptance** | `reputationTimeoutMs` option exists with default 5. Existing timeout tests still pass. New test with custom timeout verifies the deadline is respected. JSDoc documents performance contract. No behavioral change for callers not providing the option. All existing call sites compile unchanged (option is fully optional). Explicit backward-compatibility verification: `economicBoundaryMiddleware({ getBudgetSnapshot: fn })` compiles and uses default 5ms timeout. |
+| **Blocked by** | Sprint 5 complete |
+
+### Task 6.2 — BudgetEpoch type for temporal diversity (MEDIUM)
+
+| Field | Value |
+|-------|-------|
+| **Finding** | BB-102-P3-01: Budget periods support configurable duration but not phase synchronization or community-coordinated resets |
+| **Files** | `src/hounfour/types.ts`, `src/hounfour/economic-boundary.ts`, `tests/finn/economic-boundary.test.ts` |
+| **Description** | Add a `BudgetEpoch` interface to types.ts: `{ period_end: string; epoch_type?: 'calendar' \| 'event' \| 'community-sync'; community_epoch_id?: string }`. Extend `BudgetSnapshot` with an optional `budget_epoch?: BudgetEpoch` field (backward compatible — existing `budget_period_end` still works). In `buildCapitalSnapshot()`, prefer `budget.budget_epoch?.period_end` over `budget.budget_period_end` when present. Epoch metadata is **log-only** — it does NOT mutate the protocol's `CapitalLayerSnapshot` type. Instead, emit `budget_epoch_type` and `community_epoch_id` in the middleware's structured log payload (same pattern as `tenant_hash`). Add tests: (1) BudgetEpoch with calendar type uses period_end for snapshot, (2) BudgetEpoch with community-sync includes epoch_id in structured logs (spy on console.log/warn), (3) legacy `budget_period_end` still works when `budget_epoch` absent, (4) `budget_epoch.period_end` takes precedence over `budget_period_end` when both present. |
+| **Acceptance** | `BudgetEpoch` interface exported from types.ts. `BudgetSnapshot` accepts optional `budget_epoch`. `buildCapitalSnapshot()` prefers epoch's `period_end` over legacy field. Protocol `CapitalLayerSnapshot` type unchanged (epoch metadata is log-only, not stored in snapshot). Legacy behavior unchanged. 4 new tests pass. |
+| **Blocked by** | Sprint 5 complete |
+
+### Task 6.3 — Governance value judgment ADR: Blended score meritocracy (SPECULATION → document)
+
+| Field | Value |
+|-------|-------|
+| **Finding** | BB-102-P3-03: Linear blending allows any tier to reach score ceiling via behavioral boost. BB-102-P3-06: No explicit documentation of governance value judgments. |
+| **Files** | `grimoires/oracle/code-reality-hounfour.md` |
+| **Description** | Add a governance value judgment section embedded in the code reality document (`grimoires/oracle/code-reality-hounfour.md`) under a stable heading `### ADR: Blended Score Governance — Radical Meritocracy`. This is an embedded ADR (not a separate file) because it documents a single function's design rationale and belongs alongside the function's technical documentation. Content: (1) The decision: `computeBlendedScore` uses linear combination with default weights α=0.7, β=0.3. (2) The implication: sufficiently high behavioral boost can elevate any tier to score ceiling (radical meritocracy). (3) Alternatives considered: per-tier caps (graduated citizenship), asymptotic/sigmoid approach (Ostrom Principle 2). (4) Why we chose this: aligns with "authoritative is earned, not purchased" philosophy. Behavior should be able to override inherited status. (5) When to revisit: if tier boundaries need to be hard ceilings, switch to capped blending. Reference BB-102-P3-03 finding. |
+| **Acceptance** | Embedded ADR section exists in code reality under stable heading `### ADR: Blended Score Governance — Radical Meritocracy`. Documents the value judgment, alternatives, rationale, and revisit trigger. References the Bridgebuilder finding ID (BB-102-P3-03). ADR format is explicitly "embedded in code reality" (not a separate file). |
+| **Blocked by** | None |
+
+### Task 6.4 — Update code reality + documentation for Sprint 6
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Documentation completeness for merge |
+| **Files** | `grimoires/oracle/code-reality-hounfour.md` |
+| **Description** | Update code reality to document: (1) configurable ReputationProvider timeout with performance contract, (2) BudgetEpoch type and temporal diversity support, (3) the complete sprint journey (Sprints 1-6). Ensure no stale information from pre-Sprint-6 state. |
+| **Acceptance** | Reality doc covers all Sprint 6 additions. ReputationProvider timeout documented as configurable. BudgetEpoch documented with epoch_type variants. No stale information. |
+| **Blocked by** | 6.1, 6.2, 6.3 |
+
+### Task 6.5 — Merge preparation: PR update + final verification
+
+| Field | Value |
+|-------|-------|
+| **Finding** | Merge readiness |
+| **Files** | (PR body update via gh CLI) |
+| **Description** | (1) Run full test suite via `pnpm test` — verify ALL suites pass (economic-boundary unit tests 80+, plus existing ~1,105 project-wide tests — zero regressions). (2) Update PR #102 body with complete sprint-by-sprint summary including Sprint 6. (3) Verify no uncommitted changes or stale state files. (4) Request review from @janitooor. |
+| **Acceptance** | `pnpm test` passes with zero failures across all suites (economic-boundary 80+ tests, project-wide ~1,105+ tests). PR body updated with Sprint 6 summary. Review requested. Branch is clean. |
+| **Blocked by** | 6.4 |
+
+---
+
 ## Risk Matrix (Updated)
 
 | # | Risk | Sprint | Mitigation |
@@ -419,6 +480,8 @@
 | R9 | Tenant hash collision at 16 chars | 4 | 16 hex chars = 64-bit space, sufficient for operational correlation |
 | R10 | ReputationProvider latency in trust snapshot | 5 | Fail-closed with timeout; provider failure uses static mapping |
 | R11 | Blending weights misconfigured (α + β ≠ 1.0) | 5 | Epsilon validation (`Math.abs(α+β-1) < 1e-9`) throws on mismatch; final score `Math.round()` to integer eliminates float drift |
+| R12 | BudgetEpoch backward compatibility break | 6 | Optional field — existing BudgetSnapshot without epoch unchanged |
+| R13 | Custom reputation timeout too high blocks request path | 6 | Document performance contract; warn at startup if timeout > 50ms |
 
 ---
 
@@ -444,7 +507,11 @@
 - [ ] Interaction matrix cross-mode behavior verified
 - [ ] "Authoritative" reputation state mapped and reachable via behavioral evidence
 - [ ] Blended score weighting foundation with configurable α/β weights
+- [ ] ReputationProvider timeout configurable (default 5ms, documented performance contract)
+- [ ] BudgetEpoch type exported for temporal diversity (calendar/event/community-sync)
+- [ ] Governance value judgment ADR for blended score meritocracy documented
+- [ ] PR #102 body updated with complete sprint summary, review requested
 
 ---
 
-*30 tasks. 5 sprints. Sprints 1-3: pure protocol adoption. Sprint 4: hardening from Bridgebuilder HIGH/MEDIUM findings. Sprint 5: test depth and dynamic reputation foundation from LOW/SPECULATION findings.*
+*35 tasks. 6 sprints. Sprints 1-3: pure protocol adoption. Sprint 4: hardening from Bridgebuilder HIGH/MEDIUM findings. Sprint 5: test depth and dynamic reputation foundation from LOW/SPECULATION findings. Sprint 6: merge readiness from Bridgebuilder Part 3 MEDIUM/LOW findings + governance documentation.*

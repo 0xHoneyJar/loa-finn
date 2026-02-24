@@ -116,6 +116,14 @@ export const ECONOMIC_BOUNDARY_MODE: EconomicBoundaryMode = (() => {
 // --- Blended Score Weighting (Task 5.4: dynamic reputation foundation) ---
 
 /** Default weights for blended score computation: tier-dominant, behavioral supplementary. */
+/**
+ * Default timeout in milliseconds for ReputationProvider queries.
+ * The 5ms ceiling is designed for in-memory or Redis-backed lookups.
+ * Increase for providers that perform computation or cross-service queries.
+ * Providers that exceed this deadline are silently bypassed (fail-closed to static mapping).
+ */
+export const DEFAULT_REPUTATION_TIMEOUT_MS = 5
+
 export const DEFAULT_BLENDING_WEIGHTS = { alpha: 0.7, beta: 0.3 } as const
 
 /**
@@ -248,7 +256,7 @@ export function resetCircuitBreaker(): void {
 export async function buildTrustSnapshot(
   claims: JWTClaims,
   peerFeatures?: PeerFeatures,
-  opts?: { reputationProvider?: ReputationProvider },
+  opts?: { reputationProvider?: ReputationProvider; reputationTimeoutMs?: number },
 ): Promise<TrustLayerSnapshot | null> {
   const tierMapping = TIER_TRUST_MAP[claims.tier]
   if (!tierMapping) {
@@ -272,9 +280,10 @@ export async function buildTrustSnapshot(
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("ReputationProvider timeout")), ms),
         )
+      const timeoutMs = opts?.reputationTimeoutMs ?? DEFAULT_REPUTATION_TIMEOUT_MS
       const result = await Promise.race([
         opts.reputationProvider.getReputationBoost(claims.tenant_id),
-        rejectAfter(5),
+        rejectAfter(timeoutMs),
       ])
       if (result && result.boost >= 15) {
         return {
@@ -327,6 +336,13 @@ export function buildCapitalSnapshot(
       console.debug("[economic-boundary] No budget_period_end provided — using 30-day default")
     }
 
+    // Task 6.2: Log epoch metadata when present (log-only — does NOT mutate protocol snapshot)
+    if (budget.budget_epoch) {
+      console.info(
+        `[economic-boundary] budget_epoch_type=${budget.budget_epoch.epoch_type} community_epoch_id=${budget.budget_epoch.epoch_id}`,
+      )
+    }
+
     return {
       budget_remaining: remainingMicro,
       billing_tier: budget.scope ?? "unknown",
@@ -350,7 +366,7 @@ export async function evaluateBoundary(
   budget: BudgetSnapshot,
   peerFeatures?: PeerFeatures,
   criteria?: QualificationCriteria,
-  opts?: { reputationProvider?: ReputationProvider },
+  opts?: { reputationProvider?: ReputationProvider; reputationTimeoutMs?: number },
 ): Promise<EconomicBoundaryEvaluationResult | null> {
   const trustSnapshot = await buildTrustSnapshot(claims, peerFeatures, opts)
   if (!trustSnapshot) return null
@@ -400,6 +416,13 @@ export interface EconomicBoundaryMiddlewareOptions {
   circuitBreakerOptions?: CircuitBreakerOptions
   /** Optional reputation provider for dynamic trust scoring (Task 5.3). */
   reputationProvider?: ReputationProvider
+  /**
+   * Timeout in milliseconds for ReputationProvider queries (Task 6.1).
+   * Default: 5ms — designed for in-memory or Redis-backed lookups.
+   * Increase for providers that perform computation or cross-service queries.
+   * Providers exceeding this deadline are silently bypassed (fail-closed to static mapping).
+   */
+  reputationTimeoutMs?: number
 }
 
 /** Middleware handler with attached circuit breaker instance for testing. */
@@ -476,7 +499,7 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
       }
 
       // Evaluate boundary
-      const result = await evaluateBoundary(claims, budget, opts.peerFeatures, opts.criteria, { reputationProvider: opts.reputationProvider })
+      const result = await evaluateBoundary(claims, budget, opts.peerFeatures, opts.criteria, { reputationProvider: opts.reputationProvider, reputationTimeoutMs: opts.reputationTimeoutMs })
       const latencyMs = performance.now() - startMs
 
       if (!result) {
