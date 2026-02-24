@@ -450,11 +450,17 @@ export type EconomicBoundaryHandler = ((c: Context, next: Next) => Promise<Respo
  * Performance budget: p95 < 2ms (pure computation, no I/O except budget snapshot).
  */
 export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptions): EconomicBoundaryHandler {
-  // R13 mitigation: warn if custom timeout exceeds recommended ceiling
-  if (opts.reputationTimeoutMs && opts.reputationTimeoutMs > 50) {
-    console.warn(
-      `[economic-boundary] reputationTimeoutMs=${opts.reputationTimeoutMs} exceeds recommended 50ms ceiling. High timeouts may block the request path.`,
-    )
+  // R13 mitigation: warn if custom timeout is misconfigured
+  if (opts.reputationTimeoutMs != null) {
+    if (opts.reputationTimeoutMs === 0) {
+      console.warn(
+        "[economic-boundary] reputationTimeoutMs=0 will immediately time out all ReputationProvider calls, disabling dynamic reputation.",
+      )
+    } else if (opts.reputationTimeoutMs > 50) {
+      console.warn(
+        `[economic-boundary] reputationTimeoutMs=${opts.reputationTimeoutMs} exceeds recommended 50ms ceiling. High timeouts may block the request path.`,
+      )
+    }
   }
 
   const mode = opts.mode ?? ECONOMIC_BOUNDARY_MODE

@@ -1434,8 +1434,10 @@ describe("Sprint 6 — Configurable ReputationProvider timeout (Task 6.1)", () =
     vi.advanceTimersByTime(1)
     await promise
 
-    // clearTimeout was called — proves the dangling timer is cleaned up
-    expect(clearSpy).toHaveBeenCalled()
+    // clearTimeout was called with a timer handle — proves the dangling timer is cleaned up
+    // Node.js returns a Timeout object (not a number) from setTimeout
+    expect(clearSpy).toHaveBeenCalledTimes(1)
+    expect(clearSpy.mock.calls[0]![0]).toBeDefined()
     clearSpy.mockRestore()
     vi.useRealTimers()
   })
@@ -1451,6 +1453,21 @@ describe("Sprint 6 — Configurable ReputationProvider timeout (Task 6.1)", () =
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("reputationTimeoutMs=100 exceeds recommended 50ms ceiling"),
+    )
+    warnSpy.mockRestore()
+  })
+
+  it("R13: warns when reputationTimeoutMs is 0 (disables dynamic reputation)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    createTestApp({
+      mode: "shadow" as EconomicBoundaryMode,
+      getBudgetSnapshot: async () => makeBudget(),
+      reputationTimeoutMs: 0,
+    })
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("reputationTimeoutMs=0 will immediately time out"),
     )
     warnSpy.mockRestore()
   })
