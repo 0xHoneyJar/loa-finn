@@ -272,16 +272,25 @@ export const PROTOCOL_HASH_CHAIN_ENABLED = process.env.PROTOCOL_HASH_CHAIN_ENABL
 /** Protocol v1 envelope format for hash chain entries (SDD §4.5.1) */
 export type HashChainFormat = "legacy" | "bridge" | "protocol_v1"
 
-/** Protocol v1 envelope wrapping an audit record (SDD §4.5.2) */
+/** Protocol v1 envelope wrapping an audit record (SDD §4.5.2).
+ *
+ * Envelope fields align with SDD §4.5.3 / test vectors:
+ *   { version, algo, format, timestamp, action, payload_hash }
+ *
+ * Chain pointers (prevHashProtocol, prevHashLegacy) are NOT part of the
+ * canonical envelope that gets hashed — they are structural metadata.
+ * entry_hash = SHA-256(prevHashProtocol + '\n' + JCS(envelope))
+ */
 export interface ProtocolEnvelope {
   format: "protocol_v1"
   version: 1
-  payload_hash: string         // SHA-256 of JCS-canonicalized payload
-  prevHashProtocol: string     // Protocol chain pointer
-  prevHashLegacy?: string      // Legacy chain pointer (dual-write only)
-  entry_hash: string           // SHA-256 of JCS-canonicalized envelope (excluding entry_hash)
-  ts: string
-  seq: number
+  algo: "sha256"              // Hash algorithm (SDD §4.5.3)
+  timestamp: string           // ISO 8601 timestamp
+  action: string              // Action from the payload record
+  payload_hash: string        // SHA-256 of JCS-canonicalized payload
+  prevHashProtocol: string    // Protocol chain pointer (not hashed in envelope)
+  prevHashLegacy?: string     // Legacy chain pointer (dual-write only, not hashed)
+  entry_hash: string          // SHA-256(prevHashProtocol + '\n' + JCS({version,algo,format,timestamp,action,payload_hash}))
 }
 
 /** Bridge entry linking legacy chain to protocol chain (SDD §4.5.4) */
@@ -331,17 +340,18 @@ export function computePayloadHash(payload: Record<string, unknown>): string | n
  * to ensure chain binding is structurally separated from envelope content.
  */
 export function computeProtocolEntryHash(envelope: Omit<ProtocolEnvelope, "entry_hash">): string | null {
-  const hashable: Record<string, unknown> = {
-    format: envelope.format,
+  // SDD §4.5.3: entry_hash = SHA-256(prevHashProtocol + '\n' + JCS(canonical_envelope))
+  // Canonical envelope contains ONLY: version, algo, format, timestamp, action, payload_hash
+  // Chain pointers (prevHashProtocol, prevHashLegacy) are NOT included in the hash input.
+  const canonicalEnvelope: Record<string, unknown> = {
     version: envelope.version,
+    algo: envelope.algo,
+    format: envelope.format,
+    timestamp: envelope.timestamp,
+    action: envelope.action,
     payload_hash: envelope.payload_hash,
-    ts: envelope.ts,
-    seq: envelope.seq,
   }
-  if (envelope.prevHashLegacy !== undefined) {
-    hashable.prevHashLegacy = envelope.prevHashLegacy
-  }
-  const canonical = canonicalizeProtocol(hashable)
+  const canonical = canonicalizeProtocol(canonicalEnvelope)
   if (!canonical) return null
   const preimage = envelope.prevHashProtocol + "\n" + canonical
   return createHash("sha256").update(preimage).digest("hex")
@@ -353,9 +363,9 @@ export function computeProtocolEntryHash(envelope: Omit<ProtocolEnvelope, "entry
  */
 export function buildEnvelope(
   payload: Record<string, unknown>,
-  seq: number,
+  action: string,
   prevHashProtocol: string,
-  ts: string,
+  timestamp: string,
   prevHashLegacy?: string,
 ): ProtocolEnvelope | null {
   const payload_hash = computePayloadHash(payload)
@@ -364,10 +374,11 @@ export function buildEnvelope(
   const partial: Omit<ProtocolEnvelope, "entry_hash"> = {
     format: "protocol_v1",
     version: 1,
+    algo: "sha256",
+    timestamp,
+    action,
     payload_hash,
     prevHashProtocol,
-    ts,
-    seq,
   }
   if (prevHashLegacy !== undefined) {
     partial.prevHashLegacy = prevHashLegacy
@@ -707,12 +718,14 @@ export class AuditTrail {
 
       } else if (format === "protocol_v1") {
         // Protocol v1 envelope verification
-        const envelope = record as unknown as ProtocolEnvelope & { payload?: Record<string, unknown> }
+        // Persisted record has: { ...envelope, seq, payload }
+        const envelope = record as unknown as ProtocolEnvelope & { seq?: number; payload?: Record<string, unknown> }
+        const recordSeq = record.seq as number
 
         // Verify protocol chain pointer
         if (envelope.prevHashProtocol !== expectedProtocolPrevHash) {
           errors.push(
-            `Line ${i + 1} (protocol seq ${envelope.seq}): prevHashProtocol mismatch — ` +
+            `Line ${i + 1} (protocol seq ${recordSeq}): prevHashProtocol mismatch — ` +
             `expected "${expectedProtocolPrevHash}", got "${envelope.prevHashProtocol}"`,
           )
         }
@@ -721,28 +734,29 @@ export class AuditTrail {
         if (envelope.prevHashLegacy !== undefined) {
           if (envelope.prevHashLegacy !== expectedLegacyPrevHash) {
             errors.push(
-              `Line ${i + 1} (protocol seq ${envelope.seq}): prevHashLegacy mismatch — ` +
+              `Line ${i + 1} (protocol seq ${recordSeq}): prevHashLegacy mismatch — ` +
               `expected "${expectedLegacyPrevHash}", got "${envelope.prevHashLegacy}"`,
             )
           }
         }
 
-        // Verify entry hash
+        // Verify entry hash — use only SDD-specified canonical envelope fields
         const partial: Omit<ProtocolEnvelope, "entry_hash"> = {
           format: "protocol_v1",
           version: 1,
+          algo: envelope.algo ?? "sha256" as const,
+          timestamp: envelope.timestamp,
+          action: envelope.action,
           payload_hash: envelope.payload_hash,
           prevHashProtocol: envelope.prevHashProtocol,
-          ts: envelope.ts,
-          seq: envelope.seq,
         }
         if (envelope.prevHashLegacy !== undefined) {
-          (partial as Record<string, unknown>).prevHashLegacy = envelope.prevHashLegacy
+          partial.prevHashLegacy = envelope.prevHashLegacy
         }
         const expectedEntryHash = computeProtocolEntryHash(partial)
         if (expectedEntryHash !== envelope.entry_hash) {
           errors.push(
-            `Line ${i + 1} (protocol seq ${envelope.seq}): entry_hash mismatch — ` +
+            `Line ${i + 1} (protocol seq ${recordSeq}): entry_hash mismatch — ` +
             `expected "${expectedEntryHash}", got "${envelope.entry_hash}"`,
           )
         }
@@ -752,7 +766,7 @@ export class AuditTrail {
           const expectedPayloadHash = computePayloadHash(envelope.payload)
           if (expectedPayloadHash !== envelope.payload_hash) {
             errors.push(
-              `Line ${i + 1} (protocol seq ${envelope.seq}): payload_hash mismatch`,
+              `Line ${i + 1} (protocol seq ${recordSeq}): payload_hash mismatch`,
             )
           }
         }
@@ -974,13 +988,14 @@ export class AuditTrail {
 
     // Build envelope
     const prevHashLegacy = this.dualWriteRemaining > 0 ? this.lastHashLegacy : undefined
-    const envelope = buildEnvelope(payload, currentSeq, this.lastHashProtocol, ts, prevHashLegacy)
+    const envelope = buildEnvelope(payload, data.action, this.lastHashProtocol, ts, prevHashLegacy)
     if (!envelope) {
       throw new Error("[audit-trail] Failed to build protocol_v1 envelope")
     }
 
-    // Write envelope + embedded payload
-    const line = JSON.stringify({ ...envelope, payload }) + "\n"
+    // Write envelope + seq (structural metadata) + embedded payload
+    // seq is not part of the canonical envelope hash but is needed for state recovery
+    const line = JSON.stringify({ ...envelope, seq: currentSeq, payload }) + "\n"
     await appendFile(this.filePath, line, "utf-8")
 
     // Update chain state
