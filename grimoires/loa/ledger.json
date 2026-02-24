@@ -1307,21 +1307,21 @@
           "local_id": "sprint-1",
           "global_id": 129,
           "label": "Compile-Time Foundation",
-          "status": "pending",
+          "status": "completed",
           "tasks": 10
         },
         {
           "local_id": "sprint-2",
           "global_id": 130,
           "label": "Protocol Extension",
-          "status": "pending",
+          "status": "completed",
           "tasks": 14
         },
         {
           "local_id": "sprint-3",
           "global_id": 131,
           "label": "Internal Optimizations",
-          "status": "pending",
+          "status": "completed",
           "tasks": 11
         }
       ]
