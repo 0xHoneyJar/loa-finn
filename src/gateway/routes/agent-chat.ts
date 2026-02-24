@@ -26,6 +26,9 @@ export interface AgentChatDeps {
    *  Returns null if fingerprint is unavailable (legacy v1 personalities).
    *  Optional — when absent, routing falls back to standard pool selection. */
   resolvePersonalityContext?: (tokenId: string, archetype: string) => Promise<PersonalityContext | null>
+  /** Build memory section from previous conversation summaries (T1.9).
+   *  Returns empty string if no summaries exist or on error. */
+  buildMemorySection?: (nftId: string, walletAddress: string, excludeConvId?: string) => Promise<string>
 }
 
 interface ChatRequest {
@@ -83,10 +86,28 @@ export function createAgentChatRoutes(deps: AgentChatDeps): Hono {
       }
     }
 
+    // Inject conversation memory into system prompt (T1.9)
+    let systemPrompt = personality.beauvoir_template
+    if (deps.buildMemorySection) {
+      try {
+        // wallet_address comes from upstream auth middleware
+        const walletAddress = c.get("wallet_address") as string | undefined
+        if (walletAddress) {
+          const memorySection = await deps.buildMemorySection(body.token_id, walletAddress, body.session_id)
+          if (memorySection) {
+            systemPrompt = `${systemPrompt}\n\n${memorySection}`
+          }
+        }
+      } catch {
+        // Best-effort: memory injection failure should never block chat
+        console.warn(`[agent-chat] memory injection failed for token_id="${body.token_id}"`)
+      }
+    }
+
     // Generate response with personality-conditioned system prompt
     let response: string
     try {
-      response = await deps.generateResponse(personality.beauvoir_template, body.message, personalityContext)
+      response = await deps.generateResponse(systemPrompt, body.message, personalityContext)
     } catch (err) {
       console.error(
         JSON.stringify({

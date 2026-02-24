@@ -27,6 +27,10 @@ export interface Conversation {
   updated_at: number
   message_count: number
   snapshot_offset: number
+  /** LLM-generated summary of conversation history (T1.5) */
+  summary: string | null
+  /** Message count when summary was last generated (T1.5) */
+  summary_message_count: number
 }
 
 export interface ConversationSummary {
@@ -73,12 +77,29 @@ export class ConversationError extends Error {
 // Dependencies
 // ---------------------------------------------------------------------------
 
+/** Result from getSummaries — used by MemoryInjector (T1.8) */
+export interface ConversationSummaryRecord {
+  id: string
+  summary: string | null
+  updated_at: number
+}
+
+/** Summary trigger threshold constants (T1.6) */
+const SUMMARY_MIN_MESSAGES = 10
+const SUMMARY_INTERVAL_MESSAGES = 20
+const SUMMARY_LOCK_TTL_SECONDS = 30
+
 export interface ConversationDeps {
   redis: RedisCommandClient
-  walAppend?: (namespace: string, operation: string, key: string, payload: unknown) => string
+  /** Conversation WAL append — synchronous with fsync for durability (T1.2) */
+  walAppend?: (conversationId: string, type: number, payload: unknown) => void
   r2Put?: (key: string, content: string) => Promise<boolean>
   r2Get?: (key: string) => Promise<string | null>
   generateId: () => string
+  /** Async summary generator callback — fire-and-forget (T1.6) */
+  onSummaryNeeded?: (conversationId: string, messages: ConversationMessage[], personalityName: string) => void
+  /** Resolve personality name for an NFT (used by summary trigger) */
+  getPersonalityName?: (nftId: string) => Promise<string | null>
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +112,8 @@ export class ConversationManager {
   private readonly r2Put: ConversationDeps["r2Put"]
   private readonly r2Get: ConversationDeps["r2Get"]
   private readonly generateId: () => string
+  private readonly onSummaryNeeded: ConversationDeps["onSummaryNeeded"]
+  private readonly getPersonalityName: ConversationDeps["getPersonalityName"]
 
   constructor(deps: ConversationDeps) {
     this.redis = deps.redis
@@ -98,6 +121,8 @@ export class ConversationManager {
     this.r2Put = deps.r2Put
     this.r2Get = deps.r2Get
     this.generateId = deps.generateId
+    this.onSummaryNeeded = deps.onSummaryNeeded
+    this.getPersonalityName = deps.getPersonalityName
   }
 
   /**
@@ -115,10 +140,13 @@ export class ConversationManager {
       updated_at: now,
       message_count: 0,
       snapshot_offset: 0,
+      summary: null,
+      summary_message_count: 0,
     }
 
+    // WAL-first: persist to WAL before Redis (T1.2)
+    this.writeWal(0x01, id, { nft_id: nftId, owner_address: ownerAddress.toLowerCase() })
     await this.saveToRedis(conversation)
-    this.writeWal("conversation_create", id, { nft_id: nftId, owner_address: ownerAddress.toLowerCase() })
 
     return conversation
   }
@@ -138,6 +166,11 @@ export class ConversationManager {
   /**
    * Append a message to a conversation.
    */
+  /**
+   * Append a message to a conversation.
+   * WAL-first ordering (T1.2): WAL fsync MUST complete before Redis update.
+   * Client does not receive success until WAL confirms.
+   */
   async appendMessage(
     conversationId: string,
     walletAddress: string,
@@ -150,21 +183,147 @@ export class ConversationManager {
 
     const conversation = await this.get(conversationId, walletAddress)
 
+    const messageId = this.generateId()
     conversation.messages.push(message)
     conversation.message_count++
     conversation.updated_at = Date.now()
 
-    await this.saveToRedis(conversation)
-    this.writeWal("conversation_message_append", conversationId, {
+    // WAL-first: write to WAL with fsync BEFORE Redis (T1.2)
+    // WAL failure → error thrown, message rejected, client can retry
+    this.writeWal(0x02, conversationId, {
+      message_id: messageId,
       role: message.role,
-      content_length: message.content.length,
+      content: message.content,
+      timestamp: message.timestamp,
+      cost_cu: message.cost_cu,
       message_index: conversation.message_count - 1,
     })
+
+    // Redis write failure after WAL success → warning logged, operation succeeds
+    try {
+      await this.saveToRedis(conversation)
+    } catch (err) {
+      console.warn(`[conversation] Redis write failed after WAL success for ${conversationId}: ${(err as Error).message}`)
+    }
 
     // Snapshot compaction check
     if (conversation.message_count - conversation.snapshot_offset >= SNAPSHOT_THRESHOLD) {
       await this.snapshot(conversation)
     }
+
+    // Async summary trigger (T1.6) — fire-and-forget, does NOT block appendMessage
+    this.maybeTriggerSummary(conversation).catch(() => {})
+  }
+
+  /**
+   * Check if summary generation is needed and trigger if so (T1.6).
+   * Uses Redis SETNX lock and monotonic guard to prevent races.
+   */
+  private async maybeTriggerSummary(conversation: Conversation): Promise<void> {
+    if (!this.onSummaryNeeded) return
+
+    const { message_count, summary, summary_message_count } = conversation
+    const needsSummary =
+      message_count >= SUMMARY_MIN_MESSAGES &&
+      (summary === null || message_count - summary_message_count >= SUMMARY_INTERVAL_MESSAGES)
+
+    if (!needsSummary) return
+
+    // Per-conversation Redis lock: SETNX with TTL (T1.6)
+    const lockKey = `summary_lock:${conversation.id}`
+    const lockResult = await this.redis.set(lockKey, "1", "EX", SUMMARY_LOCK_TTL_SECONDS, "NX")
+    if (!lockResult) return // Another instance is summarizing
+
+    // Resolve personality name for the summary prompt
+    let personalityName = "Agent"
+    if (this.getPersonalityName) {
+      try {
+        personalityName = await this.getPersonalityName(conversation.nft_id) ?? "Agent"
+      } catch {
+        // Use default
+      }
+    }
+
+    // Fire-and-forget — the callback handles summarization and applies the result
+    this.onSummaryNeeded(conversation.id, [...conversation.messages], personalityName)
+  }
+
+  /**
+   * Apply a generated summary to a conversation (T1.6).
+   * Uses monotonic guard: only updates if incoming count > current count.
+   */
+  async applySummary(
+    conversationId: string,
+    summary: string,
+    summaryMessageCount: number,
+  ): Promise<boolean> {
+    const conversation = await this.load(conversationId)
+    if (!conversation) return false
+
+    // Monotonic guard: reject stale summaries (T1.6)
+    if (summaryMessageCount <= conversation.summary_message_count) return false
+
+    conversation.summary = summary
+    conversation.summary_message_count = summaryMessageCount
+    conversation.updated_at = Date.now()
+
+    // WAL-first for summary updates too
+    this.writeWal(0x03, conversationId, {
+      summary,
+      summary_message_count: summaryMessageCount,
+      generated_at: Date.now(),
+    })
+
+    try {
+      await this.saveToRedis(conversation)
+    } catch (err) {
+      console.warn(`[conversation] Redis write failed for summary update on ${conversationId}: ${(err as Error).message}`)
+    }
+
+    return true
+  }
+
+  /**
+   * Get summaries from the N most recent conversations for an NFT (T1.8).
+   * Used by MemoryInjector to build conversation memory context.
+   */
+  async getSummaries(
+    nftId: string,
+    walletAddress: string,
+    limit: number = 3,
+    excludeConvId?: string,
+  ): Promise<ConversationSummaryRecord[]> {
+    const normalizedWallet = walletAddress.toLowerCase()
+
+    // Get conversation index for this NFT
+    const indexKey = `conv_index:${nftId}`
+    const indexData = await this.redis.get(indexKey)
+    const allIds: string[] = indexData ? JSON.parse(indexData) : []
+
+    const results: ConversationSummaryRecord[] = []
+
+    // Iterate in reverse (newest first) to find conversations with summaries
+    for (let i = allIds.length - 1; i >= 0 && results.length < limit; i--) {
+      const id = allIds[i]
+      if (excludeConvId && id === excludeConvId) continue
+
+      const conv = await this.load(id)
+      if (!conv) continue
+      if (!conv.summary) continue
+
+      // Timing-safe access check
+      const expected = Buffer.from(conv.owner_address)
+      const provided = Buffer.from(normalizedWallet)
+      if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) continue
+
+      results.push({
+        id: conv.id,
+        summary: conv.summary,
+        updated_at: conv.updated_at,
+      })
+    }
+
+    return results
   }
 
   /**
@@ -312,7 +471,7 @@ export class ConversationManager {
       await this.r2Put(`conversations/${conversation.id}/latest.json`, snapshotData)
       conversation.snapshot_offset = conversation.message_count
       await this.saveToRedis(conversation)
-      this.writeWal("conversation_snapshot", conversation.id, {
+      this.writeWal(0x04, conversation.id, {
         message_count: conversation.message_count,
         r2_key: `conversations/${conversation.id}/latest.json`,
       })
@@ -321,16 +480,17 @@ export class ConversationManager {
     }
   }
 
-  private writeWal(operation: string, conversationId: string, extra?: Record<string, unknown>): void {
+  /**
+   * Write to conversation WAL with fsync (T1.2).
+   * Uses binary WAL framing from T1.1.
+   * THROWS on failure — caller must handle (WAL-first means WAL failure = operation failure).
+   */
+  private writeWal(type: number, conversationId: string, payload: Record<string, unknown>): void {
     if (!this.walAppend) return
-    try {
-      this.walAppend("conversation", operation, `conversation:${conversationId}`, {
-        conversation_id: conversationId,
-        timestamp: Date.now(),
-        ...extra,
-      })
-    } catch {
-      // Best-effort
-    }
+    this.walAppend(conversationId, type, {
+      conversation_id: conversationId,
+      timestamp: Date.now(),
+      ...payload,
+    })
   }
 }
