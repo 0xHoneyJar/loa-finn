@@ -56,7 +56,7 @@ export interface PaginatedResult<T> {
 
 const MAX_MESSAGE_BYTES = 8192
 const SNAPSHOT_THRESHOLD = 200
-const REDIS_CONVERSATION_TTL = 86400 // 24h
+const REDIS_CONVERSATION_TTL_SECONDS = 86400 // 24h
 const DEFAULT_PAGE_SIZE = 20
 const MAX_PAGE_SIZE = 50
 
@@ -566,16 +566,23 @@ export class ConversationManager {
 
   private async saveToRedis(conversation: Conversation): Promise<void> {
     const key = `conversation:${conversation.id}`
-    await this.redis.set(key, JSON.stringify(conversation))
+    await this.redis.set(key, JSON.stringify(conversation), "EX", REDIS_CONVERSATION_TTL_SECONDS)
 
-    // Update conversation index
+    // Update conversation index — atomic via Lua to prevent race conditions
+    // when two concurrent creates for the same NFT both read an empty index.
     const indexKey = `conv_index:${conversation.nft_id}`
-    const indexData = await this.redis.get(indexKey)
-    const ids: string[] = indexData ? JSON.parse(indexData) : []
-    if (!ids.includes(conversation.id)) {
-      ids.push(conversation.id)
-      await this.redis.set(indexKey, JSON.stringify(ids))
-    }
+    const luaScript = `
+      local current = redis.call('GET', KEYS[1])
+      local ok, ids = pcall(cjson.decode, current or '[]')
+      if not ok then ids = {} end
+      for _, v in ipairs(ids) do
+        if v == ARGV[1] then return 0 end
+      end
+      table.insert(ids, ARGV[1])
+      redis.call('SET', KEYS[1], cjson.encode(ids))
+      return 1
+    `
+    await this.redis.eval(luaScript, 1, indexKey, conversation.id)
   }
 
   private async snapshot(conversation: Conversation): Promise<void> {

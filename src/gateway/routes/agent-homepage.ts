@@ -85,6 +85,12 @@ function buildHomepage(p: PersonalityConfig, data: HomepageData): string {
   const archetype = esc(p.archetype)
   const displayName = esc(p.display_name)
   const voice = esc(p.voice_description)
+  // token_id is composite "collection:tokenId" — split for chat URL
+  const sep = p.token_id.indexOf(":")
+  const collectionPart = sep >= 0 ? p.token_id.slice(0, sep) : p.token_id
+  const tokenIdPart = sep >= 0 ? p.token_id.slice(sep + 1) : ""
+  const safeCollection = esc(collectionPart)
+  const safeTokenId = esc(tokenIdPart)
   const tokenId = esc(p.token_id)
 
   const expertiseHtml = p.expertise_domains
@@ -97,7 +103,7 @@ function buildHomepage(p: PersonalityConfig, data: HomepageData): string {
 
   const ownerSection = data.isOwner
     ? `<div class="owner-actions">
-        <a href="/chat/${esc(collection)}/${esc(tokenId)}" class="btn btn-primary">Start Chatting</a>
+        <a href="/chat/${safeCollection}/${safeTokenId}" class="btn btn-primary">Start Chatting</a>
         <div class="stats">
           <span>${data.conversationCount} conversation${data.conversationCount !== 1 ? "s" : ""}</span>
         </div>

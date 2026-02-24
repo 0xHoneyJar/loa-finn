@@ -79,13 +79,12 @@ function makeSummary(id: string, messageCount = 5): ConversationSummary {
     created_at: 1700000000000,
     updated_at: 1700000000000,
     message_count: messageCount,
-    has_summary: messageCount >= 5,
+    last_message_preview: messageCount > 0 ? "Hello there" : "",
   }
 }
 
 function makeMessage(role: "user" | "assistant", content: string): ConversationMessage {
   return {
-    id: `msg-${Math.random().toString(36).slice(2)}`,
     role,
     content,
     timestamp: Date.now(),

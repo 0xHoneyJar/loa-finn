@@ -27,6 +27,16 @@ function makeRedis() {
       store.set(key, value)
       return "OK"
     }),
+    // Simulate Lua EVAL for atomic index updates
+    eval: vi.fn(async (_script: string, _numkeys: number, key: string, value: string) => {
+      const current = store.get(key)
+      let ids: string[] = []
+      try { ids = current ? JSON.parse(current) : [] } catch { ids = [] }
+      if (ids.includes(value)) return 0
+      ids.push(value)
+      store.set(key, JSON.stringify(ids))
+      return 1
+    }),
     _store: store,
   }
 }
