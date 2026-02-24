@@ -115,7 +115,6 @@ export const ECONOMIC_BOUNDARY_MODE: EconomicBoundaryMode = (() => {
 
 // --- Blended Score Weighting (Task 5.4: dynamic reputation foundation) ---
 
-/** Default weights for blended score computation: tier-dominant, behavioral supplementary. */
 /**
  * Default timeout in milliseconds for ReputationProvider queries.
  * The 5ms ceiling is designed for in-memory or Redis-backed lookups.
@@ -124,6 +123,7 @@ export const ECONOMIC_BOUNDARY_MODE: EconomicBoundaryMode = (() => {
  */
 export const DEFAULT_REPUTATION_TIMEOUT_MS = 5
 
+/** Default weights for blended score computation: tier-dominant, behavioral supplementary. */
 export const DEFAULT_BLENDING_WEIGHTS = { alpha: 0.7, beta: 0.3 } as const
 
 /**
@@ -276,15 +276,21 @@ export async function buildTrustSnapshot(
   // Task 5.3: Dynamic reputation — try to upgrade enterprise → authoritative
   if (opts?.reputationProvider && claims.tier === "enterprise") {
     try {
-      const rejectAfter = (ms: number) =>
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("ReputationProvider timeout")), ms),
-        )
       const timeoutMs = opts?.reputationTimeoutMs ?? DEFAULT_REPUTATION_TIMEOUT_MS
-      const result = await Promise.race([
-        opts.reputationProvider.getReputationBoost(claims.tenant_id),
-        rejectAfter(timeoutMs),
-      ])
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+      const rejectAfter = (ms: number) =>
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error("ReputationProvider timeout")), ms)
+        })
+      let result: { boost: number; source: string } | null
+      try {
+        result = await Promise.race([
+          opts.reputationProvider.getReputationBoost(claims.tenant_id),
+          rejectAfter(timeoutMs),
+        ])
+      } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId)
+      }
       if (result && result.boost >= 15) {
         return {
           reputation_state: "authoritative",
@@ -338,7 +344,7 @@ export function buildCapitalSnapshot(
 
     // Task 6.2: Log epoch metadata when present (log-only — does NOT mutate protocol snapshot)
     if (budget.budget_epoch) {
-      console.info(
+      console.debug(
         `[economic-boundary] budget_epoch_type=${budget.budget_epoch.epoch_type} community_epoch_id=${budget.budget_epoch.epoch_id}`,
       )
     }
@@ -444,6 +450,13 @@ export type EconomicBoundaryHandler = ((c: Context, next: Next) => Promise<Respo
  * Performance budget: p95 < 2ms (pure computation, no I/O except budget snapshot).
  */
 export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptions): EconomicBoundaryHandler {
+  // R13 mitigation: warn if custom timeout exceeds recommended ceiling
+  if (opts.reputationTimeoutMs && opts.reputationTimeoutMs > 50) {
+    console.warn(
+      `[economic-boundary] reputationTimeoutMs=${opts.reputationTimeoutMs} exceeds recommended 50ms ceiling. High timeouts may block the request path.`,
+    )
+  }
+
   const mode = opts.mode ?? ECONOMIC_BOUNDARY_MODE
   const cb = new CircuitBreaker(opts.circuitBreakerOptions)
 

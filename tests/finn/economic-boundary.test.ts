@@ -1418,6 +1418,57 @@ describe("Sprint 6 — Configurable ReputationProvider timeout (Task 6.1)", () =
     // Provider was called — proves reputationProvider option is threaded through middleware
     expect(providerSpy).toHaveBeenCalledWith(claims.tenant_id)
   })
+
+  it("timer is cleaned up after provider resolves (no dangling setTimeout)", async () => {
+    vi.useFakeTimers()
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout")
+    const provider: ReputationProvider = {
+      getReputationBoost: () => Promise.resolve({ boost: 20, source: "fast" }),
+    }
+    const claims = makeClaims({ tier: "enterprise" as JWTClaims["tier"] })
+
+    const promise = buildTrustSnapshot(claims, undefined, {
+      reputationProvider: provider,
+      reputationTimeoutMs: 100,
+    })
+    vi.advanceTimersByTime(1)
+    await promise
+
+    // clearTimeout was called — proves the dangling timer is cleaned up
+    expect(clearSpy).toHaveBeenCalled()
+    clearSpy.mockRestore()
+    vi.useRealTimers()
+  })
+
+  it("R13: middleware warns when reputationTimeoutMs exceeds 50ms ceiling", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    createTestApp({
+      mode: "shadow" as EconomicBoundaryMode,
+      getBudgetSnapshot: async () => makeBudget(),
+      reputationTimeoutMs: 100, // Exceeds 50ms ceiling
+    })
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("reputationTimeoutMs=100 exceeds recommended 50ms ceiling"),
+    )
+    warnSpy.mockRestore()
+  })
+
+  it("R13: no warning when reputationTimeoutMs is within 50ms ceiling", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    createTestApp({
+      mode: "shadow" as EconomicBoundaryMode,
+      getBudgetSnapshot: async () => makeBudget(),
+      reputationTimeoutMs: 25, // Within ceiling
+    })
+
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("exceeds recommended 50ms ceiling"),
+    )
+    warnSpy.mockRestore()
+  })
 })
 
 describe("Sprint 6 — BudgetEpoch temporal diversity (Task 6.2)", () => {
@@ -1438,7 +1489,7 @@ describe("Sprint 6 — BudgetEpoch temporal diversity (Task 6.2)", () => {
   })
 
   it("buildCapitalSnapshot emits structured log when budget_epoch present", () => {
-    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {})
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {})
     const budget = makeBudget({
       budget_epoch: { epoch_type: "calendar", epoch_id: "Q1-2026" },
     })
@@ -1446,23 +1497,23 @@ describe("Sprint 6 — BudgetEpoch temporal diversity (Task 6.2)", () => {
     const snap = buildCapitalSnapshot(budget)
 
     expect(snap).not.toBeNull()
-    expect(infoSpy).toHaveBeenCalledWith(
+    expect(debugSpy).toHaveBeenCalledWith(
       "[economic-boundary] budget_epoch_type=calendar community_epoch_id=Q1-2026",
     )
-    infoSpy.mockRestore()
+    debugSpy.mockRestore()
   })
 
   it("buildCapitalSnapshot does NOT log epoch when budget_epoch absent", () => {
-    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {})
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {})
     const budget = makeBudget() // No budget_epoch
 
     const snap = buildCapitalSnapshot(budget)
 
     expect(snap).not.toBeNull()
-    expect(infoSpy).not.toHaveBeenCalledWith(
+    expect(debugSpy).not.toHaveBeenCalledWith(
       expect.stringContaining("budget_epoch_type"),
     )
-    infoSpy.mockRestore()
+    debugSpy.mockRestore()
   })
 
   it("budget_period_end from upstream takes precedence over 30-day default", () => {
