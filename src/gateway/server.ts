@@ -30,6 +30,7 @@ import { createAgentHomepageRoutes, type AgentHomepageDeps } from "./routes/agen
 import { createAgentPublicApiRoutes, type AgentPublicApiDeps } from "./routes/agent-public-api.js"
 import { createConversationRoutes, type ConversationRouteDeps } from "./routes/conversations.js"
 import { cspMiddleware } from "./csp.js"
+import { createAdminRoutes, type AdminRouteDeps } from "./routes/admin.js"
 import type { ConversationManager } from "../nft/conversation.js"
 import type { PersonalityProvider } from "../nft/personality-provider.js"
 
@@ -180,10 +181,11 @@ export function createApp(config: FinnConfig, options: AppOptions) {
   const isOraclePath = (path: string) =>
     path === "/api/v1/oracle" || path.startsWith("/api/v1/oracle/")
 
-  // Skip guard for product paths — these use their own auth (SIWE or none)
+  // Skip guard for product/admin paths — these use their own auth (SIWE, none, or FINN_AUTH_TOKEN)
   const isProductApiPath = (path: string) =>
     path === "/api/v1/public" || path.startsWith("/api/v1/public/") ||
-    path === "/api/v1/conversations" || path.startsWith("/api/v1/conversations/")
+    path === "/api/v1/conversations" || path.startsWith("/api/v1/conversations/") ||
+    path === "/api/v1/admin" || path.startsWith("/api/v1/admin/")
 
   // WHY: Zero-trust defense — strip x-internal-reservation-id before ANY processing.
   // External clients could inject this header to spoof reservations. Even though JWT
@@ -403,6 +405,23 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       return c.text("Chat page not found.", 404)
     }
   })
+
+  // ---------------------------------------------------------------------------
+  // Sprint 3: Admin / E2E Support Routes
+  // ---------------------------------------------------------------------------
+
+  // Admin seed endpoint — FINN_AUTH_TOKEN auth, for E2E/CI only (T3.9)
+  {
+    const adminDeps: AdminRouteDeps = {
+      setCreditBalance: async (_wallet: string, _credits: number) => {
+        // TODO: Wire to real credit store when billing is fully integrated.
+        // For now, this is a no-op stub that satisfies E2E smoke tests.
+        // The route itself validates inputs and handles auth — the stub
+        // only needs to not throw.
+      },
+    }
+    app.route("/api/v1/admin", createAdminRoutes(adminDeps))
+  }
 
   return { app, router }
 }

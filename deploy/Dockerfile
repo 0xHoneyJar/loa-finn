@@ -85,7 +85,7 @@ EXPOSE 3000
 USER finn
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=10s --timeout=2s --start-period=10s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:3000/health',r=>{r.statusCode===200?process.exit(0):process.exit(1)}).on('error',()=>process.exit(1))"
 
 CMD ["node", "dist/index.js"]

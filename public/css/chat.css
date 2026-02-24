@@ -127,6 +127,37 @@
   color: #888;
 }
 
+/* Degradation Banner (T3.10) */
+.degradation-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 1rem;
+  background: #47371a;
+  border-bottom: 1px solid #5a4820;
+  font-size: 0.8rem;
+  color: #fbbf24;
+  gap: 0.5rem;
+  animation: bannerSlideIn 0.2s ease;
+}
+
+.degradation-banner.degraded-error {
+  background: #471a1a;
+  border-bottom-color: #5a2020;
+  color: #f87171;
+}
+
+.degradation-message {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes bannerSlideIn {
+  from { max-height: 0; padding: 0 1rem; opacity: 0; }
+  to { max-height: 3rem; padding: 0.4rem 1rem; opacity: 1; }
+}
+
 /* Messages */
 .messages-container {
   flex: 1;

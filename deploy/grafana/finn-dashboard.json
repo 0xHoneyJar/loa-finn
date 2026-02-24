@@ -190,6 +190,132 @@
           "legendFormat": "{{tier}}"
         }
       ]
+    },
+    {
+      "title": "WAL Write Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(finn_wal_write_duration_ms_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(finn_wal_write_duration_ms_bucket[5m]))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(finn_wal_write_duration_ms_bucket[5m]))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      }
+    },
+    {
+      "title": "Memory Injection Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(finn_memory_injection_duration_ms_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(finn_memory_injection_duration_ms_bucket[5m]))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(finn_memory_injection_duration_ms_bucket[5m]))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      }
+    },
+    {
+      "title": "Summary Generation Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 44 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(finn_summary_generation_duration_ms_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(finn_summary_generation_duration_ms_bucket[5m]))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(finn_summary_generation_duration_ms_bucket[5m]))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      }
+    },
+    {
+      "title": "Conversations Created",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 44 },
+      "targets": [
+        {
+          "expr": "increase(finn_conversations_created_total[1h])",
+          "legendFormat": "conversations/hr"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "title": "Active WebSocket Sessions",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 44 },
+      "targets": [
+        {
+          "expr": "finn_ws_active_connections",
+          "legendFormat": "active sessions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "title": "WAL Errors",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 52 },
+      "targets": [
+        {
+          "expr": "increase(finn_wal_errors_total[5m])",
+          "legendFormat": "errors (5m)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "unit": "short"
+        }
+      }
     }
   ],
   "refresh": "30s",

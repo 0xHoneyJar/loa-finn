@@ -34,6 +34,11 @@
         <div id="credit-display" class="credit-display" title="Credit balance"></div>
       </header>
 
+      <!-- Graceful degradation banner (T3.10) -->
+      <div id="degradation-banner" class="degradation-banner hidden" role="status" aria-live="polite">
+        <span id="degradation-message" class="degradation-message">Reconnecting...</span>
+      </div>
+
       <div id="messages" class="messages-container">
         <div id="messages-list" class="messages-list"></div>
         <div id="typing-indicator" class="typing-indicator hidden">

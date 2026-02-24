@@ -219,6 +219,26 @@ metrics.registerCounter("finn_routing_fallback_total", "Pool fallback events by 
 metrics.registerCounter("finn_routing_quality_cache_hit_total", "Quality cache hits")
 metrics.registerCounter("finn_routing_quality_cache_miss_total", "Quality cache misses")
 
+// --- WAL metrics (Sprint 3, T3.6) ---
+metrics.registerHistogram("finn_wal_write_duration_ms", "WAL write latency in milliseconds",
+  [1, 2, 5, 10, 25, 50, 100, 250, 500])
+metrics.registerCounter("finn_wal_writes_total", "WAL write operations by type")
+metrics.registerCounter("finn_wal_errors_total", "WAL write errors")
+
+// --- Memory injection metrics (Sprint 3, T3.6) ---
+metrics.registerHistogram("finn_memory_injection_duration_ms", "Memory injection latency in milliseconds",
+  [5, 10, 25, 50, 100, 250, 500])
+metrics.registerCounter("finn_memory_injections_total", "Memory injection attempts by result")
+
+// --- Summary generation metrics (Sprint 3, T3.6) ---
+metrics.registerHistogram("finn_summary_generation_duration_ms", "Summary generation latency in milliseconds",
+  [100, 250, 500, 1000, 2500, 5000, 10000])
+metrics.registerCounter("finn_summaries_generated_total", "Summary generation attempts by result")
+
+// --- Conversation metrics (Sprint 3, T3.6) ---
+metrics.registerCounter("finn_conversations_created_total", "Conversations created")
+metrics.registerGauge("finn_ws_active_connections", "Active WebSocket connections (product chat)")
+
 // ---------------------------------------------------------------------------
 // Metrics Endpoint Route (T6.1)
 // ---------------------------------------------------------------------------

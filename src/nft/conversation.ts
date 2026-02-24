@@ -6,6 +6,8 @@
 
 import { timingSafeEqual } from "node:crypto"
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
+import type { ConversationWal } from "./conversation-wal.js"
+import { WAL_RECORD_TYPE } from "./conversation-wal.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -100,6 +102,8 @@ export interface ConversationDeps {
   onSummaryNeeded?: (conversationId: string, messages: ConversationMessage[], personalityName: string) => void
   /** Resolve personality name for an NFT (used by summary trigger) */
   getPersonalityName?: (nftId: string) => Promise<string | null>
+  /** Optional WAL instance for read-path degradation fallback (T3.10) */
+  wal?: ConversationWal
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +118,7 @@ export class ConversationManager {
   private readonly generateId: () => string
   private readonly onSummaryNeeded: ConversationDeps["onSummaryNeeded"]
   private readonly getPersonalityName: ConversationDeps["getPersonalityName"]
+  private readonly wal: ConversationDeps["wal"]
 
   constructor(deps: ConversationDeps) {
     this.redis = deps.redis
@@ -123,6 +128,7 @@ export class ConversationManager {
     this.generateId = deps.generateId
     this.onSummaryNeeded = deps.onSummaryNeeded
     this.getPersonalityName = deps.getPersonalityName
+    this.wal = deps.wal
   }
 
   /**
@@ -230,8 +236,15 @@ export class ConversationManager {
     if (!needsSummary) return
 
     // Per-conversation Redis lock: SETNX with TTL (T1.6)
-    const lockKey = `summary_lock:${conversation.id}`
-    const lockResult = await this.redis.set(lockKey, "1", "EX", SUMMARY_LOCK_TTL_SECONDS, "NX")
+    // Graceful degradation (T3.10): if Redis is down, skip summary trigger silently
+    let lockResult: string | null
+    try {
+      const lockKey = `summary_lock:${conversation.id}`
+      lockResult = await this.redis.set(lockKey, "1", "EX", SUMMARY_LOCK_TTL_SECONDS, "NX")
+    } catch (err) {
+      console.warn(`[conversation] Redis lock failed for summary trigger on ${conversation.id}, skipping: ${(err as Error).message}`)
+      return
+    }
     if (!lockResult) return // Another instance is summarizing
 
     // Resolve personality name for the summary prompt
@@ -295,10 +308,8 @@ export class ConversationManager {
   ): Promise<ConversationSummaryRecord[]> {
     const normalizedWallet = walletAddress.toLowerCase()
 
-    // Get conversation index for this NFT
-    const indexKey = `conv_index:${nftId}`
-    const indexData = await this.redis.get(indexKey)
-    const allIds: string[] = indexData ? JSON.parse(indexData) : []
+    // Get conversation index for this NFT (with WAL fallback — T3.10)
+    const allIds = await this.readConversationIndex(nftId)
 
     const results: ConversationSummaryRecord[] = []
 
@@ -338,10 +349,8 @@ export class ConversationManager {
     const effectiveLimit = Math.min(limit, MAX_PAGE_SIZE)
     const normalizedWallet = walletAddress.toLowerCase()
 
-    // Get conversation index for this NFT
-    const indexKey = `conv_index:${nftId}`
-    const indexData = await this.redis.get(indexKey)
-    const allIds: string[] = indexData ? JSON.parse(indexData) : []
+    // Get conversation index for this NFT (with WAL fallback — T3.10)
+    const allIds = await this.readConversationIndex(nftId)
 
     // Cursor-based pagination
     let startIdx = 0
@@ -421,32 +430,138 @@ export class ConversationManager {
   }
 
   private async load(conversationId: string): Promise<Conversation | null> {
-    const key = `conversation:${conversationId}`
-    const data = await this.redis.get(key)
-    if (data) {
-      try {
-        return JSON.parse(data) as Conversation
-      } catch {
-        return null
+    // Try Redis first (hot cache)
+    try {
+      const key = `conversation:${conversationId}`
+      const data = await this.redis.get(key)
+      if (data) {
+        try {
+          return JSON.parse(data) as Conversation
+        } catch {
+          // Corrupt JSON in Redis — fall through to R2/WAL
+        }
       }
+    } catch (err) {
+      // Redis error — graceful degradation (T3.10): fall through to R2, then WAL
+      console.warn(`[conversation] Redis read failed for ${conversationId}, falling back to R2/WAL: ${(err as Error).message}`)
     }
 
-    // Redis miss — try R2 snapshot recovery
+    // Redis miss or error — try R2 snapshot recovery
     if (this.r2Get) {
       try {
         const snapshotData = await this.r2Get(`conversations/${conversationId}/latest.json`)
         if (snapshotData) {
           const conv = JSON.parse(snapshotData) as Conversation
-          // Re-cache in Redis
-          await this.saveToRedis(conv)
+          // Best-effort re-cache in Redis
+          try { await this.saveToRedis(conv) } catch { /* Redis may still be down */ }
           return conv
         }
       } catch {
-        // Fall through
+        // Fall through to WAL
       }
     }
 
+    // R2 miss or error — try WAL replay as last resort (T3.10)
+    const walResult = this.replayFromWal(conversationId)
+    if (walResult) {
+      console.warn(`[conversation] Served ${conversationId} from WAL replay (graceful degradation)`)
+      // Best-effort re-cache in Redis
+      try { await this.saveToRedis(walResult) } catch { /* Redis may still be down */ }
+      return walResult
+    }
+
     return null
+  }
+
+  /**
+   * Rebuild a conversation from WAL replay (T3.10).
+   * Used as a last-resort fallback when Redis and R2 are both unavailable.
+   * Mirrors ConversationRecovery.rebuildFromWal but inline for zero-dep degradation.
+   */
+  private replayFromWal(conversationId: string): Conversation | null {
+    if (!this.wal) return null
+
+    try {
+      const seenIds = new Set<string>()
+      let conversation: Conversation | null = null
+
+      for (const record of this.wal.replaySync(conversationId, seenIds)) {
+        switch (record.type) {
+          case WAL_RECORD_TYPE.CREATE:
+            conversation = {
+              id: record.conversation_id,
+              nft_id: String(record.payload.nft_id ?? ""),
+              owner_address: String(record.payload.owner_address ?? ""),
+              messages: [],
+              created_at: record.timestamp,
+              updated_at: record.timestamp,
+              message_count: 0,
+              snapshot_offset: 0,
+              summary: null,
+              summary_message_count: 0,
+            }
+            break
+
+          case WAL_RECORD_TYPE.MESSAGE_APPEND:
+            if (conversation) {
+              conversation.messages.push({
+                role: (record.payload.role as "user" | "assistant") ?? "user",
+                content: String(record.payload.content ?? ""),
+                timestamp: Number(record.payload.timestamp ?? record.timestamp),
+                ...(record.payload.cost_cu ? { cost_cu: String(record.payload.cost_cu) } : {}),
+              })
+              conversation.message_count++
+              conversation.updated_at = record.timestamp
+            }
+            break
+
+          case WAL_RECORD_TYPE.SUMMARY_UPDATE:
+            if (conversation) {
+              const smc = Number(record.payload.summary_message_count ?? 0)
+              if (smc > conversation.summary_message_count) {
+                conversation.summary = String(record.payload.summary ?? "")
+                conversation.summary_message_count = smc
+                conversation.updated_at = record.timestamp
+              }
+            }
+            break
+        }
+      }
+
+      return conversation
+    } catch (err) {
+      console.warn(`[conversation] WAL replay failed for ${conversationId}: ${(err as Error).message}`)
+      return null
+    }
+  }
+
+  /**
+   * Read conversation index from Redis with WAL fallback (T3.10).
+   * When Redis is down, scans WAL conversation IDs filtered by nftId.
+   */
+  private async readConversationIndex(nftId: string): Promise<string[]> {
+    try {
+      const indexKey = `conv_index:${nftId}`
+      const indexData = await this.redis.get(indexKey)
+      return indexData ? JSON.parse(indexData) : []
+    } catch (err) {
+      console.warn(`[conversation] Redis index read failed for ${nftId}, falling back to WAL scan: ${(err as Error).message}`)
+      // Fallback: scan WAL conversation IDs and filter by loading each (T3.10)
+      if (!this.wal) return []
+      try {
+        const allWalIds = this.wal.getConversationIds()
+        const matchingIds: string[] = []
+        for (const cid of allWalIds) {
+          const conv = this.replayFromWal(cid)
+          if (conv && conv.nft_id === nftId) {
+            matchingIds.push(cid)
+          }
+        }
+        return matchingIds
+      } catch {
+        return []
+      }
+    }
   }
 
   private async saveToRedis(conversation: Conversation): Promise<void> {

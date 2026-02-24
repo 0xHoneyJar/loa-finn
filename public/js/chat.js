@@ -21,6 +21,12 @@
     jwt: null,
     wsClient: null,
     personality: null,
+    /** Degradation state (T3.10): "ok" | "reconnecting" | "unavailable" */
+    degradation: "ok",
+    /** Count of consecutive HTTP fallback failures (T3.10) */
+    httpFailCount: 0,
+    /** Auto-retry timer for HTTP fallback (T3.10) */
+    retryTimer: null,
   }
 
   // ---------------------------------------------------------------------------
@@ -42,6 +48,8 @@
   const connectionStatus = $("#connection-status")
   const agentName = $("#agent-name")
   const creditDisplay = $("#credit-display")
+  const degradationBanner = $("#degradation-banner")
+  const degradationMessage = $("#degradation-message")
 
   // ---------------------------------------------------------------------------
   // Init
@@ -286,7 +294,14 @@
         await sendViaHttp(text)
       }
     } catch {
-      showError("Failed to send message")
+      // Graceful degradation (T3.10): track failure, show banner, schedule retry
+      state.httpFailCount++
+      if (state.httpFailCount >= 2) {
+        setDegradation("unavailable")
+        scheduleAutoRetry(text)
+      } else {
+        setDegradation("reconnecting")
+      }
     } finally {
       clearTimeout(thinkingTimer)
       state.isStreaming = false
@@ -336,8 +351,17 @@
       state.messages.push(agentMsg)
       appendMessageBubble(agentMsg)
       scrollToBottom()
+      // Success — clear degradation state (T3.10)
+      state.httpFailCount = 0
+      setDegradation("ok")
     } else {
-      showError("Agent unavailable")
+      // HTTP returned an error status — escalate to degradation (T3.10)
+      state.httpFailCount++
+      if (state.httpFailCount >= 2) {
+        setDegradation("unavailable")
+      } else {
+        setDegradation("reconnecting")
+      }
     }
   }
 
@@ -379,6 +403,9 @@
         // Auth on first message
         ws.send(JSON.stringify({ type: "auth", token: `Bearer ${state.jwt}` }))
         updateConnectionStatus("connected")
+        // Clear degradation on successful WS connect (T3.10)
+        state.httpFailCount = 0
+        setDegradation("ok")
       })
 
       ws.addEventListener("message", (event) => {
@@ -390,15 +417,19 @@
 
       ws.addEventListener("close", () => {
         updateConnectionStatus("disconnected")
+        // Show reconnecting banner instead of error (T3.10)
+        setDegradation("reconnecting")
         // Auto-reconnect after 3s
         setTimeout(setupWebSocket, 3000)
       })
 
       ws.addEventListener("error", () => {
         updateConnectionStatus("disconnected")
+        setDegradation("reconnecting")
       })
     } catch {
-      // WS not available, HTTP fallback works
+      // WS not available — show reconnecting, HTTP fallback still works (T3.10)
+      setDegradation("reconnecting")
     }
   }
 
@@ -510,6 +541,66 @@
     el.textContent = msg
     messagesList.appendChild(el)
     scrollToBottom()
+  }
+
+  // ---------------------------------------------------------------------------
+  // Degradation Management (T3.10)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Update the degradation banner state.
+   * "ok" = hidden, "reconnecting" = yellow warning, "unavailable" = red error.
+   * Never shows an error page — always preserves last known state.
+   */
+  function setDegradation(level) {
+    state.degradation = level
+
+    if (level === "ok") {
+      degradationBanner.classList.add("hidden")
+      degradationBanner.classList.remove("degraded-error")
+      if (state.retryTimer) {
+        clearTimeout(state.retryTimer)
+        state.retryTimer = null
+      }
+      return
+    }
+
+    degradationBanner.classList.remove("hidden")
+
+    if (level === "reconnecting") {
+      degradationBanner.classList.remove("degraded-error")
+      degradationMessage.textContent = "Reconnecting..."
+    } else if (level === "unavailable") {
+      degradationBanner.classList.add("degraded-error")
+      degradationMessage.textContent = "Service temporarily unavailable. Retrying..."
+    }
+  }
+
+  /**
+   * Schedule an auto-retry for a failed message send.
+   * Uses exponential backoff capped at 30s.
+   */
+  function scheduleAutoRetry(text) {
+    if (state.retryTimer) clearTimeout(state.retryTimer)
+
+    // Exponential backoff: 3s, 6s, 12s, 24s, capped at 30s
+    const backoffMs = Math.min(3000 * Math.pow(2, state.httpFailCount - 1), 30000)
+
+    state.retryTimer = setTimeout(async function () {
+      state.retryTimer = null
+      try {
+        // Attempt WS reconnection first
+        if (!state.wsClient || state.wsClient.readyState !== 1) {
+          setupWebSocket()
+        }
+        // Try sending via HTTP fallback
+        await sendViaHttp(text)
+      } catch {
+        // Still failing — schedule another retry
+        state.httpFailCount++
+        scheduleAutoRetry(text)
+      }
+    }, backoffMs)
   }
 
   function showAuthPrompt() {
