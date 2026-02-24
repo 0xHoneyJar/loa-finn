@@ -2,6 +2,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { Hono } from "hono"
+import * as jose from "jose"
 import { createConversationRoutes } from "../../src/gateway/routes/conversations.js"
 import { ConversationError } from "../../src/nft/conversation.js"
 import type { ConversationManager, Conversation, ConversationSummary, ConversationMessage, PaginatedResult } from "../../src/nft/conversation.js"
@@ -36,6 +37,24 @@ const WALLET = "0x742d35cc6634c0532925a3b844bc9e7595f2bd18"
 const OTHER_WALLET = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 const NFT_ID = "nft-42"
 const CONV_ID = "conv-abc-123"
+const TEST_JWT_SECRET = "test-secret-must-be-at-least-32-chars-long"
+
+/** Create a valid SIWE JWT for test requests */
+async function makeJwt(wallet: string = WALLET): Promise<string> {
+  const secretKey = new TextEncoder().encode(TEST_JWT_SECRET)
+  return new jose.SignJWT({ sub: wallet })
+    .setProtectedHeader({ alg: "HS256" })
+    .setAudience("loa-finn")
+    .setIssuedAt()
+    .setExpirationTime("15m")
+    .sign(secretKey)
+}
+
+/** Auth header helper */
+async function authHeaders(wallet: string = WALLET): Promise<Record<string, string>> {
+  const token = await makeJwt(wallet)
+  return { Authorization: `Bearer ${token}` }
+}
 
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
@@ -60,38 +79,26 @@ function makeSummary(id: string, messageCount = 5): ConversationSummary {
     created_at: 1700000000000,
     updated_at: 1700000000000,
     message_count: messageCount,
-    last_message_preview: "Last message preview...",
+    has_summary: messageCount >= 5,
   }
 }
 
 function makeMessage(role: "user" | "assistant", content: string): ConversationMessage {
-  return { role, content, timestamp: Date.now() }
+  return {
+    id: `msg-${Math.random().toString(36).slice(2)}`,
+    role,
+    content,
+    timestamp: Date.now(),
+  }
 }
 
 /**
- * Build a Hono app with the conversation routes mounted,
- * injecting wallet_address via middleware to simulate upstream auth.
+ * Build a Hono app with the conversation routes mounted.
+ * Routes use internal SIWE JWT auth via jwtSecret.
  */
-function buildApp(manager: ConversationManager, wallet: string = WALLET): Hono {
+function buildApp(manager: ConversationManager): Hono {
   const app = new Hono()
-
-  // Simulate upstream auth middleware setting wallet_address
-  app.use("/api/v1/conversations/*", async (c, next) => {
-    c.set("wallet_address", wallet)
-    await next()
-  })
-
-  const routes = createConversationRoutes({ conversationManager: manager })
-  app.route("/api/v1/conversations", routes)
-  return app
-}
-
-/**
- * Build app WITHOUT wallet_address set (no auth middleware).
- */
-function buildUnauthApp(manager: ConversationManager): Hono {
-  const app = new Hono()
-  const routes = createConversationRoutes({ conversationManager: manager })
+  const routes = createConversationRoutes({ conversationManager: manager, jwtSecret: TEST_JWT_SECRET })
   app.route("/api/v1/conversations", routes)
   return app
 }
@@ -120,7 +127,7 @@ describe("Conversation CRUD Routes", () => {
 
       const res = await app.request("/api/v1/conversations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ nft_id: NFT_ID }),
       })
 
@@ -137,7 +144,7 @@ describe("Conversation CRUD Routes", () => {
     it("returns 400 when nft_id is missing", async () => {
       const res = await app.request("/api/v1/conversations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({}),
       })
 
@@ -150,7 +157,7 @@ describe("Conversation CRUD Routes", () => {
     it("returns 400 when nft_id is not a string", async () => {
       const res = await app.request("/api/v1/conversations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ nft_id: 42 }),
       })
 
@@ -162,24 +169,21 @@ describe("Conversation CRUD Routes", () => {
     it("returns 400 for invalid request body", async () => {
       const res = await app.request("/api/v1/conversations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: "not json",
       })
 
       expect(res.status).toBe(400)
     })
 
-    it("returns 401 when wallet_address is not set", async () => {
-      const unauthApp = buildUnauthApp(mocks.manager)
-      const res = await unauthApp.request("/api/v1/conversations", {
+    it("returns 401 when no auth token is provided", async () => {
+      const res = await app.request("/api/v1/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nft_id: NFT_ID }),
       })
 
       expect(res.status).toBe(401)
-      const body = await res.json()
-      expect(body.code).toBe("AUTH_REQUIRED")
     })
   })
 
@@ -199,7 +203,9 @@ describe("Conversation CRUD Routes", () => {
       }
       mocks.mockList.mockResolvedValue(paginatedResult)
 
-      const res = await app.request("/api/v1/conversations?nft_id=nft-42")
+      const res = await app.request("/api/v1/conversations?nft_id=nft-42", {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(200)
       const body = await res.json()
 
@@ -215,7 +221,9 @@ describe("Conversation CRUD Routes", () => {
     it("passes cursor and limit to manager", async () => {
       mocks.mockList.mockResolvedValue({ items: [], cursor: null, has_more: false })
 
-      const res = await app.request("/api/v1/conversations?nft_id=nft-42&cursor=conv-5&limit=10")
+      const res = await app.request("/api/v1/conversations?nft_id=nft-42&cursor=conv-5&limit=10", {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(200)
 
       expect(mocks.mockList).toHaveBeenCalledWith(NFT_ID, WALLET, "conv-5", 10)
@@ -224,7 +232,9 @@ describe("Conversation CRUD Routes", () => {
     it("returns empty list when no conversations exist", async () => {
       mocks.mockList.mockResolvedValue({ items: [], cursor: null, has_more: false })
 
-      const res = await app.request("/api/v1/conversations?nft_id=nft-42")
+      const res = await app.request("/api/v1/conversations?nft_id=nft-42", {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(200)
       const body = await res.json()
 
@@ -234,7 +244,9 @@ describe("Conversation CRUD Routes", () => {
     })
 
     it("returns 400 when nft_id is missing", async () => {
-      const res = await app.request("/api/v1/conversations")
+      const res = await app.request("/api/v1/conversations", {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(400)
       const body = await res.json()
       expect(body.error).toContain("nft_id")
@@ -242,20 +254,23 @@ describe("Conversation CRUD Routes", () => {
     })
 
     it("returns 400 when limit is not a valid positive integer", async () => {
-      const res = await app.request("/api/v1/conversations?nft_id=nft-42&limit=abc")
+      const res = await app.request("/api/v1/conversations?nft_id=nft-42&limit=abc", {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(400)
       const body = await res.json()
       expect(body.error).toContain("limit")
     })
 
     it("returns 400 when limit is zero", async () => {
-      const res = await app.request("/api/v1/conversations?nft_id=nft-42&limit=0")
+      const res = await app.request("/api/v1/conversations?nft_id=nft-42&limit=0", {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(400)
     })
 
-    it("returns 401 when wallet_address is not set", async () => {
-      const unauthApp = buildUnauthApp(mocks.manager)
-      const res = await unauthApp.request("/api/v1/conversations?nft_id=nft-42")
+    it("returns 401 when no auth token is provided", async () => {
+      const res = await app.request("/api/v1/conversations?nft_id=nft-42")
       expect(res.status).toBe(401)
     })
   })
@@ -278,7 +293,9 @@ describe("Conversation CRUD Routes", () => {
       }
       mocks.mockGetMessages.mockResolvedValue(paginatedResult)
 
-      const res = await app.request(`/api/v1/conversations/${CONV_ID}/messages`)
+      const res = await app.request(`/api/v1/conversations/${CONV_ID}/messages`, {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(200)
       const body = await res.json()
 
@@ -295,7 +312,9 @@ describe("Conversation CRUD Routes", () => {
     it("passes cursor and limit to manager", async () => {
       mocks.mockGetMessages.mockResolvedValue({ items: [], cursor: null, has_more: false })
 
-      const res = await app.request(`/api/v1/conversations/${CONV_ID}/messages?cursor=10&limit=5`)
+      const res = await app.request(`/api/v1/conversations/${CONV_ID}/messages?cursor=10&limit=5`, {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(200)
 
       expect(mocks.mockGetMessages).toHaveBeenCalledWith(CONV_ID, WALLET, "10", 5)
@@ -304,7 +323,9 @@ describe("Conversation CRUD Routes", () => {
     it("returns empty list when conversation has no messages", async () => {
       mocks.mockGetMessages.mockResolvedValue({ items: [], cursor: null, has_more: false })
 
-      const res = await app.request(`/api/v1/conversations/${CONV_ID}/messages`)
+      const res = await app.request(`/api/v1/conversations/${CONV_ID}/messages`, {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(200)
       const body = await res.json()
 
@@ -313,15 +334,16 @@ describe("Conversation CRUD Routes", () => {
     })
 
     it("returns 400 when limit is invalid", async () => {
-      const res = await app.request(`/api/v1/conversations/${CONV_ID}/messages?limit=-1`)
+      const res = await app.request(`/api/v1/conversations/${CONV_ID}/messages?limit=-1`, {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(400)
       const body = await res.json()
       expect(body.error).toContain("limit")
     })
 
-    it("returns 401 when wallet_address is not set", async () => {
-      const unauthApp = buildUnauthApp(mocks.manager)
-      const res = await unauthApp.request(`/api/v1/conversations/${CONV_ID}/messages`)
+    it("returns 401 when no auth token is provided", async () => {
+      const res = await app.request(`/api/v1/conversations/${CONV_ID}/messages`)
       expect(res.status).toBe(401)
     })
   })
@@ -336,9 +358,10 @@ describe("Conversation CRUD Routes", () => {
         new ConversationError("ACCESS_DENIED", "Access denied", 403),
       )
 
-      // Build app with a different wallet to trigger access denied
-      const wrongWalletApp = buildApp(mocks.manager, OTHER_WALLET)
-      const res = await wrongWalletApp.request(`/api/v1/conversations/${CONV_ID}/messages`)
+      // Use a different wallet's JWT to trigger access denied in the manager
+      const res = await app.request(`/api/v1/conversations/${CONV_ID}/messages`, {
+        headers: await authHeaders(OTHER_WALLET),
+      })
 
       expect(res.status).toBe(403)
       const body = await res.json()
@@ -350,7 +373,9 @@ describe("Conversation CRUD Routes", () => {
         new ConversationError("NOT_FOUND", "Conversation not found", 404),
       )
 
-      const res = await app.request("/api/v1/conversations/nonexistent/messages")
+      const res = await app.request("/api/v1/conversations/nonexistent/messages", {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(404)
       const body = await res.json()
       expect(body.code).toBe("NOT_FOUND")
@@ -363,7 +388,7 @@ describe("Conversation CRUD Routes", () => {
 
       const res = await app.request("/api/v1/conversations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ nft_id: NFT_ID }),
       })
 
@@ -377,7 +402,9 @@ describe("Conversation CRUD Routes", () => {
         new ConversationError("INVALID_REQUEST", "Invalid parameters", 400),
       )
 
-      const res = await app.request("/api/v1/conversations?nft_id=nft-42")
+      const res = await app.request("/api/v1/conversations?nft_id=nft-42", {
+        headers: await authHeaders(),
+      })
       expect(res.status).toBe(400)
       const body = await res.json()
       expect(body.code).toBe("INVALID_REQUEST")
@@ -388,7 +415,7 @@ describe("Conversation CRUD Routes", () => {
 
       const res = await app.request("/api/v1/conversations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ nft_id: NFT_ID }),
       })
 
@@ -408,8 +435,9 @@ describe("Conversation CRUD Routes", () => {
         new ConversationError("ACCESS_DENIED", "Access denied", 403),
       )
 
-      const wrongWalletApp = buildApp(mocks.manager, OTHER_WALLET)
-      const res = await wrongWalletApp.request("/api/v1/conversations?nft_id=nft-42")
+      const res = await app.request("/api/v1/conversations?nft_id=nft-42", {
+        headers: await authHeaders(OTHER_WALLET),
+      })
 
       expect(res.status).toBe(403)
       const body = await res.json()
@@ -421,8 +449,9 @@ describe("Conversation CRUD Routes", () => {
         new ConversationError("ACCESS_DENIED", "Access denied", 403),
       )
 
-      const wrongWalletApp = buildApp(mocks.manager, OTHER_WALLET)
-      const res = await wrongWalletApp.request(`/api/v1/conversations/${CONV_ID}/messages`)
+      const res = await app.request(`/api/v1/conversations/${CONV_ID}/messages`, {
+        headers: await authHeaders(OTHER_WALLET),
+      })
 
       expect(res.status).toBe(403)
       const body = await res.json()

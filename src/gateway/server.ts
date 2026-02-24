@@ -368,10 +368,11 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     app.route("/api/v1", createAgentPublicApiRoutes(publicApiDeps))
   }
 
-  // Conversation CRUD — auth required, mounted under /api/v1/conversations (T2.8)
-  if (options.conversationManager) {
+  // Conversation CRUD — SIWE auth, mounted under /api/v1/conversations (T2.8)
+  if (options.conversationManager && config.siwe.jwtSecret) {
     const convDeps: ConversationRouteDeps = {
       conversationManager: options.conversationManager,
+      jwtSecret: config.siwe.jwtSecret,
     }
     app.route("/api/v1/conversations", createConversationRoutes(convDeps))
   }

@@ -97,7 +97,7 @@ function buildHomepage(p: PersonalityConfig, data: HomepageData): string {
 
   const ownerSection = data.isOwner
     ? `<div class="owner-actions">
-        <a href="/chat/${tokenId}" class="btn btn-primary">Start Chatting</a>
+        <a href="/chat/${esc(collection)}/${esc(tokenId)}" class="btn btn-primary">Start Chatting</a>
         <div class="stats">
           <span>${data.conversationCount} conversation${data.conversationCount !== 1 ? "s" : ""}</span>
         </div>
@@ -125,7 +125,7 @@ function buildHomepage(p: PersonalityConfig, data: HomepageData): string {
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/personality.css">
   <link rel="stylesheet" href="/css/agent.css">
-  <script type="application/json" id="agent-data">${jsonData}</script>
+  <script type="application/json" id="agent-data">${jsonData.replace(/</g, "\\u003c")}</script>
 </head>
 <body>
   <div class="container agent-page">

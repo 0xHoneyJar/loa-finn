@@ -84,6 +84,9 @@ const HEADER_SIZE = 5
 const FOOTER_SIZE = 4
 const SEGMENT_MAX_BYTES_DEFAULT = 10 * 1024 * 1024
 
+/** Strict ID pattern — prevents path traversal in filesystem operations */
+const SAFE_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/
+
 // ---------------------------------------------------------------------------
 // Conversation WAL
 // ---------------------------------------------------------------------------
@@ -205,7 +208,11 @@ export class ConversationWal {
   // Private
   // ---------------------------------------------------------------------------
 
+  /** Validate and return conversation directory path. Rejects path traversal. */
   private conversationDir(conversationId: string): string {
+    if (!SAFE_ID_PATTERN.test(conversationId)) {
+      throw new Error(`Invalid conversation ID: contains unsafe characters`)
+    }
     return join(this.walDir, conversationId)
   }
 

@@ -5,6 +5,7 @@
 // Requires Bearer token auth in production (SDD §4.7).
 
 import { Hono } from "hono"
+import { timingSafeEqual } from "node:crypto"
 
 // ---------------------------------------------------------------------------
 // Histogram Buckets
@@ -260,7 +261,10 @@ export function metricsRoutes(bearerToken?: string): Hono {
       const token = authHeader.startsWith("Bearer ")
         ? authHeader.slice(7)
         : authHeader
-      if (token !== bearerToken) {
+      // Timing-safe comparison to prevent side-channel attacks
+      const expected = Buffer.from(bearerToken)
+      const provided = Buffer.from(token)
+      if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
         return c.json({ error: "Invalid token" }, 403)
       }
     }

@@ -11,6 +11,7 @@ import { Hono } from "hono"
 import type { Context } from "hono"
 import { ConversationError } from "../../nft/conversation.js"
 import type { ConversationManager } from "../../nft/conversation.js"
+import { requireSiweSession } from "../siwe-auth.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,6 +19,8 @@ import type { ConversationManager } from "../../nft/conversation.js"
 
 export interface ConversationRouteDeps {
   conversationManager: ConversationManager
+  /** JWT secret for SIWE session validation */
+  jwtSecret: string
 }
 
 // ---------------------------------------------------------------------------
@@ -27,17 +30,20 @@ export interface ConversationRouteDeps {
 /**
  * Create conversation CRUD routes.
  *
- * Expects upstream auth middleware to set `wallet_address` on the Hono context.
+ * Wires SIWE session middleware internally — sets `siwe_wallet` on Hono context.
  */
 export function createConversationRoutes(deps: ConversationRouteDeps): Hono {
   const app = new Hono()
+
+  // SIWE session middleware — validates JWT and sets siwe_wallet on context
+  app.use("/*", requireSiweSession(deps.jwtSecret))
 
   // -------------------------------------------------------------------------
   // POST / — Create conversation
   // -------------------------------------------------------------------------
 
   app.post("/", async (c) => {
-    const walletAddress = c.get("wallet_address") as string | undefined
+    const walletAddress = c.get("siwe_wallet") as string | undefined
     if (!walletAddress) {
       return c.json({ error: "Authentication required", code: "AUTH_REQUIRED" }, 401)
     }
@@ -66,7 +72,7 @@ export function createConversationRoutes(deps: ConversationRouteDeps): Hono {
   // -------------------------------------------------------------------------
 
   app.get("/", async (c) => {
-    const walletAddress = c.get("wallet_address") as string | undefined
+    const walletAddress = c.get("siwe_wallet") as string | undefined
     if (!walletAddress) {
       return c.json({ error: "Authentication required", code: "AUTH_REQUIRED" }, 401)
     }
@@ -97,7 +103,7 @@ export function createConversationRoutes(deps: ConversationRouteDeps): Hono {
   // -------------------------------------------------------------------------
 
   app.get("/:id/messages", async (c) => {
-    const walletAddress = c.get("wallet_address") as string | undefined
+    const walletAddress = c.get("siwe_wallet") as string | undefined
     if (!walletAddress) {
       return c.json({ error: "Authentication required", code: "AUTH_REQUIRED" }, 401)
     }

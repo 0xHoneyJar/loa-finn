@@ -5,6 +5,7 @@
 // Idempotent: sets credit balance, does not add to existing.
 
 import { Hono } from "hono"
+import { timingSafeEqual } from "node:crypto"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,7 +52,17 @@ export function createAdminRoutes(deps: AdminRouteDeps): Hono {
       ? authHeader.slice(7)
       : null
 
-    if (!token || token !== expectedToken) {
+    if (!token) {
+      return c.json(
+        { error: "Invalid or missing authorization token", code: "AUTH_FAILED" },
+        401,
+      )
+    }
+
+    // Timing-safe comparison to prevent side-channel attacks
+    const expected = Buffer.from(expectedToken)
+    const provided = Buffer.from(token)
+    if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
       return c.json(
         { error: "Invalid or missing authorization token", code: "AUTH_FAILED" },
         401,

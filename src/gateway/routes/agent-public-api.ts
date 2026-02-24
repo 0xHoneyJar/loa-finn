@@ -52,6 +52,11 @@ export function createAgentPublicApiRoutes(deps: AgentPublicApiDeps): Hono {
       return c.json({ error: "tokenId query parameter is required" }, 400)
     }
 
+    // Validate tokenId format to prevent cache key injection
+    if (!/^[a-zA-Z0-9:_-]{1,256}$/.test(tokenId)) {
+      return c.json({ error: "Invalid tokenId format" }, 400)
+    }
+
     // Check Redis cache first
     const cacheKey = `${CACHE_KEY_PREFIX}:${tokenId}`
     try {
