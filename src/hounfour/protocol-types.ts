@@ -140,3 +140,23 @@ export type {
   AccessPolicyContext,
   AccessPolicyResult,
 } from "@0xhoneyjar/loa-hounfour"
+
+// --- v7.11.0 Protocol Convergence (Cycle 034) ---
+
+// Task-Dimensional Reputation types (FR-3)
+export type { TaskTypeCohort } from "@0xhoneyjar/loa-hounfour"
+export { TaskTypeCohortSchema } from "@0xhoneyjar/loa-hounfour"
+
+// Scoring path logging (FR-3, Goodhart protection)
+export type { ScoringPath, ScoringPathLog } from "@0xhoneyjar/loa-hounfour"
+export { ScoringPathSchema, ScoringPathLogSchema } from "@0xhoneyjar/loa-hounfour"
+
+// Open Task Types — GovernanceTaskType is the upstream alias;
+// finn's parseTaskType() in wire-boundary.ts is the authoritative constructor.
+export type { GovernanceTaskType as TaskType } from "@0xhoneyjar/loa-hounfour"
+export { GovernanceTaskTypeSchema as TaskTypeSchema } from "@0xhoneyjar/loa-hounfour"
+export { TASK_TYPES } from "@0xhoneyjar/loa-hounfour"
+
+// Reputation events (FR-3)
+export type { GovernanceReputationEvent as ReputationEvent } from "@0xhoneyjar/loa-hounfour"
+export { GovernanceReputationEventSchema as ReputationEventSchema } from "@0xhoneyjar/loa-hounfour"

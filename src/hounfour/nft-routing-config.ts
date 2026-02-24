@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs"
 import { isValidPoolId, type PoolId, type Tier } from "@0xhoneyjar/loa-hounfour"
 import { HounfourError } from "./errors.js"
+import type { TaskType } from "./protocol-types.js"
 
 // --- Types ---
 
@@ -236,4 +237,51 @@ export class NFTRoutingCache {
     this.version = "0.0.0"
     this.loadedAt = 0
   }
+}
+
+// --- Task Type → NFTTaskType Endpoint Mapping (Sprint 2, Task 2.7) ---
+
+/**
+ * Map a branded TaskType to the NFTTaskType used in personality routing.
+ * This bridges the gap between the governance-level task type namespace
+ * and the NFT routing config's task categories.
+ *
+ * Returns "default" for unrecognized task types (no silent fallback to hardcoded pool).
+ */
+const TASK_TYPE_TO_NFT_MAP: ReadonlyMap<string, NFTTaskType> = new Map([
+  ["finn:conversation", "chat"],
+  ["finn:code_review", "code"],
+  ["finn:analysis", "analysis"],
+  ["finn:creative", "chat"],       // creative uses chat pool
+  ["finn:summarization", "analysis"], // summarization uses analysis pool
+  ["finn:admin", "default"],
+])
+
+export function resolveTaskTypeToNFT(taskType: TaskType): NFTTaskType {
+  return TASK_TYPE_TO_NFT_MAP.get(taskType as string) ?? "default"
+}
+
+/**
+ * Map an HTTP endpoint path to a TaskType for legacy callers
+ * that don't send X-Task-Type header.
+ */
+const ENDPOINT_TO_TASK_TYPE: ReadonlyMap<string, string> = new Map([
+  ["/api/v1/invoke", "finn:conversation"],
+  ["/api/v1/chat", "finn:conversation"],
+  ["/api/v1/review", "finn:code_review"],
+  ["/api/v1/analyze", "finn:analysis"],
+  ["/api/v1/admin", "finn:admin"],
+])
+
+export function resolveTaskTypeFromEndpoint(path: string): string | null {
+  // Exact match first
+  const exact = ENDPOINT_TO_TASK_TYPE.get(path)
+  if (exact) return exact
+
+  // Prefix match for paths with trailing segments
+  for (const [prefix, taskType] of ENDPOINT_TO_TASK_TYPE) {
+    if (path.startsWith(prefix + "/")) return taskType
+  }
+
+  return null
 }

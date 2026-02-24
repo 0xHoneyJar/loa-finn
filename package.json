@@ -29,7 +29,7 @@
     "postinstall": "bash scripts/build-hounfour-dist.sh"
   },
   "dependencies": {
-    "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#ff8c16b899b5bbebb9bf1a5e3f9e791342b49bea",
+    "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#7e2294b6f62ac1aa17451d61c1bb91a4ba71daea",
     "@aws-sdk/client-s3": "^3.985.0",
     "@hono/node-server": "^1.19.9",
     "@mariozechner/pi-agent-core": "~0.52.6",
@@ -37,6 +37,7 @@
     "@mariozechner/pi-coding-agent": "~0.52.6",
     "@sinclair/typebox": "^0.34.48",
     "bcrypt": "^6.0.0",
+    "canonicalize": "^2.1.0",
     "croner": "^10.0.1",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.11.9",

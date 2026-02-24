@@ -128,7 +128,7 @@ describe("Protocol Handshake", () => {
     })
     expect(result.ok).toBe(true)
     expect(result.status).toBe("degraded")
-    expect(result.message).toContain("missing contract_version")
+    expect(result.message).toContain("invalid structure")
   })
 
   // 9. Health endpoint non-ok — dev mode: status:degraded

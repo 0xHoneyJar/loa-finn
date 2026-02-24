@@ -1,1346 +1,1609 @@
-# SDD: Protocol Convergence v7.9.2 — Full Adoption
+# SDD: Hounfour v7.11.0 Protocol Convergence
 
-> **Version**: 1.0.0
-> **Date**: 2026-02-23
-> **Author**: @janitooor + Claude Opus 4.6 (Bridgebuilder)
-> **Status**: Draft
-> **Cycle**: cycle-032
-> **PRD Reference**: `grimoires/loa/prd.md` v1.1.0
-> **Grounding**: `src/hounfour/wire-boundary.ts`, `src/hounfour/billing-conservation-guard.ts`, `src/hounfour/protocol-handshake.ts`, `src/hounfour/pool-enforcement.ts`, `src/hounfour/jwt-auth.ts`, `src/hounfour/budget.ts`, `src/gateway/server.ts`
-
----
-
-## Table of Contents
-
-1. [Executive Summary](#1-executive-summary)
-2. [System Architecture](#2-system-architecture)
-3. [Component Design](#3-component-design)
-4. [Data Architecture](#4-data-architecture)
-5. [Security Architecture](#5-security-architecture)
-6. [Testing Strategy](#6-testing-strategy)
-7. [Sprint Mapping](#7-sprint-mapping)
-8. [Technical Risks & Mitigation](#8-technical-risks--mitigation)
+**Cycle**: 034
+**Status**: Draft
+**Author**: Claude Opus 4.6 + Jani (strategic direction)
+**Date**: 2026-02-24
+**PRD**: `grimoires/loa/prd-hounfour-v711.md` (GPT-5.2 APPROVED iteration 2)
+**GPT-5.2 Review**: APPROVED (iteration 2, 11 blocking issues resolved)
+**Flatline Review**: 5 HIGH_CONSENSUS integrated, DISPUTED/BLOCKERS addressed
 
 ---
 
 ## 1. Executive Summary
 
-### 1.1 What This Cycle Does
+This SDD describes the architectural changes required to upgrade loa-finn's hounfour dependency from v7.9.2 to v7.11.0 and integrate five new protocol capabilities: dual-strategy handshake detection, task-dimensional reputation, open enum task types, native enforcement geometry, and protocol-aligned hash chains.
 
-Upgrades `@0xhoneyjar/loa-hounfour` from v7.0.0 (commit `d091a3c0`) to v7.9.2 (tag `ff8c16b8`) and fully adopts all additive protocol features introduced in v7.1.0–v7.9.2. This is pure adoption and integration — no new infrastructure, no new services, no new external dependencies.
+**Key architectural decisions:**
 
-### 1.2 What Already Exists (Grounding)
+1. **No new runtime source modules** — All changes are surgical modifications to 9 existing source files plus `package.json`. Test fixture files (shared hash chain vectors) may be added.
+2. **Feature flags gate all runtime behavior** — Every new capability is behind an env var defaulting to `false`. The dependency upgrade itself changes zero runtime behavior. Flags are read at module load; rollback requires process restart (not hot-reload).
+3. **TaskType is branded end-to-end** — A single `TaskType` branded type (parsed at wire boundary) propagates through enforcement, reputation, WAL, and audit trail. Downstream interfaces accept `TaskType`, never raw `string`.
+4. **Hash chain migration is append-only and irreversible** — Existing chain entries are never rewritten. A bridge entry marks the transition; dual-write ensures backward verifiability. Once migrated, toggling the flag off is forbidden (requires a second bridge entry).
 
-| Component | Location | Status After This Cycle |
-|-----------|----------|------------------------|
-| Wire boundary (parse/serialize branded types) | `src/hounfour/wire-boundary.ts` | MODIFIED — add `parseStrictMicroUSD`, migrate `MicroUSDC` to protocol import |
-| Billing conservation guard | `src/hounfour/billing-conservation-guard.ts` | UNCHANGED — complementary to new economic boundary |
-| Protocol handshake | `src/hounfour/protocol-handshake.ts` | MODIFIED — semver-derived feature detection, new `PeerFeatures` fields |
-| JWT auth + JWKS state machine | `src/hounfour/jwt-auth.ts` | MODIFIED — validate `JTI_POLICY` consistency with protocol import |
-| Pool enforcement middleware | `src/hounfour/pool-enforcement.ts` | MODIFIED — wire economic boundary evaluation into auth chain |
-| Budget enforcer | `src/hounfour/budget.ts` | UNCHANGED — operates after economic boundary |
-| Billing finalize client | `src/hounfour/billing-finalize-client.ts` | UNCHANGED — operates after conservation guard |
-| Router (invoke/oracle) | `src/hounfour/router.ts` | MINOR MODIFY — integrate economic boundary result into routing context |
-| Server middleware chain | `src/gateway/server.ts` | MODIFIED — add economic boundary middleware |
-| Conformance vector tests | `tests/finn/jwt-auth.test.ts:31` | MODIFIED — self-verifying vector infrastructure |
-| Postinstall patch script | `scripts/patch-hounfour-dist.sh` | DELETED |
-| Hounfour code reality | `grimoires/oracle/code-reality-hounfour.md` | UPDATED to v7.9.2 |
-
-### 1.3 Design Principles
-
-1. **Complement, don't replace** — `evaluateEconomicBoundary()` and `BillingConservationGuard` serve different lifecycle phases. Both remain.
-2. **Type provenance over casts** — every branded type import traces to a single source module. Zero `as unknown as` at protocol boundaries.
-3. **Fail-closed at every gate** — economic boundary denial → no provider call. Conservation failure → no billing commit.
-4. **Self-verifying conformance** — vector count assertions, category coverage assertions, zero-vector-fail guards.
-
-### 1.4 What This SDD Does NOT Design
-
-- New HTTP endpoints (API surface unchanged)
-- New database tables or persistence changes
-- New external service integrations
-- Arrakis-side protocol adoption (tracked separately)
+**Files modified**: 9 source files + `package.json` (listed in Section 3)
+**New files**: 1 test fixture (`tests/safety/hash-chain-vectors.json`)
+**Estimated test additions**: ~120 test cases across existing test files
 
 ---
 
 ## 2. System Architecture
 
-### 2.1 Modified Request Lifecycle
-
-The only architectural change is inserting `evaluateEconomicBoundary()` as step 2 in the existing request lifecycle. All other components remain in their current positions.
+### 2.1 Component Interaction Overview
 
 ```
-Request Arrives
-  │
-  ├─ 1. JWT Auth (pool-enforcement.ts:217 — hounfourAuth middleware)
-  │     ├─ validateJWT() → JWKS ES256 verification, jti replay check
-  │     ├─ enforcePoolClaims() → tier/pool validation
-  │     └─ Sets TenantContext on Hono context
-  │
-  ├─ 2. Economic Boundary Evaluation (NEW — §3.1)
-  │     ├─ Build TrustLayerSnapshot from TenantContext + peer features
-  │     ├─ Build CapitalLayerSnapshot from budget state
-  │     ├─ evaluateEconomicBoundary() → deterministic, total, <1ms
-  │     ├─ If DENIED → 403 + structured denial_codes + evaluation_gap
-  │     └─ No provider call. No billing entry. Request terminates.
-  │
-  ├─ 3. Budget Reserve (budget.ts — checkAndHold)
-  │     └─ Atomic reserve against daily budget
-  │
-  ├─ 4. Provider Call (router.ts:338 → cheval-invoker / native-adapter)
-  │     └─ Model invocation with tool-call orchestration
-  │
-  ├─ 5. Conservation Guard (billing-conservation-guard.ts)
-  │     ├─ checkBudgetConservation(spent, limit)
-  │     ├─ checkCostNonNegative(cost)
-  │     ├─ checkMicroUSDFormat(serialized)
-  │     └─ If any FAIL → no billing commit, compensating WAL entry, 500
-  │
-  └─ 6. Billing Finalize (billing-finalize-client.ts)
-        └─ Commit actual cost to arrakis. DLQ on transient failure.
+                            +--------------------+
+                            |  arrakis health    |
+                            |  /api/internal/    |
+                            |    health          |
+                            +--------+-----------+
+                                     | { contract_version, capabilities[] }
+                                     v
++-------------------------------------------------------------------------+
+|  protocol-handshake.ts                                                  |
+|  +---------------------+    +----------------------+                    |
+|  | detectPeerFeatures() |--->| PeerFeatures          |                  |
+|  | dual-strategy:       |    | + taskDimensionalRep  |                  |
+|  |  1. capabilities[]   |    | + hashChain           |                  |
+|  |  2. FEATURE_THRESHOLDS|   | + openTaskTypes       |                  |
+|  |  3. unknown -> false  |   +----------+-----------+                   |
+|  +---------------------+               |                                |
++------------------------------------------+------------------------------+
+                                           |
+        +----------------------------------+----------------------+
+        |                                  v                      |
+        |  +---------------+    +------------------+              |
+        |  |wire-boundary  |--->| RequestMetadata   |             |
+        |  |parseTaskType() |   | + task_type:      |             |
+        |  |ns:type parse   |   |   TaskType (brand)|             |
+        |  +---------------+    +--------+---------+              |
+        |                                |                        |
+        |  +-------- TASK TYPE GATE -----+----+                   |
+        |  | validateTaskType()                |                   |
+        |  | DENY unknown if policy=deny       |                   |
+        |  | MUST run before routing/enforce    |                   |
+        |  +-----------------------------------+                   |
+        |                                |                        |
+        |  +-----------------------------+--------------------+   |
+        |  |                             v                    |   |
+        |  |  economic-boundary.ts                            |   |
+        |  |  +------------------------------------------+    |   |
+        |  |  | evaluateBoundary(claims, budget, taskType)|   |   |
+        |  |  | +----------+  +-----------------------+  |    |   |
+        |  |  | |buildTrust|  | cohort query (v7.11)  |  |    |   |
+        |  |  | |Snapshot()|  | OR blended (fallback) |  |    |   |
+        |  |  | +----------+  +-----------------------+  |    |   |
+        |  |  +------------------------------------------+    |   |
+        |  +--------------------------------------------------+   |
+        |                                |                        |
+        |  +-----------------------------+--------------------+   |
+        |  |                             v                    |   |
+        |  |  pool-enforcement.ts                             |   |
+        |  |  +------------------------------------------+    |   |
+        |  |  | ENFORCEMENT_GEOMETRY env var              |    |   |
+        |  |  | expression (default) | native (opt-in)   |    |   |
+        |  |  | Wire protocol unchanged either way       |    |   |
+        |  |  +------------------------------------------+    |   |
+        |  +--------------------------------------------------+   |
+        |                                |                        |
+        |  +-----------------------------+--------------------+   |
+        |  |                             v                    |   |
+        |  |  audit-trail.ts                                  |   |
+        |  |  +------------------------------------------+    |   |
+        |  |  | appendRecord() with versioned envelope   |    |   |
+        |  |  | format: "legacy" | "protocol_v1"         |    |   |
+        |  |  | canonical_json: RFC 8785 (JCS library)   |    |   |
+        |  |  | bridge entry at migration point          |    |   |
+        |  |  +------------------------------------------+    |   |
+        |  +--------------------------------------------------+   |
+        |                                                         |
+        +---------------------------------------------------------+
 ```
 
-**Invariant**: Step 6 MUST NOT execute unless step 5 passes. This is enforced by the existing control flow in `router.ts:invokeForTenant()` — the conservation guard runs before `billingFinalize.finalize()` is called.
+### 2.1.1 Health Endpoint Contract (IMP-001)
 
-### 2.2 Module Dependency Graph (Changes Only)
+The handshake probes arrakis's `/api/internal/health` endpoint. The response schema must be explicitly defined to prevent silent failure on schema drift:
 
-```
-src/hounfour/
-├── wire-boundary.ts          (MODIFY: add parseStrictMicroUSD, migrate MicroUSDC)
-├── economic-boundary.ts      (NEW: §3.1 — evaluation adapter + snapshot builders)
-├── protocol-handshake.ts     (MODIFY: §3.5 — semver feature detection)
-├── pool-enforcement.ts       (MODIFY: §3.1 — wire economic boundary into auth chain)
-├── jwt-auth.ts               (MODIFY: §3.4 — JTI_POLICY import validation)
-├── billing-conservation-guard.ts  (UNCHANGED)
-├── budget.ts                 (UNCHANGED)
-├── router.ts                 (MINOR: pass EconomicBoundaryResult to routing context)
-├── types.ts                  (MODIFY: add EconomicBoundaryResult to TenantContext)
-└── metrics.ts                (UNCHANGED)
-
-tests/finn/
-├── jwt-auth.test.ts              (MODIFY: self-verifying vector loader)
-├── conformance-vectors.test.ts   (NEW: §3.3 — multi-category vector runner)
-├── economic-boundary.test.ts     (NEW: §3.1 — choreography failure tests)
-├── wire-boundary.test.ts         (MODIFY: add parseStrictMicroUSD + negative boundary tests)
-├── protocol-handshake.test.ts    (MODIFY: semver feature detection tests)
-└── branded-type-migration.test.ts (NEW: §3.2 — type provenance verification)
+```typescript
+/** Expected response from arrakis /api/internal/health */
+interface ArrakisHealthResponse {
+  status: "ok" | "degraded" | "down"
+  contract_version: string                // semver, e.g. "7.11.0"
+  capabilities?: string[]                 // capability identifiers, e.g. ["task_dimensional_reputation"]
+  trust_scopes?: Record<string, unknown>  // legacy field (v4.6.0 compat)
+}
 ```
 
-### 2.3 Import Map (v7.9.2 Adoption Surface)
+**Versioning and negotiation rules:**
+- `contract_version` is parsed with semver; parse failure → treat as unknown peer (all features = false)
+- `capabilities` array absence → fall back to semver-only detection (v7.9.2 compat)
+- Unknown capabilities are silently ignored (forward-compatible)
+- HTTP errors or timeouts → default `PeerFeatures` (all false) with detection method `"timeout"` or `"error"`
 
-All new imports from `@0xhoneyjar/loa-hounfour` and their target locations:
+**Transport security (SKP-005 addressed)**: The health endpoint carries capability advertisements that influence feature detection. To prevent spoofing:
+- Health probes use the existing internal service mesh (mTLS between finn and arrakis in production)
+- In development/staging without mTLS, health data is treated as **hints only** — no security-sensitive behavior (enforcement mode, hash chain migration) is enabled solely based on peer capability advertisement. These behaviors are gated by local feature flags, not peer detection.
+- Capabilities influence **compatibility decisions** (e.g., whether to send cohort queries), not **security policy** (enforcement mode is always local config)
+- Rate-limit health probes: max 1 probe per 30s per peer (existing `reputationTimeoutMs` pattern). Cache results for the TTL window.
+- Log structured health probe results at DEBUG level (not per-request). Per-request logging of raw health data is prohibited in hot paths to prevent log injection/DoS.
 
-| Import | Source Module | Target File | FR |
-|--------|-------------|-------------|-----|
-| `evaluateEconomicBoundary` | root | `economic-boundary.ts` | FR-4 |
-| `evaluateFromBoundary` | root | `economic-boundary.ts` | FR-5 |
-| `parseMicroUsd` | root | `wire-boundary.ts` | FR-7 |
-| `type MicroUSD` (protocol) | root | `wire-boundary.ts` | FR-7 |
-| `MicroUSDC`, `microUSDC`, `readMicroUSDC` | `economy` | `wire-boundary.ts` | FR-9 |
-| `JwtClaimsSchema` | `economy` | `jwt-auth.ts` | FR-8 |
-| `BillingEntrySchema` | `economy` | `billing/types.ts` | FR-8 |
-| `EconomicBoundarySchema` | `economy` | `economic-boundary.ts` | FR-8 |
-| `QualificationCriteria` | `economy` | `economic-boundary.ts` | FR-8 |
-| `DenialCode` | `economy` | `economic-boundary.ts` | FR-8 |
-| `EvaluationGap` | `economy` | `economic-boundary.ts` | FR-8 |
-| `ModelEconomicProfileSchema` | `economy` | `types.ts` | FR-8 |
-| `ConstraintOrigin` | root | `types.ts` | FR-8 |
-| `ReputationStateName` | root | `types.ts` | FR-8 |
-| `JTI_POLICY` | `economy` | `jwt-auth.ts` | FR-10 |
-| `computeCostMicro`, `computeCostMicroSafe` | root | `budget.ts` | FR-11 |
-| `verifyPricingConservation` | root | `pricing.ts` | FR-11 |
-| `validateBillingEntry` | root | `billing/types.ts` | FR-11 |
-| `isValidNftId`, `parseNftId` | root | `nft-routing-config.ts` | FR-11 |
-| `isKnownReputationState` | root | `types.ts` | FR-11 |
-| `REPUTATION_STATES`, `REPUTATION_STATE_ORDER` | root | `types.ts` | FR-11 |
-| `ECONOMIC_CHOREOGRAPHY` | `economy` | `economic-boundary.ts` | FR-11 |
-| `TRANSFER_CHOREOGRAPHY`, `TRANSFER_INVARIANTS` | root | `billing-conservation-guard.ts` | FR-11 |
-| `evaluateAccessPolicy` | root | `pool-enforcement.ts` | FR-12 |
-| `CONTRACT_VERSION`, `parseSemver` | root | `protocol-handshake.ts` | FR-16 |
+**Error codes from health probe:**
+| HTTP Status | Meaning | Action |
+|-------------|---------|--------|
+| 200 | Healthy response | Parse and detect features |
+| 503 | Service degraded | Use cached features if available, else all false |
+| 4xx/5xx | Unexpected error | All features false, log warning |
+| Timeout (>5s) | Network issue | All features false, log warning |
+
+### 2.2 Feature Flag Architecture
+
+All new behavior is gated by env vars. No runtime change occurs on upgrade alone.
+
+| Flag | Values | Default | Controls |
+|------|--------|---------|----------|
+| `TASK_DIMENSIONAL_REPUTATION_ENABLED` | `true`/`false` | `false` | Cohort queries in economic boundary |
+| `NATIVE_ENFORCEMENT_ENABLED` | `true`/`false` | `false` | Native evaluation geometry in pool enforcement |
+| `PROTOCOL_HASH_CHAIN_ENABLED` | `true`/`false` | `false` | RFC 8785 envelope format in audit trail |
+| `OPEN_TASK_TYPES_ENABLED` | `true`/`false` | `false` | TaskType routing and unknown type denial |
+| `ENFORCEMENT_GEOMETRY` | `expression`/`native` | `expression` | Evaluation path (local config, not peer) |
+| `UNKNOWN_TASK_TYPE_POLICY` | `deny`/`safe_default` | `deny` | Unknown task type handling |
+
+**Flag lifecycle**: Flags are read once at module load (same pattern as `ECONOMIC_BOUNDARY_MODE`). Changing a flag value requires a **process restart** — env vars are not hot-reloaded. This is consistent with the existing deployment model where config changes trigger rolling restarts via the container orchestrator.
+
+**Flag `false` → existing behavior (no code path change). Flag `true` → new behavior activates.**
 
 ---
 
-## 3. Component Design
+## 3. File Modification Map
 
-### 3.1 Economic Boundary Adapter (`src/hounfour/economic-boundary.ts`) — NEW
+Every change is mapped to a PRD functional requirement. No new runtime source modules are created. Test fixture files may be added.
 
-**PRD**: FR-4, FR-5, FR-5a
-**Purpose**: Adapter between loa-finn's existing `TenantContext` / budget state and the protocol's `evaluateEconomicBoundary()` function. Builds the required snapshots and translates the result into a middleware-compatible response.
+| File | PRD Ref | Change Summary |
+|------|---------|----------------|
+| `package.json:32` | FR-1 | Pin to v7.11.0 exact commit hash |
+| `src/hounfour/protocol-types.ts` | FR-1 | Conditionally re-export new types (with fallback wrappers) |
+| `src/hounfour/types.ts` | FR-3, FR-6 | Extend `ReputationProvider` with cohort query; add `task_type: TaskType` to `RequestMetadata` and `LedgerEntryV2` |
+| `src/hounfour/wire-boundary.ts` | FR-6 | Add `parseTaskType()` branded type parser |
+| `src/hounfour/protocol-handshake.ts` | FR-2 | Add 3 `PeerFeatures` fields + dual-strategy detection |
+| `src/hounfour/economic-boundary.ts` | FR-3, FR-7 | Task-dimensional cohort queries + shadow divergence metric |
+| `src/hounfour/pool-enforcement.ts` | FR-4 | Native enforcement geometry path + task type gate |
+| `src/hounfour/nft-routing-config.ts` | FR-6 | `TaskType` branded type routing + finn-native type registration |
+| `src/safety/audit-trail.ts` | FR-5 | Versioned envelope, RFC 8785 (JCS), bridge entry, dual-write |
+| `tests/safety/hash-chain-vectors.json` | FR-5 | Shared test vectors (NEW test fixture) |
 
-```typescript
-// src/hounfour/economic-boundary.ts
+---
 
-import {
-  evaluateEconomicBoundary,
-  evaluateFromBoundary,
-  type TrustLayerSnapshot,
-  type CapitalLayerSnapshot,
-  type QualificationCriteria,
-  type EconomicBoundaryEvaluationResult,
-  type EconomicBoundary,
-  type DenialCode,
-  type EvaluationGap,
-  ECONOMIC_CHOREOGRAPHY,
-} from "@0xhoneyjar/loa-hounfour"
-import { EconomicBoundarySchema } from "@0xhoneyjar/loa-hounfour/economy"
-import type { TenantContext, PeerFeatures } from "./types.js"
-import type { BudgetEnforcer } from "./budget.js"
+## 4. Component Design
 
-// --- Constants ---
+### 4.1 FR-1: Dependency Upgrade (`package.json`, `protocol-types.ts`, `economic-boundary.ts`)
 
-/**
- * Protocol-aligned tier → trust_level mapping.
- *
- * Keys: finn tier strings (from JWT claims.tier).
- * Values: protocol TrustLevel enum values.
- *
- * Validated at boot against protocol TIER definitions to catch drift.
- * If a tier is missing from this map, buildTrustSnapshot() returns null
- * (fail-closed — unknown tier cannot be authorized).
- *
- * Flatline HIGH_CONSENSUS IMP-001: explicit type, example values, boot validation.
- */
-const TIER_TRUST_MAP: Record<string, TrustLevel> = {
-  free:       TrustLevel.LOW,
-  starter:    TrustLevel.STANDARD,
-  pro:        TrustLevel.ELEVATED,
-  enterprise: TrustLevel.HIGH,
-  internal:   TrustLevel.MAXIMUM,
-} as const
-
-// Boot-time validation: ensure all protocol-defined tiers are covered
-function validateTierTrustMap(): void {
-  const protocolTiers = Object.keys(PROTOCOL_TIER_DEFINITIONS)
-  for (const tier of protocolTiers) {
-    if (!(tier in TIER_TRUST_MAP)) {
-      throw new Error(
-        `[economic-boundary] TIER_TRUST_MAP missing protocol tier "${tier}". ` +
-        `Add mapping before deploying v7.9.2.`
-      )
-    }
-  }
-}
-
-// --- Snapshot Builders ---
-
-/**
- * Build capability-scoped trust dimensions from JWT claims.
- *
- * Populates the 6D trust model when peer supports capabilityScopedTrust (v7.6.0+).
- * Returns undefined dimensions as absent (evaluator treats missing as neutral).
- *
- * Flatline HIGH_CONSENSUS IMP-003: explicit contract and population logic.
- */
-function buildCapabilityScopedTrust(
-  claims: JwtClaims,
-): CapabilityScopedTrust | undefined {
-  // Only populate if claims contain the required scoped trust data
-  if (!claims.trust_scopes) return undefined
-
-  return {
-    model_access: claims.trust_scopes.model_access,
-    rate_allowance: claims.trust_scopes.rate_allowance,
-    pool_priority: claims.trust_scopes.pool_priority,
-    billing_trust: claims.trust_scopes.billing_trust,
-    data_sensitivity: claims.trust_scopes.data_sensitivity,
-    operational_trust: claims.trust_scopes.operational_trust,
-  }
-}
-
-/**
- * Build TrustLayerSnapshot from TenantContext.
- *
- * Maps finn's existing tier/pool/trust data to the protocol's
- * 6-dimensional trust model. When peer doesn't support capability-scoped
- * trust (pre-v7.6.0), falls back to flat trust_level.
- *
- * TOTALITY: pool_id MUST be defined. If neither requestedPool nor
- * resolvedPools[0] exists, returns null — caller MUST DENY (fail-closed).
- *
- * TRUST MAPPING: Uses TIER_TRUST_MAP (protocol-aligned, audited) rather
- * than ad-hoc derivation. Map is defined at module scope and validated
- * against protocol constraints at startup.
- */
-export function buildTrustSnapshot(
-  tenant: TenantContext,
-  peerFeatures: PeerFeatures | undefined,
-): TrustLayerSnapshot | null {
-  const claims = tenant.claims
-  const pool_id = tenant.requestedPool ?? tenant.resolvedPools[0]
-
-  // Fail-closed: no pool → cannot evaluate → caller must DENY
-  if (!pool_id) return null
-
-  // Trust mapping: protocol-aligned tier→trust_level mapping
-  // Validated at boot against protocol TIER definitions
-  const trust_level = TIER_TRUST_MAP[claims.tier]
-  if (trust_level === undefined) return null // Unknown tier → fail-closed
-
-  return {
-    account_id: claims.sub,
-    tier: claims.tier,
-    trust_level,
-    // 6D trust: populated when peer supports capability-scoped trust (v7.6.0+)
-    capability_scoped_trust: peerFeatures?.capabilityScopedTrust
-      ? buildCapabilityScopedTrust(claims)
-      : undefined,
-    pool_id,
-    is_nft_routed: tenant.isNFTRouted,
-    is_byok: tenant.isBYOK,
-  }
-}
-
-/**
- * Build CapitalLayerSnapshot from budget state.
- *
- * Reads current budget snapshot (non-mutating) to determine
- * available capital for the economic boundary evaluation.
- *
- * Uses parseStrictMicroUSD (wire-boundary.ts) to ensure snapshot
- * values are protocol-branded MicroUSD before passing to evaluator.
- * Returns null on any failure — caller MUST DENY (fail-closed).
- */
-export async function buildCapitalSnapshot(
-  budget: BudgetEnforcer,
-  accountId: string,
-  tenantId: string,
-): Promise<CapitalLayerSnapshot | null> {
-  try {
-    const snapshot = await budget.snapshot(accountId, tenantId)
-    return {
-      daily_limit: snapshot.limit,
-      daily_spent: snapshot.spent,
-      available: snapshot.available,
-      // Economic boundary is a COARSE pre-check, not an atomic guarantee.
-      // Budget reserve (step 3) is the authoritative contention point.
-      // Under concurrency, multiple requests may pass boundary with the same
-      // available value — reserve handles contention. (Flatline SKP-004)
-      has_reservation: false,
-    }
-  } catch {
-    // Budget snapshot unavailable → fail-closed
-    return null
-  }
-}
-
-// --- Middleware ---
-
-/**
- * Hono middleware that evaluates economic boundary before provider call.
- *
- * Position: AFTER hounfourAuth (needs TenantContext), BEFORE budget reserve.
- * This is step 2 in the enforcement choreography (PRD §4.5).
- *
- * UNCONDITIONAL: This middleware ALWAYS runs regardless of peer version.
- * The decision engine is a LOCAL evaluation — it does not require peer
- * support. Peer features only affect which trust dimensions are populated
- * in the snapshot (6D trust vs flat trust_level). Skipping evaluation
- * based on peer version would be fail-open (GPT review finding #1).
- *
- * FAIL-CLOSED: Any error in snapshot building or evaluation → deterministic
- * DENY with structured error. No downstream steps execute (GPT finding #3).
- */
-export function economicBoundaryMiddleware(deps: {
-  budget: BudgetEnforcer
-  peerFeatures?: PeerFeatures
-}): MiddlewareHandler {
-  return async (c, next) => {
-    try {
-      const tenant: TenantContext = c.get("tenant")
-
-      // Build snapshots — null return means fail-closed DENY
-      const trustSnapshot = buildTrustSnapshot(tenant, deps.peerFeatures)
-      if (!trustSnapshot) {
-        // 503: infrastructure error (snapshot builder failed), not a policy denial
-        // Flatline BLOCKER SKP-002: differentiate 503 (infra) from 403 (policy)
-        return c.json({
-          error: "economic_boundary_unavailable",
-          error_type: "infrastructure",
-          denial_codes: ["snapshot_incomplete"],
-          evaluation_gap: { reason: "trust_snapshot_unavailable" },
-        }, 503)
-      }
-
-      const capitalSnapshot = await buildCapitalSnapshot(
-        deps.budget,
-        tenant.claims.sub,
-        tenant.claims.tenant_id,
-      )
-      if (!capitalSnapshot) {
-        return c.json({
-          error: "economic_boundary_unavailable",
-          error_type: "infrastructure",
-          denial_codes: ["snapshot_incomplete"],
-          evaluation_gap: { reason: "capital_snapshot_unavailable" },
-        }, 503)
-      }
-
-      // Validate combined evaluation input against protocol schema before calling evaluator.
-      // EconomicBoundarySchema validates the full { trust, capital, criteria } input shape.
-      // (belt-and-suspenders: catches field mismatches at the adapter boundary)
-      const inputValid = EconomicBoundarySchema.safeParse({
-        trust: trustSnapshot,
-        capital: capitalSnapshot,
-      })
-      if (!inputValid.success) {
-        console.error("[economic-boundary] schema validation failed:", inputValid.error)
-        return c.json({
-          error: "economic_boundary_unavailable",
-          error_type: "infrastructure",
-          denial_codes: ["internal_error"],
-          evaluation_gap: { reason: "snapshot_schema_invalid", fields: inputValid.error.issues.map(i => i.path.join(".")) },
-        }, 503)
-      }
-
-      const result = evaluateEconomicBoundary(
-        trustSnapshot,
-        capitalSnapshot,
-        { evaluatedAt: new Date() },
-      )
-
-      if (!result.allowed) {
-        return c.json({
-          error: "economic_boundary_denied",
-          denial_codes: result.denial_codes,
-          evaluation_gap: result.evaluation_gap,
-        }, 403)
-      }
-
-      // Attach result to context for downstream use (logging, routing decisions)
-      c.set("economicBoundary", result)
-      await next()
-    } catch (err) {
-      // Any unhandled error → deterministic block (fail-closed)
-      // 503 (not 403): this is an infrastructure failure, not a policy denial
-      // Provider call is still blocked. Flatline BLOCKER SKP-002.
-      console.error("[economic-boundary] unexpected error, blocking (fail-closed):", err)
-      return c.json({
-        error: "economic_boundary_unavailable",
-        error_type: "infrastructure",
-        denial_codes: ["internal_error"],
-        evaluation_gap: { reason: "evaluation_exception" },
-      }, 503)
-    }
-  }
-}
+**package.json** — Update line 32:
+```
+"@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#<v7.11.0-commit-hash>"
 ```
 
-**Design rationale**:
-- **Adapter, not wrapper**: The middleware doesn't wrap `evaluateEconomicBoundary()` — it builds the inputs from finn's existing state and translates the output to HTTP semantics.
-- **Unconditional evaluation**: The economic boundary is a LOCAL decision engine. It does not require peer support — peer features only control which trust dimensions are populated (6D vs flat). Skipping evaluation based on `peerFeatures.economicBoundary` would be fail-open.
-- **Fail-closed on any error**: The entire middleware is wrapped in try/catch. Any failure blocks the provider call (no downstream steps execute). Policy denials return 403; infrastructure errors (snapshot unavailable, schema failure, exceptions) return 503 with `error_type: "infrastructure"` — this ensures 5xx monitoring catches operational issues (Flatline SKP-002).
-- **Schema validation at adapter boundary**: Snapshots are validated against `EconomicBoundarySchema` before passing to `evaluateEconomicBoundary()`. This catches field type mismatches (e.g., wrong denomination, missing required fields) at the adapter layer rather than inside the protocol function.
-- **`evaluateFromBoundary()` usage**: When an `EconomicBoundary` object is available (e.g., pre-configured per pool), use the convenience overload to prevent confused deputy attacks where the caller provides mismatched criteria.
-- **No caching**: The function is pure computation (<1ms). Caching would add complexity without measurable benefit.
+**protocol-types.ts** — Conditional re-exports with fallback wrappers:
 
-#### 3.1.1 Runtime Feature Flag (Flatline HIGH_CONSENSUS IMP-002)
-
-The economic boundary middleware supports a runtime kill-switch via `ECONOMIC_BOUNDARY_MODE` environment variable for safe production rollout:
-
-| Mode | Behavior | When to Use |
-|------|----------|-------------|
-| `enforce` (default) | Full fail-closed evaluation | Production after validation |
-| `shadow` | Evaluate and log result, but always allow | Initial rollout / canary |
-| `bypass` | Skip evaluation entirely, log bypass | Emergency rollback |
+The SDD does NOT assume specific export names exist in v7.11.0. All new re-exports use conditional wrappers that fail gracefully if the upstream export is missing or renamed.
 
 ```typescript
-const ECONOMIC_BOUNDARY_MODE = (process.env.ECONOMIC_BOUNDARY_MODE ?? "enforce") as
-  | "enforce" | "shadow" | "bypass"
-
-// Inside middleware, after evaluation:
-if (ECONOMIC_BOUNDARY_MODE === "bypass") {
-  console.warn("[economic-boundary] BYPASSED (kill-switch active)")
-  c.set("economicBoundary", { allowed: true, bypassed: true })
-  return next()
-}
-
-if (ECONOMIC_BOUNDARY_MODE === "shadow" && !result.allowed) {
-  console.warn("[economic-boundary] shadow-deny (would have denied)", {
-    denial_codes: result.denial_codes,
-    account_id: tenant.claims.sub,
-  })
-  c.set("economicBoundary", { ...result, shadow: true })
-  return next()
-}
-```
-
-**Rollback plan**: Set `ECONOMIC_BOUNDARY_MODE=bypass` via environment config (no deploy required if using runtime config).
-
-#### 3.1.2 Observability (Flatline HIGH_CONSENSUS IMP-004)
-
-Metrics and structured logging for the economic boundary middleware:
-
-| Metric | Type | Labels | Purpose |
-|--------|------|--------|---------|
-| `economic_boundary_evaluations_total` | Counter | `result={allow,deny,bypass,shadow_deny,error}` | Evaluation outcomes |
-| `economic_boundary_latency_ms` | Histogram | `result` | Evaluation latency (should be <1ms) |
-| `economic_boundary_snapshot_failures_total` | Counter | `snapshot={trust,capital}, reason` | Snapshot build failures |
-| `economic_boundary_schema_failures_total` | Counter | — | Schema validation failures |
-
-**Structured log fields** (emitted on every evaluation):
-
-```typescript
-console.info("[economic-boundary]", {
-  result: result.allowed ? "allow" : "deny",
-  mode: ECONOMIC_BOUNDARY_MODE,
-  denial_codes: result.denial_codes ?? [],
-  trust_level: trustSnapshot.trust_level,
-  has_6d_trust: !!trustSnapshot.capability_scoped_trust,
-  pool_id: trustSnapshot.pool_id,
-  latency_ms: performance.now() - startTime,
-  account_id: tenant.claims.sub,
-})
-```
-
-**Alert thresholds**:
-- `economic_boundary_evaluations_total{result="error"}` spike >5% of total → page
-- `economic_boundary_latency_ms` p99 >10ms → warn (should be <1ms for pure computation)
-- `economic_boundary_evaluations_total{result="deny"}` sustained >20% → investigate
-
-### 3.2 Wire Boundary Extensions (`src/hounfour/wire-boundary.ts`) — MODIFY
-
-**PRD**: FR-7, FR-7a, FR-9, FR-9a
-
-#### 3.2.1 Strict Protocol Parser Wrapper
-
-Add to `wire-boundary.ts` after the existing `parseMicroUSD()` function:
-
-```typescript
-import {
-  parseMicroUsd,
-  type MicroUSD as ProtocolMicroUSD,
+// Task-Dimensional Reputation (v7.10.0) — conditional re-export
+// If upstream does not export these, the local type stubs are used
+// and the feature flag prevents runtime usage.
+export type {
+  TaskTypeCohort,
+  ReputationEvent,
+  ScoringPathLog,
 } from "@0xhoneyjar/loa-hounfour"
 
-/**
- * Nominally-branded StrictMicroUSD type for strict non-negative boundaries.
- *
- * This is NOT a simple alias of ProtocolMicroUSD — it adds a local unique
- * symbol brand to ensure nominal distinction from the internal MicroUSD type.
- * Without this, TS structural compatibility would allow local negative-capable
- * MicroUSD values to be passed into strict wire functions (GPT finding #4).
- *
- * Only `parseStrictMicroUSD()` can construct values of this type.
- */
-declare const _strictMicroUSDBrand: unique symbol
-export type StrictMicroUSD = ProtocolMicroUSD & { readonly [_strictMicroUSDBrand]: true }
-
-/**
- * Strict non-negative parser for wire boundaries.
- * Delegates to protocol parseMicroUsd() — no cast, same type provenance.
- *
- * Use this at: HTTP ingress, JWT claim parsing, billing finalize wire.
- * Use parseMicroUSD() (local) at: internal accounting, deficit tracking.
- * Use parseMicroUSDLenient() at: persistence reads, WAL replay.
- *
- * Negative values produce WireBoundaryError (FR-7a invariant).
- */
-export function parseStrictMicroUSD(raw: string): StrictMicroUSD {
-  if (typeof raw !== "string" || raw.length === 0) {
-    throw new WireBoundaryError("micro_usd", raw, "empty or non-string value")
-  }
-  if (raw.length > MAX_MICRO_USD_LENGTH) {
-    throw new WireBoundaryError("micro_usd", raw, "value exceeds maximum length")
-  }
-  const result = parseMicroUsd(raw)
-  if (!result.valid) {
-    throw new WireBoundaryError("micro_usd", raw, result.reason)
-  }
-  // Brand the protocol value with StrictMicroUSD — sole constructor
-  return result.amount as StrictMicroUSD
-}
+// Open Task Types (v7.11.0)
+// TaskType may be a branded string or plain alias — finn's parseTaskType()
+// is the authoritative constructor regardless.
+export type { TaskType } from "@0xhoneyjar/loa-hounfour"
 ```
 
-**Location**: After line 95 (after `parseMicroUSD()`), before `parseMicroUSDLenient()`.
+**Conditional import strategy for functions (SKP-001 addressed)**:
 
-#### 3.2.2 MicroUSDC Migration
-
-Replace the local `MicroUSDC` branded type (lines 236-265) with protocol imports:
+The project uses `"type": "module"` in `package.json` (ESM). However, `await import()` at module top level is fragile across bundlers and test runners. Instead, use **static imports with build-time verification and flag-gated usage**:
 
 ```typescript
-// BEFORE (lines 236-265):
-// declare const _microUSDCBrand: unique symbol
-// export type MicroUSDC = bigint & { readonly [_microUSDCBrand]: true }
-// ... local parseMicroUSDC() ...
+// Static import — build fails fast if export is missing (desired behavior)
+import { evaluateNativeEnforcement } from "@0xhoneyjar/loa-hounfour"
 
-// AFTER:
-import {
-  type MicroUSDC,
-  microUSDC,
-  readMicroUSDC,
-} from "@0xhoneyjar/loa-hounfour/economy"
-
-// Re-export for backward-compatible import paths (FR-9a step 3)
-export type { MicroUSDC }
-export { readMicroUSDC }
-
-/**
- * Parse raw string to MicroUSDC. Delegates to protocol readMicroUSDC()
- * with WireBoundaryError wrapping for consistency with local error handling.
- *
- * Note: Protocol readMicroUSDC() is non-negative only. Internal accounting
- * that needs signed MicroUSDC should use a separate type or plain bigint.
- */
-export function parseMicroUSDC(raw: string): MicroUSDC {
-  if (typeof raw !== "string" || raw.length === 0) {
-    throw new WireBoundaryError("micro_usdc", raw, "empty or non-string value")
-  }
-  if (raw.length > MAX_MICRO_USD_LENGTH) {
-    throw new WireBoundaryError("micro_usdc", raw, "value exceeds maximum length")
-  }
-  try {
-    return readMicroUSDC(raw)
-  } catch (err) {
-    throw new WireBoundaryError(
-      "micro_usdc",
-      raw,
-      err instanceof Error ? err.message : "invalid MicroUSDC value",
-    )
-  }
-}
-
-// serializeMicroUSDC stays the same — toString() works on any bigint branded type
+// Re-export for downstream use (gated by NATIVE_ENFORCEMENT_ENABLED at call sites)
+export { evaluateNativeEnforcement }
 ```
 
-**Migration verification**: The existing `serializeMicroUSDC()` function remains unchanged since `MicroUSDC.toString()` produces identical output regardless of brand symbol. The `convertMicroUSDtoMicroUSDC()` function (line 326) needs its cast updated to use the checked constructor:
+**Module system constraints** (verified during Sprint 1):
+- Node.js: >= 20.x with `"type": "module"` in `package.json`
+- TypeScript: `"module": "node16"` or `"nodenext"` in `tsconfig.json`
+- Test runner: vitest (native ESM support)
+- No bundler transformation for server-side code
+
+**If an expected export is missing from v7.11.0**: The build will fail at compile time (static import error), which is the correct behavior — it prevents deploying code that references non-existent functions. During Sprint 1 compile-time verification, if any export is missing, the import is removed and the corresponding feature flag's code path is adjusted to use a finn-local implementation or is disabled.
+
+**Startup self-check**: When a feature flag is enabled, the module validates that the required upstream function is available at startup. If not, it logs a FATAL error and exits (fail-fast, not fail-at-traffic):
 
 ```typescript
-// Line 338: return (product / divisor) as MicroUSDC
-// Becomes:  validate non-negativity then construct via readMicroUSDC
-const rawResult = product / divisor
-if (rawResult < 0n) throw new WireBoundaryError("micro_usdc", rawResult, "negative conversion result")
-return readMicroUSDC(rawResult.toString())
-```
-
-**Centralized re-export module** (`src/hounfour/protocol-types.ts` — NEW): All protocol economy types are re-exported from a single module to ensure every internal import resolves to the protocol brand symbol, preventing stale build artifacts from referencing the old local brand:
-
-```typescript
-// src/hounfour/protocol-types.ts — Single source of truth for protocol economy types
-export type { MicroUSDC } from "@0xhoneyjar/loa-hounfour/economy"
-export { microUSDC, readMicroUSDC } from "@0xhoneyjar/loa-hounfour/economy"
-export type { BrandedMicroUSD as MicroUSD } from "@0xhoneyjar/loa-hounfour"
-export type { BasisPoints, AccountId, PoolId } from "@0xhoneyjar/loa-hounfour"
-// Internal imports should use: import { MicroUSDC } from "./protocol-types.js"
-```
-
-**Compile-time brand verification test** (`tests/finn/branded-type-migration.test.ts`):
-```typescript
-import { expectTypeOf } from "vitest"
-import type { MicroUSDC } from "../src/hounfour/protocol-types.js"
-import type { MicroUSDC as EconomyMicroUSDC } from "@0xhoneyjar/loa-hounfour/economy"
-
-// Verify re-export resolves to the exact same type (same brand symbol)
-expectTypeOf<MicroUSDC>().toEqualTypeOf<EconomyMicroUSDC>()
-```
-
-#### 3.2.3 Negative Value Boundary Invariant (FR-7a)
-
-The invariant is enforced by the parser selection table. No runtime check needed beyond using the correct parser at each boundary:
-
-| Boundary | Parser | Negative Handling |
-|----------|--------|-------------------|
-| HTTP ingress (JWT claims, request bodies) | `parseStrictMicroUSD()` | **Rejects** — `parseMicroUsd()` returns `{ valid: false }` for negatives |
-| Billing finalize wire | `parseStrictMicroUSD()` | **Rejects** |
-| Cost ledger JSONL entries | `parseStrictMicroUSD()` | **Rejects** |
-| Internal accounting (budget.ts, ledger.ts) | `parseMicroUSD()` (local) | **Allows** — deficit tracking |
-| Persistence read (WAL, R2) | `parseMicroUSDLenient()` | **Allows** — normalization + negative |
-
-**Compile-time enforcement**: The `StrictMicroUSD` type is nominally distinct from the local `MicroUSD` type via a local unique symbol brand (`_strictMicroUSDBrand`). This is NOT a simple type alias — it provides true nominal separation so TypeScript will reject assignment of local negative-capable `MicroUSD` values to `StrictMicroUSD` parameters. Only `parseStrictMicroUSD()` can construct `StrictMicroUSD` values. A compile-time test (tsd/expectType) MUST verify that `MicroUSD` is not assignable to `StrictMicroUSD`.
-
-### 3.3 Conformance Vector Infrastructure (`tests/finn/conformance-vectors.test.ts`) — NEW
-
-**PRD**: FR-13, FR-14, FR-15
-
-```typescript
-// tests/finn/conformance-vectors.test.ts
-
-import { describe, it, expect } from "vitest"
-import { readdirSync, readFileSync, existsSync } from "node:fs"
-import { resolve, join, dirname } from "node:path"
-
-// --- Self-Verifying Vector Discovery ---
-
-import { createRequire } from "node:module"
-const require = createRequire(import.meta.url)
-
-/**
- * Resolve vectors directory via Node package resolution (NOT hardcoded
- * node_modules path). This works correctly under pnpm virtual store,
- * hoisted layouts, and CI environments (GPT finding #7).
- */
-function resolveVectorsDir(): string {
-  // Resolve the package entry point, then navigate to vectors/
-  const pkgEntry = require.resolve("@0xhoneyjar/loa-hounfour")
-  const pkgRoot = resolve(dirname(pkgEntry), "..")
-  return join(pkgRoot, "vectors")
-}
-
-/**
- * Discover all vector categories by enumerating the vectors/ directory.
- * Self-verifying: asserts count == 202, category coverage, and vector
- * identity uniqueness (each vector has a unique id field).
- */
-function discoverVectors(): Map<string, Array<{ id: string; [k: string]: unknown }>> {
-  const HOUNFOUR_VECTORS_DIR = resolveVectorsDir()
-  const categories = new Map<string, Array<{ id: string; [k: string]: unknown }>>()
-
-  // Check for manifest first (preferred — authoritative source)
-  const manifestPath = join(HOUNFOUR_VECTORS_DIR, "manifest.json")
-  if (existsSync(manifestPath)) {
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"))
-    for (const [category, vectors] of Object.entries(manifest.categories)) {
-      categories.set(category, vectors as Array<{ id: string }>)
-    }
-    return categories
-  }
-
-  // Fallback: glob discovery with deduplication
-  const entries = readdirSync(HOUNFOUR_VECTORS_DIR, { withFileTypes: true })
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    const categoryDir = join(HOUNFOUR_VECTORS_DIR, entry.name)
-    const files = readdirSync(categoryDir).filter(f => f.endsWith(".json"))
-    for (const file of files) {
-      const vectors = JSON.parse(
-        readFileSync(join(categoryDir, file), "utf-8"),
-      )
-      const existing = categories.get(entry.name) ?? []
-      const vectorArray = Array.isArray(vectors) ? vectors : [vectors]
-      categories.set(entry.name, [...existing, ...vectorArray])
-    }
-  }
-
-  return categories
-}
-
-describe("Conformance Vector Infrastructure", () => {
-  const categories = discoverVectors()
-  const allVectors = Array.from(categories.values()).flat()
-  const totalCount = allVectors.length
-
-  // FR-13: Assert total count == 202
-  it("loads exactly 202 conformance vectors", () => {
-    expect(totalCount).toBe(202)
-  })
-
-  // FR-13: Assert category coverage (minimum required categories)
-  it("includes required categories", () => {
-    const categoryNames = Array.from(categories.keys())
-    expect(categoryNames).toContain("jwt")
-    // Assert new v7.1.0-v7.9.2 categories are present
-    // (exact names discovered during Sprint 1 resolution audit)
-  })
-
-  // Vector identity uniqueness: prevent accidental duplication
-  it("all vectors have unique ids", () => {
-    const ids = allVectors.map(v => v.id).filter(Boolean)
-    const uniqueIds = new Set(ids)
-    expect(uniqueIds.size).toBe(ids.length)
-  })
-
-  // FR-15: Each category must have at least 1 vector
-  for (const [category, vectors] of categories) {
-    it(`category "${category}" has at least 1 vector (not empty)`, () => {
-      expect(vectors.length).toBeGreaterThan(0)
-    })
-  }
-})
-```
-
-**Per-category test files**: Each discovered category gets its own `describe` block within this file. The JWT category delegates to the existing `jwt-auth.test.ts` test infrastructure. New categories (billing, economic-boundary, constraint) get dedicated assertion logic based on the vector schema.
-
-**Existing JWT test modification** (`tests/finn/jwt-auth.test.ts:31`): Update the vector loading path to use the shared discovery function. The existing vector-specific assertions remain unchanged — only the loading mechanism is shared.
-
-### 3.4 Type System Adoption (`src/hounfour/types.ts`, `src/hounfour/jwt-auth.ts`) — MODIFY
-
-**PRD**: FR-8, FR-10
-
-#### 3.4.1 Extended Types (`src/hounfour/types.ts`)
-
-Add protocol type imports for use across the codebase:
-
-```typescript
-// New imports at top of types.ts
-import type {
-  ConstraintOrigin,
-  ReputationStateName,
-  EconomicBoundaryEvaluationResult,
-} from "@0xhoneyjar/loa-hounfour"
-import type { ModelEconomicProfileSchema } from "@0xhoneyjar/loa-hounfour/economy"
-
-// Re-export for use by other modules
-export type { ConstraintOrigin, ReputationStateName }
-
-// Extend TenantContext with economic boundary result
-export interface TenantContext {
-  claims: JWTClaims
-  resolvedPools: readonly PoolId[]
-  requestedPool?: PoolId | null
-  isNFTRouted: boolean
-  isBYOK: boolean
-  /** Set by economic boundary middleware (step 2 in choreography) */
-  economicBoundary?: EconomicBoundaryEvaluationResult
-}
-```
-
-#### 3.4.2 JTI Policy Validation (`src/hounfour/jwt-auth.ts`)
-
-```typescript
-import { JTI_POLICY } from "@0xhoneyjar/loa-hounfour/economy"
-
-// --- Effective JTI Policy (single source of truth at runtime) ---
-
-const LOCAL_JTI_WINDOW_SECONDS = 300 // 5 min (existing)
-const LOCAL_JTI_REQUIRED = true      // existing default
-
-/**
- * Effective JTI policy: the STRICTER of local and protocol values.
- * One-way ratchet — never relaxes security. This value is wired into
- * the JTI cache TTL and the replay check function (GPT finding #8).
- *
- * window_seconds is the REPLAY CACHE duration: larger = stricter
- * (covers longer replay horizon). Use Math.max to take the stricter
- * of local and protocol values. (Flatline SKP-008)
- */
-export const EFFECTIVE_JTI_POLICY = {
-  window_seconds: Math.max(LOCAL_JTI_WINDOW_SECONDS, JTI_POLICY.window_seconds),
-  required: LOCAL_JTI_REQUIRED || JTI_POLICY.required,
-} as const
-
-// Log if effective policy differs from either source
-if (EFFECTIVE_JTI_POLICY.window_seconds !== LOCAL_JTI_WINDOW_SECONDS) {
-  console.warn(
-    `[jwt-auth] JTI window tightened: local=${LOCAL_JTI_WINDOW_SECONDS}s, ` +
-    `protocol=${JTI_POLICY.window_seconds}s, effective=${EFFECTIVE_JTI_POLICY.window_seconds}s`
+if (NATIVE_ENFORCEMENT_ENABLED && typeof evaluateNativeEnforcement !== "function") {
+  throw new Error(
+    "[pool-enforcement] FATAL: NATIVE_ENFORCEMENT_ENABLED=true but evaluateNativeEnforcement " +
+    "is not available from @0xhoneyjar/loa-hounfour. Upgrade dependency or disable flag."
   )
 }
 ```
 
-**Enforcement wiring**: `EFFECTIVE_JTI_POLICY.window_seconds` is used as:
-1. The Redis TTL for JTI replay keys (`x402:jti:{jti}`, TTL = `window_seconds + 30s` skew buffer)
-2. The max-age check in `isJtiRequired()` — tokens with jti older than `window_seconds` are rejected
-3. The JTI required flag in `validateJWT()` — when `EFFECTIVE_JTI_POLICY.required === true`, tokens without jti are rejected
+The point is: **static imports fail at build time; flag-gated usage fails at startup — never at traffic time**.
 
-**Required test**: A token with jti replayed after `LOCAL_JTI_WINDOW_SECONDS` but within `EFFECTIVE_JTI_POLICY.window_seconds` (when protocol window is larger) MUST be rejected — proving the effective (stricter/larger) replay cache window is enforced, not the local fallback.
-
-### 3.5 Protocol Handshake Update (`src/hounfour/protocol-handshake.ts`) — MODIFY
-
-**PRD**: FR-16, FR-17, FR-17a
-
-#### 3.5.1 Extended PeerFeatures Interface
-
-Replace the current `PeerFeatures` interface (line 41-44) and `detectPeerFeatures()` function (lines 232-237):
-
+**economic-boundary.ts** — Remove `EvaluationResultWithDenials` local type patch:
 ```typescript
-/** Feature detection based on remote version (FR-17: semver-derived). */
-export interface PeerFeatures {
-  /** Remote supports trust_scopes (introduced v6.0.0). */
-  trustScopes: boolean
-  /** Remote supports capability-scoped trust (introduced v7.6.0). */
-  capabilityScopedTrust: boolean
-  /** Remote supports economic boundary evaluation (introduced v7.9.0). */
-  economicBoundary: boolean
-  /** Remote supports constraint origin provenance (introduced v7.9.0). */
-  constraintOrigin: boolean
+// BEFORE: Local type extension (workaround for upstream gap)
+type EvaluationResultWithDenials = EconomicBoundaryEvaluationResult & {
+  denial_codes?: DenialCode[]
 }
 
-/**
- * Feature introduction version registry.
- * Each feature maps to the semver where it was introduced.
- * Derived from protocol changelog, NOT hardcoded booleans.
- */
-const FEATURE_VERSIONS: Record<keyof PeerFeatures, { major: number; minor: number }> = {
-  trustScopes: { major: 6, minor: 0 },
-  capabilityScopedTrust: { major: 7, minor: 6 },
-  economicBoundary: { major: 7, minor: 9 },
-  constraintOrigin: { major: 7, minor: 9 },
-} as const
+// AFTER: Use upstream type directly (v7.11.0 includes denial_codes)
+// All usages of EvaluationResultWithDenials -> EconomicBoundaryEvaluationResult
+```
 
-/**
- * Detect peer features from remote contract version.
- *
- * FR-17: Derived from semver comparison, not hardcoded booleans.
- * Each feature is enabled when remote version >= feature introduction version.
- *
- * FAIL-CLOSED on parse failure: if remoteVersion is malformed or contains
- * prerelease tags, all features default to false with a warning log.
- * Prerelease versions (e.g., 7.9.0-rc.1) are treated as LESS THAN the
- * release version per semver spec — they do NOT satisfy >= 7.9.0.
- */
+If upstream v7.11.0 still does not include `denial_codes` in the exported type, retain the local extension with updated comment.
+
+**Feature flag bootstrap** — Add to module scope in a new section at top of `economic-boundary.ts`:
+```typescript
+export const TASK_DIMENSIONAL_REPUTATION_ENABLED =
+  process.env.TASK_DIMENSIONAL_REPUTATION_ENABLED === "true"
+
+export const OPEN_TASK_TYPES_ENABLED =
+  process.env.OPEN_TASK_TYPES_ENABLED === "true"
+```
+
+Similarly in `pool-enforcement.ts`:
+```typescript
+export const NATIVE_ENFORCEMENT_ENABLED =
+  process.env.NATIVE_ENFORCEMENT_ENABLED === "true"
+```
+
+And in `audit-trail.ts`:
+```typescript
+const PROTOCOL_HASH_CHAIN_ENABLED =
+  process.env.PROTOCOL_HASH_CHAIN_ENABLED === "true"
+```
+
+### 4.2 FR-2: Protocol Handshake Extension (`protocol-handshake.ts`)
+
+#### 4.2.1 PeerFeatures Interface Extension
+
+Add 3 new fields to the existing interface:
+```typescript
+export interface PeerFeatures {
+  // Existing (unchanged)
+  trustScopes: boolean
+  reputationGated: boolean
+  compoundPolicies: boolean
+  economicBoundary: boolean
+  denialCodes: boolean
+  // New (v7.10.0+)
+  taskDimensionalReputation: boolean   // v7.10.0+
+  hashChain: boolean                    // v7.10.1+
+  openTaskTypes: boolean                // v7.11.0+
+}
+```
+
+#### 4.2.2 FEATURE_THRESHOLDS Extension
+
+Add entries for new features:
+```typescript
+export const FEATURE_THRESHOLDS = {
+  // Existing (unchanged)
+  trustScopes:      { major: 6, minor: 0, patch: 0 },
+  reputationGated:  { major: 7, minor: 3, patch: 0 },
+  compoundPolicies: { major: 7, minor: 4, patch: 0 },
+  economicBoundary: { major: 7, minor: 7, patch: 0 },
+  denialCodes:      { major: 7, minor: 9, patch: 1 },
+  // New
+  taskDimensionalReputation: { major: 7, minor: 10, patch: 0 },
+  hashChain:                 { major: 7, minor: 10, patch: 1 },
+  openTaskTypes:             { major: 7, minor: 11, patch: 0 },
+} as const satisfies Record<keyof PeerFeatures, { major: number; minor: number; patch: number }>
+```
+
+#### 4.2.3 Dual-Strategy Detection
+
+Modify `detectPeerFeatures()` to implement the dual-strategy approach. The function retains its `PeerFeatures` return type (no new return type introduced). Detection methods are logged as a side effect for observability.
+
+```typescript
+export type DetectionMethod = "capability" | "semver" | "legacy_field" | "unknown"
+
 function detectPeerFeatures(
   remoteVersion: string,
-  _healthData: Record<string, unknown>,
+  healthData: Record<string, unknown>,
 ): PeerFeatures {
-  const ALL_FALSE: PeerFeatures = {
-    trustScopes: false,
-    capabilityScopedTrust: false,
-    economicBoundary: false,
-    constraintOrigin: false,
-  }
+  // 1. Try capability-based detection (primary)
+  const capabilities = healthData.capabilities
+  const hasCapabilities = Array.isArray(capabilities)
 
-  let remote: { major: number; minor: number; patch: number }
+  // 2. Try semver-based detection (fallback)
+  let remote: { major: number; minor: number; patch: number } | null = null
   try {
     remote = parseSemver(remoteVersion)
   } catch {
-    console.warn(
-      `[protocol-handshake] Failed to parse remote version "${remoteVersion}" ` +
-      `— defaulting all features to false (fail-closed)`
-    )
-    return ALL_FALSE
+    // Unparsable version -- semver fallback unavailable
   }
 
-  // Prerelease detection: if version string contains "-" after patch,
-  // treat as pre-release (features not yet stable)
-  const isPrerelease = /^\d+\.\d+\.\d+-.+/.test(remoteVersion)
+  // Track methods for observability logging (not returned, logged only)
+  const methods: Partial<Record<keyof PeerFeatures, DetectionMethod>> = {}
 
-  const gte = (target: { major: number; minor: number }) => {
-    // Prerelease of the exact target version does NOT satisfy >= target
-    if (isPrerelease && remote.major === target.major && remote.minor === target.minor) {
-      return false
+  /**
+   * Detect a feature using the three-strategy cascade:
+   * 1. capabilities array (explicit peer advertisement)
+   * 2. semver threshold (FEATURE_THRESHOLDS comparison)
+   * 3. unknown (conservative false)
+   *
+   * For trustScopes only: also checks legacy health response field.
+   */
+  const detectFeature = (
+    featureName: keyof PeerFeatures,
+    capabilityKey: string,
+    legacyHealthField?: string,
+  ): boolean => {
+    // Primary: explicit capabilities array
+    if (hasCapabilities && (capabilities as string[]).includes(capabilityKey)) {
+      methods[featureName] = "capability"
+      return true
     }
-    return remote.major > target.major ||
-      (remote.major === target.major && remote.minor >= target.minor)
+
+    // Legacy field detection (trustScopes only): check for exact field
+    // with expected shape (must be a non-null object or true)
+    if (legacyHealthField && legacyHealthField in healthData) {
+      const fieldValue = healthData[legacyHealthField]
+      if (fieldValue != null && fieldValue !== false) {
+        methods[featureName] = "legacy_field"
+        return true
+      }
+    }
+
+    // Fallback: semver threshold
+    if (remote) {
+      const threshold = FEATURE_THRESHOLDS[featureName]
+      const meets = compareSemver(remote, threshold) >= 0
+      methods[featureName] = "semver"
+      return meets
+    }
+
+    // Unknown: conservative false
+    methods[featureName] = "unknown"
+    return false
   }
 
-  return {
-    trustScopes: gte(FEATURE_VERSIONS.trustScopes),
-    capabilityScopedTrust: gte(FEATURE_VERSIONS.capabilityScopedTrust),
-    economicBoundary: gte(FEATURE_VERSIONS.economicBoundary),
-    constraintOrigin: gte(FEATURE_VERSIONS.constraintOrigin),
+  const features: PeerFeatures = {
+    // Existing features -- backward compatible
+    // trustScopes has legacy field detection as explicit third strategy
+    trustScopes:      detectFeature("trustScopes", "trust_scopes", "trust_scopes"),
+    reputationGated:  detectFeature("reputationGated", "reputation_gated"),
+    compoundPolicies: detectFeature("compoundPolicies", "compound_policies"),
+    economicBoundary: detectFeature("economicBoundary", "economic_boundary"),
+    denialCodes:      detectFeature("denialCodes", "denial_codes"),
+    // New features -- no legacy field detection
+    taskDimensionalReputation: detectFeature("taskDimensionalReputation", "task_dimensional_reputation"),
+    hashChain:                 detectFeature("hashChain", "hash_chain"),
+    openTaskTypes:             detectFeature("openTaskTypes", "open_task_types"),
   }
+
+  // Log detection methods for observability (side effect, not returned)
+  const methodSummary = Object.entries(methods)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(" ")
+  console.log(`[protocol-handshake] detection: ${methodSummary}`)
+
+  return features
 }
 ```
 
-#### 3.5.2 Behavioral Compatibility Matrix (FR-17a)
+**Key design choices:**
+- **Return type remains `PeerFeatures`** — all call sites unchanged. Detection methods are logged, not returned.
+- **Legacy field detection is an explicit strategy** — only applies to `trustScopes` via the optional `legacyHealthField` parameter. Validates field value is truthy (not just key presence).
+- **Detection method tracking** uses `Partial<Record<keyof PeerFeatures, DetectionMethod>>` for type safety during construction.
 
-The `PeerFeatures` are passed to the economic boundary adapter (§3.1) to determine graceful degradation behavior:
+**Test scenarios**: v4.6.0 (all false), v7.9.2 (existing 5 true, new 3 false), v7.11.0 (all true), absent version (all false via "unknown"), unparsable version (all false via "unknown"), backported feature (capabilities says true but semver says false -> capability wins), v4.6.0 with `trust_scopes` field in health response (trustScopes = true via "legacy_field", rest false).
 
-| Feature | Finn Behavior When Peer Supports | Finn Behavior When Peer Doesn't |
-|---------|----------------------------------|--------------------------------|
-| `trustScopes` | Economic boundary uses 6D trust in TrustLayerSnapshot | Falls back to flat `trust_level` derived from tier |
-| `capabilityScopedTrust` | Populates `capability_scoped_trust` in snapshot | Omits field, economic boundary uses simpler trust model |
-| `economicBoundary` | Populates 6D trust dimensions in TrustLayerSnapshot | Uses flat `trust_level` only; evaluation still runs unconditionally (local decision engine) |
-| `constraintOrigin` | Validates `ConstraintOrigin` on incoming constraint payloads | Accepts constraints without origin metadata |
+### 4.3 FR-3: Task-Dimensional Reputation (`types.ts`, `economic-boundary.ts`)
 
-**Graceful degradation is logged, not silent**: When a feature is unavailable, a structured log message is emitted at WARN level with the feature name, remote version, and introduction version. This ensures operators can track protocol adoption across the fleet.
+#### 4.3.1 ReputationProvider Extension (`types.ts`)
 
-#### 3.5.3 Updated Log Line
+Extend the existing `ReputationProvider` interface with an optional cohort-based method. The `taskType` parameter is typed as `TaskType` (branded), not `string`.
 
 ```typescript
-// Line 131 — update log format to include new features
-console.log(
-  `[protocol-handshake] status=compatible remote=${remoteVersion} ` +
-  `trustScopes=${peerFeatures.trustScopes} ` +
-  `capabilityScopedTrust=${peerFeatures.capabilityScopedTrust} ` +
-  `economicBoundary=${peerFeatures.economicBoundary} ` +
-  `constraintOrigin=${peerFeatures.constraintOrigin}` +
-  warnSuffix
+import type { TaskType } from "./protocol-types.js"
+
+export interface ReputationProvider {
+  // Existing (unchanged)
+  getReputationBoost(tenantId: string): Promise<{ boost: number; source: string } | null>
+
+  // New: cohort-based query (optional -- callers check method existence)
+  getTaskCohortScore?(
+    tenantId: string,
+    taskType: TaskType,
+  ): Promise<{ score: number; state: string; cohort: string } | null>
+}
+```
+
+The optional method pattern means existing `ReputationProvider` implementations continue working without modification.
+
+#### 4.3.2 RequestMetadata Extension (`types.ts`)
+
+Add `task_type` to the request context using the branded type:
+```typescript
+import type { TaskType } from "./protocol-types.js"
+
+export interface RequestMetadata {
+  agent: string
+  tenant_id: string
+  nft_id: string
+  trace_id: string
+  reservation_id?: string
+  task_type?: TaskType  // Branded TaskType (parsed at wire boundary)
+}
+```
+
+Add `task_type` to `LedgerEntryV2`:
+```typescript
+export interface LedgerEntryV2 {
+  // ... existing fields ...
+  task_type?: TaskType  // Branded TaskType for dimensional attribution
+}
+```
+
+Note: `TaskType` serializes to a plain string in JSON (branded types are erased at runtime). The brand ensures that only values produced by `parseTaskType()` enter the pipeline.
+
+#### 4.3.3 Cohort-Based Economic Boundary (`economic-boundary.ts`)
+
+Modify `buildTrustSnapshot()` to accept task type and query cohort scores:
+
+```typescript
+import type { TaskType } from "./protocol-types.js"
+
+export async function buildTrustSnapshot(
+  claims: JWTClaims,
+  peerFeatures?: PeerFeatures,
+  opts?: {
+    reputationProvider?: ReputationProvider
+    reputationTimeoutMs?: number
+    taskType?: TaskType  // Branded -- not raw string
+  },
+): Promise<TrustLayerSnapshot | null> {
+  const tierMapping = TIER_TRUST_MAP[claims.tier]
+  if (!tierMapping) {
+    console.warn(`[economic-boundary] Unknown tier "${claims.tier}" -- trust snapshot unavailable`)
+    return null
+  }
+
+  // ... existing degradation logic for pre-v7.9 peers ...
+
+  // NEW: Task-dimensional reputation (when enabled + supported)
+  if (
+    TASK_DIMENSIONAL_REPUTATION_ENABLED &&
+    peerFeatures?.taskDimensionalReputation &&
+    opts?.reputationProvider?.getTaskCohortScore &&
+    opts?.taskType
+  ) {
+    try {
+      const timeoutMs = opts?.reputationTimeoutMs ?? DEFAULT_REPUTATION_TIMEOUT_MS
+      // ... timeout race pattern (same as existing) ...
+      const cohortResult = await Promise.race([
+        opts.reputationProvider.getTaskCohortScore(claims.tenant_id, opts.taskType),
+        rejectAfter(timeoutMs),
+      ])
+
+      if (cohortResult) {
+        // Shadow mode: log divergence between cohort and blended
+        if (cohortResult.score !== tierMapping.blended_score) {
+          console.log(JSON.stringify({
+            component: "economic-boundary",
+            event: "cohort_vs_blended_delta",
+            task_type: opts.taskType,
+            cohort_score: cohortResult.score,
+            blended_score: tierMapping.blended_score,
+            delta: cohortResult.score - tierMapping.blended_score,
+            cohort_state: cohortResult.state,
+            tenant_hash: hashTenantId(claims.tenant_id),
+          }))
+        }
+
+        return {
+          reputation_state: cohortResult.state as ReputationStateName,
+          blended_score: cohortResult.score,
+          snapshot_at: new Date().toISOString(),
+        }
+      }
+    } catch (err) {
+      console.warn("[economic-boundary] Task cohort query failed -- falling back to blended:", err)
+    }
+  }
+
+  // ... existing blended score logic (unchanged) ...
+}
+```
+
+**evaluateBoundary()** — Thread `taskType` through:
+```typescript
+export async function evaluateBoundary(
+  claims: JWTClaims,
+  budget: BudgetSnapshot,
+  peerFeatures?: PeerFeatures,
+  criteria?: QualificationCriteria,
+  opts?: {
+    reputationProvider?: ReputationProvider
+    reputationTimeoutMs?: number
+    taskType?: TaskType  // Branded
+  },
+): Promise<EconomicBoundaryEvaluationResult | null> {
+  const trustSnapshot = await buildTrustSnapshot(claims, peerFeatures, opts)
+  // ... rest unchanged ...
+}
+```
+
+**economicBoundaryMiddleware()** — Extract branded task type from Hono context:
+```typescript
+// Inside the handler, after extracting tenantContext:
+const taskType = c.get("taskType") as TaskType | undefined
+
+// Pass to evaluateBoundary:
+const result = await evaluateBoundary(
+  claims, budget, opts.peerFeatures, opts.criteria,
+  { reputationProvider: opts.reputationProvider, reputationTimeoutMs: opts.reputationTimeoutMs, taskType },
 )
-```
 
-### 3.6 Vocabulary & Utilities Adoption
-
-**PRD**: FR-11, FR-12
-
-These are import-and-validate changes, not new components. Each adoption follows the same pattern:
-
-1. Import the protocol function/constant
-2. Write a test that validates consistency with the local implementation
-3. Replace local implementation with protocol import (or document why not)
-
-#### 3.6.1 Cost Computation Validation (`src/hounfour/budget.ts`)
-
-```typescript
-import { computeCostMicro, computeCostMicroSafe } from "@0xhoneyjar/loa-hounfour"
-
-// In the test file: verify local computeTotalCostMicro() produces
-// identical results to protocol computeCostMicro() for the same inputs.
-// If divergence found, adopt protocol version.
-```
-
-#### 3.6.2 Billing Entry Validation (`src/billing/types.ts`)
-
-```typescript
-import { validateBillingEntry } from "@0xhoneyjar/loa-hounfour"
-
-// Add protocol-level validation as a second gate on billing entry construction.
-// Existing validation remains; protocol validation is additive (belt-and-suspenders).
-```
-
-#### 3.6.3 Access Policy Evaluation (`src/hounfour/pool-enforcement.ts`)
-
-```typescript
-import { evaluateAccessPolicy } from "@0xhoneyjar/loa-hounfour"
-
-// FR-12: Evaluate alongside existing tier checks in enforcePoolClaims().
-// ASYMMETRIC shadow mode (GPT finding #9):
-//   - Protocol ALLOWS, local DENIES → log divergence, local DENY stands (safe)
-//   - Protocol DENIES, local ALLOWS → DENY the request (fail-closed)
-//     This prevents the existing tier checks from being more permissive
-//     than the protocol policy on security-affecting conditions.
-//   - Both agree → no action needed
-```
-
-**Design note**: `evaluateAccessPolicy()` is adopted in **asymmetric shadow mode** — not pure shadow. The asymmetry ensures that when the protocol would deny but local would allow, the request is denied (fail-closed). This prevents authorization bypass during adoption. The reverse case (protocol allows, local denies) logs divergence but keeps the local denial — existing security is never relaxed.
-
-**Divergence logging**: Both divergence directions are logged with structured fields (`{direction: "protocol_stricter" | "local_stricter", pool_id, tier, policy_result}`) to enable analysis of whether local tier checks can eventually be replaced.
-
-**Config flag**: `ECONOMIC_BOUNDARY_ACCESS_POLICY_ENFORCEMENT` env var (default: `"asymmetric"`) controls behavior:
-- `"asymmetric"` (default): protocol-deny overrides local-allow; protocol-allow does not override local-deny
-- `"shadow"`: pure shadow mode — log only, no enforcement (for initial rollout validation)
-- `"full"`: protocol replaces local tier checks entirely (post-validation)
-
-Required test: simulate a case where `evaluateAccessPolicy` denies but `enforcePoolClaims` allows → assert the request is denied in `"asymmetric"` mode.
-
-#### 3.6.4 NFT ID Validation (`src/hounfour/nft-routing-config.ts`)
-
-```typescript
-import { isValidNftId, parseNftId } from "@0xhoneyjar/loa-hounfour"
-
-// Replace any local NFT ID validation with protocol equivalents.
-// These are pure validation functions with no side effects.
-```
-
-#### 3.6.5 Reputation Vocabulary (`src/hounfour/types.ts`)
-
-```typescript
-import {
-  isKnownReputationState,
-  REPUTATION_STATES,
-  REPUTATION_STATE_ORDER,
-} from "@0xhoneyjar/loa-hounfour"
-
-// Export for use in reputation-aware routing decisions.
-// isKnownReputationState() is a type guard that narrows string → ReputationStateName.
-```
-
-### 3.7 Server Middleware Wiring (`src/gateway/server.ts`) — MODIFY
-
-The only change to `server.ts` is inserting the economic boundary middleware after the existing `hounfourAuth` middleware and before the billing readiness check.
-
-Current middleware chain (relevant section):
-
-```
-hounfourAuth (pool-enforcement.ts:217)
-  ↓
-billingConservationGuard.isBillingReady() check (server.ts:197-205)
-  ↓
-createInvokeHandler (routes/invoke.ts:34)
-```
-
-New middleware chain:
-
-```
-hounfourAuth (pool-enforcement.ts:217)
-  ↓
-economicBoundaryMiddleware (economic-boundary.ts) — NEW
-  ↓
-billingConservationGuard.isBillingReady() check (server.ts:197-205)
-  ↓
-createInvokeHandler (routes/invoke.ts:34)
-```
-
-**Unconditional insertion**: The economic boundary middleware is always active regardless of `peerFeatures.economicBoundary`. It is a local decision engine — peer features only control trust dimension population (6D vs flat), not whether evaluation runs. When the peer doesn't support economic boundary (arrakis < v7.9.0), the middleware still evaluates using flat trust, ensuring fail-closed enforcement at every gate.
-
----
-
-## 4. Data Architecture
-
-### 4.1 No Schema Changes
-
-This cycle introduces no database tables, no Redis key changes, and no new persistence. All changes are in-memory type imports and function integrations.
-
-### 4.2 Conformance Vector Storage
-
-Vectors are loaded from `node_modules/@0xhoneyjar/loa-hounfour/vectors/` at test time. No vendoring required unless FR-3a resolution audit discovers that the `vectors/` directory is not exported in v7.9.2's package.json `exports` map.
-
-**Fallback plan** (if vectors are not exported): Vendor the vectors directory into `tests/fixtures/hounfour-vectors-v7.9.2/` with a pinned manifest. This is a last resort — prefer using the package's exported paths.
-
-### 4.3 WAL Compensating Entries
-
-The enforcement choreography (§2.1) specifies that when conservation guard (step 5) fails, a compensating WAL entry is written. This uses the existing WAL infrastructure (`src/persistence/wal.ts`) — no new WAL entry types needed. The compensating entry format:
-
-```typescript
-{
-  type: "billing",
-  operation: "compensate",
-  key: `conservation-fail/${billing_entry_id}`,
-  payload: {
-    billing_entry_id: string,
-    reason: "conservation_guard_failure",
-    invariant_id: string,  // e.g., "budget_conservation"
-    effective: "fail",
-    timestamp: string,
-  }
+// Include task_type in log payload (serializes to string in JSON):
+const logPayload = {
+  // ... existing fields ...
+  task_type: taskType ?? "unknown",
 }
 ```
 
-This entry already fits the existing `WAL.append(type, operation, key, payload)` signature.
+### 4.4 FR-4: Native Enforcement Path (`pool-enforcement.ts`)
 
----
+#### 4.4.1 Design
 
-## 5. Security Architecture
+Native enforcement is a **local evaluator optimization** — it calls enforcement functions directly instead of parsing expressions. The wire protocol is unchanged. This is NOT gated on `PeerFeatures` — it's controlled by a local env var.
 
-### 5.1 Negative Value Boundary Invariant
+#### 4.4.2 Implementation
 
-**Threat**: Negative MicroUSD values (deficit tracking) leak from internal accounting to strict non-negative wire boundaries, causing incorrect billing or unauthorized access.
-
-**Controls**:
-
-| Layer | Control | Enforcement |
-|-------|---------|-------------|
-| Type system | `StrictMicroUSD` vs `MicroUSD` distinct types | Compile-time — wrong type at boundary produces TS error |
-| Runtime | `parseStrictMicroUSD()` rejects negatives | Runtime — protocol `parseMicroUsd()` returns `{ valid: false }` for `"-1"` |
-| Testing | Round-trip WAL→internal→wire boundary tests | CI — property tests verify no negative leaks |
-| Code review | ESLint rule bans `parseMicroUSD()` in files outside internal accounting | CI — grep/ESLint enforcement |
-
-**Files where negative values are permitted** (exhaustive list from FR-7a):
-- `src/hounfour/budget.ts` — deficit tracking
-- `src/billing/ledger.ts` — internal ledger
-- `src/billing/ledger-v2.ts` — internal ledger v2
-- `src/billing/state-machine.ts` — state transitions may involve negative deltas
-
-**Files where negative values MUST NOT appear**:
-- Any file constructing JWT claims
-- Any file constructing HTTP response bodies
-- `src/hounfour/billing-finalize-client.ts` — cost must be non-negative
-- Any conformance vector assertion
-
-### 5.2 Branded Type Single-Source Invariant
-
-After migration (FR-9a), every branded type has exactly one source of truth:
-
-| Type | Source | Enforcement |
-|------|--------|-------------|
-| `MicroUSD` | Protocol (`BrandedMicroUSD`) | Already canonical |
-| `BasisPoints` | Protocol | Already canonical |
-| `AccountId` | Protocol | Already canonical |
-| `PoolId` | Protocol | Already canonical |
-| `MicroUSDC` | Protocol (`economy/branded-types.ts`) | **Migrated this cycle** — CI grep after Sprint 2 |
-| `CreditUnit` | Local (`wire-boundary.ts:186`) | Finn-specific, no protocol equivalent |
-
-**Post-Sprint-2 enforcement**: A CI check greps for `declare const _microUSDCBrand` — if found, the build fails. This prevents re-introduction of parallel local brand symbols.
-
-### 5.3 Enforcement Choreography Security Properties
-
-| Property | Guarantee | Test |
-|----------|-----------|------|
-| No charge without service | If provider call fails, billing finalize is not called | `tests/finn/economic-boundary.test.ts` — simulate provider error |
-| No service without authorization | Economic boundary denial → no provider call | Simulate denied evaluation → verify no model invocation |
-| No billing without conservation | Conservation failure → no billing commit | Simulate conservation failure → verify finalize not called |
-| Compensating entries on failure | Conservation failure → WAL compensating entry | Verify WAL entry exists after conservation failure |
-
----
-
-## 6. Testing Strategy
-
-### 6.1 Test Categories
-
-| Category | Files | Purpose |
-|----------|-------|---------|
-| Resolution audit | `tests/finn/resolution-audit.test.ts` (NEW) | FR-3a — verify all import specifiers resolve under v7.9.2 |
-| Conformance vectors | `tests/finn/conformance-vectors.test.ts` (NEW) | FR-13/15 — self-verifying 202-vector runner |
-| Economic boundary | `tests/finn/economic-boundary.test.ts` (NEW) | FR-4/5/5a — choreography failure simulation |
-| Strict parser | `tests/finn/wire-boundary.test.ts` (EXTEND) | FR-7/7a — negative boundary invariant |
-| Branded migration | `tests/finn/branded-type-migration.test.ts` (NEW) | FR-9/9a — type provenance verification |
-| Handshake features | `tests/finn/protocol-handshake.test.ts` (EXTEND) | FR-16/17/17a — semver detection + degradation |
-| Vocabulary consistency | `tests/finn/vocabulary-adoption.test.ts` (NEW) | FR-11 — local vs protocol function parity |
-| Existing regression | All existing test files | Zero regressions after bump |
-
-### 6.2 Resolution Audit Test (FR-3a)
+Add to `pool-enforcement.ts` after the existing access policy evaluation:
 
 ```typescript
-// tests/finn/resolution-audit.test.ts
+import { evaluateNativeEnforcement } from "./protocol-types.js"
 
-import { describe, it, expect } from "vitest"
-import { existsSync } from "node:fs"
+const NATIVE_ENFORCEMENT_ENABLED =
+  process.env.NATIVE_ENFORCEMENT_ENABLED === "true"
+
+const ENFORCEMENT_GEOMETRY: "expression" | "native" = (() => {
+  if (!NATIVE_ENFORCEMENT_ENABLED) return "expression"
+  const raw = process.env.ENFORCEMENT_GEOMETRY ?? "expression"
+  if (raw === "native" || raw === "expression") return raw
+  console.warn(`[pool-enforcement] Invalid ENFORCEMENT_GEOMETRY="${raw}", defaulting to "expression"`)
+  return "expression"
+})()
 
 /**
- * FR-3a: Enumerate all import specifiers used in loa-finn and verify
- * they resolve under v7.9.2's exports map.
+ * Evaluate enforcement using configured geometry.
+ * Both paths MUST produce identical AccessPolicyResult -- only execution path differs.
  *
- * This test MUST pass before any Sprint 1 adoption tasks proceed.
+ * If evaluateNativeEnforcement is undefined (upstream does not export it),
+ * falls back to expression regardless of config.
  */
-describe("Resolution Audit Gate", () => {
-  const IMPORT_SPECIFIERS = [
-    "@0xhoneyjar/loa-hounfour",
-    "@0xhoneyjar/loa-hounfour/economy",
-    // Deep paths discovered by grep:
-    // Add all paths found during Sprint 1 Task 1
-  ]
-
-  for (const specifier of IMPORT_SPECIFIERS) {
-    it(`resolves: ${specifier}`, async () => {
-      // Dynamic import to verify runtime resolution
-      const mod = await import(specifier)
-      expect(mod).toBeDefined()
-    })
+export function evaluateWithGeometry(
+  policy: Parameters<typeof evaluateAccessPolicy>[0],
+  context: AccessPolicyContext,
+): AccessPolicyResult {
+  if (ENFORCEMENT_GEOMETRY === "native" && evaluateNativeEnforcement) {
+    return evaluateNativeEnforcement(policy, context)
   }
+  return evaluateAccessPolicy(policy, context)
+}
+```
 
-  it("vectors directory exists in installed package", async () => {
-    // Use package resolution instead of hardcoded node_modules path
-    // (works under pnpm virtual store, hoisted layouts, and CI)
-    const { createRequire } = await import("node:module")
-    const { dirname, join } = await import("node:path")
-    const req = createRequire(import.meta.url)
-    const pkgEntry = req.resolve("@0xhoneyjar/loa-hounfour")
-    const vectorsDir = join(dirname(pkgEntry), "..", "vectors")
-    expect(existsSync(vectorsDir)).toBe(true)
+**Integration point**: Replace `evaluateAccessPolicy()` call in `evaluateAccessPolicyShadow()` with `evaluateWithGeometry()`.
+
+**Compatibility invariant**: Both paths MUST produce identical `AccessPolicyResult` for identical inputs. This is enforced as a hard CI gate (correctness assertion). Performance is measured separately.
+
+#### 4.4.3 CI Benchmark Strategy
+
+**Correctness = hard gate. Performance = reported metric (non-blocking).**
+
+Add to existing test suite (not a new file):
+```typescript
+// In tests/hounfour/pool-enforcement.test.ts
+describe("native enforcement", () => {
+  // HARD GATE: correctness equivalence
+  it("native produces identical results to expression for all inputs", () => {
+    const inputs = generateBenchmarkInputs(1000)
+    for (const input of inputs) {
+      expect(evaluateWithGeometry(input.policy, input.context))  // native
+        .toEqual(evaluateAccessPolicy(input.policy, input.context))  // expression
+    }
+  })
+
+  // REPORTED METRIC: performance (non-blocking to avoid CI flakiness)
+  it.skip("native enforcement benchmark (manual / perf job only)", () => {
+    const inputs = generateBenchmarkInputs(1000)
+    // Warmup
+    for (let i = 0; i < 3; i++) {
+      for (const input of inputs) evaluateWithGeometry(input.policy, input.context)
+    }
+    // Measure
+    const expressionMs = benchmarkExpression(inputs)
+    const nativeMs = benchmarkNative(inputs)
+    console.log(`native=${nativeMs.toFixed(2)}ms expression=${expressionMs.toFixed(2)}ms ratio=${(expressionMs/nativeMs).toFixed(1)}x`)
+    // Soft assertion: log warning if below 3x but don't fail CI
+    if (nativeMs > expressionMs / 3) {
+      console.warn(`[benchmark] native is only ${(expressionMs/nativeMs).toFixed(1)}x faster (target: 3x)`)
+    }
   })
 })
 ```
 
-### 6.3 Choreography Failure Tests (FR-5a)
+The 3x target is validated in a controlled perf job (dedicated runner, pinned Node 22, single-thread), not in general CI which runs on variable-performance shared runners.
+
+### 4.5 FR-5: Hash Chain Alignment (`audit-trail.ts`)
+
+#### 4.5.1 RFC 8785 Canonical JSON
+
+The existing `canonicalize()` function uses `JSON.stringify` with a `sortReplacer`. While this is close to RFC 8785 for ASCII-only data, it does not handle Unicode escaping correctly per RFC 8785 Section 3.2.2.2.
+
+**Decision**: Use a dedicated JCS (JSON Canonicalization Scheme) library for protocol_v1 entries. The `canonicalize` npm package implements RFC 8785 correctly. If a library dependency is rejected, implement the RFC 8785 canonicalizer with test vectors covering:
+- Unicode characters above U+FFFF (surrogate pairs)
+- Number serialization edge cases (`1e20`, `-0`)
+- Nested object key ordering
 
 ```typescript
-// tests/finn/economic-boundary.test.ts
+import canonicalize from "canonicalize"  // RFC 8785 JCS library
 
-describe("Enforcement Choreography", () => {
-  it("step 2 denial → no provider call, no billing", async () => {
-    // Setup: economic boundary returns { allowed: false, denial_codes: [...] }
-    // Action: send request through middleware chain
-    // Assert: provider.invoke() NOT called, billingFinalize.finalize() NOT called
-    // Assert: response is 403 with denial_codes
-  })
+// Legacy canonicalization (unchanged -- used for format="legacy")
+function canonicalizeLegacy(record: Record<string, unknown>): string {
+  // ... existing implementation ...
+}
 
-  it("step 5 conservation failure → no billing commit", async () => {
-    // Setup: conservation guard returns { ok: false, invariant_id: "budget_conservation" }
-    // Action: complete provider call, run conservation check
-    // Assert: billingFinalize.finalize() NOT called
-    // Assert: WAL contains compensating entry
-    // Assert: response is 500
-  })
-
-  it("step 6 finalize failure → DLQ entry", async () => {
-    // Setup: billingFinalize returns { ok: false, status: "dlq" }
-    // Action: complete full lifecycle
-    // Assert: DLQ entry created
-    // Assert: response still returns model output (best-effort billing)
-  })
-
-  it("successful full lifecycle → all 6 steps execute", async () => {
-    // Setup: all steps succeed
-    // Assert: JWT validated, boundary allowed, budget reserved,
-    //         provider called, conservation passed, billing finalized
-  })
-})
+// Protocol v1 canonicalization (RFC 8785 compliant)
+function canonicalizeProtocol(obj: Record<string, unknown>): string {
+  // Uses RFC 8785 library for deterministic cross-implementation output
+  return canonicalize(obj) as string
+}
 ```
 
-### 6.4 Simulated Peer Tests (FR-17a)
+#### 4.5.2 Finalized Record Schema
+
+Three record variants with explicit field inclusion rules:
 
 ```typescript
-// tests/finn/protocol-handshake.test.ts (extend)
+// Fields common to ALL record types
+interface AuditRecordBase {
+  seq: number
+  prevHash: string              // Previous record's hash (format-specific chain)
+  hash: string                  // This record's hash
+  hmac?: string                 // Optional HMAC signature
+  phase: AuditPhase
+  intentSeq?: number
+  ts: string
+  jobId: string
+  runUlid: string
+  templateId: string
+  action: string
+  target: string
+  params: Record<string, unknown>
+  dedupeKey?: string
+  result?: unknown
+  error?: string
+  rateLimitRemaining?: number
+  dryRun: boolean
+}
 
-describe("Semver-Derived Feature Detection", () => {
-  const cases: Array<{ version: string; expected: PeerFeatures }> = [
-    {
-      version: "4.6.0",
-      expected: {
-        trustScopes: false,
-        capabilityScopedTrust: false,
-        economicBoundary: false,
-        constraintOrigin: false,
-      },
-    },
-    {
-      version: "6.0.0",
-      expected: {
-        trustScopes: true,
-        capabilityScopedTrust: false,
-        economicBoundary: false,
-        constraintOrigin: false,
-      },
-    },
-    {
-      version: "7.0.0",
-      expected: {
-        trustScopes: true,
-        capabilityScopedTrust: false,
-        economicBoundary: false,
-        constraintOrigin: false,
-      },
-    },
-    {
-      version: "7.6.0",
-      expected: {
-        trustScopes: true,
-        capabilityScopedTrust: true,
-        economicBoundary: false,
-        constraintOrigin: false,
-      },
-    },
-    {
-      version: "7.9.2",
-      expected: {
-        trustScopes: true,
-        capabilityScopedTrust: true,
-        economicBoundary: true,
-        constraintOrigin: true,
-      },
-    },
-  ]
+// Legacy format (pre-migration and flags-off)
+interface LegacyAuditRecord extends AuditRecordBase {
+  format?: undefined | "legacy"   // Absent for pre-migration records
+}
 
-  for (const { version, expected } of cases) {
-    it(`v${version} → correct feature flags`, () => {
-      const features = detectPeerFeatures(version, {})
-      expect(features).toEqual(expected)
-    })
-  }
+// Protocol v1 format (post-migration)
+interface ProtocolV1AuditRecord extends AuditRecordBase {
+  format: "protocol_v1"
+  envelope_version: 1
+  payload_hash: string           // SHA-256 of canonicalized payload
+  prevHashProtocol: string       // Protocol chain previous hash
+  prevHashLegacy?: string        // Legacy chain previous hash (dual-write only)
+}
+
+// Bridge record (marks migration point)
+interface BridgeAuditRecord extends ProtocolV1AuditRecord {
+  action: "hash_chain_migration"
+  legacy_chain_tip: string       // Hash of last legacy record before bridge
+}
+
+// Union type for all record variants
+export type AuditRecord = LegacyAuditRecord | ProtocolV1AuditRecord | BridgeAuditRecord
+```
+
+**Field inclusion rules for hash computation:**
+
+| Computation | Included Fields | Excluded Fields |
+|-------------|-----------------|-----------------|
+| Legacy hash | All AuditRecordBase fields except `hash`, `hmac` | `hash`, `hmac` |
+| Protocol payload_hash | `action`, `target`, `params`, `ts`, `phase`, `dryRun`, `result`, `error` | All envelope/chain fields |
+| Protocol entry hash | `prevHashProtocol` + envelope (see 4.5.3) | `hash`, `hmac`, `prevHashLegacy` |
+
+#### 4.5.3 Hash Computation (Protocol v1)
+
+Precise, language-agnostic hash input specification:
+
+```
+payload_hash = SHA-256(canonical_jcs(payload_fields))
+
+envelope = canonical_jcs({
+  version: 1,
+  algo: "sha256",
+  format: "protocol_v1",
+  timestamp: <ISO-8601>,
+  action: <string>,
+  payload_hash: <hex string>
 })
+
+entry_hash = SHA-256(prev_hash_protocol_hex + "\n" + envelope)
+```
+
+Where:
+- `canonical_jcs` = RFC 8785 JSON Canonicalization Scheme (via `canonicalize` npm package)
+- `prev_hash_protocol_hex` = lowercase hex-encoded SHA-256 hash of previous protocol_v1 entry (or the literal string `"genesis"` for bridge entry)
+- `"\n"` = literal newline character (byte 0x0A) as separator (unambiguous, not boolean-or)
+- `payload_fields` = `{ action, target, params, ts, phase, dryRun, result?, error? }` (excluding all envelope/chain fields)
+- All hash outputs are lowercase hex strings (64 characters for SHA-256)
+
+**Formal hash input specification (SKP-003 addressed)**:
+
+To eliminate ambiguity between writer and verifier, the exact byte sequence for each hash is:
+
+| Hash | Exact Input Bytes |
+|------|-------------------|
+| `payload_hash` | `SHA-256(canonical_jcs({ action, target, params, ts, phase, dryRun [, result] [, error] }))` |
+| `entry_hash` | `SHA-256(utf8_bytes(prev_hash_hex) + 0x0A + utf8_bytes(canonical_jcs(envelope)))` |
+| `legacy_hash` | `SHA-256(canonical_legacy({ ...base_fields_except_hash_and_hmac }))` |
+
+**Field presence rules for hash inputs**:
+- `result`: Included in payload hash **only if present and not `undefined`**. `null` IS included (canonicalizes to `null`). `undefined` fields are omitted from the object before canonicalization.
+- `error`: Same rule as `result` — included only if present and not `undefined`.
+- `prevHashLegacy`: NEVER included in protocol entry hash computation. It is a metadata field for verifiers only.
+- `hmac`: NEVER included in any hash computation. Computed separately over the final `hash` value.
+- Number formatting: All numbers are IEEE 754 double-precision; JCS handles serialization per RFC 8785 Section 3.2.2.3.
+- Timestamp (`ts`): Always ISO-8601 with milliseconds (`YYYY-MM-DDTHH:mm:ss.SSSZ`). Source is `new Date(this.now()).toISOString()`.
+
+**Bridge record field consistency**:
+- `prevHash`: Links to legacy chain (for legacy verifiers reading sequentially). Set to `this.lastHashLegacy`.
+- `prevHashProtocol`: Links to protocol chain. Set to `"genesis"` for the bridge entry.
+- `legacy_chain_tip`: Same value as `prevHash` on the bridge record. Explicit field for clarity.
+- `hash`: Computed via protocol entry hash formula (not legacy).
+
+**Property-based test requirement**: Tests MUST include a round-trip property test that generates random valid records, writes them via `appendRecord()`, reads them back, and verifies via `verifyChain()`. This catches any field inclusion/exclusion mismatch between writer and verifier.
+
+#### 4.5.4 Migration: Bridge Entry and Dual Pointers
+
+The AuditTrail class maintains **two independent chain tips** after migration:
+
+```typescript
+private lastHashLegacy = "genesis"     // Legacy chain tip
+private lastHashProtocol = "genesis"   // Protocol chain tip (starts at bridge)
+private migrated = false
+private dualWriteRemaining = 0
+
+private async appendBridgeEntry(): Promise<number> {
+  await this.mutex.acquire()
+  try {
+    this.seq += 1
+
+    const bridgeRecord: BridgeAuditRecord = {
+      seq: this.seq,
+      prevHash: this.lastHashLegacy,      // Links to legacy chain
+      format: "protocol_v1",
+      envelope_version: 1,
+      phase: "intent",
+      action: "hash_chain_migration",
+      target: "audit_trail",
+      params: {},
+      ts: new Date(this.now()).toISOString(),
+      jobId: this.runContext?.jobId ?? "",
+      runUlid: this.runContext?.runUlid ?? "",
+      templateId: this.runContext?.templateId ?? "",
+      dryRun: false,
+      legacy_chain_tip: this.lastHashLegacy,
+      prevHashProtocol: "genesis",        // Protocol chain starts here
+      payload_hash: "",                    // Computed below
+      hash: "",                            // Computed below
+    }
+
+    // Compute payload hash
+    bridgeRecord.payload_hash = computePayloadHash(bridgeRecord)
+
+    // Compute protocol entry hash
+    const envelope = buildEnvelope(bridgeRecord)
+    bridgeRecord.hash = sha256("genesis" + "\n" + canonicalizeProtocol(envelope))
+    bridgeRecord.prevHashProtocol = "genesis"
+
+    // Also compute legacy hash for the bridge record itself
+    bridgeRecord.prevHashLegacy = computeLegacyHash(bridgeRecord)
+
+    const line = JSON.stringify(bridgeRecord) + "\n"
+    await appendFile(this.filePath, line, "utf-8")
+
+    this.lastHashLegacy = bridgeRecord.prevHashLegacy!  // Legacy chain continues
+    this.lastHashProtocol = bridgeRecord.hash            // Protocol chain starts
+    this.migrated = true
+    this.dualWriteRemaining = DUAL_WRITE_ENTRIES
+
+    return this.seq
+  } finally {
+    this.mutex.release()
+  }
+}
+```
+
+#### 4.5.5 Dual-Write Period and Migration Irreversibility
+
+After the bridge entry, each record carries both chain pointers:
+
+```typescript
+const DUAL_WRITE_ENTRIES = parseInt(process.env.HASH_CHAIN_DUAL_WRITE_COUNT ?? "1000", 10)
+
+// In appendRecord():
+if (PROTOCOL_HASH_CHAIN_ENABLED) {
+  if (!this.migrated) {
+    await this.appendBridgeEntry()
+  }
+
+  // Protocol hash (always computed post-migration)
+  record.format = "protocol_v1"
+  record.envelope_version = 1
+  record.payload_hash = computePayloadHash(record)
+  record.prevHashProtocol = this.lastHashProtocol
+  const protocolHash = computeProtocolEntryHash(this.lastHashProtocol, record)
+  record.hash = protocolHash
+
+  // Dual-write: also maintain legacy chain pointer
+  if (this.dualWriteRemaining > 0) {
+    record.prevHashLegacy = computeLegacyHash(this.lastHashLegacy, record)
+    this.lastHashLegacy = record.prevHashLegacy
+    this.dualWriteRemaining--
+  }
+
+  this.lastHashProtocol = protocolHash
+} else if (this.migrated) {
+  // FORBIDDEN: cannot toggle off after migration without a reverse bridge entry
+  throw new Error(
+    "[audit-trail] FATAL: PROTOCOL_HASH_CHAIN_ENABLED=false but chain is already migrated. " +
+    "Toggling off would create an unverifiable gap. Set flag back to true or write a reverse bridge entry."
+  )
+} else {
+  // Legacy path (unchanged -- pre-migration)
+  record.format = "legacy"
+  // ... existing hash computation ...
+}
+```
+
+**Migration irreversibility (SKP-002 addressed)**: Once `this.migrated = true` (detected via log reconstruction at startup, see 4.5.5.1), the system enforces protocol mode. However, the enforcement is designed to be **safe during rolling deploys** rather than fatally crashing request paths:
+
+```typescript
+} else if (this.migrated) {
+  // Post-migration with flag off: force protocol mode ON rather than throwing.
+  // This handles the rolling deploy case where an older config starts a new instance.
+  // Log a critical warning — this MUST be investigated — but do not crash requests.
+  if (!this._migrationWarningEmitted) {
+    console.error(
+      "[audit-trail] CRITICAL: PROTOCOL_HASH_CHAIN_ENABLED=false but chain is already migrated. " +
+      "Forcing protocol mode to prevent chain corruption. Set flag to true or write reverse bridge entry."
+    )
+    this._migrationWarningEmitted = true
+    // Emit metric for alerting
+    emitMetric("hash_chain_forced_protocol_mode", 1)
+  }
+  // Continue in protocol mode (safe: produces valid chain entries)
+  record.format = "protocol_v1"
+  // ... protocol hash computation as above ...
+```
+
+**Coordinated rollout plan**: To enable hash chain migration safely:
+1. Deploy code with `PROTOCOL_HASH_CHAIN_ENABLED=false` to all instances
+2. Verify boot-time log reconstruction works (Section 4.5.5.1)
+3. Set `PROTOCOL_HASH_CHAIN_ENABLED=true` in config and trigger coordinated rolling restart (all instances get new config)
+4. First instance to restart with flag=true writes the bridge entry
+5. Subsequent instances reconstruct `migrated=true` from the log and continue in protocol mode
+
+If an instance starts with flag=false after migration, it detects `migrated=true` from log reconstruction and forces protocol mode on (with critical alert) rather than throwing. This prevents the rolling-deploy footgun while maintaining chain integrity.
+
+#### 4.5.5.1 Migration State Recovery on Restart (IMP-003, IMP-010)
+
+The in-memory state (`migrated`, `lastHashLegacy`, `lastHashProtocol`, `dualWriteRemaining`) is reconstructed from the audit log at process startup. This prevents duplicate bridge entries and broken chains after restarts.
+
+```typescript
+/**
+ * Reconstruct migration state by scanning the audit log.
+ * Called once during AuditTrail construction (before any appends).
+ *
+ * Invariants:
+ * - If a bridge entry exists, migrated=true and protocol chain tip is derived
+ * - dualWriteRemaining is derived from counting records with prevHashLegacy after bridge
+ * - If no bridge entry, migrated=false and all state is legacy-only
+ */
+private async reconstructStateFromLog(): Promise<void> {
+  const content = await readFile(this.filePath, "utf-8").catch(() => "")
+  if (!content) return  // Empty log: fresh state
+
+  const lines = content.trim().split("\n").filter(Boolean)
+  let sawBridge = false
+  let dualWriteCount = 0
+
+  for (const line of lines) {
+    const record = JSON.parse(line)
+    const format = record.format ?? "legacy"
+
+    this.seq = record.seq  // Track highest seq
+
+    if (format === "legacy") {
+      this.lastHashLegacy = record.hash
+    } else if (format === "protocol_v1") {
+      if (!sawBridge && record.action === "hash_chain_migration") {
+        sawBridge = true
+      }
+      this.lastHashProtocol = record.hash
+
+      // Track legacy chain during dual-write
+      if (record.prevHashLegacy) {
+        this.lastHashLegacy = record.prevHashLegacy
+        dualWriteCount++
+      }
+    }
+  }
+
+  this.migrated = sawBridge
+  // Derive remaining dual-write entries from what's been written
+  this.dualWriteRemaining = sawBridge
+    ? Math.max(0, DUAL_WRITE_ENTRIES - dualWriteCount)
+    : 0
+}
+```
+
+**Partial write recovery (SKP-004 addressed)**: Process crashes can leave a partial trailing JSON line in the audit file. The reconstruction algorithm handles this:
+
+```typescript
+// In reconstructStateFromLog():
+for (const line of lines) {
+  try {
+    const record = JSON.parse(line)
+    // ... normal processing ...
+  } catch (parseError) {
+    if (i === lines.length - 1) {
+      // Last line is corrupt — truncate to previous valid newline
+      console.error(`[audit-trail] WARNING: Truncating partial trailing line (${line.length} bytes)`)
+      const validContent = content.substring(0, content.lastIndexOf("\n", content.length - line.length - 1) + 1)
+      await writeFile(this.filePath, validContent, "utf-8")
+      emitMetric("hash_chain_partial_line_recovery", 1)
+      break
+    } else {
+      // Mid-file corruption — cannot recover, enter quarantine
+      throw new Error(`[audit-trail] FATAL: Corrupt record at line ${i + 1} (not trailing)`)
+    }
+  }
+}
+```
+
+**Boot-time verification**: After reconstruction, run `verifyChain()` on the existing log. If verification fails, the audit trail enters a quarantine mode: appends are still allowed (to avoid blocking requests) but a critical alert is emitted and the `hash_chain_verification_failure` metric fires. This ensures corruption is detected immediately rather than silently propagated.
+
+**Dual-write verifier rules (IMP-010)**: Verifiers encountering a record with `prevHashLegacy` present verify both chain pointers. Records without `prevHashLegacy` after the bridge entry indicate the dual-write period has ended — the verifier switches to protocol-chain-only verification from that point forward. The dual-write count is NOT stored as a separate field; it is derived from the presence/absence of `prevHashLegacy` on post-bridge records, making it restart-safe and unambiguous.
+
+#### 4.5.6 Shared Test Vectors
+
+File: `tests/safety/hash-chain-vectors.json` (NEW test fixture)
+
+```json
+{
+  "version": 1,
+  "description": "Shared hash chain test vectors for finn <-> arrakis cross-system validation",
+  "canonicalization": "RFC 8785 (JCS)",
+  "hash_algorithm": "SHA-256",
+  "separator": "\\n (0x0A)",
+  "vectors": [
+    {
+      "id": "legacy_genesis",
+      "format": "legacy",
+      "prev_hash": "genesis",
+      "record": {
+        "seq": 1, "phase": "intent", "action": "self_check", "target": "self",
+        "ts": "2026-01-01T00:00:00.000Z", "params": {}, "dryRun": false,
+        "jobId": "_test", "runUlid": "_test", "templateId": "_test"
+      },
+      "expected_hash": "<computed during Sprint 1>"
+    },
+    {
+      "id": "bridge_entry",
+      "format": "protocol_v1",
+      "prev_hash_legacy": "<from legacy_genesis>",
+      "prev_hash_protocol": "genesis",
+      "record": { "action": "hash_chain_migration", "target": "audit_trail" },
+      "expected_payload_hash": "<computed>",
+      "expected_entry_hash": "<computed>"
+    },
+    {
+      "id": "protocol_v1_first",
+      "format": "protocol_v1",
+      "prev_hash_protocol": "<from bridge_entry>",
+      "record": {
+        "seq": 3, "phase": "intent", "action": "test_action", "target": "test",
+        "ts": "2026-01-01T00:00:02.000Z", "params": {"key": "value"}, "dryRun": false
+      },
+      "expected_payload_hash": "<computed>",
+      "expected_entry_hash": "<computed>"
+    },
+    {
+      "id": "unicode_edge_case",
+      "format": "protocol_v1",
+      "description": "Verifies RFC 8785 Unicode handling for non-BMP characters",
+      "record": { "action": "test", "params": {"emoji": "\ud83d\ude00"} },
+      "expected_payload_hash": "<computed>"
+    }
+  ]
+}
+```
+
+Hash values will be computed during Sprint 1 implementation using the chosen JCS library and committed as the reference values.
+
+#### 4.5.7 Chain Verification Update
+
+Extend `verifyChain()` to handle both formats using the dual-pointer system:
+
+```typescript
+async verifyChain(): Promise<VerifyResult> {
+  // ... existing read logic ...
+
+  let expectedPrevHashLegacy = "genesis"
+  let expectedPrevHashProtocol = "genesis"
+  let sawBridge = false
+
+  for (let i = 0; i < lines.length; i++) {
+    const record = JSON.parse(lines[i])
+    const format = record.format ?? "legacy"
+
+    if (format === "legacy") {
+      // Verify using legacy hash computation (unchanged)
+      const canonical = canonicalizeLegacy(record)
+      const expectedHash = createHash("sha256").update(canonical).digest("hex")
+      if (record.hash !== expectedHash) { /* error */ }
+      if (record.prevHash !== expectedPrevHashLegacy) { /* error */ }
+      expectedPrevHashLegacy = record.hash
+    } else if (format === "protocol_v1") {
+      if (!sawBridge && record.action === "hash_chain_migration") {
+        sawBridge = true
+        // Verify bridge links to legacy chain tip
+        if (record.legacy_chain_tip !== expectedPrevHashLegacy) { /* error */ }
+      }
+      // Verify protocol hash
+      const expectedHash = computeProtocolEntryHash(expectedPrevHashProtocol, record)
+      if (record.hash !== expectedHash) { /* error */ }
+      expectedPrevHashProtocol = record.hash
+
+      // Verify legacy pointer during dual-write
+      if (record.prevHashLegacy) {
+        const expectedLegacy = computeLegacyHash(expectedPrevHashLegacy, record)
+        if (record.prevHashLegacy !== expectedLegacy) { /* error */ }
+        expectedPrevHashLegacy = record.prevHashLegacy
+      }
+    }
+  }
+}
+```
+
+### 4.6 FR-6: Open Task Types (`wire-boundary.ts`, `nft-routing-config.ts`, `pool-enforcement.ts`)
+
+#### 4.6.1 TaskType Branded Type Parser (`wire-boundary.ts`)
+
+Add to `wire-boundary.ts` after the PoolId section. `parseTaskType()` is finn's authoritative constructor for TaskType, regardless of whether upstream provides one.
+
+```typescript
+// ---------------------------------------------------------------------------
+// TaskType -- namespace:type branded string (v7.11.0)
+// ---------------------------------------------------------------------------
+
+import type { TaskType } from "./protocol-types.js"
+
+const TASK_TYPE_PATTERN = /^[a-z0-9_-]+:[a-z0-9_-]+$/
+const MAX_TASK_TYPE_LENGTH = 64
+
+/**
+ * Parse a raw string into a TaskType branded string.
+ * This is the SOLE CONSTRUCTOR for TaskType values in finn.
+ *
+ * Format: namespace:type (e.g., "finn:conversation", "finn:summarize")
+ * Charset: [a-z0-9_-] for both namespace and type
+ * Max length: 64 chars total
+ * Normalization: lowercase (input is lowercased before validation)
+ */
+export function parseTaskType(raw: string): TaskType {
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new WireBoundaryError("task_type", raw, "empty or non-string value")
+  }
+
+  const normalized = raw.toLowerCase()
+
+  if (normalized.length > MAX_TASK_TYPE_LENGTH) {
+    throw new WireBoundaryError("task_type", raw, `exceeds maximum length of ${MAX_TASK_TYPE_LENGTH}`)
+  }
+
+  if (!TASK_TYPE_PATTERN.test(normalized)) {
+    throw new WireBoundaryError("task_type", raw, "must match namespace:type format with charset [a-z0-9_-]")
+  }
+
+  // Cast to branded TaskType. If upstream TaskType is a branded string, this
+  // is compatible. If it's a plain string alias, the cast is a no-op.
+  return normalized as TaskType
+}
+```
+
+#### 4.6.2 Finn-Native Task Types and Registry
+
+Define finn's registered task types as pre-parsed constants:
+
+```typescript
+// In nft-routing-config.ts
+import type { TaskType } from "./protocol-types.js"
+import { parseTaskType } from "./wire-boundary.js"
+
+// Pre-parsed at module load -- validated by parseTaskType
+export const FINN_TASK_TYPES = {
+  CONVERSATION:   parseTaskType("finn:conversation"),
+  SUMMARIZE:      parseTaskType("finn:summarize"),
+  MEMORY_INJECT:  parseTaskType("finn:memory_inject"),
+  ANALYSIS:       parseTaskType("finn:analysis"),
+  ARCHITECTURE:   parseTaskType("finn:architecture"),
+  CODE:           parseTaskType("finn:code"),
+} as const
+
+/** Default task type when no routing match exists */
+export const DEFAULT_TASK_TYPE: TaskType = FINN_TASK_TYPES.CONVERSATION
+
+// Registry of known task types (finn-native + dynamically loaded)
+const KNOWN_TASK_TYPES = new Set<string>(Object.values(FINN_TASK_TYPES))
+
+/** Check if a TaskType is registered (finn-native or dynamically added) */
+export function isRegisteredTaskType(taskType: TaskType): boolean {
+  return KNOWN_TASK_TYPES.has(taskType as string)
+}
+```
+
+#### 4.6.3 NFT Routing Config Migration (`nft-routing-config.ts`)
+
+The `TaskRouting` interface is updated to accept `TaskType` branded values:
+
+```typescript
+// Legacy mapping: old string literal -> new TaskType
+const LEGACY_TASK_TYPE_MAP: Record<string, TaskType> = {
+  "chat":          FINN_TASK_TYPES.CONVERSATION,
+  "analysis":      FINN_TASK_TYPES.ANALYSIS,
+  "architecture":  FINN_TASK_TYPES.ARCHITECTURE,
+  "code":          FINN_TASK_TYPES.CODE,
+  "default":       FINN_TASK_TYPES.CONVERSATION,
+}
+
+/**
+ * Resolve legacy NFTTaskType to protocol TaskType.
+ * Used during migration period when callers haven't updated.
+ */
+export function resolveLegacyTaskType(legacy: string): TaskType {
+  const mapped = LEGACY_TASK_TYPE_MAP[legacy]
+  if (!mapped) {
+    throw new WireBoundaryError("task_type", legacy, `unknown legacy task type: "${legacy}"`)
+  }
+  return mapped
+}
+```
+
+The `NFTRoutingCache.resolvePool()` method is updated to accept `TaskType`:
+
+```typescript
+/**
+ * Resolve pool for a personality + task type.
+ * Returns null if personality not found OR no routing for this task type.
+ * Caller MUST handle null (fail with routing denial, never silently pick a pool).
+ */
+resolvePool(personalityId: string, taskType: TaskType): PoolId | null {
+  const personality = this.personalities.get(personalityId)
+  if (!personality) return null
+
+  // Exact match by TaskType string value
+  const poolId = personality.task_routing[taskType as string]
+  if (poolId) return poolId
+
+  // Explicit default for this personality
+  const defaultPool = personality.task_routing[DEFAULT_TASK_TYPE as string]
+  if (defaultPool) return defaultPool
+
+  // No routing found -- caller must handle (deny or use tier default)
+  return null
+}
+```
+
+**Key change from v1**: No silent fallback to a hardcoded pool. When `resolvePool` returns `null`, the caller uses tier-based routing (existing `resolvePool` in `tier-bridge.ts`) or denies. This prevents silent misrouting under economic enforcement.
+
+#### 4.6.4 Task Type Gate (`pool-enforcement.ts` — `hounfourAuth` pipeline)
+
+The task type validation gate is placed at a **single authoritative point** in `hounfourAuth()`, immediately after JWT validation and before pool enforcement / economic boundary evaluation.
+
+```typescript
+// In hounfourAuth() middleware, after step 1 (JWT validation):
+
+// 1.5. Task Type Gate (when OPEN_TASK_TYPES_ENABLED)
+if (OPEN_TASK_TYPES_ENABLED) {
+  const rawTaskType = c.req.header("X-Task-Type")
+    ?? c.req.query("task_type")
+    ?? resolveTaskTypeFromEndpoint(c.req.path)
+
+  let taskType: TaskType
+  try {
+    taskType = parseTaskType(rawTaskType)
+  } catch {
+    return c.json({
+      error: "Bad Request",
+      code: "INVALID_TASK_TYPE",
+      message: `Invalid task type format: "${rawTaskType}"`,
+    }, 400)
+  }
+
+  // Validate task type is known or allowlisted
+  if (!isRegisteredTaskType(taskType) && !isTenantAllowlisted(claims.tenant_id, taskType)) {
+    const policy = process.env.UNKNOWN_TASK_TYPE_POLICY ?? "deny"
+    if (policy === "deny") {
+      return c.json({
+        error: "Forbidden",
+        code: "UNKNOWN_TASK_TYPE",
+        denial_code: "unknown_task_type",
+        task_type: taskType,
+      }, 403)
+    }
+    // safe_default: allow but flag for restricted routing
+    c.set("taskTypeRestricted", true)
+  }
+
+  // Set branded TaskType in Hono context for downstream consumption
+  c.set("taskType", taskType)
+}
+
+// 2. Pool enforcement (existing -- now has taskType in context)
+// ...
+```
+
+**Invariant**: When `OPEN_TASK_TYPES_ENABLED=true` and `UNKNOWN_TASK_TYPE_POLICY=deny`, unknown task types NEVER reach `selectAuthorizedPool()` or `evaluateBoundary()`. This is enforced by the gate's position before steps 2-5.
+
+**Test requirement**: A test must prove that unknown task types with `policy=deny` return 403 before any routing/enforcement code executes.
+
+#### 4.6.4.1 Tenant Task Type Allowlist (IMP-004)
+
+The `isTenantAllowlisted(tenantId, taskType)` function referenced in the task type gate must have a well-defined data source and trust model:
+
+**Data source**: Environment variable `TENANT_TASK_TYPE_ALLOWLIST` containing a JSON-encoded map:
+
+```typescript
+// Parsed once at module load (consistent with flag pattern)
+const TENANT_TASK_TYPE_ALLOWLIST: Record<string, string[]> =
+  JSON.parse(process.env.TENANT_TASK_TYPE_ALLOWLIST ?? "{}")
+
+/**
+ * Check if a specific tenant is allowlisted for an unknown task type.
+ * Returns false if allowlist is empty, tenant not listed, or task type not in list.
+ * Default-deny: absence = not allowed.
+ */
+export function isTenantAllowlisted(tenantId: string, taskType: TaskType): boolean {
+  const allowed = TENANT_TASK_TYPE_ALLOWLIST[tenantId]
+  if (!allowed) return false
+  return allowed.includes(taskType as string)
+}
+```
+
+**Example configuration:**
+```json
+{
+  "tenant_abc123": ["partner:custom_analysis", "partner:summarize_v2"],
+  "tenant_def456": ["internal:debug"]
+}
+```
+
+**Trust model and operational rules:**
+- **Default deny**: Empty allowlist or absent tenant = not allowed (no implicit grants)
+- **Update path**: Config changes via environment variable, deployed through the same rolling restart mechanism as feature flags
+- **Caching**: Parsed once at module load (same lifecycle as flags). No hot-reload.
+- **Auditability**: Allowlist grants are logged at INFO level when a request passes via allowlist (not via registry), including `tenant_id`, `task_type`, and timestamp
+- **Failure mode**: If `TENANT_TASK_TYPE_ALLOWLIST` contains invalid JSON, parse throws at module load (fail-fast, prevents startup with misconfigured allowlist)
+
+**Future consideration**: If the allowlist grows beyond ~50 entries, migrate to a database-backed lookup with TTL caching. For v7.11.0, the env var approach is sufficient given the expected tenant count.
+
+#### 4.6.5 Legacy Caller Fallback
+
+Deterministic endpoint-to-TaskType mapping for callers that don't provide a task type header:
+
+```typescript
+const ENDPOINT_TASK_TYPE_MAP: Record<string, TaskType> = {
+  "/api/v1/chat":       FINN_TASK_TYPES.CONVERSATION,
+  "/api/v1/summarize":  FINN_TASK_TYPES.SUMMARIZE,
+  "/api/v1/memory":     FINN_TASK_TYPES.MEMORY_INJECT,
+}
+
+function resolveTaskTypeFromEndpoint(path: string): string {
+  const mapped = ENDPOINT_TASK_TYPE_MAP[path]
+  return mapped ? (mapped as string) : "finn:conversation"
+}
+```
+
+#### 4.6.6 Hono Context Type Augmentation (IMP-006)
+
+To preserve the branded `TaskType` guarantee through Hono middleware context (preventing `c.get("taskType")` from returning `unknown` and requiring unsafe casts), add module augmentation:
+
+```typescript
+// In types.ts or a dedicated hono-env.d.ts
+import type { TaskType } from "./protocol-types.js"
+
+declare module "hono" {
+  interface ContextVariableMap {
+    taskType: TaskType
+    taskTypeRestricted: boolean
+  }
+}
+```
+
+This ensures `c.get("taskType")` returns `TaskType` and `c.set("taskType", value)` requires `TaskType` — compile-time enforcement that the branded type is not accidentally widened to `string` in middleware chains. Without this, every downstream `c.get("taskType")` requires `as TaskType` casts that silently defeat the branded-type boundary.
+
+### 4.7 FR-7: Goodhart Protection
+
+When `ScoringPathLog` is available from upstream, add scoring path logging to the reputation event emission:
+
+```typescript
+import type { ScoringPathLog } from "./protocol-types.js"
+
+// In economic boundary evaluation, after computing the trust snapshot:
+if (TASK_DIMENSIONAL_REPUTATION_ENABLED && scoringPathLog) {
+  console.log(JSON.stringify({
+    component: "economic-boundary",
+    event: "scoring_path",
+    task_type: taskType,
+    path: scoringPathLog,
+    tenant_hash: hashTenantId(claims.tenant_id),
+  }))
+}
+```
+
+This ensures no single metric can determine enforcement outcome alone -- the scoring path is logged for audit and analysis.
+
+---
+
+## 5. Data Flow: TaskType End-to-End (Branded)
+
+This is the critical data flow defined in PRD FR-6 and grounded in code reality. **All downstream steps use the branded `TaskType`, never raw `string`.**
+
+```
+1. INGRESS (wire-boundary.ts)
+   |
+   |  Request arrives with X-Task-Type header OR endpoint path
+   |  parseTaskType("finn:conversation") -> TaskType (branded)
+   |  OR resolveTaskTypeFromEndpoint("/api/v1/chat") -> "finn:conversation" -> parseTaskType()
+   |
+   v
+2. TASK TYPE GATE (pool-enforcement.ts, hounfourAuth step 1.5)
+   |
+   |  Validates: known OR tenant-allowlisted OR policy=safe_default
+   |  DENY with code "unknown_task_type" if policy=deny and unknown
+   |  Sets: c.set("taskType", taskType: TaskType)
+   |
+   v
+3. REQUEST CONTEXT (types.ts -> RequestMetadata)
+   |
+   |  metadata.task_type: TaskType = c.get("taskType")
+   |
+   v
+4. POOL ROUTING (nft-routing-config.ts)
+   |
+   |  NFTRoutingCache.resolvePool(personalityId, taskType: TaskType)
+   |  Returns PoolId or null (caller handles)
+   |
+   v
+5. ECONOMIC BOUNDARY (economic-boundary.ts)
+   |
+   |  evaluateBoundary(claims, budget, peerFeatures, criteria, { taskType: TaskType })
+   |  -> buildTrustSnapshot uses cohort-specific score if available
+   |  -> Shadow logs cohort vs blended delta
+   |
+   v
+6. POOL ENFORCEMENT (pool-enforcement.ts)
+   |
+   |  evaluateWithGeometry(policy, context)
+   |  -> Native or expression path (local config, wire unchanged)
+   |  -> selectAuthorizedPool(tenantContext, taskType)
+   |
+   v
+7. REPUTATION EVENT EMISSION
+   |
+   |  ReputationEvent includes task_type: TaskType for dimensional scoring
+   |  ScoringPathLog logged for Goodhart protection
+   |
+   v
+8. WAL / LEDGER (types.ts -> LedgerEntryV2)
+   |
+   |  entry.task_type: TaskType
+   |  Persisted for attribution and analytics
+   |
+   v
+9. AUDIT TRAIL (audit-trail.ts)
+   |
+   |  AuditRecord.params.task_type = taskType (serialized as string in JSON)
+   |  Hash chain includes task_type in payload hash
 ```
 
 ---
 
-## 7. Sprint Mapping
+## 6. Migration Strategy
 
-### Sprint 1: Bump + Clean + Vectors (6 tasks)
+### 6.1 Phase A: Compile-Time Upgrade (Sprint 1)
 
-| Task | FR | Files | Acceptance |
-|------|-----|-------|------------|
-| 1.1 Bump dependency to v7.9.2 tag SHA | FR-1 | `package.json` | `pnpm install` succeeds, `CONTRACT_VERSION === "7.9.2"` |
-| 1.2 Delete postinstall patch script | FR-2 | `package.json`, `scripts/patch-hounfour-dist.sh` | File deleted, `postinstall` removed, `pnpm install` clean |
-| 1.3 Resolution audit gate | FR-3, FR-3a | `tests/finn/resolution-audit.test.ts` | All import specifiers resolve, vectors directory exists |
-| 1.4 Run existing test suite | — | All test files | ~1,105 tests pass (zero regressions) |
-| 1.5 Self-verifying vector infrastructure | FR-13, FR-14, FR-15 | `tests/finn/conformance-vectors.test.ts`, `tests/finn/jwt-auth.test.ts` | 202 vectors loaded, category coverage asserted, per-category non-empty |
-| 1.6 Run 202 conformance vectors | FR-13 | `tests/finn/conformance-vectors.test.ts` | 202/202 pass |
+**Goal**: Upgrade dependency with zero behavior change.
 
-### Sprint 2: Type System + Vocabulary + Handshake (7 tasks)
+1. Update `package.json` to v7.11.0 exact commit hash
+2. Run `npm install` / `npm test` -- fix any compile errors
+3. Add new type re-exports to `protocol-types.ts` (with conditional wrappers for missing exports)
+4. Verify all expected upstream exports exist; simplify conditional wrappers to direct re-exports where confirmed
+5. Remove `EvaluationResultWithDenials` if upstream includes `denial_codes`
+6. Add feature flag env vars (all `false`)
+7. Compute and commit shared hash chain test vector values
+8. Verify all 779+ tests pass
 
-| Task | FR | Files | Acceptance |
-|------|-----|-------|------------|
-| 2.1 Add `parseStrictMicroUSD` wrapper | FR-7 | `wire-boundary.ts`, `wire-boundary.test.ts` | No cast, negative → error, positive → `StrictMicroUSD` |
-| 2.2 Negative boundary invariant tests | FR-7a | `wire-boundary.test.ts` | Round-trip WAL→internal→wire rejects negatives, property test |
-| 2.3 Migrate MicroUSDC to protocol import | FR-9, FR-9a | `wire-boundary.ts`, `branded-type-migration.test.ts` | Local brand deleted, protocol import works, re-export backward-compat |
-| 2.4 Import protocol schemas and types | FR-8, FR-10 | `types.ts`, `jwt-auth.ts`, `billing/types.ts` | Types compile, JTI_POLICY validated |
-| 2.5 Adopt vocabulary utilities | FR-11 | `budget.ts`, `pricing.ts`, `billing/types.ts`, `nft-routing-config.ts` | Protocol functions imported, consistency tests pass |
-| 2.6 Shadow-mode access policy evaluation | FR-12 | `pool-enforcement.ts` | `evaluateAccessPolicy` runs in shadow, divergence logged, zero divergence in test |
-| 2.7 Update protocol handshake feature detection | FR-16, FR-17, FR-17a | `protocol-handshake.ts`, `protocol-handshake.test.ts` | Semver-derived features, 5 simulated peer versions pass |
+**Rollback**: Revert `package.json` to previous commit hash.
 
-### Sprint 3: Decision Engine + Choreography (6 tasks)
+### 6.2 Phase B: Protocol Extension (Sprint 2)
 
-| Task | FR | Files | Acceptance |
-|------|-----|-------|------------|
-| 3.1 Economic boundary adapter + snapshot builders | FR-4, FR-5 | `economic-boundary.ts` | `buildTrustSnapshot` + `buildCapitalSnapshot` produce valid snapshots |
-| 3.2 Economic boundary middleware | FR-4 | `economic-boundary.ts`, `server.ts` | Middleware wired after auth, denial → 403 + codes |
-| 3.3 Choreography failure tests | FR-5a | `economic-boundary.test.ts` | All 4 failure scenarios pass (§6.3) |
-| 3.4 Wire economic boundary into invoke/oracle paths | FR-4 | `server.ts`, `router.ts` | Middleware active on invoke + oracle routes |
-| 3.5 Graceful degradation for pre-v7.9 peers | FR-17a | `economic-boundary.ts` | Evaluation runs unconditionally; flat trust used when `!peerFeatures.economicBoundary` |
-| 3.6 Update hounfour code reality | FR-18 | `grimoires/oracle/code-reality-hounfour.md` | Reality doc reflects v7.9.2 exports and import map |
+**Goal**: Wire new capabilities with feature flags disabled.
 
-**Total**: 19 tasks across 3 sprints. No new infrastructure — pure adoption and integration.
+1. Extend `PeerFeatures` + `FEATURE_THRESHOLDS` + dual-strategy detection
+2. Add `parseTaskType()` to `wire-boundary.ts`
+3. Add `task_type: TaskType` to `RequestMetadata` and `LedgerEntryV2`
+4. Extend `ReputationProvider` with optional `getTaskCohortScore(taskType: TaskType)`
+5. Modify `evaluateBoundary()` to thread `taskType: TaskType`
+6. Implement open task types routing in `nft-routing-config.ts`
+7. Add task type gate in `hounfourAuth()` with deny-by-default
+8. Add unknown task type denial test (proves gate runs before routing)
 
----
+**All new code paths gated on feature flags = false -> dead code until enabled.**
 
-## 8. Technical Risks & Mitigation
+### 6.3 Phase C: Internal Optimizations (Sprint 3)
 
-| # | Risk | Likelihood | Impact | Mitigation | Sprint |
-|---|------|-----------|--------|------------|--------|
-| R1 | v7.9.2 dist has unexpected export-map changes | Medium | High | FR-3a resolution audit gate — abort Sprint 1 if any path breaks | 1 |
-| R2 | Vector count != 202 or directory structure changed | Low | Medium | Self-verifying loader asserts count + category coverage | 1 |
-| R3 | MicroUSDC brand symbol mismatch causes widespread TS errors | Medium | High | Systematic migration (§3.2.2) with re-export adapters; rollback = revert import | 2 |
-| R4 | `evaluateEconomicBoundary` adds >5ms latency to request path | Low | Low | Function is pure computation; benchmark in acceptance test | 3 |
-| R5 | Handshake feature detection incorrect for edge version ranges | Low | Medium | Explicit test cases for v4.6.0, v6.0.0, v7.0.0, v7.6.0, v7.9.2 | 2 |
-| R6 | Negative values leak through new `parseStrictMicroUSD` | Low | High | Property test: any negative input → `WireBoundaryError`; `StrictMicroUSD` type prevents compile-time mixing | 2 |
-| R7 | Shadow-mode `evaluateAccessPolicy` diverges from tier checks | Medium | Low | Shadow mode only — no production impact; divergence logged for analysis | 2 |
+**Goal**: Native enforcement + hash chain migration.
+
+1. Implement `evaluateWithGeometry()` in `pool-enforcement.ts`
+2. Install `canonicalize` (RFC 8785 JCS) library
+3. Implement versioned envelope + bridge entry in `audit-trail.ts`
+4. Validate shared test vectors against JCS library output
+5. Add correctness gate for native vs expression (hard CI gate)
+6. Add performance benchmark (reported metric, non-blocking)
+7. Implement Goodhart protection scoring path logging
 
 ---
 
-*This SDD designs the minimum changes needed to fully adopt loa-hounfour v7.9.2. Every modification extends existing, tested code. No module reorganization. No new services. No new external dependencies. The goal is simple: eliminate the protocol drift table in PRD §1.2 and make loa-finn a reference consumer for arrakis to follow.*
+## 7. Testing Strategy
+
+### 7.1 Compatibility Matrix
+
+| Test Class | v7.9.2 Behavior | v7.11.0 Types | Flags Off | Flags On |
+|-----------|-----------------|---------------|-----------|----------|
+| Handshake | 5 features detected | 8 features detected | New 3 = false | New 3 = true |
+| Economic Boundary | Blended score | Cohort + blended | Blended only | Cohort preferred |
+| Pool Enforcement | Expression only | Expression + native | Expression | Native available |
+| Audit Trail | Legacy hash chain | Legacy + protocol | Legacy format | Protocol format |
+| Task Routing | String literals | TaskType branded | Legacy routing | TaskType routing |
+
+### 7.2 Test Additions by File
+
+| File | New Tests | Focus |
+|------|-----------|-------|
+| `protocol-handshake.test.ts` | ~20 | Dual-strategy detection (all 3 strategies), version scenarios |
+| `economic-boundary.test.ts` | ~25 | Cohort queries, shadow divergence, fallback |
+| `pool-enforcement.test.ts` | ~20 | Native geometry correctness, task type gate, unknown denial |
+| `wire-boundary.test.ts` | ~15 | parseTaskType validation, edge cases |
+| `nft-routing-config.test.ts` | ~15 | TaskType routing, legacy fallback, null handling |
+| `audit-trail.test.ts` | ~25 | Bridge entry, dual-write, dual-pointer verification, test vectors |
+
+### 7.3 Cross-System Validation
+
+The shared test vectors in `tests/safety/hash-chain-vectors.json` enable both finn and arrakis to validate identical hash chain computation. Vectors include Unicode edge cases (RFC 8785 Section 3.2.2.2).
+
+### 7.4 Critical Test Requirements
+
+1. **Unknown task type denial gate**: Prove unknown task types with `policy=deny` return 403 before any routing/enforcement code executes
+2. **Native enforcement correctness**: Hard CI gate proving identical results for expression and native paths across 1000+ inputs
+3. **Hash chain bridge entry**: Verify chain verifies correctly through genesis -> bridge -> protocol_v1 entries
+4. **Migration irreversibility**: Verify that toggling `PROTOCOL_HASH_CHAIN_ENABLED=false` after migration throws
+5. **Feature flag off = no change**: All tests pass identically with all flags off vs v7.9.2
+
+---
+
+## 8. Security Considerations
+
+### 8.1 Unknown Task Type Denial
+
+Default `deny` policy prevents economic bypass via arbitrary `namespace:type` minting. The `unknown_task_type` denial code is auditable and distinct from other denial reasons. The gate is placed before routing and enforcement in the `hounfourAuth()` pipeline, making bypass impossible when enabled.
+
+### 8.2 Feature Flag Safety
+
+All flags default to `false`. The deployment sequence is:
+1. Deploy code with flags off
+2. Verify all existing tests pass in production
+3. Enable flags one at a time with observability
+4. Monitor shadow mode metrics for divergence
+
+Flag changes require process restart (rolling restart via orchestrator). This is consistent with existing deployment patterns.
+
+### 8.3 Hash Chain Integrity
+
+Existing chain entries are NEVER rewritten. The bridge entry creates a deterministic transition point that both legacy and protocol verifiers can validate. The dual-pointer system (`prevHashLegacy` + `prevHashProtocol`) maintains two independently verifiable chains during the dual-write period. Migration is irreversible without a deliberate reverse bridge entry.
+
+**Single-writer deployment constraint (IMP-002)**: The in-process `Mutex` serializes appends within a single Node.js process. It does NOT protect against concurrent writes from multiple instances (e.g., during rolling deploys with a shared audit file on networked storage). The deployment model MUST ensure single-writer semantics for the audit trail:
+
+- **Preferred**: Each instance writes to its own local audit file (instance-scoped path). A periodic merge/aggregation step combines per-instance files for verification.
+- **Alternative**: If a shared file is required, use advisory file locks (`flock`) or an append-only database (e.g., SQLite WAL mode with EXCLUSIVE locking) instead of raw `appendFile`.
+- **Rolling deploy safety**: During rolling restarts, the old instance must drain and close the audit file before the new instance begins writing. The orchestrator's graceful shutdown (SIGTERM → drain → close) already provides this for single-replica deployments.
+
+If multi-replica writes to a shared file are ever needed, this MUST be revisited with a distributed locking strategy (leader election, compare-and-swap, or an external append-only log service). For the v7.11.0 upgrade scope, the single-writer constraint is sufficient and matches the existing deployment model.
+
+### 8.4 Wire Protocol Invariant
+
+Native enforcement does NOT change the wire protocol. Request/response shapes are identical regardless of local geometry choice. This is validated by correctness equality tests (hard CI gate).
+
+### 8.5 Branded Type Boundary Safety
+
+`TaskType` is branded at the wire boundary (`parseTaskType()`) and propagated through all downstream interfaces as the branded type. Raw strings cannot enter the enforcement/routing/audit pipeline without passing through the parser. This prevents bypasses via unnormalized or unparsed task type values.
+
+---
+
+## 9. Deployment & Rollback
+
+### 9.1 Deployment Order
+
+1. **Sprint 1 merge**: Dependency upgrade + feature flags + test vectors. Zero behavior change.
+2. **Sprint 2 merge**: Protocol extensions. All gated by flags = false.
+3. **Sprint 3 merge**: Internal optimizations. All gated by flags = false.
+4. **Feature enablement**: One flag at a time, monitored in shadow mode first.
+
+### 9.2 Rollback Strategies
+
+| Scenario | Action | Downtime |
+|----------|--------|----------|
+| Compile errors from upgrade | Revert `package.json` to v7.9.2 pin | None (pre-deploy) |
+| Runtime regression with flags off | Revert the merge commit | Rolling restart |
+| Regression with specific flag on | Set flag to `false` + rolling restart | Rolling restart (~30s) |
+| Hash chain corruption (pre-migration) | Set `PROTOCOL_HASH_CHAIN_ENABLED=false` + restart | Rolling restart |
+| Hash chain corruption (post-migration) | Write reverse bridge entry (manual) + restart | Manual intervention |
+
+**Important**: Flag rollback is NOT instant. It requires a rolling restart because flags are read at module load. The rolling restart takes ~30s in the current deployment model.
+
+### 9.3 Monitoring
+
+| Metric | Alert Threshold |
+|--------|-----------------|
+| `hounfour_reputation_cohort_vs_blended_delta` | Delta > 30 for > 5% of requests |
+| `economic_boundary_unknown_task_type_denial` | Spike > 10x baseline |
+| `hash_chain_verification_failure` | Any failure |
+| `native_enforcement_result_divergence` | Any divergence from expression path |
+| `handshake_detection_method_unknown` | > 50% of features detected as unknown |
+
+---
+
+## 10. Technical Risks & Mitigations
+
+| Risk | Severity | Mitigation | Detection |
+|------|----------|------------|-----------|
+| v7.11.0 type changes break compile | Medium | Exact commit pin + CHANGELOG review + conditional import wrappers | CI compile check |
+| v7.11.0 missing expected exports | Medium | Conditional import strategy with local fallbacks (Section 4.1) | Sprint 1 compile check |
+| Cohort score diverges wildly from blended | Medium | Shadow mode + delta metric + threshold alert | Observability |
+| RFC 8785 canonicalization differs from existing | Medium | Use dedicated JCS library (not handrolled) + cross-system test vectors | Test vectors |
+| Native enforcement produces different results | High | Hard CI gate: correctness equivalence assertion | Pre-merge gate |
+| CI benchmark flakiness blocks merges | Medium | Performance is non-blocking reported metric; only correctness is hard gate | Separate perf job |
+| Unknown task type flood | Medium | Deny-by-default + gate before routing | Spike alert |
+| Bridge entry corrupts chain | High | Never rewrite history + dual pointers + verification test | Chain verify on boot |
+| Feature flag rollback fails (not instant) | Low | Document: requires rolling restart (~30s) | Ops runbook |
+| Toggle hash chain off after migration | High | Runtime check throws; irreversible without reverse bridge | appendRecord() guard |
