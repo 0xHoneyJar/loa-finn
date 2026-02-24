@@ -34,7 +34,8 @@ import {
   type ReputationStateName,
   REPUTATION_STATES,
 } from "./protocol-types.js"
-import type { TaskType } from "./protocol-types.js"
+import type { TaskType, ScoringPath } from "./protocol-types.js"
+import { computeScoringPathHash, SCORING_PATH_GENESIS_HASH } from "@0xhoneyjar/loa-hounfour/governance"
 
 // --- Types ---
 
@@ -354,6 +355,35 @@ export function buildCapitalSnapshot(
   }
 }
 
+// --- Scoring Path Logging (SDD §4.7, Task 3.10 — Goodhart Protection) ---
+
+/**
+ * Emit structured scoring path log for Goodhart protection.
+ * Logs which scoring path was taken with tenant hash (no PII).
+ * Only called when TASK_DIMENSIONAL_REPUTATION_ENABLED=true.
+ */
+function emitScoringPathLog(
+  path: ScoringPath,
+  tenantId: string,
+  taskType?: string,
+  reason?: string,
+): void {
+  const tenantHash = hashTenantId(tenantId)
+  const scoredAt = new Date().toISOString()
+
+  const logEntry = {
+    component: "economic-boundary",
+    event: "scoring_path",
+    path,
+    task_type: taskType ?? null,
+    tenant_hash: tenantHash,
+    reason: reason ?? null,
+    scored_at: scoredAt,
+  }
+
+  console.log("[economic-boundary] scoring_path:", JSON.stringify(logEntry))
+}
+
 // --- Core Evaluation ---
 
 /**
@@ -393,10 +423,20 @@ export async function evaluateBoundary(
         }
         // Replace blended_score with cohort score
         trustSnapshot = { ...trustSnapshot, blended_score: cohortScore }
+        // Task 3.10: Scoring path log — cohort score available
+        emitScoringPathLog("task_cohort", claims.tenant_id, opts.taskType, "cohort score available")
+      } else {
+        // Task 3.10: Scoring path log — cohort unavailable, using blended
+        emitScoringPathLog("aggregate", claims.tenant_id, opts.taskType, "cohort unavailable, using blended")
       }
     } catch (err) {
       console.warn("[economic-boundary] Task cohort score failed — using blended:", err)
+      // Task 3.10: Scoring path log — cohort failed, falling back to blended
+      emitScoringPathLog("aggregate", claims.tenant_id, opts.taskType, "cohort query failed, using blended")
     }
+  } else if (TASK_DIMENSIONAL_REPUTATION_ENABLED) {
+    // Task 3.10: Scoring path log — no taskType or no reputationProvider
+    emitScoringPathLog("tier_default", claims.tenant_id, undefined, "task-dimensional enabled but no taskType or provider")
   }
 
   try {

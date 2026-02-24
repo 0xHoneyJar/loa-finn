@@ -357,6 +357,145 @@ export const UNKNOWN_TASK_TYPE_POLICY: "safe_default" | "deny" = (() => {
   return "safe_default"
 })()
 
+// --- Native Enforcement Path (SDD §4.4, Task 3.1) ---
+
+/**
+ * Pre-computed lookup tables for O(1) native enforcement.
+ * Built once at module load from the same tier->pool mappings as the expression path.
+ */
+const NATIVE_POOL_LOOKUP: ReadonlyMap<string, ReadonlySet<string>> = (() => {
+  const lookup = new Map<string, Set<string>>()
+  for (const tier of ["free", "pro", "enterprise"] as const) {
+    const pools = getAccessiblePools(tier)
+    lookup.set(tier, new Set(pools))
+  }
+  return lookup
+})()
+
+/**
+ * Native enforcement: direct pool enforcement using pre-computed lookup.
+ * Produces structurally identical PoolEnforcementResult to enforcePoolClaims().
+ * Lower allocation overhead: no intermediate Set per-call for membership tests,
+ * uses pre-built NATIVE_POOL_LOOKUP for O(1) membership.
+ */
+function enforcePoolClaimsNative(
+  claims: JWTClaims,
+  config?: PoolEnforcementConfig,
+): PoolEnforcementResult {
+  const tier = claims.tier
+  const poolSet = NATIVE_POOL_LOOKUP.get(tier)
+
+  if (!poolSet || poolSet.size === 0) {
+    return {
+      ok: false,
+      error: `Tier "${tier}" has no accessible pools`,
+      code: "POOL_ACCESS_DENIED",
+      details: { tier },
+    }
+  }
+
+  // Use getAccessiblePools for resolvedPools array (same order as expression path)
+  // but use poolSet for O(1) membership tests below
+  const resolvedPools = getAccessiblePools(tier)
+
+  // Validate pool_id if present
+  let requestedPool: PoolId | null = null
+  if (claims.pool_id != null && claims.pool_id !== "") {
+    if (!isValidPoolId(claims.pool_id)) {
+      return {
+        ok: false,
+        error: `Unknown pool ID: "${claims.pool_id}"`,
+        code: "UNKNOWN_POOL",
+        details: { pool_id: claims.pool_id, tier },
+      }
+    }
+    if (!poolSet.has(claims.pool_id)) {
+      return {
+        ok: false,
+        error: `Tier "${tier}" cannot access pool "${claims.pool_id}"`,
+        code: "POOL_ACCESS_DENIED",
+        details: { pool_id: claims.pool_id, tier },
+      }
+    }
+    requestedPool = parsePoolId(claims.pool_id)
+  }
+
+  // Detect allowed_pools mismatch (priority: invalid_entry > superset > subset)
+  let mismatch: PoolMismatch | null = null
+  if (claims.allowed_pools && claims.allowed_pools.length > 0) {
+    const claimedSet = new Set(claims.allowed_pools)
+
+    // Check for invalid entries first (highest priority)
+    const invalidEntries = claims.allowed_pools.filter((p) => !isValidPoolId(p))
+    if (invalidEntries.length > 0) {
+      mismatch = { type: "invalid_entry", count: invalidEntries.length, entries: invalidEntries }
+    } else {
+      // Check for superset: entries in allowed_pools NOT in resolvedPools (O(1) via poolSet)
+      const supersetEntries = claims.allowed_pools.filter((p) => !poolSet.has(p))
+      if (supersetEntries.length > 0) {
+        mismatch = { type: "superset", count: supersetEntries.length, entries: supersetEntries }
+      } else if (claimedSet.size < resolvedPools.length) {
+        // Subset: fewer unique pools claimed than tier allows
+        const diff = resolvedPools.length - claimedSet.size
+        mismatch = { type: "subset", count: diff }
+      }
+    }
+
+    // Strict mode: superset escalates to 403
+    if (config?.strictMode && mismatch?.type === "superset") {
+      return {
+        ok: false,
+        error: `Strict mode: allowed_pools claims more pools than tier "${tier}" permits`,
+        code: "POOL_ACCESS_DENIED",
+        details: { tier },
+      }
+    }
+  }
+
+  return { ok: true, resolvedPools, requestedPool, mismatch }
+}
+
+/**
+ * Evaluate pool enforcement using the configured geometry.
+ * Expression path: existing enforcePoolClaims (stable, proven).
+ * Native path: pre-computed lookup tables (lower allocation, O(1) membership).
+ *
+ * Both paths MUST produce structurally identical PoolEnforcementResult.
+ * Task 3.2 enforces this with 1000+ input correctness gate.
+ */
+export function evaluateWithGeometry(
+  claims: JWTClaims,
+  config?: PoolEnforcementConfig,
+): PoolEnforcementResult {
+  if (ENFORCEMENT_GEOMETRY === "native" && NATIVE_ENFORCEMENT_ENABLED) {
+    return enforcePoolClaimsNative(claims, config)
+  }
+  return enforcePoolClaims(claims, config)
+}
+
+/**
+ * Startup self-check: validates native enforcement is available and functional.
+ * Called at boot time when NATIVE_ENFORCEMENT_ENABLED=true.
+ * Throws if native path is misconfigured.
+ */
+export function validateNativeEnforcementAvailable(): void {
+  if (!NATIVE_ENFORCEMENT_ENABLED) return
+
+  // Verify lookup tables are populated
+  if (NATIVE_POOL_LOOKUP.size === 0) {
+    throw new Error("[pool-enforcement] FATAL: Native enforcement enabled but NATIVE_POOL_LOOKUP is empty")
+  }
+
+  // Verify at least the standard tiers exist
+  for (const tier of ["free", "pro", "enterprise"] as const) {
+    if (!NATIVE_POOL_LOOKUP.has(tier)) {
+      throw new Error(`[pool-enforcement] FATAL: Native enforcement missing lookup for tier "${tier}"`)
+    }
+  }
+
+  console.log(`[pool-enforcement] Native enforcement validated: ${NATIVE_POOL_LOOKUP.size} tiers, geometry=${ENFORCEMENT_GEOMETRY}`)
+}
+
 // --- Composed HTTP Middleware: hounfourAuth (SDD §3.1.5) ---
 
 /**

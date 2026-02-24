@@ -6,7 +6,10 @@
 // detection; HMAC provides authenticity when a signing key is configured.
 
 import { createHmac, createHash } from "node:crypto"
-import { appendFile, readFile, stat, rename } from "node:fs/promises"
+import { appendFile, readFile, stat, rename, open } from "node:fs/promises"
+// CJS module with `export default` in .d.ts — need type-level workaround for NodeNext
+import _canonicalizeJCS from "canonicalize"
+const canonicalizeJCS: (input: unknown) => string | undefined = _canonicalizeJCS as never
 
 // Simple async mutex to serialize appendRecord calls and prevent hash chain corruption.
 class Mutex {
@@ -28,6 +31,97 @@ class Mutex {
     } else {
       this.locked = false
     }
+  }
+}
+
+/**
+ * Advisory file lock for single-writer enforcement (SDD §8.3, Task 3.9).
+ * Uses flock-style locking via file descriptor exclusive mode.
+ * Prevents concurrent writers from corrupting the hash chain.
+ */
+class FileLock {
+  private fd: Awaited<ReturnType<typeof open>> | null = null
+  private lockPath: string
+  private _acquired = false
+
+  constructor(filePath: string) {
+    this.lockPath = filePath + ".lock"
+  }
+
+  get acquired(): boolean {
+    return this._acquired
+  }
+
+  /**
+   * Acquire advisory lock. Returns true if acquired, false if another writer holds it.
+   * On acquisition, writes PID to lock file for stale detection.
+   */
+  async acquire(): Promise<boolean> {
+    if (this._acquired) return true
+    try {
+      // O_WRONLY | O_CREAT | O_EXCL — fails if lock file already exists
+      this.fd = await open(this.lockPath, "wx")
+      // Write PID for stale lock detection
+      await this.fd.write(Buffer.from(String(process.pid)))
+      this._acquired = true
+      return true
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+        // Lock file exists — check if stale
+        const isStale = await this.isStale()
+        if (isStale) {
+          // Remove stale lock and retry once
+          try {
+            const { unlink } = await import("node:fs/promises")
+            await unlink(this.lockPath)
+            return this.acquire()
+          } catch {
+            return false
+          }
+        }
+        return false
+      }
+      console.error("[audit-trail] Lock acquisition error:", err)
+      return false
+    }
+  }
+
+  /**
+   * Check if the existing lock is stale (PID not running).
+   */
+  private async isStale(): Promise<boolean> {
+    try {
+      const content = await readFile(this.lockPath, "utf-8")
+      const pid = parseInt(content.trim(), 10)
+      if (isNaN(pid)) return true // Corrupt lock file
+      // Check if process is running (signal 0 = test existence)
+      try {
+        process.kill(pid, 0)
+        return false // Process is running — lock is active
+      } catch {
+        return true // Process not found — lock is stale
+      }
+    } catch {
+      return true // Can't read lock file — treat as stale
+    }
+  }
+
+  /**
+   * Release the advisory lock and remove lock file.
+   */
+  async release(): Promise<void> {
+    if (!this._acquired) return
+    try {
+      if (this.fd) {
+        await this.fd.close()
+        this.fd = null
+      }
+      const { unlink } = await import("node:fs/promises")
+      await unlink(this.lockPath)
+    } catch {
+      // Best-effort release
+    }
+    this._acquired = false
   }
 }
 
@@ -173,6 +267,135 @@ const ROTATION_THRESHOLD_BYTES = 10 * 1024 * 1024
 /** When true, new audit records use protocol_v1 envelope format with RFC 8785 JCS. Default: false. */
 export const PROTOCOL_HASH_CHAIN_ENABLED = process.env.PROTOCOL_HASH_CHAIN_ENABLED === "true"
 
+// ── Protocol v1 Envelope (SDD §4.5) ────────────────────────
+
+/** Protocol v1 envelope format for hash chain entries (SDD §4.5.1) */
+export type HashChainFormat = "legacy" | "bridge" | "protocol_v1"
+
+/** Protocol v1 envelope wrapping an audit record (SDD §4.5.2) */
+export interface ProtocolEnvelope {
+  format: "protocol_v1"
+  version: 1
+  payload_hash: string         // SHA-256 of JCS-canonicalized payload
+  prevHashProtocol: string     // Protocol chain pointer
+  prevHashLegacy?: string      // Legacy chain pointer (dual-write only)
+  entry_hash: string           // SHA-256 of JCS-canonicalized envelope (excluding entry_hash)
+  ts: string
+  seq: number
+}
+
+/** Bridge entry linking legacy chain to protocol chain (SDD §4.5.4) */
+export interface BridgeEntry {
+  format: "bridge"
+  version: 1
+  legacy_chain_tip: string     // Last legacy hash
+  protocol_genesis: string     // First protocol hash (genesis sentinel)
+  bridge_hash: string          // SHA-256 of JCS({legacy_chain_tip, protocol_genesis, ts, seq})
+  ts: string
+  seq: number
+}
+
+/** Genesis sentinel for protocol chain */
+export const PROTOCOL_GENESIS_HASH = "protocol_genesis"
+
+/**
+ * Canonicalize a record using RFC 8785 JCS (JSON Canonicalization Scheme).
+ * Uses the `canonicalize` npm package for spec-compliant deterministic serialization.
+ * Returns null if input cannot be serialized (defensive — never throws).
+ */
+export function canonicalizeProtocol(record: Record<string, unknown>): string | null {
+  try {
+    const result = canonicalizeJCS(record)
+    return result ?? null
+  } catch {
+    console.error("[audit-trail] JCS canonicalization failed for record")
+    return null
+  }
+}
+
+/**
+ * Compute SHA-256 hash of a JCS-canonicalized payload.
+ * Used for payload_hash field in protocol_v1 envelopes.
+ */
+export function computePayloadHash(payload: Record<string, unknown>): string | null {
+  const canonical = canonicalizeProtocol(payload)
+  if (!canonical) return null
+  return createHash("sha256").update(canonical).digest("hex")
+}
+
+/**
+ * Compute the entry hash for a protocol_v1 envelope.
+ * Hashes all envelope fields EXCEPT entry_hash itself (circular exclusion).
+ */
+export function computeProtocolEntryHash(envelope: Omit<ProtocolEnvelope, "entry_hash">): string | null {
+  const hashable: Record<string, unknown> = {
+    format: envelope.format,
+    version: envelope.version,
+    payload_hash: envelope.payload_hash,
+    prevHashProtocol: envelope.prevHashProtocol,
+    ts: envelope.ts,
+    seq: envelope.seq,
+  }
+  if (envelope.prevHashLegacy !== undefined) {
+    hashable.prevHashLegacy = envelope.prevHashLegacy
+  }
+  const canonical = canonicalizeProtocol(hashable)
+  if (!canonical) return null
+  return createHash("sha256").update(canonical).digest("hex")
+}
+
+/**
+ * Build a protocol_v1 envelope for an audit record payload.
+ * Computes payload_hash and entry_hash using JCS canonicalization.
+ */
+export function buildEnvelope(
+  payload: Record<string, unknown>,
+  seq: number,
+  prevHashProtocol: string,
+  ts: string,
+  prevHashLegacy?: string,
+): ProtocolEnvelope | null {
+  const payload_hash = computePayloadHash(payload)
+  if (!payload_hash) return null
+
+  const partial: Omit<ProtocolEnvelope, "entry_hash"> = {
+    format: "protocol_v1",
+    version: 1,
+    payload_hash,
+    prevHashProtocol,
+    ts,
+    seq,
+  }
+  if (prevHashLegacy !== undefined) {
+    partial.prevHashLegacy = prevHashLegacy
+  }
+
+  const entry_hash = computeProtocolEntryHash(partial)
+  if (!entry_hash) return null
+
+  return { ...partial, entry_hash }
+}
+
+/**
+ * Compute bridge entry hash (SDD §4.5.4).
+ * Hashes: legacy_chain_tip + protocol_genesis + ts + seq
+ */
+export function computeBridgeHash(
+  legacyChainTip: string,
+  protocolGenesis: string,
+  ts: string,
+  seq: number,
+): string | null {
+  const canonical = canonicalizeProtocol({
+    legacy_chain_tip: legacyChainTip,
+    protocol_genesis: protocolGenesis,
+    ts,
+    seq,
+  })
+  if (!canonical) return null
+  return createHash("sha256").update(canonical).digest("hex")
+}
+
 // ── AuditTrail ──────────────────────────────────────────────
 
 /**
@@ -191,11 +414,18 @@ export class AuditTrail {
   private lastHash = "genesis"
   private runContext: RunContext | undefined
   private readonly mutex = new Mutex()
+  private fileLock: FileLock
+  private quarantined = false
+  private migrated = false
+  private lastHashProtocol = PROTOCOL_GENESIS_HASH
+  private lastHashLegacy = "genesis"  // Mirrors lastHash for legacy chain
+  private dualWriteRemaining = 0
 
   constructor(filePath: string, options?: AuditTrailOptions) {
     this.filePath = filePath
     this.hmacKey = options?.hmacKey
     this.now = options?.now ?? Date.now
+    this.fileLock = new FileLock(filePath)
   }
 
   // ── Run context ─────────────────────────────────────────
@@ -208,6 +438,85 @@ export class AuditTrail {
   /** Clear the stored run context. (SDD §4.3) */
   clearRunContext(): void {
     this.runContext = undefined
+  }
+
+  // ── Single-writer enforcement (SDD §8.3, Task 3.9) ────
+
+  /**
+   * Acquire single-writer lock at boot time (SDD §8.3, Task 3.9).
+   * Must be called before any append operations.
+   * Returns true if lock acquired, false if another writer is active.
+   */
+  async acquireWriteLock(): Promise<boolean> {
+    const acquired = await this.fileLock.acquire()
+    if (!acquired) {
+      console.error("[audit-trail] CRITICAL: Single-writer lock acquisition failed — another writer is active. Entering quarantine mode.")
+      this.quarantined = true
+      return false
+    }
+    return true
+  }
+
+  /** Check if this trail is in quarantine mode (lock acquisition failed). */
+  isQuarantined(): boolean {
+    return this.quarantined
+  }
+
+  // ── Bridge entry (SDD §4.5.4, Task 3.5) ────────────────
+
+  /**
+   * Append a bridge entry linking legacy chain to protocol chain (SDD §4.5.4, Task 3.5).
+   * This is the point of no return for migration — after this, the protocol chain is active.
+   * Must be called exactly once during migration.
+   */
+  async appendBridgeEntry(): Promise<BridgeEntry> {
+    await this.mutex.acquire()
+    try {
+      if (this.quarantined) {
+        throw new Error("[audit-trail] Write denied: trail is in quarantine mode")
+      }
+      if (this.migrated) {
+        throw new Error("[audit-trail] Bridge entry already exists — cannot re-bridge")
+      }
+
+      this.seq += 1
+      const currentSeq = this.seq
+      const ts = new Date(this.now()).toISOString()
+
+      const bridgeHash = computeBridgeHash(this.lastHash, PROTOCOL_GENESIS_HASH, ts, currentSeq)
+      if (!bridgeHash) {
+        throw new Error("[audit-trail] Failed to compute bridge hash")
+      }
+
+      const entry: BridgeEntry = {
+        format: "bridge",
+        version: 1,
+        legacy_chain_tip: this.lastHash,
+        protocol_genesis: PROTOCOL_GENESIS_HASH,
+        bridge_hash: bridgeHash,
+        ts,
+        seq: currentSeq,
+      }
+
+      const line = JSON.stringify(entry) + "\n"
+      await appendFile(this.filePath, line, "utf-8")
+
+      // Transition state
+      this.migrated = true
+      this.lastHashProtocol = PROTOCOL_GENESIS_HASH
+      this.lastHash = bridgeHash  // Legacy chain continues through bridge hash
+      this.lastHashLegacy = bridgeHash  // Legacy pointer advances through bridge entry
+
+      // Start dual-write period
+      const dualWriteCount = parseInt(process.env.HASH_CHAIN_DUAL_WRITE_COUNT ?? "1000", 10)
+      this.dualWriteRemaining = isNaN(dualWriteCount) ? 1000 : dualWriteCount
+
+      console.log(`[audit-trail] Bridge entry appended at seq=${currentSeq}. Dual-write period: ${this.dualWriteRemaining} records.`)
+
+      return entry
+    } finally {
+      this.mutex.release()
+    }
   }
 
   // ── State recovery ──────────────────────────────────────
@@ -232,6 +541,77 @@ export class AuditTrail {
     const record: AuditRecord = JSON.parse(lastLine)
     this.seq = record.seq
     this.lastHash = record.hash
+  }
+
+  /**
+   * Reconstruct migration state from the audit log on startup (SDD §4.5.5.1, Task 3.6).
+   * Replaces recoverState() for protocol-aware chains.
+   * Handles: fresh log, bridge entry, dual-write period, post-dual-write.
+   * SKP-004: truncates partial trailing line on crash recovery.
+   */
+  async reconstructStateFromLog(): Promise<void> {
+    let content: string
+    try {
+      content = await readFile(this.filePath, "utf-8")
+    } catch {
+      // File doesn't exist — start fresh
+      return
+    }
+
+    // SKP-004: Handle partial trailing line (crash during write)
+    let lines = content.split("\n").filter((l) => l.length > 0)
+
+    // Validate last line is parseable JSON; if not, truncate it
+    if (lines.length > 0) {
+      try {
+        JSON.parse(lines[lines.length - 1])
+      } catch {
+        console.warn("[audit-trail] Truncating partial trailing line (crash recovery)")
+        lines = lines.slice(0, -1)
+        // Rewrite file without the partial line
+        const truncated = lines.join("\n") + (lines.length > 0 ? "\n" : "")
+        const { writeFile } = await import("node:fs/promises")
+        await writeFile(this.filePath, truncated, "utf-8")
+      }
+    }
+
+    if (lines.length === 0) return
+
+    // Scan all records to reconstruct state
+    let dualWriteCount = 0
+    const maxDualWrite = parseInt(process.env.HASH_CHAIN_DUAL_WRITE_COUNT ?? "1000", 10)
+    const effectiveMaxDualWrite = isNaN(maxDualWrite) ? 1000 : maxDualWrite
+
+    for (const line of lines) {
+      const record = JSON.parse(line) as Record<string, unknown>
+      this.seq = record.seq as number
+
+      if (record.format === "bridge") {
+        this.migrated = true
+        this.lastHashProtocol = PROTOCOL_GENESIS_HASH
+        this.lastHash = record.bridge_hash as string
+        this.lastHashLegacy = record.bridge_hash as string  // Legacy pointer advances through bridge entry
+      } else if (record.format === "protocol_v1") {
+        this.lastHashProtocol = record.entry_hash as string
+        if (record.prevHashLegacy !== undefined) {
+          this.lastHashLegacy = record.entry_hash as string  // Advance legacy pointer through protocol entry
+          dualWriteCount++
+        }
+        this.lastHash = record.entry_hash as string
+      } else {
+        // Legacy record
+        this.lastHash = record.hash as string
+      }
+    }
+
+    // Compute dualWriteRemaining
+    if (this.migrated) {
+      this.dualWriteRemaining = Math.max(0, effectiveMaxDualWrite - dualWriteCount)
+    }
+
+    console.log(
+      `[audit-trail] State recovered: seq=${this.seq} migrated=${this.migrated} dualWriteRemaining=${this.dualWriteRemaining}`,
+    )
   }
 
   // ── Record methods ──────────────────────────────────────
@@ -259,9 +639,9 @@ export class AuditTrail {
   // ── Chain verification ──────────────────────────────────
 
   /**
-   * Read all records and verify hash chain integrity. Returns valid=true if every
-   * record's hash matches its canonical serialization and every prevHash links to
-   * the prior record's hash. (SDD §4.3)
+   * Read all records and verify hash chain integrity for legacy, bridge, and protocol_v1
+   * records. Returns valid=true if every record's hash matches its canonical serialization
+   * and every prevHash links to the prior record's hash. (SDD §4.3, §4.5, Task 3.7)
    */
   async verifyChain(): Promise<VerifyResult> {
     const errors: string[] = []
@@ -275,10 +655,12 @@ export class AuditTrail {
     const lines = content.trim().split("\n").filter((l) => l.length > 0)
     if (lines.length === 0) return { valid: true, errors: [] }
 
-    let expectedPrevHash = "genesis"
+    let expectedLegacyPrevHash = "genesis"
+    let expectedProtocolPrevHash = PROTOCOL_GENESIS_HASH
+    let seenBridge = false
 
     for (let i = 0; i < lines.length; i++) {
-      let record: AuditRecord
+      let record: Record<string, unknown>
       try {
         record = JSON.parse(lines[i])
       } catch {
@@ -286,36 +668,125 @@ export class AuditTrail {
         continue
       }
 
-      // Verify prevHash linkage
-      if (record.prevHash !== expectedPrevHash) {
-        errors.push(
-          `Line ${i + 1} (seq ${record.seq}): prevHash mismatch — ` +
-          `expected "${expectedPrevHash}", got "${record.prevHash}"`,
-        )
-      }
+      const format = record.format as string | undefined
 
-      // Recompute hash from canonical serialization
-      const canonical = canonicalize(record as unknown as Record<string, unknown>)
-      const expectedHash = createHash("sha256").update(canonical).digest("hex")
+      if (format === "bridge") {
+        // Bridge entry verification
+        const entry = record as unknown as BridgeEntry
 
-      if (record.hash !== expectedHash) {
-        errors.push(
-          `Line ${i + 1} (seq ${record.seq}): hash mismatch — ` +
-          `expected "${expectedHash}", got "${record.hash}"`,
-        )
-      }
-
-      // Verify HMAC if present and key available
-      if (record.hmac && this.hmacKey) {
-        const expectedHmac = createHmac("sha256", this.hmacKey).update(canonical).digest("hex")
-        if (record.hmac !== expectedHmac) {
+        // Verify bridge links to legacy chain tip
+        if (entry.legacy_chain_tip !== expectedLegacyPrevHash) {
           errors.push(
-            `Line ${i + 1} (seq ${record.seq}): HMAC mismatch`,
+            `Line ${i + 1} (bridge seq ${entry.seq}): legacy_chain_tip mismatch — ` +
+            `expected "${expectedLegacyPrevHash}", got "${entry.legacy_chain_tip}"`,
           )
         }
-      }
 
-      expectedPrevHash = record.hash
+        // Verify bridge hash
+        const expectedBridgeHash = computeBridgeHash(
+          entry.legacy_chain_tip,
+          entry.protocol_genesis,
+          entry.ts,
+          entry.seq,
+        )
+        if (expectedBridgeHash !== entry.bridge_hash) {
+          errors.push(
+            `Line ${i + 1} (bridge seq ${entry.seq}): bridge_hash mismatch — ` +
+            `expected "${expectedBridgeHash}", got "${entry.bridge_hash}"`,
+          )
+        }
+
+        seenBridge = true
+        expectedLegacyPrevHash = entry.bridge_hash
+        // Protocol chain starts fresh from genesis
+        expectedProtocolPrevHash = PROTOCOL_GENESIS_HASH
+
+      } else if (format === "protocol_v1") {
+        // Protocol v1 envelope verification
+        const envelope = record as unknown as ProtocolEnvelope & { payload?: Record<string, unknown> }
+
+        // Verify protocol chain pointer
+        if (envelope.prevHashProtocol !== expectedProtocolPrevHash) {
+          errors.push(
+            `Line ${i + 1} (protocol seq ${envelope.seq}): prevHashProtocol mismatch — ` +
+            `expected "${expectedProtocolPrevHash}", got "${envelope.prevHashProtocol}"`,
+          )
+        }
+
+        // Verify legacy chain pointer during dual-write
+        if (envelope.prevHashLegacy !== undefined) {
+          if (envelope.prevHashLegacy !== expectedLegacyPrevHash) {
+            errors.push(
+              `Line ${i + 1} (protocol seq ${envelope.seq}): prevHashLegacy mismatch — ` +
+              `expected "${expectedLegacyPrevHash}", got "${envelope.prevHashLegacy}"`,
+            )
+          }
+        }
+
+        // Verify entry hash
+        const partial: Omit<ProtocolEnvelope, "entry_hash"> = {
+          format: "protocol_v1",
+          version: 1,
+          payload_hash: envelope.payload_hash,
+          prevHashProtocol: envelope.prevHashProtocol,
+          ts: envelope.ts,
+          seq: envelope.seq,
+        }
+        if (envelope.prevHashLegacy !== undefined) {
+          (partial as Record<string, unknown>).prevHashLegacy = envelope.prevHashLegacy
+        }
+        const expectedEntryHash = computeProtocolEntryHash(partial)
+        if (expectedEntryHash !== envelope.entry_hash) {
+          errors.push(
+            `Line ${i + 1} (protocol seq ${envelope.seq}): entry_hash mismatch — ` +
+            `expected "${expectedEntryHash}", got "${envelope.entry_hash}"`,
+          )
+        }
+
+        // Verify payload_hash if payload is embedded
+        if (envelope.payload) {
+          const expectedPayloadHash = computePayloadHash(envelope.payload)
+          if (expectedPayloadHash !== envelope.payload_hash) {
+            errors.push(
+              `Line ${i + 1} (protocol seq ${envelope.seq}): payload_hash mismatch`,
+            )
+          }
+        }
+
+        expectedProtocolPrevHash = envelope.entry_hash
+        expectedLegacyPrevHash = envelope.entry_hash  // Legacy pointer advances through protocol entries
+
+      } else {
+        // Legacy record verification (existing logic)
+        const legacyRecord = record as unknown as AuditRecord
+
+        if (legacyRecord.prevHash !== expectedLegacyPrevHash) {
+          errors.push(
+            `Line ${i + 1} (seq ${legacyRecord.seq}): prevHash mismatch — ` +
+            `expected "${expectedLegacyPrevHash}", got "${legacyRecord.prevHash}"`,
+          )
+        }
+
+        const canonical_str = canonicalize(record)
+        const expectedHash = createHash("sha256").update(canonical_str).digest("hex")
+
+        if (legacyRecord.hash !== expectedHash) {
+          errors.push(
+            `Line ${i + 1} (seq ${legacyRecord.seq}): hash mismatch — ` +
+            `expected "${expectedHash}", got "${legacyRecord.hash}"`,
+          )
+        }
+
+        // Verify HMAC if present and key available
+        if (legacyRecord.hmac && this.hmacKey) {
+          const expectedHmac = createHmac("sha256", this.hmacKey).update(canonical_str).digest("hex")
+          if (legacyRecord.hmac !== expectedHmac) {
+            errors.push(`Line ${i + 1} (seq ${legacyRecord.seq}): HMAC mismatch`)
+          }
+        }
+
+        expectedLegacyPrevHash = legacyRecord.hash
+      }
     }
 
     return { valid: errors.length === 0, errors }
@@ -352,9 +823,9 @@ export class AuditTrail {
 
   // ── Shutdown ────────────────────────────────────────────
 
-  /** No-op — we use appendFile (no persistent fd to close). (SDD §4.3) */
+  /** Release single-writer lock and clean up resources. (SDD §4.3, §8.3) */
   async shutdown(): Promise<void> {
-    // Intentionally empty: appendFile opens/closes per write
+    await this.fileLock.release()
   }
 
   // ── File rotation ───────────────────────────────────────
@@ -384,6 +855,7 @@ export class AuditTrail {
   /**
    * Core append logic: build a record, compute its hash (+ optional HMAC),
    * serialize to JSON, and append to the file. (SDD §4.3)
+   * Post-migration: delegates to appendProtocolRecord() for protocol_v1 format.
    */
   private async appendRecord(
     phase: AuditPhase,
@@ -392,6 +864,19 @@ export class AuditTrail {
   ): Promise<number> {
     await this.mutex.acquire()
     try {
+      if (this.quarantined) {
+        throw new Error("[audit-trail] Write denied: trail is in quarantine mode (single-writer violation)")
+      }
+
+      // Check force-protocol-mode (SKP-002)
+      if (this.migrated && !PROTOCOL_HASH_CHAIN_ENABLED) {
+        console.error("[audit-trail] CRITICAL: PROTOCOL_HASH_CHAIN_ENABLED=false but migration already complete. Force-continuing in protocol mode.")
+      }
+
+      if (this.migrated) {
+        return this.appendProtocolRecord(phase, data, intentSeq)
+      }
+
       this.seq += 1
       const currentSeq = this.seq
 
@@ -447,5 +932,61 @@ export class AuditTrail {
     } finally {
       this.mutex.release()
     }
+  }
+
+  /**
+   * Append a protocol_v1 record (post-migration) (SDD §4.5, Task 3.5).
+   * During dual-write: includes both prevHashProtocol and prevHashLegacy.
+   * Post-dual-write: includes only prevHashProtocol.
+   * NOTE: caller already holds mutex — do not re-acquire.
+   */
+  private async appendProtocolRecord(
+    phase: AuditPhase,
+    data: AuditRecordInput | AuditResultInput,
+    intentSeq?: number,
+  ): Promise<number> {
+    this.seq += 1
+    const currentSeq = this.seq
+    const ts = new Date(this.now()).toISOString()
+
+    const redactedParams = redactSecrets(data.params)
+
+    // Build payload (same structure as legacy record body)
+    const payload: Record<string, unknown> = {
+      phase,
+      jobId: this.runContext?.jobId ?? "",
+      runUlid: this.runContext?.runUlid ?? "",
+      templateId: this.runContext?.templateId ?? "",
+      action: data.action,
+      target: data.target,
+      params: redactedParams,
+      dryRun: data.dryRun ?? false,
+    }
+    if (intentSeq !== undefined) payload.intentSeq = intentSeq
+    if ("dedupeKey" in data && data.dedupeKey !== undefined) payload.dedupeKey = data.dedupeKey
+    if ("result" in data && data.result !== undefined) payload.result = data.result
+    if ("error" in data && data.error !== undefined) payload.error = data.error
+    if ("rateLimitRemaining" in data && data.rateLimitRemaining !== undefined) payload.rateLimitRemaining = data.rateLimitRemaining
+
+    // Build envelope
+    const prevHashLegacy = this.dualWriteRemaining > 0 ? this.lastHashLegacy : undefined
+    const envelope = buildEnvelope(payload, currentSeq, this.lastHashProtocol, ts, prevHashLegacy)
+    if (!envelope) {
+      throw new Error("[audit-trail] Failed to build protocol_v1 envelope")
+    }
+
+    // Write envelope + embedded payload
+    const line = JSON.stringify({ ...envelope, payload }) + "\n"
+    await appendFile(this.filePath, line, "utf-8")
+
+    // Update chain state
+    this.lastHashProtocol = envelope.entry_hash
+    this.lastHash = envelope.entry_hash
+    if (this.dualWriteRemaining > 0) {
+      this.lastHashLegacy = envelope.entry_hash
+      this.dualWriteRemaining--
+    }
+
+    return currentSeq
   }
 }
