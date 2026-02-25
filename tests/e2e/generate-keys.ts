@@ -14,8 +14,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 async function main(): Promise<void> {
-  // Generate ES256 (P-256 ECDSA) keypair
-  const { publicKey, privateKey } = await generateKeyPair("ES256");
+  // Generate ES256 (P-256 ECDSA) keypair — extractable required for PKCS8/SPKI export
+  const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
 
   // Export keys as PEM strings
   const privatePem = await exportPKCS8(privateKey);
@@ -40,14 +40,17 @@ async function main(): Promise<void> {
   fs.writeFileSync(envPath, envContent, { mode: 0o600 });
   console.log(`[generate-keys] Wrote ${envPath}`);
 
-  // Ensure .env.e2e is in .gitignore
+  // Ensure .env.e2e is in .gitignore (atomic read+append, no TOCTOU)
   const gitignorePath = path.resolve(e2eDir, "..", "..", ".gitignore");
-  if (fs.existsSync(gitignorePath)) {
+  try {
     const gitignore = fs.readFileSync(gitignorePath, "utf-8");
     if (!gitignore.includes(".env.e2e")) {
       fs.appendFileSync(gitignorePath, "\n# E2E test keys (generated)\ntests/e2e/.env.e2e\n");
       console.log("[generate-keys] Added .env.e2e to .gitignore");
     }
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // .gitignore doesn't exist — nothing to update
   }
 
   // Output PEM keys to stdout for test harness use
