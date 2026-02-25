@@ -11,6 +11,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import type { CompletionResult } from "./types.js"
 import type { ScorerFunction } from "./ensemble.js"
+import type { QualityObservation } from "@0xhoneyjar/loa-hounfour/governance"
 
 const execFileAsync = promisify(execFile)
 
@@ -39,6 +40,21 @@ export class QualityGateScorer {
   toScorerFunction(): ScorerFunction {
     return async (result: CompletionResult): Promise<number> => {
       return this.score(result)
+    }
+  }
+
+  /**
+   * Score a candidate and return a QualityObservation-conformant result.
+   * Wraps the raw score with optional timing and evaluator metadata.
+   */
+  async scoreToObservation(result: CompletionResult): Promise<QualityObservation> {
+    const startMs = Date.now()
+    const score = await this.score(result)
+    const latency_ms = Date.now() - startMs
+    return {
+      score,
+      latency_ms,
+      evaluated_by: "quality-gate-scorer",
     }
   }
 

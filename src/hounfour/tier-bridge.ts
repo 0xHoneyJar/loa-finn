@@ -13,6 +13,7 @@ import {
   tierHasAccess,
 } from "@0xhoneyjar/loa-hounfour"
 import { HounfourError } from "./errors.js"
+import { mapUnknownTaskTypeToRoutingKey } from "./nft-routing-config.js"
 
 // --- Validation ---
 
@@ -62,12 +63,14 @@ export function resolvePool(
   nftPreferences?: Record<string, string>,
 ): PoolId {
   // 1. NFT-specific preferences for this task type
-  if (nftPreferences && taskType) {
-    const preferred = nftPreferences[taskType]
+  // Map protocol TaskType to internal routing key for NFT preference lookup
+  const routingKey = taskType ? mapUnknownTaskTypeToRoutingKey(taskType) : undefined
+  if (nftPreferences && routingKey) {
+    const preferred = nftPreferences[routingKey]
     if (preferred && isValidPoolId(preferred)) {
       return preferred
     }
-    // Also try "default" key if task-specific preference not found
+    // Also try "default" key if routing-key-specific preference not found
     const defaultPreferred = nftPreferences["default"]
     if (!preferred && defaultPreferred && isValidPoolId(defaultPreferred)) {
       return defaultPreferred
