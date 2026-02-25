@@ -9,15 +9,20 @@ primary_region = "iad"
 [http_service]
   internal_port = 3000
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
   processes = ["app"]
 
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 200
+    soft_limit = 150
+
 [[vm]]
   memory = "1gb"
   cpu_kind = "shared"
-  cpus = 1
+  cpus = 2
 
 [mounts]
   source = "finn_data"
@@ -26,8 +31,8 @@ primary_region = "iad"
 [checks.health]
   port = 3000
   type = "http"
-  interval = "30s"
-  timeout = "5s"
+  interval = "10s"
+  timeout = "2s"
   grace_period = "10s"
   method = "GET"
   path = "/health"

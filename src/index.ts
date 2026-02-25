@@ -350,7 +350,26 @@ async function main() {
   let s2sSigner: import("./hounfour/s2s-jwt.js").S2SJwtSigner | undefined
   const billingUrl = process.env.ARRAKIS_BILLING_URL
   if (billingUrl && hounfour) {
-    const s2sPrivateKey = process.env.FINN_S2S_PRIVATE_KEY
+    const rawS2sPrivateKey = process.env.FINN_S2S_PRIVATE_KEY
+
+    const decodeBase64Env = (name: string, value: string) => {
+      const normalized = value.replace(/\s+/g, "")
+      const base64Re = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+      if (!base64Re.test(normalized)) {
+        throw new Error(`[finn] ${name} is not valid base64`)
+      }
+      const buf = Buffer.from(normalized, "base64")
+      if (buf.length === 0) {
+        throw new Error(`[finn] ${name} decoded to empty value`)
+      }
+      return buf.toString("utf-8")
+    }
+
+    // Support base64-encoded PEM for env var safety (multiline PEM breaks .env files)
+    const s2sKeyEncoding = (process.env.FINN_S2S_KEY_ENCODING ?? "").toLowerCase()
+    const s2sPrivateKey = rawS2sPrivateKey && s2sKeyEncoding === "base64"
+      ? decodeBase64Env("FINN_S2S_PRIVATE_KEY", rawS2sPrivateKey)
+      : rawS2sPrivateKey
     const s2sJwtSecret = process.env.FINN_S2S_JWT_SECRET
     const rawAlg = process.env.FINN_S2S_JWT_ALG
     const explicitAlg = rawAlg === "ES256" || rawAlg === "HS256" ? rawAlg : undefined

@@ -75,14 +75,14 @@ describe("T6.3 + T6.4: metricsMiddleware", () => {
   it("normalizes parameterized routes to prevent cardinality explosion", async () => {
     const app = createTestApp()
     await app.request("/api/v1/keys/key-abc123/balance")
-    await app.request("/agent/42")
+    await app.request("/agent/0xbees/42")
 
     const output = metrics.serialize()
     // Should use normalized route, not the actual tokenId/keyId
     expect(output).toContain('route="/api/v1/keys/:key_id/balance"')
-    expect(output).toContain('route="/agent/:tokenId"')
+    expect(output).toContain('route="/agent/:collection/:tokenId"')
     // Should NOT contain actual parameter values
     expect(output).not.toContain('route="/api/v1/keys/key-abc123/balance"')
-    expect(output).not.toContain('route="/agent/42"')
+    expect(output).not.toContain('route="/agent/0xbees/42"')
   })
 })

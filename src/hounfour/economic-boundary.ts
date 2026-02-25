@@ -32,30 +32,18 @@ import {
   type QualificationCriteria,
   type EconomicBoundaryEvaluationResult,
   type ReputationStateName,
-  type DenialCode,
   REPUTATION_STATES,
 } from "./protocol-types.js"
+import type { TaskType, ScoringPath } from "./protocol-types.js"
+// BB-009: Removed unused imports computeScoringPathHash, SCORING_PATH_GENESIS_HASH
+// from "@0xhoneyjar/loa-hounfour/governance" — re-add when governance scoring is wired.
 
 // --- Types ---
 
 export type EconomicBoundaryMode = "enforce" | "shadow" | "bypass"
 
-/**
- * Extended evaluation result that includes denial_codes.
- * The protocol's evaluateEconomicBoundary() returns denial_codes at runtime
- * but the exported TypeScript type does not include them yet.
- *
- * This local extension provides type-safe access without inline assertions.
- * It exists because the upstream @0xhoneyjar/loa-hounfour package's
- * EconomicBoundaryEvaluationResult type does not export denial_codes,
- * even though the runtime evaluation function populates them.
- *
- * TODO(loa-hounfour#35): Remove when upstream type includes denial_codes.
- * Filed: https://github.com/0xHoneyJar/loa-hounfour/issues/35
- */
-type EvaluationResultWithDenials = EconomicBoundaryEvaluationResult & {
-  denial_codes?: DenialCode[]
-}
+// v7.11.0: denial_codes now included in upstream EconomicBoundaryEvaluationResult.
+// Local EvaluationResultWithDenials patch removed (loa-hounfour#35 resolved).
 
 // --- Constants ---
 
@@ -112,6 +100,14 @@ export const ECONOMIC_BOUNDARY_MODE: EconomicBoundaryMode = (() => {
   )
   return "shadow"
 })()
+
+// --- v7.11.0 Feature Flags (SDD §2.2) ---
+
+/** When true, cohort queries in economic boundary prefer task-dimensional reputation. Default: false. */
+export const TASK_DIMENSIONAL_REPUTATION_ENABLED = process.env.TASK_DIMENSIONAL_REPUTATION_ENABLED === "true"
+
+/** When true, open task type routing and unknown type denial gate activate. Default: false. */
+export const OPEN_TASK_TYPES_ENABLED = process.env.OPEN_TASK_TYPES_ENABLED === "true"
 
 // --- Blended Score Weighting (Task 5.4: dynamic reputation foundation) ---
 
@@ -360,6 +356,35 @@ export function buildCapitalSnapshot(
   }
 }
 
+// --- Scoring Path Logging (SDD §4.7, Task 3.10 — Goodhart Protection) ---
+
+/**
+ * Emit structured scoring path log for Goodhart protection.
+ * Logs which scoring path was taken with tenant hash (no PII).
+ * Only called when TASK_DIMENSIONAL_REPUTATION_ENABLED=true.
+ */
+function emitScoringPathLog(
+  path: ScoringPath,
+  tenantId: string,
+  taskType?: string,
+  reason?: string,
+): void {
+  const tenantHash = hashTenantId(tenantId)
+  const scoredAt = new Date().toISOString()
+
+  const logEntry = {
+    component: "economic-boundary",
+    event: "scoring_path",
+    path,
+    task_type: taskType ?? null,
+    tenant_hash: tenantHash,
+    reason: reason ?? null,
+    scored_at: scoredAt,
+  }
+
+  console.log("[economic-boundary] scoring_path:", JSON.stringify(logEntry))
+}
+
 // --- Core Evaluation ---
 
 /**
@@ -372,9 +397,9 @@ export async function evaluateBoundary(
   budget: BudgetSnapshot,
   peerFeatures?: PeerFeatures,
   criteria?: QualificationCriteria,
-  opts?: { reputationProvider?: ReputationProvider; reputationTimeoutMs?: number },
+  opts?: { reputationProvider?: ReputationProvider; reputationTimeoutMs?: number; taskType?: string },
 ): Promise<EconomicBoundaryEvaluationResult | null> {
-  const trustSnapshot = await buildTrustSnapshot(claims, peerFeatures, opts)
+  let trustSnapshot = await buildTrustSnapshot(claims, peerFeatures, opts)
   if (!trustSnapshot) return null
 
   const capitalSnapshot = buildCapitalSnapshot(budget)
@@ -382,6 +407,38 @@ export async function evaluateBoundary(
 
   const effectiveCriteria = criteria ?? DEFAULT_CRITERIA
   const evaluatedAt = new Date().toISOString()
+
+  // Task 2.5: Task-dimensional reputation (v7.11.0)
+  // When enabled and a taskType is provided, attempt cohort-specific scoring
+  if (TASK_DIMENSIONAL_REPUTATION_ENABLED && opts?.taskType && opts?.reputationProvider?.getTaskCohortScore) {
+    try {
+      const cohortScore = await opts.reputationProvider.getTaskCohortScore(claims.tenant_id, opts.taskType)
+      if (cohortScore !== null) {
+        // Shadow divergence: log when cohort and blended differ by > 10 points
+        const blendedScore = trustSnapshot.blended_score
+        const divergence = Math.abs(cohortScore - blendedScore)
+        if (divergence > 10) {
+          console.log(
+            `[economic-boundary] Task-dimensional divergence: cohort=${cohortScore} blended=${blendedScore} delta=${divergence} taskType=${opts.taskType} tenant_hash=${hashTenantId(claims.tenant_id)}`,
+          )
+        }
+        // Replace blended_score with cohort score
+        trustSnapshot = { ...trustSnapshot, blended_score: cohortScore }
+        // Task 3.10: Scoring path log — cohort score available
+        emitScoringPathLog("task_cohort", claims.tenant_id, opts.taskType, "cohort score available")
+      } else {
+        // Task 3.10: Scoring path log — cohort unavailable, using blended
+        emitScoringPathLog("aggregate", claims.tenant_id, opts.taskType, "cohort unavailable, using blended")
+      }
+    } catch (err) {
+      console.warn("[economic-boundary] Task cohort score failed — using blended:", err)
+      // Task 3.10: Scoring path log — cohort failed, falling back to blended
+      emitScoringPathLog("aggregate", claims.tenant_id, opts.taskType, "cohort query failed, using blended")
+    }
+  } else if (TASK_DIMENSIONAL_REPUTATION_ENABLED) {
+    // Task 3.10: Scoring path log — no taskType or no reputationProvider
+    emitScoringPathLog("tier_default", claims.tenant_id, undefined, "task-dimensional enabled but no taskType or provider")
+  }
 
   try {
     return evaluateEconomicBoundary(
@@ -523,8 +580,11 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
         return next()
       }
 
+      // BB-005: Extract taskType from Hono context (set by hounfourAuth middleware)
+      const taskType = c.get("taskType") as string | undefined
+
       // Evaluate boundary
-      const result = await evaluateBoundary(claims, budget, opts.peerFeatures, opts.criteria, { reputationProvider: opts.reputationProvider, reputationTimeoutMs: opts.reputationTimeoutMs })
+      const result = await evaluateBoundary(claims, budget, opts.peerFeatures, opts.criteria, { reputationProvider: opts.reputationProvider, reputationTimeoutMs: opts.reputationTimeoutMs, taskType })
       const latencyMs = performance.now() - startMs
 
       if (!result) {
@@ -548,7 +608,7 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
         component: "economic-boundary",
         mode,
         decision: result.access_decision.granted ? "granted" : "denied",
-        denial_codes: (result as EvaluationResultWithDenials).denial_codes ?? [],
+        denial_codes: result.denial_codes ?? [],
         trust_tier: claims.tier,
         trust_passed: result.trust_evaluation.passed,
         capital_passed: result.capital_evaluation.passed,
@@ -564,7 +624,7 @@ export function economicBoundaryMiddleware(opts: EconomicBoundaryMiddlewareOptio
           return c.json({
             error: "Forbidden",
             code: "ECONOMIC_BOUNDARY_DENIED",
-            denial_codes: (result as EvaluationResultWithDenials).denial_codes ?? [],
+            denial_codes: result.denial_codes ?? [],
             denial_reason: result.access_decision.denial_reason,
             tenant_id: claims.tenant_id,
           }, 403)

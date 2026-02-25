@@ -10,6 +10,7 @@ import type { BrandedMicroUSD as MicroUSD, BasisPoints, AccountId } from "@0xhon
 import { type PoolId, POOL_IDS, isValidPoolId } from "@0xhoneyjar/loa-hounfour"
 import type { MicroUSDC } from "./protocol-types.js"
 import { readMicroUSDC } from "./protocol-types.js"
+import type { TaskType } from "./protocol-types.js"
 
 // ---------------------------------------------------------------------------
 // Error Type
@@ -480,4 +481,98 @@ export function parsePoolId(raw: string): PoolId {
     throw new WireBoundaryError("pool_id", raw, `not a valid pool ID. Valid: ${POOL_IDS.join(", ")}`)
   }
   return raw
+}
+
+// ---------------------------------------------------------------------------
+// TaskType — string ↔ branded governance task type (Sprint 2, Task 2.2)
+// ---------------------------------------------------------------------------
+
+const TASK_TYPE_MAX_LENGTH = 64
+const TASK_TYPE_PATTERN = /^[a-z0-9_]+:[a-z0-9_]+$/
+
+/**
+ * Parse a raw string into a TaskType branded type.
+ *
+ * Validates `namespace:type` format (e.g., "finn:conversation").
+ * Input is lowercased before validation.
+ *
+ * Constraints:
+ * - Max 64 characters total
+ * - Format: `namespace:type` where both parts are `[a-z0-9_]+`
+ * - Namespace and type each must be 1+ characters
+ *
+ * This is the SOLE CONSTRUCTOR for TaskType in finn — the only place
+ * the branding cast occurs.
+ */
+export function parseTaskType(raw: string): TaskType {
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new WireBoundaryError("task_type", raw, "empty or non-string value")
+  }
+
+  const normalized = raw.toLowerCase()
+
+  if (normalized.length > TASK_TYPE_MAX_LENGTH) {
+    throw new WireBoundaryError("task_type", raw, `exceeds maximum length of ${TASK_TYPE_MAX_LENGTH} characters`)
+  }
+
+  if (!TASK_TYPE_PATTERN.test(normalized)) {
+    throw new WireBoundaryError(
+      "task_type",
+      raw,
+      "must match namespace:type format where namespace and type are [a-z0-9_]+ (1+ chars each)",
+    )
+  }
+
+  return normalized as TaskType
+}
+
+// ---------------------------------------------------------------------------
+// Task Type Registry (Sprint 2, Task 2.6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Finn-native task types, pre-parsed at module load.
+ * Key is the short name (after colon), value is the full TaskType.
+ */
+export const FINN_TASK_TYPES: ReadonlyMap<string, TaskType> = new Map<string, TaskType>([
+  ["conversation", parseTaskType("finn:conversation")],
+  ["code_review", parseTaskType("finn:code_review")],
+  ["analysis", parseTaskType("finn:analysis")],
+  ["creative", parseTaskType("finn:creative")],
+  ["summarization", parseTaskType("finn:summarization")],
+  ["admin", parseTaskType("finn:admin")],
+])
+
+/** Default task type for unspecified requests. */
+export const DEFAULT_TASK_TYPE: TaskType = FINN_TASK_TYPES.get("conversation")!
+
+/**
+ * Check whether a TaskType is a registered finn-native type.
+ */
+export function isRegisteredTaskType(taskType: TaskType): boolean {
+  for (const registered of FINN_TASK_TYPES.values()) {
+    if ((registered as string) === (taskType as string)) return true
+  }
+  return false
+}
+
+/**
+ * Legacy string literal → TaskType mapping.
+ * Maps old unnamespaced string literals to their finn-namespaced equivalents.
+ */
+export const LEGACY_TASK_TYPE_MAP: ReadonlyMap<string, TaskType> = new Map<string, TaskType>([
+  ["conversation", parseTaskType("finn:conversation")],
+  ["code_review", parseTaskType("finn:code_review")],
+  ["analysis", parseTaskType("finn:analysis")],
+  ["creative_writing", parseTaskType("finn:creative")],
+  ["summarization", parseTaskType("finn:summarization")],
+  ["admin", parseTaskType("finn:admin")],
+])
+
+/**
+ * Resolve a legacy unnamespaced task type string to a TaskType.
+ * Returns null if the legacy string is not recognized.
+ */
+export function resolveLegacyTaskType(legacy: string): TaskType | null {
+  return LEGACY_TASK_TYPE_MAP.get(legacy) ?? null
 }

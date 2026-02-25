@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "description": "Shared hash chain test vectors for finn <-> arrakis cross-system validation",
+  "canonicalization": "RFC 8785 (JCS)",
+  "hash_algorithm": "SHA-256",
+  "separator": "\\n (0x0A)",
+  "generated_at": "2026-02-24T11:50:17.561Z",
+  "vectors": [
+    {
+      "id": "legacy_genesis",
+      "format": "legacy",
+      "prev_hash": "genesis",
+      "record": {
+        "seq": 1,
+        "prevHash": "genesis",
+        "phase": "intent",
+        "ts": "2026-01-01T00:00:00.000Z",
+        "jobId": "test-job",
+        "runUlid": "test-ulid",
+        "templateId": "test-template",
+        "action": "self_check",
+        "target": "self",
+        "params": {},
+        "dryRun": false
+      },
+      "canonical_json": "{\"action\":\"self_check\",\"dryRun\":false,\"jobId\":\"test-job\",\"params\":{},\"phase\":\"intent\",\"prevHash\":\"genesis\",\"runUlid\":\"test-ulid\",\"seq\":1,\"target\":\"self\",\"templateId\":\"test-template\",\"ts\":\"2026-01-01T00:00:00.000Z\"}",
+      "expected_hash": "2caad423319f1088e8bab3eba05f3bcb808f82304939a99a8b4bd594996e8382"
+    },
+    {
+      "id": "bridge_entry",
+      "format": "protocol_v1",
+      "prev_hash_legacy": "2caad423319f1088e8bab3eba05f3bcb808f82304939a99a8b4bd594996e8382",
+      "prev_hash_protocol": "genesis",
+      "record": {
+        "action": "hash_chain_migration",
+        "target": "audit_trail"
+      },
+      "payload": {
+        "action": "hash_chain_migration",
+        "target": "audit_trail",
+        "params": {
+          "legacy_chain_tip": "2caad423319f1088e8bab3eba05f3bcb808f82304939a99a8b4bd594996e8382",
+          "migration_reason": "protocol_convergence_v711"
+        },
+        "ts": "2026-01-01T00:00:01.000Z",
+        "phase": "intent",
+        "dryRun": false
+      },
+      "envelope": {
+        "version": 1,
+        "algo": "sha256",
+        "format": "protocol_v1",
+        "timestamp": "2026-01-01T00:00:01.000Z",
+        "action": "hash_chain_migration",
+        "payload_hash": "3430c713f31a0ab13f34b6f18b5449f7eea55f74b36d5ea2607601ab5f638d7d"
+      },
+      "expected_payload_hash": "3430c713f31a0ab13f34b6f18b5449f7eea55f74b36d5ea2607601ab5f638d7d",
+      "expected_entry_hash": "00a730b9992f0b4a8dcf361258a0067006aa2a3ea4374a3cefefdb79ad675b41"
+    },
+    {
+      "id": "protocol_v1_first",
+      "format": "protocol_v1",
+      "prev_hash_protocol": "00a730b9992f0b4a8dcf361258a0067006aa2a3ea4374a3cefefdb79ad675b41",
+      "record": {
+        "action": "test_action",
+        "target": "test_target",
+        "params": {
+          "key": "value",
+          "nested": {
+            "a": 1,
+            "b": 2
+          }
+        }
+      },
+      "payload": {
+        "action": "test_action",
+        "target": "test_target",
+        "params": {
+          "key": "value",
+          "nested": {
+            "a": 1,
+            "b": 2
+          }
+        },
+        "ts": "2026-01-01T00:00:02.000Z",
+        "phase": "intent",
+        "dryRun": false
+      },
+      "envelope": {
+        "version": 1,
+        "algo": "sha256",
+        "format": "protocol_v1",
+        "timestamp": "2026-01-01T00:00:02.000Z",
+        "action": "test_action",
+        "payload_hash": "bea43449d81056e5f39b030edecfc6a574b038dc05c8098d6994a60aa687d450"
+      },
+      "expected_payload_hash": "bea43449d81056e5f39b030edecfc6a574b038dc05c8098d6994a60aa687d450",
+      "expected_entry_hash": "75b60770f53e6ff539f86b7545bff840d7d96b73e8b0a17c10cd82e7261a6cd8"
+    },
+    {
+      "id": "unicode_edge_case",
+      "format": "protocol_v1",
+      "description": "Verifies RFC 8785 Unicode handling for non-BMP characters",
+      "record": {
+        "action": "test",
+        "params": {
+          "emoji": "😀",
+          "cjk": "中文",
+          "rtl": "عربي",
+          "mixed": "hello 世界 🌍"
+        }
+      },
+      "payload": {
+        "action": "test",
+        "target": "unicode",
+        "params": {
+          "emoji": "😀",
+          "cjk": "中文",
+          "rtl": "عربي",
+          "mixed": "hello 世界 🌍"
+        },
+        "ts": "2026-01-01T00:00:03.000Z",
+        "phase": "intent",
+        "dryRun": false
+      },
+      "expected_payload_hash": "347d9d4459175eb0c01c664928e78dae19b4f59e20bd5957c2bb19e587cf1106"
+    }
+  ]
+}

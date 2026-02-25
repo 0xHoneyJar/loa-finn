@@ -141,6 +141,16 @@ export type {
   AccessPolicyResult,
 } from "@0xhoneyjar/loa-hounfour"
 
+// --- v7.11.0 Protocol Convergence (Cycle 034) ---
+
+// Task-Dimensional Reputation types (FR-3)
+export type { TaskTypeCohort } from "@0xhoneyjar/loa-hounfour"
+export { TaskTypeCohortSchema } from "@0xhoneyjar/loa-hounfour"
+
+// Scoring path logging (FR-3, Goodhart protection)
+export type { ScoringPath, ScoringPathLog } from "@0xhoneyjar/loa-hounfour"
+export { ScoringPathSchema, ScoringPathLogSchema } from "@0xhoneyjar/loa-hounfour"
+
 // ── v8.2.0 additions ──────────────────────────────────────────────────
 
 // Governance — ReputationEvent discriminated union (v8.2.0)
@@ -162,6 +172,7 @@ export type {
 } from "@0xhoneyjar/loa-hounfour/governance"
 
 // Governance — TaskType vocabulary (v8.2.0)
+// Note: supersedes v7.11 GovernanceTaskType alias — v8.2.0 exports from /governance subpackage
 export {
   TaskTypeSchema,
   TASK_TYPES,

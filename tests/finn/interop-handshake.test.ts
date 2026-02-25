@@ -170,6 +170,9 @@ describe("Interop Handshake Fixtures", () => {
       "compoundPolicies",
       "economicBoundary",
       "denialCodes",
+      "taskDimensionalRep",
+      "hashChain",
+      "openTaskTypes",
       "commonsModule",
       "governanceActorId",
       "modelPerformance",
@@ -180,7 +183,7 @@ describe("Interop Handshake Fixtures", () => {
     }
   })
 
-  it("v7.9.2: all v7 features=true, all v8 features=false", async () => {
+  it("v7.9.2: v7.0-v7.9 features=true, v7.10+ and v8 features=false", async () => {
     const port = await startArrakisHealth("7.9.2")
     const result = await handshake(port)
     const f = result.peerFeatures!
@@ -189,16 +192,22 @@ describe("Interop Handshake Fixtures", () => {
     expect(f.compoundPolicies).toBe(true)
     expect(f.economicBoundary).toBe(true)
     expect(f.denialCodes).toBe(true)
+    expect(f.taskDimensionalRep).toBe(false)
+    expect(f.hashChain).toBe(false)
+    expect(f.openTaskTypes).toBe(false)
     expect(f.commonsModule).toBe(false)
     expect(f.governanceActorId).toBe(false)
     expect(f.modelPerformance).toBe(false)
   })
 
-  it("v8.0.0: commonsModule=true, governanceActorId=false", async () => {
+  it("v8.0.0: all v7 features + commonsModule=true, governanceActorId=false", async () => {
     const port = await startArrakisHealth("8.0.0")
     const result = await handshake(port)
     const f = result.peerFeatures!
     expect(f.denialCodes).toBe(true)
+    expect(f.taskDimensionalRep).toBe(true)
+    expect(f.hashChain).toBe(true)
+    expect(f.openTaskTypes).toBe(true)
     expect(f.commonsModule).toBe(true)
     expect(f.governanceActorId).toBe(false)
     expect(f.modelPerformance).toBe(false)
@@ -222,6 +231,9 @@ describe("Interop Handshake Fixtures", () => {
     expect(f.compoundPolicies).toBe(true)
     expect(f.economicBoundary).toBe(true)
     expect(f.denialCodes).toBe(true)
+    expect(f.taskDimensionalRep).toBe(true)
+    expect(f.hashChain).toBe(true)
+    expect(f.openTaskTypes).toBe(true)
     expect(f.commonsModule).toBe(true)
     expect(f.governanceActorId).toBe(true)
     expect(f.modelPerformance).toBe(true)

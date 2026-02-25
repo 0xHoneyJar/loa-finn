@@ -1,6 +1,7 @@
 # Key material — prevent accidental commits (cycle-028 FR-1)
 tests/fixtures/*.pem
 tests/fixtures/*.key
+tests/e2e/.env.e2e
 
 # Dependencies
 node_modules/
