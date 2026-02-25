@@ -4,6 +4,8 @@ import { open, readFile, rename, stat, unlink, writeFile } from "node:fs/promise
 import { dirname, join } from "node:path"
 import { Value } from "@sinclair/typebox/value"
 import type { TSchema } from "@sinclair/typebox"
+import "../hounfour/typebox-formats.js" // Register uuid/date-time formats for Value.Check
+import { assertFormatsRegistered } from "../hounfour/typebox-formats.js"
 
 // ---------------------------------------------------------------------------
 // Error types (SDD §4.1)
@@ -194,8 +196,9 @@ export class AtomicJsonStore<T> {
     // Run migrations if _schemaVersion is present (SDD §4.1)
     parsed = this.applyMigrations(parsed)
 
-    // TypeBox schema validation
+    // TypeBox schema validation (with format guard — see NOTES.md FormatRegistry Footgun)
     if (this.schema) {
+      assertFormatsRegistered(["uuid", "date-time"])
       if (!Value.Check(this.schema, parsed)) {
         return null // Schema mismatch
       }

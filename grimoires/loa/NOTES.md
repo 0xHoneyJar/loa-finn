@@ -39,4 +39,65 @@ mapping is updated (T-3.1).
 
 **Reference**: Bridgebuilder review Finding F5 (Medium) + F10 (Medium), PR #107.
 
+### KnownFoo Exhaustive Pattern (cycle-033, T-4.4)
+
+**Pattern**: Exhaustive mapping over a known subset of an open union, with safe fallback
+for unknown variants. Solves the TypeScript problem where `TUnion<[...literals, TString]>`
+collapses to `string`, making exhaustive `switch` impossible.
+
+**Structure**:
+1. **Closed inner function** — `mapKnownTaskType(taskType: KnownTaskType): NFTRoutingKey` with
+   no `default` branch and a `never` check. TypeScript compile error if a known variant is
+   unhandled.
+2. **Known set** — `KNOWN_TASK_TYPE_SET: ReadonlySet<string>` derived from the `KNOWN_TASK_TYPES`
+   const array. Runtime O(1) membership test.
+3. **Open wrapper** — `mapTaskTypeToRoutingKey(taskType: TaskType): NFTRoutingKey` narrows via
+   Set guard, delegates known values to the inner function, falls back to `"default"` for
+   unknown strings.
+
+**Parallels**:
+- **Android API Levels**: Known API versions have deterministic feature sets; unknown future
+  versions gracefully degrade to the highest known level.
+- **Protobuf open enums**: Known values are typed; unknown wire values are preserved as integers
+  without breaking the protocol.
+
+**Implementing files**: `src/hounfour/nft-routing-config.ts` (`KnownTaskType` + `mapKnownTaskType`).
+
+**Applicability**: Any protocol union that may grow new variants upstream — `AccessPolicyKind`,
+`ReputationEventKind`, future `GovernanceMutationKind`. The pattern ensures loa-finn handles
+known variants exhaustively while remaining forward-compatible with unknown ones.
+
+**Reference**: Bridgebuilder Deep Review Finding 2 (PRAISE), PR #107.
+
+### Autopoietic Loop — Design Sketch (cycle-033, T-4.5)
+
+**Concept**: A 6-stage feedback cycle where quality measurement influences future model
+selection through reputation:
+
+```
+quality_signal → reputation_event → reputation_store → tier_resolution → model_selection → quality_measurement
+      ↑                                                                                          ↓
+      └──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Current state (v8.2.0)**:
+- Stages 1-2 **built**: `scoreToObservation()` emits `QualityObservation`, `normalizeReputationEvent()`
+  validates and normalizes all 4 `ReputationEvent` variants.
+- Stages 3-4 **partially built**: `resolvePool()` in `tier-bridge.ts` maps routing keys to NFT
+  pools, but does not yet query reputation data to weight pool selection.
+- Stages 5-6 **not wired**: No consumer reads reputation scores to influence which model
+  handles a given task type.
+
+**Gap**: The loop is open between stages 2 and 4. `normalizeReputationEvent()` produces
+normalized events but nothing consumes accumulated reputation to influence `resolvePool()`.
+
+**Integration point**: `resolvePool()` could query dixie's `PostgresReputationStore` to weight
+pool selection based on model performance history. This would close the loop:
+poor-performing models receive fewer tasks, high-performing models receive more.
+
+**Status**: SPECULATION — not blocking merge. Candidate for a future cycle. The prerequisite
+is a reputation query interface from dixie that loa-finn can call at routing time.
+
+**Reference**: Bridgebuilder Deep Review Finding 5 (SPECULATION), PR #107.
+
 ## Blockers

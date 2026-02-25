@@ -4,9 +4,9 @@
 // Accepts unknown input, validates with Value.Check before switch.
 
 import { Value } from "@sinclair/typebox/value"
-import { FormatRegistry } from "@sinclair/typebox"
 import { ReputationEventSchema, type ReputationEvent } from "@0xhoneyjar/loa-hounfour/governance"
 import "./typebox-formats.js" // Register uuid/date-time formats for Value.Check
+import { assertFormatsRegistered } from "./typebox-formats.js"
 
 // --- Types ---
 
@@ -35,12 +35,7 @@ export interface NormalizedReputationEvent {
 export function normalizeReputationEvent(event: unknown): NormalizedReputationEvent {
   // Belt-and-suspenders guard: ensure required formats are registered before Value.Check.
   // Without format registration, Value.Check silently passes invalid UUIDs/date-times.
-  const requiredFormats = ["uuid", "date-time"] as const
-  for (const format of requiredFormats) {
-    if (!FormatRegistry.Has(format)) {
-      throw new Error(`TypeBox format '${format}' not registered — import typebox-formats.js`)
-    }
-  }
+  assertFormatsRegistered(["uuid", "date-time"])
 
   if (!Value.Check(ReputationEventSchema, event)) {
     const errors = [...Value.Errors(ReputationEventSchema, event)]

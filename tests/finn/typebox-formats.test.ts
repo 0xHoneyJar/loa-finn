@@ -71,7 +71,7 @@ describe("TypeBox Format Registration (AC11)", () => {
           type: "quality_signal",
           score: 0.85,
         }),
-      ).toThrow("TypeBox format 'uuid' not registered — import typebox-formats.js")
+      ).toThrow("TypeBox formats not registered: uuid — import typebox-formats.js")
     } finally {
       // Restore format registration for subsequent tests
       FormatRegistry.Set("uuid", originalCheck)
@@ -95,7 +95,7 @@ describe("TypeBox Format Registration (AC11)", () => {
           type: "quality_signal",
           score: 0.85,
         }),
-      ).toThrow("TypeBox format 'date-time' not registered — import typebox-formats.js")
+      ).toThrow("TypeBox formats not registered: date-time — import typebox-formats.js")
     } finally {
       FormatRegistry.Set("date-time", originalCheck)
     }

@@ -1,13 +1,14 @@
 # Sprint Plan: Hounfour v8.2.0 Upgrade — Commons Protocol + ModelPerformance
 
-> **Version**: 1.2.0
+> **Version**: 1.3.0
 > **Date**: 2026-02-25
 > **Cycle**: cycle-033
 > **PRD**: v1.1.0 (GPT-5.2 APPROVED)
 > **SDD**: v1.1.0 (GPT-5.2 APPROVED)
-> **Global Sprint IDs**: 132-134
-> **Total Tasks**: 24
+> **Global Sprint IDs**: 132-135
+> **Total Tasks**: 30
 > **Bridgebuilder Review**: [PR #107 Comment](https://github.com/0xHoneyJar/loa-finn/pull/107#issuecomment-3957731958)
+> **Deep Review**: [PR #107 Deep Review](https://github.com/0xHoneyJar/loa-finn/pull/107#issuecomment-3957980938)
 
 ---
 
@@ -127,3 +128,55 @@ Sprint 1 is sequenced to surface risks early:
 Sprint 3 risk is low — all tasks are refinements to existing code with existing test coverage. Key risk:
 5. **T-3.1** (exhaustive split) — removing the `default` branch could cause compile error if protocol types don't match. Run `tsc --noEmit` after the change to verify.
 6. **T-3.2** (FormatRegistry guard) — must not break existing tests that already import typebox-formats.js. Guard should be a safety net, not a behavior change.
+
+---
+
+## Sprint 4: Pre-Merge Polish — Deep Review Findings (Global ID: 135)
+
+**Goal**: Address all remaining findings from the [Bridgebuilder Deep Review](https://github.com/0xHoneyJar/loa-finn/pull/107#issuecomment-3957980938) (Field Report #41). Fix the second FormatRegistry victim (store.ts), harden side-effect import ordering, document ecosystem conventions, and sketch the feedback pathway. Prepare PR #107 for merge.
+
+**Source**: Deep Review findings 2-7 (Finding 3 already fixed in c32fb4c).
+
+| Task | Title | Files | AC | Finding |
+|------|-------|-------|-----|---------|
+| T-4.1 | Centralize format registration with assertFormatsRegistered() | `src/hounfour/typebox-formats.ts` | AC18: (1) export `assertFormatsRegistered(formats: readonly string[]): void` from the existing `typebox-formats.ts` module — same file that registers formats via side-effect, no new module needed, (2) function checks `FormatRegistry.Has()` for each format and throws with clear message listing all missing formats, (3) refactor normalizer's inline `FormatRegistry.Has` guard (T-3.2) to call `assertFormatsRegistered(["uuid", "date-time"])`, (4) all existing tests pass, (5) import path remains `./typebox-formats.js` (standard TS ESM `.js` extension convention — source is `.ts`, runtime resolves `.js`) | F7 (LOW) |
+| T-4.2 | Add FormatRegistry guard to store.ts Value.Check | `src/cron/store.ts` | AC19: (1) import `../hounfour/typebox-formats.js` side-effect at module top (registers formats), (2) import `assertFormatsRegistered` from same module, (3) call `assertFormatsRegistered(["uuid", "date-time"])` before `Value.Check()` at line 199, (4) existing store tests pass unchanged, (5) new test using `vi.isolateModules` or `vi.resetModules`: import `store.ts` without the vitest setup file's format registration and assert `assertFormatsRegistered` throws the explicit error; then import with `typebox-formats` preloaded and assert `Value.Check` succeeds on a format-dependent schema | F4 (MEDIUM) |
+| T-4.3 | Add app-level format init to entry point | `src/index.ts` | AC20: (1) import `./hounfour/typebox-formats.js` as the **first** import in `src/index.ts` (the sole runtime entry point, per SDD §10.2), (2) add comment explaining why this must be first: FormatRegistry is a global singleton, all downstream `Value.Check` calls depend on it, (3) call `assertFormatsRegistered(["uuid", "date-time"])` inside `main()` before any module that uses `Value.Check` is invoked, (4) verify: `pnpm start` (or equivalent) does not throw on startup | F7 (LOW) |
+| T-4.4 | Document KnownFoo exhaustive pattern as ecosystem convention | `grimoires/loa/NOTES.md` | AC21: (1) new section "KnownFoo Exhaustive Pattern" documenting the pattern: closed inner function with `never` check + open wrapper with Set guard, (2) names the Android API Level / protobuf open enum parallels, (3) lists the specific files implementing it: `nft-routing-config.ts` (KnownTaskType), (4) notes applicability to future open unions in the protocol (e.g., if AccessPolicyKind or ReputationEventKind grow new variants) | F2 (PRAISE → documentation) |
+| T-4.5 | Sketch reputation→routing feedback pathway | `grimoires/loa/NOTES.md` | AC22: (1) new section "Autopoietic Loop — Design Sketch" describing the 6-stage feedback cycle: quality_signal → reputation_event → reputation_store → tier_resolution → model_selection → quality_measurement, (2) identifies the current gap: scoreToObservation emits but no consumer reads reputation to influence routing, (3) names the concrete integration point: `resolvePool()` in tier-bridge.ts could query dixie's PostgresReputationStore to weight pool selection, (4) marks as SPECULATION — not blocking merge, future cycle candidate | F5 (SPECULATION) |
+| T-4.6 | Final merge readiness — test suite + conflict check | all test files, git | AC23: (1) `pnpm test` exits 0 with all hounfour tests passing (target: 112+), (2) `git merge-base --is-ancestor origin/main HEAD` confirms no divergence, (3) `tsc --noEmit` clean, (4) no console.error or unhandled rejection in test output | Merge gate |
+
+**Sprint 4 acceptance**: All deep review findings addressed or documented. store.ts FormatRegistry vulnerability closed. Format registration centralized with single assertion point (`assertFormatsRegistered`). Entry point (`src/index.ts`) registers formats before any downstream consumer. Ecosystem patterns documented for future agents. Autopoietic loop sketched but explicitly deferred. Full test suite green. Ready for merge. 6 tasks.
+
+---
+
+## Updated Task Dependency Graph
+
+```
+Sprints 1-3: COMPLETED (24 tasks)
+
+Sprint 4 (parallel tracks, depends on Sprint 3 completion):
+  Track I: T-4.1 → T-4.2 → T-4.3  (FormatRegistry: centralize → store fix → entry point)
+  Track J: T-4.4  (Documentation: KnownFoo pattern)
+  Track K: T-4.5  (Documentation: autopoietic loop sketch)
+  Track L: T-4.6  (after all above — final merge gate)
+```
+
+## Updated Acceptance Criteria Cross-Reference
+
+| AC | Sprint | Tasks |
+|----|--------|-------|
+| AC1-AC17 | S1-S3 | (see above — all completed) |
+| AC18: centralized assertFormatsRegistered() | S4 | T-4.1 |
+| AC19: store.ts FormatRegistry guard | S4 | T-4.2 |
+| AC20: app-level format init (src/index.ts) | S4 | T-4.3 |
+| AC21: KnownFoo pattern documentation | S4 | T-4.4 |
+| AC22: autopoietic loop design sketch | S4 | T-4.5 |
+| AC23: merge readiness gate | S4 | T-4.6 |
+
+## Sprint 4 Risk Assessment
+
+Sprint 4 risk is minimal — all code changes are additive guards and refactors to existing patterns:
+7. **T-4.1** (centralize assertion) — adds `assertFormatsRegistered()` export to existing `typebox-formats.ts` and refactors the normalizer's inline check. Risk: changing the assertion could break normalizer tests. Mitigation: function is additive — existing side-effect registration is untouched, assertion is belt-and-suspenders.
+8. **T-4.2** (store.ts guard) — applies the centralized assertion to store.ts. Main risk: store.ts may not use format-dependent schemas in practice, making the guard a no-op safety net. This is acceptable — defense-in-depth. Test isolation via `vi.isolateModules` may require vitest config adjustment.
+9. **T-4.3** (entry point init) — adding side-effect import as first line of `src/index.ts` (sole entry point per SDD §10.2). Risk: import order could affect startup timing. Mitigation: formats are cheap to register (two regex patterns), placed before any module that calls `Value.Check`.
