@@ -96,6 +96,12 @@ export class AtomicJsonStore<T> {
     this.maxSizeBytes = options?.maxSizeBytes ?? DEFAULT_MAX_SIZE
     this.schema = options?.schema
     this.migrations = options?.migrations ?? new Map()
+
+    // Validate format registration at construction time, not on every read.
+    // FormatRegistry is a global singleton — once registered, formats persist.
+    if (this.schema) {
+      assertFormatsRegistered(["uuid", "date-time"])
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -196,9 +202,8 @@ export class AtomicJsonStore<T> {
     // Run migrations if _schemaVersion is present (SDD §4.1)
     parsed = this.applyMigrations(parsed)
 
-    // TypeBox schema validation (with format guard — see NOTES.md FormatRegistry Footgun)
+    // TypeBox schema validation (format guard runs at construction time — see NOTES.md)
     if (this.schema) {
-      assertFormatsRegistered(["uuid", "date-time"])
       if (!Value.Check(this.schema, parsed)) {
         return null // Schema mismatch
       }
