@@ -1318,6 +1318,38 @@
       ],
       "archived": "2026-02-25T15:30:00Z",
       "archive_path": "grimoires/loa/archive/2026-02-25-protocol-convergence-v792-complete"
+    },
+    {
+      "label": "Hounfour v8.2.0 Upgrade \u2014 Commons Protocol + ModelPerformance",
+      "status": "active",
+      "started": "2026-02-25T10:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Cycle-033. loa-hounfour v7.9.2 \u2192 v8.2.0. PRD v1.1.0: GPT-5.2 APPROVED. SDD v1.1.0: GPT-5.2 APPROVED. Sprint v1.2.0: GPT-5.2 APPROVED (iteration 2, 3 blocking issues resolved). Sprints 1-2 implemented via PR #107. Sprint 3: Bridgebuilder Review Excellence \u2014 all findings from Bridgebuilder review of PR #107.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 132,
+          "label": "Bump + Foundation",
+          "status": "completed",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 133,
+          "label": "Adoption + Forward-Compat",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 134,
+          "label": "Bridgebuilder Excellence",
+          "status": "pending",
+          "tasks": 9
+        }
+      ]
     }
   ],
   "next_global_sprint_id": 134,

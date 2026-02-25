@@ -81,4 +81,16 @@ describe("QualityObservation Schema Validation (AC6)", () => {
     const scorePaths = errors.filter((e) => e.path.includes("score"))
     expect(scorePaths.length).toBeGreaterThan(0)
   })
+
+  // --- AC16: scoreToObservation with dimensions (T-3.8) ---
+
+  it("validates observation with dimensions from scoreToObservation shape", () => {
+    const obs = {
+      score: 0.88,
+      latency_ms: 1500,
+      evaluated_by: "quality-gate-scorer",
+      dimensions: { coherence: 0.95, accuracy: 0.82, relevance: 0.87 },
+    }
+    expect(Value.Check(QualityObservationSchema, obs)).toBe(true)
+  })
 })

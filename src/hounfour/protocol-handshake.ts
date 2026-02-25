@@ -72,6 +72,30 @@ export const FEATURE_THRESHOLDS = {
   modelPerformance:   { major: 8, minor: 2, patch: 0 },
 } as const satisfies Record<keyof PeerFeatures, { major: number; minor: number; patch: number }>
 
+/**
+ * Ordered list of feature names for deterministic iteration.
+ * Covers all PeerFeatures keys exactly once — TypeScript compile error if a key is missing.
+ */
+export const FEATURE_ORDER = [
+  "trustScopes",
+  "reputationGated",
+  "compoundPolicies",
+  "economicBoundary",
+  "denialCodes",
+  "commonsModule",
+  "governanceActorId",
+  "modelPerformance",
+] as const satisfies readonly (keyof PeerFeatures)[]
+
+/**
+ * Feature thresholds in ordered array form, derived from FEATURE_ORDER and FEATURE_THRESHOLDS.
+ * Thresholds are monotonically non-decreasing by version when iterated in order.
+ */
+export const FEATURE_THRESHOLDS_ORDERED = FEATURE_ORDER.map((name) => ({
+  name,
+  threshold: FEATURE_THRESHOLDS[name],
+}))
+
 // --- Public ---
 
 /** Protocol version info for /health endpoint. */

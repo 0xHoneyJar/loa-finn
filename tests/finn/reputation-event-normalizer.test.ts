@@ -10,7 +10,7 @@ const envelope = {
   event_id: "550e8400-e29b-41d4-a716-446655440000",
   agent_id: "agent-001",
   collection_id: "collection-001",
-  timestamp: new Date().toISOString(),
+  timestamp: "2026-01-15T12:00:00.000Z", // Deterministic — no new Date() (T-3.5)
 }
 
 // --- Tests ---

@@ -51,8 +51,12 @@ export function assertTierAccess(tier: Tier, poolId: PoolId): void {
  * Resolve the best pool for a tenant request.
  *
  * Resolution order:
- * 1. NFT/personality preferences for the given task type (if valid pool)
- * 2. Tier default pool (from loa-hounfour TIER_DEFAULT_POOL)
+ * 1. Map `taskType` through `mapUnknownTaskTypeToRoutingKey()` to get an NFTRoutingKey.
+ *    Protocol TaskTypes (code_review, creative_writing, analysis, summarization, general,
+ *    unspecified) are mapped to internal routing keys (code, chat, analysis, default).
+ *    Unknown strings map to "default" with a redacted console.warn.
+ * 2. Look up NFT/personality preferences using the mapped routing key (if valid pool).
+ * 3. Fall back to tier default pool (from loa-hounfour TIER_DEFAULT_POOL).
  *
  * Invalid preference pool IDs are silently skipped (fall through to tier default).
  * This prevents NFT misconfigurations from breaking routing entirely.

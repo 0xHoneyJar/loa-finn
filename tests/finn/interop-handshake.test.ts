@@ -15,6 +15,8 @@ import {
   FINN_MIN_SUPPORTED,
   getProtocolInfo,
   FEATURE_THRESHOLDS,
+  FEATURE_ORDER,
+  FEATURE_THRESHOLDS_ORDERED,
   type HandshakeResult,
   type PeerFeatures,
 } from "../../src/hounfour/protocol-handshake.js"
@@ -251,5 +253,29 @@ describe("Interop Handshake Fixtures", () => {
     expect(info.contract_version).toBe("8.2.0")
     expect(info.finn_min_supported).toBe(FINN_MIN_SUPPORTED)
     expect(info.finn_min_supported).toBe("7.0.0")
+  })
+
+  // --- AC15: FEATURE_THRESHOLDS_ORDERED (T-3.7) ---
+
+  it("FEATURE_ORDER length matches FEATURE_THRESHOLDS keys", () => {
+    expect(FEATURE_ORDER.length).toBe(Object.keys(FEATURE_THRESHOLDS).length)
+  })
+
+  it("every PeerFeatures key appears exactly once in FEATURE_ORDER", () => {
+    const thresholdKeys = new Set(Object.keys(FEATURE_THRESHOLDS))
+    const orderKeys = new Set(FEATURE_ORDER as readonly string[])
+    expect(orderKeys).toEqual(thresholdKeys)
+    // No duplicates — Set size matches array length
+    expect(FEATURE_ORDER.length).toBe(orderKeys.size)
+  })
+
+  it("FEATURE_THRESHOLDS_ORDERED thresholds are monotonically non-decreasing", () => {
+    for (let i = 1; i < FEATURE_THRESHOLDS_ORDERED.length; i++) {
+      const prev = FEATURE_THRESHOLDS_ORDERED[i - 1].threshold
+      const curr = FEATURE_THRESHOLDS_ORDERED[i].threshold
+      const prevVal = prev.major * 10000 + prev.minor * 100 + prev.patch
+      const currVal = curr.major * 10000 + curr.minor * 100 + curr.patch
+      expect(currVal).toBeGreaterThanOrEqual(prevVal)
+    }
   })
 })

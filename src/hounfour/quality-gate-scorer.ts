@@ -45,17 +45,26 @@ export class QualityGateScorer {
 
   /**
    * Score a candidate and return a QualityObservation-conformant result.
-   * Wraps the raw score with optional timing and evaluator metadata.
+   * Wraps the raw score with optional timing, evaluator metadata, and dimensions.
+   *
+   * @param dimensions - Optional per-dimension scores (e.g., { coherence: 0.95, accuracy: 0.88 })
    */
-  async scoreToObservation(result: CompletionResult): Promise<QualityObservation> {
+  async scoreToObservation(
+    result: CompletionResult,
+    dimensions?: Record<string, number>,
+  ): Promise<QualityObservation> {
     const startMs = Date.now()
     const score = await this.score(result)
     const latency_ms = Date.now() - startMs
-    return {
+    const observation: QualityObservation = {
       score,
       latency_ms,
       evaluated_by: "quality-gate-scorer",
     }
+    if (dimensions) {
+      observation.dimensions = dimensions
+    }
+    return observation
   }
 
   /** Score a single candidate result */
