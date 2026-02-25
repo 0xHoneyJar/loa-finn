@@ -16,7 +16,7 @@
     "type": "stream_end"
   },
   "stream_start": {
-    "contract_version": "7.11.0",
+    "contract_version": "8.2.0",
     "model": "claude-sonnet-4-5-20250929",
     "pool_id": "fast-code",
     "provider": "anthropic",
