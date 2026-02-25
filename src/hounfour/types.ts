@@ -282,6 +282,16 @@ export interface BudgetSnapshot {
   budget_epoch?: BudgetEpoch
 }
 
+/**
+ * Query function for pool-level reputation scoring (Sprint 6, T-6.2).
+ * Returns a reputation score clamped to [0,1], or null if no signal available.
+ * Used by resolvePoolWithReputation to rank candidate pools.
+ */
+export type ReputationQueryFn = (
+  poolId: import("@0xhoneyjar/loa-hounfour").PoolId,
+  routingKey: import("../hounfour/nft-routing-config.js").NFTRoutingKey,
+) => Promise<number | null>
+
 /** Provider for dynamic reputation scoring (Sprint 5, Task 5.3). */
 export interface ReputationProvider {
   getReputationBoost(tenantId: string): Promise<{ boost: number; source: string } | null>

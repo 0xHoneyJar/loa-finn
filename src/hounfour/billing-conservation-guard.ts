@@ -9,6 +9,18 @@ import {
 } from "@0xhoneyjar/loa-hounfour"
 import { assertMicroUSDFormat } from "./wire-boundary.js"
 import { noopMetrics, type GuardMetrics, type HardFailDetail } from "./metrics.js"
+import {
+  buildNonNegativeInvariant,
+  buildBoundedInvariant,
+  createBalanceConservation,
+  ConservationLawSchema,
+  InvariantSchema,
+} from "./protocol-types.js"
+import { Value } from "@sinclair/typebox/value"
+import type { Static } from "@sinclair/typebox"
+
+type ConservationLaw = Static<typeof ConservationLawSchema>
+type Invariant = Static<typeof InvariantSchema>
 import type { WAL } from "../persistence/wal.js"
 import type { AlertService } from "../safety/alert-service.js"
 
@@ -67,6 +79,59 @@ const CONSTRAINT_EXPRESSIONS = {
 } as const
 
 type InvariantId = keyof typeof CONSTRAINT_EXPRESSIONS
+
+// --- Commons Conservation Laws (Sprint 5, T-5.4) ---
+// Protocol-backed invariants from @0xhoneyjar/loa-hounfour/commons.
+// These augment (not replace) the ad-hoc CONSTRAINT_EXPRESSIONS above.
+// Defense-in-depth: both layers must pass for the guard to report "pass".
+
+/** Budget conservation: limit >= spent (balance conservation pattern). */
+const BUDGET_CONSERVATION_LAW: ConservationLaw = createBalanceConservation(
+  ["spent", "remaining"],
+  "limit",
+)
+
+/** Cost non-negativity: cost values must be >= 0. */
+const COST_NON_NEGATIVE_INVARIANT: Invariant = buildNonNegativeInvariant(
+  "NN-01",
+  "Cost non-negative",
+  ["cost"],
+)
+
+/** Reserve bounded: reserve must be within [0, allocation]. */
+const RESERVE_BOUNDED_INVARIANT: Invariant = buildBoundedInvariant(
+  "BD-01",
+  "Reserve within allocation",
+  "reserve",
+  0,
+  Number.MAX_SAFE_INTEGER,
+)
+
+/** All commons conservation laws for validation/inspection. */
+export const COMMONS_CONSERVATION_LAWS = {
+  budget: BUDGET_CONSERVATION_LAW,
+  costNonNegative: COST_NON_NEGATIVE_INVARIANT,
+  reserveBounded: RESERVE_BOUNDED_INVARIANT,
+} as const
+
+/**
+ * Validate that all factory-produced invariants conform to the protocol schema.
+ * Called once at module load as a build-time sanity check.
+ */
+function validateCommonsInvariants(): void {
+  if (!Value.Check(ConservationLawSchema, BUDGET_CONSERVATION_LAW)) {
+    throw new Error("BUDGET_CONSERVATION_LAW does not conform to ConservationLawSchema")
+  }
+  if (!Value.Check(InvariantSchema, COST_NON_NEGATIVE_INVARIANT)) {
+    throw new Error("COST_NON_NEGATIVE_INVARIANT does not conform to InvariantSchema")
+  }
+  if (!Value.Check(InvariantSchema, RESERVE_BOUNDED_INVARIANT)) {
+    throw new Error("RESERVE_BOUNDED_INVARIANT does not conform to InvariantSchema")
+  }
+}
+
+// Validate at module load — fail fast if factories produce non-conformant output
+validateCommonsInvariants()
 
 // --- Billing Entrypoints (SDD §4.2 — exhaustive inventory) ---
 

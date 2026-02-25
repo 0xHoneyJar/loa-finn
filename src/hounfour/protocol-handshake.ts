@@ -8,10 +8,10 @@ import { CONTRACT_VERSION, parseSemver } from "@0xhoneyjar/loa-hounfour"
 
 /**
  * loa-finn's own minimum supported version.
- * Wider than loa-hounfour v7's MIN_SUPPORTED_VERSION (6.0.0) because
- * arrakis is at v4.6.0 during the transition period.
+ * Bumped from 4.0.0 → 7.0.0 for v8.2.0 upgrade (cycle-033).
+ * v7.9.2 accepted as grace period; v6.0.0 and below rejected.
  */
-export const FINN_MIN_SUPPORTED = "4.0.0" as const
+export const FINN_MIN_SUPPORTED = "7.0.0" as const
 
 // --- Types ---
 
@@ -55,6 +55,12 @@ export interface PeerFeatures {
   hashChain: boolean
   /** Remote supports open enum task types (v7.11.0+). */
   openTaskTypes: boolean
+  /** Remote supports commons governance module (v8.0.0+). */
+  commonsModule: boolean
+  /** Remote requires actor_id on GovernanceMutation (v8.1.0+). */
+  governanceActorId: boolean
+  /** Remote supports ModelPerformanceEvent as 4th ReputationEvent variant (v8.2.0+). */
+  modelPerformance: boolean
 }
 
 /**
@@ -92,7 +98,37 @@ export const FEATURE_THRESHOLDS = {
   taskDimensionalRep:   { major: 7, minor: 10, patch: 0 },
   hashChain:            { major: 7, minor: 10, patch: 1 },
   openTaskTypes:        { major: 7, minor: 11, patch: 0 },
+  commonsModule:        { major: 8, minor: 0, patch: 0 },
+  governanceActorId:    { major: 8, minor: 1, patch: 0 },
+  modelPerformance:     { major: 8, minor: 2, patch: 0 },
 } as const satisfies Record<keyof PeerFeatures, { major: number; minor: number; patch: number }>
+
+/**
+ * Ordered list of feature names for deterministic iteration.
+ * Covers all PeerFeatures keys exactly once — TypeScript compile error if a key is missing.
+ */
+export const FEATURE_ORDER = [
+  "trustScopes",
+  "reputationGated",
+  "compoundPolicies",
+  "economicBoundary",
+  "denialCodes",
+  "taskDimensionalRep",
+  "hashChain",
+  "openTaskTypes",
+  "commonsModule",
+  "governanceActorId",
+  "modelPerformance",
+] as const satisfies readonly (keyof PeerFeatures)[]
+
+/**
+ * Feature thresholds in ordered array form, derived from FEATURE_ORDER and FEATURE_THRESHOLDS.
+ * Thresholds are monotonically non-decreasing by version when iterated in order.
+ */
+export const FEATURE_THRESHOLDS_ORDERED = FEATURE_ORDER.map((name) => ({
+  name,
+  threshold: FEATURE_THRESHOLDS[name],
+}))
 
 // --- Public ---
 
@@ -111,8 +147,8 @@ export function getProtocolInfo(): {
  * Validate protocol compatibility with arrakis at boot time.
  * MUST be called before server.listen().
  *
- * Uses FINN_MIN_SUPPORTED (4.0.0) instead of loa-hounfour's MIN_SUPPORTED_VERSION (6.0.0)
- * to maintain backward compatibility with arrakis v4.6.0 during the transition.
+ * Uses FINN_MIN_SUPPORTED (7.0.0) as the compatibility floor.
+ * v7.x accepted as grace period (cross-major warning), v6.x and below rejected.
  *
  * Production: incompatible/unreachable/missing → throws (fail-fast)
  * Development: incompatible/unreachable/missing → warns + continues
@@ -228,8 +264,8 @@ type CompatResult =
 
 /**
  * loa-finn-specific compatibility check.
- * Uses FINN_MIN_SUPPORTED (4.0.0) for wider acceptance than loa-hounfour v7's
- * MIN_SUPPORTED_VERSION (6.0.0), allowing arrakis v4.6.0 during transition.
+ * Uses FINN_MIN_SUPPORTED (7.0.0) — accepts v7.9.2 as grace period,
+ * rejects v6.0.0 and below. v8.x is the primary target.
  */
 function finnValidateCompatibility(remoteVersion: string): CompatResult {
   let remote
@@ -371,5 +407,8 @@ function detectPeerFeatures(remoteVersion: string, healthData: ArrakisHealthResp
     taskDimensionalRep: detect("task_dimensional_reputation", FEATURE_THRESHOLDS.taskDimensionalRep),
     hashChain:          detect("hash_chain", FEATURE_THRESHOLDS.hashChain),
     openTaskTypes:      detect("open_task_types", FEATURE_THRESHOLDS.openTaskTypes),
+    commonsModule:      detect("commons_module", FEATURE_THRESHOLDS.commonsModule),
+    governanceActorId:  detect("governance_actor_id", FEATURE_THRESHOLDS.governanceActorId),
+    modelPerformance:   detect("model_performance", FEATURE_THRESHOLDS.modelPerformance),
   }
 }

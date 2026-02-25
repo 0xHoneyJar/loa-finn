@@ -36,6 +36,33 @@ export interface GuardMetrics {
   recordDivergence(invariantId: string, evaluatorResult: string, adhocResult: string): void
 }
 
+// --- Quality Observation Metrics (Sprint 6, T-6.3) ---
+
+/**
+ * Metrics collector for QualityGateScorer observability.
+ * Opt-in: when not provided, no metrics are emitted (zero overhead).
+ */
+export interface QualityMetricsCollector {
+  /** Emitted after a successful quality observation is produced. */
+  qualityObservationProduced(payload: {
+    score: number
+    latency_ms: number
+    evaluator: string
+  }): void
+
+  /** Emitted when a quality gate evaluation fails (script error, timeout, etc.). */
+  qualityGateFailure(payload: {
+    error_type: string
+    evaluator: string
+  }): void
+}
+
+/** No-op quality metrics — used when no collector is configured. */
+export const noopQualityMetrics: QualityMetricsCollector = {
+  qualityObservationProduced() {},
+  qualityGateFailure() {},
+}
+
 // --- Noop Implementation ---
 
 /** No-op metrics — used when no collector is configured. */

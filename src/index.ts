@@ -1,6 +1,11 @@
 // src/index.ts — loa-finn entry point (SDD §10.2)
 // Boot sequence: config → validate → identity → persistence → recovery → gateway → scheduler → serve
 
+// FormatRegistry is a global singleton — must be first import so all downstream
+// Value.Check calls (store.ts, normalizer, etc.) see registered formats.
+import "./hounfour/typebox-formats.js"
+import { assertFormatsRegistered } from "./hounfour/typebox-formats.js"
+
 import { loadConfig } from "./config.js"
 import { IdentityLoader } from "./agent/identity.js"
 import { createWALManager } from "./persistence/upstream.js"
@@ -30,6 +35,9 @@ import { fileURLToPath } from "node:url"
 async function main() {
   const bootStart = Date.now()
   console.log("[finn] booting loa-finn...")
+
+  // Belt-and-suspenders: verify format registration before any Value.Check path
+  assertFormatsRegistered(["uuid", "date-time"])
 
   // 1. Load config
   const config = loadConfig()

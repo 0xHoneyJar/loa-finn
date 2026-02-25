@@ -41,7 +41,7 @@ describe("Protocol Handshake", () => {
   it("succeeds on compatible version with status=compatible", async () => {
     const port = await startMockServer((_req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" })
-      res.end(JSON.stringify({ status: "healthy", contract_version: "5.0.0" }))
+      res.end(JSON.stringify({ status: "healthy", contract_version: "8.2.0" }))
     })
     const result = await validateProtocolAtBoot({
       arrakisBaseUrl: `http://127.0.0.1:${port}`,
@@ -49,7 +49,7 @@ describe("Protocol Handshake", () => {
     })
     expect(result.ok).toBe(true)
     expect(result.status).toBe("compatible")
-    expect(result.remoteVersion).toBe("5.0.0")
+    expect(result.remoteVersion).toBe("8.2.0")
     expect(result.message).toContain("compatible")
   })
 
@@ -183,7 +183,7 @@ describe("Protocol Handshake", () => {
     // compatible
     const port = await startMockServer((_req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" })
-      res.end(JSON.stringify({ status: "healthy", contract_version: "5.0.0" }))
+      res.end(JSON.stringify({ status: "healthy", contract_version: "8.2.0" }))
     })
     const compatible = await validateProtocolAtBoot({
       arrakisBaseUrl: `http://127.0.0.1:${port}`,

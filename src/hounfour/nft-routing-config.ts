@@ -2,6 +2,14 @@
 //
 // Configuration format for NFT → preferred pool mapping with per-personality task routing.
 // Validated against loa-hounfour RoutingPolicySchema. In-memory cache (~1000 entries).
+//
+// Routing vocabulary decision (cycle-033 Sprint 3, T-3.9):
+//   6 protocol TaskTypes map to 5 NFTRoutingKeys because 'summarization' and 'analysis'
+//   share a single routing destination. Rationale: both are "deep-think" tasks requiring
+//   reasoning-capable models. This mirrors Kubernetes CRD patterns where multiple API
+//   resources can map to the same controller — the routing layer is intentionally coarser
+//   than the protocol's semantic type space, allowing pool operators to optimize for
+//   capability tiers rather than individual task labels.
 
 import { readFileSync } from "node:fs"
 import { isValidPoolId, type PoolId, type Tier } from "@0xhoneyjar/loa-hounfour"
@@ -10,8 +18,11 @@ import type { TaskType } from "./protocol-types.js"
 
 // --- Types ---
 
-/** Task types recognized by NFT personality routing */
-export type NFTTaskType = "chat" | "analysis" | "architecture" | "code" | "default"
+/** Internal routing keys for NFT personality routing (not protocol TaskType values) */
+export type NFTRoutingKey = "chat" | "analysis" | "architecture" | "code" | "default"
+
+/** @deprecated Use NFTRoutingKey instead */
+export type NFTTaskType = NFTRoutingKey
 
 /** Per-task pool routing for a personality */
 export interface TaskRouting {
@@ -44,7 +55,95 @@ export interface NFTRoutingPolicy {
 
 // --- Validation ---
 
-const VALID_TASK_TYPES: readonly NFTTaskType[] = ["chat", "analysis", "architecture", "code", "default"]
+const VALID_TASK_TYPES: readonly NFTRoutingKey[] = ["chat", "analysis", "architecture", "code", "default"]
+
+/** Set of all known NFTRoutingKey values for runtime membership checks */
+export const KNOWN_ROUTING_KEYS: ReadonlySet<NFTRoutingKey> = new Set(VALID_TASK_TYPES)
+
+// --- Protocol TaskType → NFTRoutingKey mapping ---
+
+/**
+ * Known protocol TaskType literals as of v8.2.0.
+ * If loa-hounfour adds a new literal to TaskTypeSchema, add it here and to mapKnownTaskType.
+ */
+export const KNOWN_TASK_TYPES = [
+  "code_review", "creative_writing", "analysis", "summarization", "general", "unspecified",
+] as const
+
+/** Narrowed type: only the 6 known protocol TaskType literals (not the open `string`). */
+export type KnownTaskType = typeof KNOWN_TASK_TYPES[number]
+
+/**
+ * Map a known protocol TaskType to an internal NFTRoutingKey.
+ * No `default` branch — TypeScript compile error if a new variant is added
+ * to KnownTaskType without being handled here.
+ *
+ * Protocol TaskType values (v8.2.0):
+ *   code_review → code, creative_writing → chat, analysis → analysis,
+ *   summarization → analysis, general → default, unspecified → default
+ */
+export function mapKnownTaskType(taskType: KnownTaskType): NFTRoutingKey {
+  switch (taskType) {
+    case "code_review":
+      return "code"
+    case "creative_writing":
+      return "chat"
+    case "analysis":
+      return "analysis"
+    case "summarization":
+      return "analysis"
+    case "general":
+      return "default"
+    case "unspecified":
+      return "default"
+  }
+  // Exhaustiveness check — if TypeScript reports an error here, a new KnownTaskType
+  // variant was added without being handled in the switch above.
+  const _exhaustive: never = taskType
+  throw new Error(`Unhandled TaskType: ${_exhaustive}`)
+}
+
+/**
+ * Map a protocol TaskType to an internal NFTRoutingKey.
+ * Delegates to mapKnownTaskType for known literals,
+ * with a default fallback for community-defined types (open `string` union).
+ */
+/** Set membership check for known protocol TaskType literals (O(1) lookup) */
+const KNOWN_TASK_TYPE_SET: ReadonlySet<string> = new Set(KNOWN_TASK_TYPES)
+
+export function mapTaskTypeToRoutingKey(taskType: TaskType): NFTRoutingKey {
+  if (KNOWN_TASK_TYPE_SET.has(taskType)) {
+    return mapKnownTaskType(taskType as KnownTaskType)
+  }
+  // Forward-compat: community-defined types (namespace:type) or future protocol types
+  return "default"
+}
+
+/**
+ * Map an unknown string to an NFTRoutingKey — total at runtime.
+ * Handles protocol TaskType values, community-defined types, and arbitrary strings.
+ *
+ * - Known protocol TaskType → mapped routing key
+ * - "unspecified" → "default"
+ * - Unknown strings → "default" (with console.warn for observability)
+ */
+export function mapUnknownTaskTypeToRoutingKey(taskType: unknown): NFTRoutingKey {
+  if (typeof taskType !== "string" || !taskType) {
+    return "default"
+  }
+  // If it's already a valid routing key, pass through
+  if (KNOWN_ROUTING_KEYS.has(taskType as NFTRoutingKey)) {
+    return taskType as NFTRoutingKey
+  }
+  // Try protocol TaskType mapping
+  const mapped = mapTaskTypeToRoutingKey(taskType as TaskType)
+  if (mapped !== "default" || taskType === "general" || taskType === "unspecified") {
+    return mapped
+  }
+  // Unknown string — warn and fall back to default (redact input to prevent log injection)
+  console.warn(`[nft-routing] Unknown task type received — mapping to "default"`)
+  return "default"
+}
 
 /**
  * Validate an NFT routing config against loa-hounfour RoutingPolicySchema constraints.

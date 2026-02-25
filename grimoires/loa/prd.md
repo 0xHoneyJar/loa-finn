@@ -1,323 +1,209 @@
-# PRD: Launch Readiness — Product Integration & Live Testing
+# PRD: Hounfour v8.2.0 Upgrade — Commons Protocol + ModelPerformance
 
-**Status:** Approved
-**Author:** Jani (via Loa)
-**Date:** 2026-02-25
-**Cycle:** cycle-035
-**References:** [Issue #66](https://github.com/0xHoneyJar/loa-finn/issues/66) · [PR #103](https://github.com/0xHoneyJar/loa-finn/pull/103) · [PR #104](https://github.com/0xHoneyJar/loa-finn/pull/104) · [Issue #84](https://github.com/0xHoneyJar/loa-finn/issues/84) · [Issue #85](https://github.com/0xHoneyJar/loa-finn/issues/85)
+> **Version**: 1.1.0
+> **Date**: 2026-02-25
+> **Author**: @janitooor + Claude Opus 4.6 (Bridgebuilder)
+> **Status**: Draft
+> **Cycle**: cycle-033
+> **Predecessor**: cycle-032 "Protocol Convergence v7.9.2" (sprints 126-131, all completed)
+> **Protocol Package**: [@0xhoneyjar/loa-hounfour v8.2.0](https://github.com/0xHoneyJar/loa-hounfour/releases/tag/v8.2.0) (released 2026-02-25)
+> **Migration Guide**: [MIGRATION.md — v7.11.0 → v8.2.0](https://github.com/0xHoneyJar/loa-hounfour/blob/main/MIGRATION.md#v7110--v820-breaking)
 
-> Sources: Issue #66 command deck (106 comments), reality/routes.md, reality/interfaces.md, reality/auth.md, reality/env-vars.md, context/hounfour-rfc.md, PR #103 (merged), PR #104 (merged), issues #84-#95
+---
+
+## 0. Framing — Why This Matters Now
+
+loa-finn currently pins `@0xhoneyjar/loa-hounfour` at commit `ff8c16b` (v7.9.2). That version was adopted in cycle-032 with full protocol convergence — 202 conformance vectors, strict `parseMicroUsd()`, 6-dimensional trust, and economic boundary evaluation.
+
+v8.2.0 was released today (2026-02-25) and crosses a **major version boundary** with three breaking changes and significant additive features:
+
+### Breaking Changes
+
+| Version | Change | loa-finn Impact |
+|---------|--------|-----------------|
+| **v8.0.0** | New `commons` module — 21 governance substrate schemas (`GovernedResource<T>`, `ConservationLaw`, `AuditTrail`, `StateMachine`, `DynamicContract`, `GovernanceError`) | New import path `@0xhoneyjar/loa-hounfour/commons`. **No existing code breaks** — commons is additive. Major version bump is for the new module's surface area commitment. |
+| **v8.1.0** | `GovernanceMutation.actor_id` now **required** (was optional) | **No current usage in loa-finn.** GovernanceMutation is not constructed anywhere in src/. Forward-compat only — any future adoption must include `actor_id`. |
+| **v8.2.0** | `ModelPerformanceEvent` — 4th `ReputationEvent` discriminated union variant | **No current ReputationEvent routing in loa-finn.** The reputation system uses `TIER_TRUST_MAP` with static states, not event-driven routing. However, this closes the Dixie → scoring → routing → Finn autopoietic feedback loop described in the Dixie contract. |
+
+### Additive Features
+
+| Feature | Version | Purpose | Adoption Priority |
+|---------|---------|---------|-------------------|
+| `QualityObservation` schema | v8.2.0 | Structured quality evaluation: score [0,1], dimensions, latency, evaluator | SHOULD — aligns with `quality-gate-scorer.ts` |
+| `'unspecified'` TaskType literal | v8.2.0 | Reserved fallback when task metadata unavailable | SHOULD — NFT routing needs fallback handling |
+| Governance Enforcement SDK | v8.2.0 | `evaluateGovernanceMutation()`, conservation law factories, checkpoint utilities | MAY — future governance substrate |
+| 17 new conformance vectors (219 total) | v8.2.0 | Property-based discrimination tests, integration tests | MUST — conformance-vectors.test.ts auto-discovers |
+| ADR-006 through ADR-009 | v8.2.0 | Hash chain, commons pattern, enforcement SDK, dynamic contract decisions | Informational |
+
+### Why Now
+
+1. **Dixie integration dependency** — loa-dixie needs to emit `ModelPerformanceEvent` per the Dixie contract. Finn must be on v8.2.0 to share the schema vocabulary.
+2. **Conformance vector drift** — Every day on v7.9.2 means new upstream vectors are untested. The conformance test suite auto-discovers from the manifest, but schema structural changes (new required fields on existing schemas) could silently break validation.
+3. **Governance substrate foundation** — The `commons` module provides the building blocks for governed resources (credits, reputation, freshness). Finn's billing ledger, quality governance, and reputation bootstrap (cycle-031) are natural adoption candidates.
+4. **Low migration cost** — None of the three breaking changes cause compile-time errors in existing loa-finn code. However, the upgrade requires runtime/interop behavioral changes: protocol handshake version gating, TaskType routing updates, and QualityObservation output contract adoption. These are scoped and testable.
 
 ---
 
 ## 1. Problem Statement
 
-loa-finn has completed its infrastructure-to-protocol transition. Across 34 development cycles and 131 global sprints, the system has accumulated:
+loa-finn is pinned to `@0xhoneyjar/loa-hounfour` v7.9.2. The upstream protocol has evolved to v8.2.0 with a new governance substrate (`commons` module), required `actor_id` on governance mutations, and a 4th reputation event variant (`ModelPerformanceEvent`). While none of these changes cause compile-time breaks in existing loa-finn code, the upgrade requires runtime behavioral changes (handshake version gating, TaskType routing, quality output contracts). Remaining on v7.9.2 creates:
 
-- **Multi-model inference engine** with pool routing, ensemble orchestration, and budget enforcement (Hounfour v7.11.0 — adopted)
-- **Product layer** with conversation persistence, agent homepages, chat UI, and WebSocket streaming (PR #103 — merged)
-- **Protocol convergence** with branded TaskType, hash chains, native enforcement, and Goodhart protection (PR #104 — merged)
-- **Economic boundary** with conservation invariants, credit lots, and reconciliation sweeps (loa-freeside)
-- **Knowledge governance** with constitutional architecture and 1,090 tests (loa-dixie v2.0.0)
+- **Schema vocabulary drift** between finn and dixie (dixie needs v8.2.0 for `ModelPerformanceEvent`)
+- **Untested conformance vectors** (17 new vectors in v8.2.0)
+- **Blocked governance adoption** (commons module only available in v8.0.0+)
+- **Interop risk** during staged deployments if handshake compatibility window is not defined
 
-**The problem is no longer "can we build it?" — it is "does it compose?"**
-
-The individual subsystems are unit-tested and bridge-reviewed. But no E2E test has ever exercised the full flow: `user request → JWT validation → model routing → inference → billing debit → response delivery`. The infrastructure promises are proven in isolation but unproven in composition.
-
-Until the system can be started with `docker compose up` and a test client can complete an authenticated inference request with billing, the product is infrastructure — not a product.
-
-> Source: Issue #66 body ("What's the gap between infrastructure ready and users can use it?"), Issue #84 description, Issue #66 Command Center Feb 24
+> Sources: [MIGRATION.md](https://github.com/0xHoneyJar/loa-hounfour/blob/main/MIGRATION.md), [v8.2.0 release notes](https://github.com/0xHoneyJar/loa-hounfour/releases/tag/v8.2.0), dixie-contract.md
 
 ---
 
-## 2. Vision & Goals
+## 2. Goals & Success Metrics
 
-### Vision
+### Primary Goals
 
-Close the gap between infrastructure and product by proving the full economic inference loop works end-to-end in a real deployment environment, then exposing it through a developer-consumable API surface.
+| # | Goal | Metric |
+|---|------|--------|
+| G1 | Bump to v8.2.0 with zero regression | All existing tests pass, conformance vectors validate |
+| G2 | Runtime-safe forward-compat for v8.x changes | `normalizeReputationEvent()` handles all 4 variants; `GovernanceMutation` documented with `actor_id` requirement |
+| G3 | Adopt additive features with testable contracts | `scoreQualityGate()` output validated against `QualityObservationSchema`; `'unspecified'` TaskType routes to default pool via `mapTaskTypeToRoutingKey()` |
+| G4 | Conformance vector coverage at v8.2.0 level | All manifest vectors pass, count ≥ 202 baseline |
 
-### Goals
+### Non-Goals
 
-| ID | Goal | Success Metric | Priority |
-|----|------|---------------|----------|
-| G1 | **Prove composition** | E2E test passes: JWT auth → inference → billing debit → response | P0 |
-| G2 | **Enable deployment** | `docker compose up` starts finn + redis + freeside, health checks green | P0 |
-| G3 | **Activate feature flags** | All 6 PR #104 flags promotable in staging without regression | P0 |
-| G4 | **Enable revenue** | x402 pay-per-request returns inference for valid USDC payment | P1 |
-| G5 | **Enable developer adoption** | OpenAPI spec served at `/openapi.json`, TypeScript SDK installable | P1 |
-| G6 | **Enable cross-service contracts** | Dixie can consume finn API with typed client, multi-NFT resolved | P2 |
-
-### Non-Goals (Explicit)
-
-- Production deployment to Fly.io (next cycle)
-- Arrakis integration or Discord/Telegram bot work
-- NFT personality pipeline (BEAUVOIR.md customization)
-- Community governance UI
-- Oracle metacognition (#95 — depends on Dixie endpoint not yet available)
-
-> Source: Issue #66 critical path (Feb 25 command deck), issues #84/#85/#91/#93
+| # | Non-Goal | Rationale |
+|---|----------|-----------|
+| NG1 | Full commons module adoption (governed credits, state machines) | Requires architectural design beyond version bump scope |
+| NG2 | Dynamic contract negotiation | v8.0.0 feature, no current consumer need |
+| NG3 | Governance enforcement SDK integration | `evaluateGovernanceMutation()` needs governance workflow design first |
+| NG4 | Dixie-side ModelPerformanceEvent emission | Dixie's responsibility, tracked separately |
 
 ---
 
-## 3. User & Stakeholder Context
+## 3. Scope
 
-### Primary Personas
+### In Scope
 
-| Persona | Description | Needs from This Cycle |
-|---------|-------------|----------------------|
-| **Internal QA** | The team validating the full loop before external users touch it | E2E harness that exercises real JWT + real inference + real billing |
-| **Developer integrator** | Future SDK consumer building on the finn API | OpenAPI spec, TypeScript SDK, auth documentation |
-| **x402 payer** | Permissionless user paying per-request with USDC | 402 response with pricing, payment verification, inference delivery |
-
-### Secondary Personas
-
-| Persona | Description | Needs (Deferred) |
-|---------|-------------|-------------------|
-| **NFT holder** | Community member with personality-routed agent | Agent homepage + chat (PR #103, already merged) |
-| **Dixie consumer** | Knowledge governance service calling finn APIs | Typed client, multi-NFT resolution (#93) |
-
-> Source: Issue #66 Section 3 (personas), Issue #85 (x402 user), Issue #91 (developer)
-
----
-
-## 4. Functional Requirements
-
-### FR-1: Dockerized Deployment (Issue #84)
-
-**What**: Multi-stage Dockerfile + docker-compose for local and CI environments.
-
-| ID | Requirement | Acceptance Criteria |
-|----|------------|-------------------|
-| FR-1.1 | Multi-stage Dockerfile | `docker build .` produces working image under 500MB. Node.js 22 LTS, non-root user, health check instruction. |
-| FR-1.2 | Docker Compose | `docker compose up` starts loa-finn + Redis + loa-freeside (billing sidecar). Health endpoints for both services respond within 30s. Freeside connects to the same Redis instance for shared budget state. |
-| FR-1.3 | Environment configuration | All env vars from `reality/env-vars.md` configurable via `.env` file or compose environment block. Secrets never baked into image. |
-| FR-1.4 | Graceful shutdown | `docker compose down` completes within 15s. WAL flushes, connections drain. |
-
-> Source: Issue #84 acceptance criteria, reality/env-vars.md
-
-### FR-2: Cross-System E2E Test Harness (Issue #84)
-
-**What**: Integration test exercising the full inference loop with real auth, not mocks.
-
-| ID | Requirement | Acceptance Criteria |
-|----|------------|-------------------|
-| FR-2.1 | ES256 JWT exchange | Test generates ES256 keypair, starts a JWKS sidecar container in compose that serves the public key at `/.well-known/jwks.json`. Finn is configured with `FINN_JWKS_URL` pointing to this sidecar. Test signs JWT with valid claims (`tenant_id`, `tier`, `req_hash`), finn validates via the sidecar's JWKS endpoint. No mocked auth — real JWKS discovery and ES256 validation. |
-| FR-2.2 | Inference request | Authenticated POST to `/api/v1/chat` returns streamed inference response via **WebSocket** (the existing transport — see `src/gateway/ws.ts`). The E2E test connects to `/ws/:sessionId` with bearer token auth, sends a `prompt` message, and asserts receipt of `text_delta` + `turn_end` messages. SSE is not in scope for this cycle. |
-| FR-2.3 | Budget debit flow | Inference request triggers cost recording in finn's budget engine (`BudgetSnapshot.spent_usd` increases) AND a corresponding debit event in freeside's ledger. E2E test asserts both: finn-side cost tracking and freeside-side lot entry creation. |
-| FR-2.4 | Conservation check | If budget limit reached, subsequent requests return 429 with `evaluation_gap` diagnostic. |
-| FR-2.5 | CI integration | E2E test runnable in GitHub Actions with `docker compose up -d` setup step. Fails CI if any assertion fails. |
-
-> Source: Issue #84 body, reality/auth.md (JWT validation order), reality/interfaces.md (BudgetSnapshot)
-
-### FR-3: Feature Flag Promotion Readiness (PR #104 Activation)
-
-**What**: Validate the 6 feature flags from PR #104 are safe to enable, using the Docker Compose environment as "staging."
-
-**Staging definition**: For this cycle, "staging" means the Docker Compose environment from FR-1.2 with all services running. Flags are toggled via environment variables in the compose `.env` file. Actual cloud staging (Fly.io) is deferred to the production deployment cycle.
-
-| ID | Requirement | Acceptance Criteria |
-|----|------------|-------------------|
-| FR-3.1 | Flag inventory | Document all 6 flags with expected behavior when ON vs OFF, including env var names and default values. |
-| FR-3.2 | Flag-by-flag validation | Each flag can be turned ON independently in compose `.env` without regression. Full test suite passes with each flag individually enabled. |
-| FR-3.3 | All-flags-on validation | Full test suite passes with all 6 flags enabled simultaneously in compose. |
-| FR-3.4 | Rollback verification | Each flag can be turned OFF after enablement without side effects. |
-| FR-3.5 | Promotion runbook | Document the recommended promotion order and monitoring checkpoints for future cloud staging deployment. |
-
-> Source: PR #104 summary ("6 new feature flags, all defaulting to OFF")
-
-### FR-4: x402 Pay-Per-Request Middleware (Issue #85)
-
-**What**: HTTP 402 payment flow for permissionless inference access.
-
-| ID | Requirement | Acceptance Criteria |
-|----|------------|-------------------|
-| FR-4.1 | 402 pricing response | Request to `/api/v1/pay/chat` (dedicated x402 endpoint, separate from JWT-gated `/api/v1/chat`) without `X-Payment` header returns HTTP 402 with `X-Price`, `X-Currency`, `X-Payment-Address` headers. |
-| FR-4.2 | Payment verification | Valid `X-Payment` header with EIP-3009 `transferWithAuthorization` signature is verified. **E2E/compose**: off-chain signature verification against a mock payment provider (no on-chain call). **Future staging**: on-chain verification against Base testnet. |
-| FR-4.3 | Nonce replay protection | Replayed payment nonces are rejected with 409. Nonce is recorded in DB only after payment signature is verified and inference request is accepted (atomicity = DB transaction, not on-chain atomicity). |
-| FR-4.4 | Conservation guard | Payment amount verified >= estimated cost before model invocation. Uses `MicroUSDC` branded type from loa-hounfour. Quote is the maximum possible cost (conservative). |
-| FR-4.5 | Credit-back | If actual cost < quoted price, difference is credited to an off-chain credit balance (not an on-chain refund). `actualMicro <= quotedMicro` enforced as invariant. On-chain refunds are out of scope for this cycle. |
-
-**Auth/payment precedence for `/api/v1/*` routes:**
-
-| Endpoint | Auth Mode | Behavior |
-|----------|-----------|----------|
-| `/api/v1/chat` | JWT only | 401 if missing/invalid JWT. No x402 fallback. |
-| `/api/v1/pay/chat` | x402 only | 402 if missing payment. No JWT required. Maps to synthetic tenant `x402-anon` with `free` tier. |
-
-> Source: Issue #85 acceptance criteria, PR #104 Bridgebuilder deep review (conservative-quote-settle pattern)
-
-### FR-5: OpenAPI Specification + TypeScript SDK (Issue #91)
-
-**What**: Developer-consumable API surface generated from existing Hono routes + Zod schemas.
-
-| ID | Requirement | Acceptance Criteria |
-|----|------------|-------------------|
-| FR-5.1 | OpenAPI 3.1 spec | `GET /openapi.json` returns valid spec. All `/api/v1/*` REST endpoints documented with auth requirements, request/response schemas, and pool descriptions. WebSocket `/ws/:sessionId` is documented as a separate section (OpenAPI 3.1 `x-websocket` extension or prose description) since OpenAPI cannot natively describe WebSocket protocols. |
-| FR-5.2 | TypeScript SDK | `@0xhoneyjar/loa-finn-sdk` installable via npm. Supports JWT auth, REST inference requests, and **WebSocket streaming** (connects to `/ws/:sessionId`, handles `text_delta`/`turn_end` message types). |
-| FR-5.3 | Developer docs | Auth flow, pool model, billing, and code examples documented. Served at `/docs` or as static site. |
-
-> Source: Issue #91 body, reality/routes.md (existing route inventory)
-
-### FR-6: Dixie API Contract Alignment (Issue #93)
-
-**What**: Resolve cross-service contract gaps between finn and dixie.
-
-| ID | Requirement | Acceptance Criteria |
-|----|------------|-------------------|
-| FR-6.1 | Multi-NFT resolution | `/api/identity/wallet/:wallet/nfts` (plural) endpoint returns all NFTs for a wallet, not just the first. |
-| FR-6.2 | Contract documentation | All 10+ dixie-consumed endpoints documented with request/response types aligned to OpenAPI spec (#91). |
-| FR-6.3 | Corpus version header | `x-corpus-version` header added to all `/api/knowledge/*` responses per Issue #94. |
-
-> Source: Issue #93 (single-NFT limitation), Issue #94 (corpus version)
-
----
-
-## 5. Technical & Non-Functional Requirements
-
-### NFR-1: Performance
-
-| Metric | Target | Rationale |
-|--------|--------|-----------|
-| Docker build time | < 3 minutes | CI pipeline should not be bottlenecked by build |
-| Container startup to healthy | < 30 seconds | E2E tests need fast setup/teardown |
-| E2E test suite runtime | < 5 minutes | Must fit in CI time budget |
-| x402 payment verification (off-chain) | < 500ms | Signature verification only; on-chain confirmation is async and out of scope |
-
-### NFR-2: Security
-
-| Requirement | Implementation |
-|-------------|---------------|
-| No secrets in Docker image | Multi-stage build, runtime env vars only |
-| ES256 JWT validation | Real key validation in E2E, no mock bypass |
-| x402 nonce atomicity | Nonce recorded in DB only after signature verified and request accepted (DB transaction, not on-chain atomicity) |
-| CORS restricted | Only configured origins in production |
-| Request hash verification | SHA-256 body hash in JWT `req_hash` claim |
-
-> Source: reality/auth.md (JWT validation, CSRF, response redaction)
-
-### NFR-3: Observability
-
-| Requirement | Implementation |
-|-------------|---------------|
-| Health endpoint | `GET /health` returns subsystem status (already exists) |
-| Prometheus metrics | PR #103 added Grafana dashboards + alert rules |
-| E2E test reporting | JUnit XML output for CI integration |
-
-### NFR-4: Compatibility
-
-| Constraint | Value |
-|-----------|-------|
-| Node.js | 22 LTS (ESM-only) |
-| loa-hounfour | >= 7.11.0 |
-| Docker | 24+ with BuildKit |
-| Redis | 7.x |
-
-> Source: reality/index.md (Node.js 22+, Hono v4), reality/dependencies.md
-
----
-
-## 6. Scope & Prioritization
-
-### MVP (P0) — Must Ship This Cycle
-
-| Track | Issues | What | Why |
-|-------|--------|------|-----|
-| **Dockerization** | #84 | Dockerfile + compose | Can't test composition without running it |
-| **E2E harness** | #84 | Real JWT + inference + billing test | Proves the loop works |
-| **Flag promotion** | PR #104 | Validate 6 flags in staging | Activates protocol convergence |
-
-### P1 — Should Ship This Cycle
-
-| Track | Issues | What | Why |
-|-------|--------|------|-----|
-| **x402** | #85 | Pay-per-request middleware | Revenue path |
-| **OpenAPI** | #91 | Spec + SDK | Developer adoption surface |
-
-### P2 — If Time Permits
-
-| Track | Issues | What | Why |
-|-------|--------|------|-----|
-| **Dixie contracts** | #93, #94 | Multi-NFT + corpus version | Cross-service parity |
+1. **Dependency bump**: `@0xhoneyjar/loa-hounfour` v7.9.2 → v8.2.0
+2. **Protocol handshake update**: Update `CONTRACT_VERSION` expectation to `"8.2.0"`. Define compatibility window: finn MUST accept `8.x` (any 8.x minor) and MAY accept `7.9.2` during a rollout grace period (configurable, default 7 days). After grace period, `FINN_MIN_SUPPORTED` moves to `"8.0.0"`. This ensures staged deployments where dixie or arrakis may still be on 7.9.2 do not hard-break interop.
+3. **Conformance vector validation**: 219 vectors (17 new), any new required categories
+4. **Protocol-types.ts hub update**: Re-export new schemas/types from `commons` and `governance` subpackages
+5. **ReputationEvent normalizer**: Add a minimal `normalizeReputationEvent()` function that pattern-matches all 4 variants including `model_performance`. For `model_performance`, log and emit a metric (no routing action yet — routing is a future cycle concern). Unit test with a `model_performance` fixture asserting the event is recognized and metered, not dropped.
+6. **Forward-compat: GovernanceMutation actor_id**: Document requirement in protocol-types.ts JSDoc. No code changes needed (type not currently constructed).
+7. **QualityObservation adoption**: Refactor `quality-gate-scorer.ts` to return `QualityObservation`-shaped output from `scoreQualityGate()`. Validate output against `QualityObservationSchema` at the call site using the hounfour validator. Unit test asserting `scoreQualityGate()` output passes schema validation. This is the internal quality scoring function — its output becomes the canonical payload for Dixie consumption.
+8. **TaskType 'unspecified' handling**: Replace local `NFTTaskType` union with protocol `TaskType` and add an explicit mapping layer in `nft-routing-config.ts`: `mapTaskTypeToRoutingKey(taskType: TaskType): NFTRoutingKey`. `'unspecified'` maps to `'default'`. Unit test passing `'unspecified'` through `resolvePool()` and asserting default pool selection.
 
 ### Out of Scope
 
-| Item | Why Deferred |
-|------|-------------|
-| Production Fly.io deployment | Needs E2E proof first (next cycle) |
-| Arrakis adoption of v7.11.0 | Separate repo, separate cycle |
-| Oracle metacognition (#95) | Depends on Dixie endpoint not yet available |
-| NFT personality pipeline | Product layer (PR #103) already merged, personality customization is post-launch |
-| Community governance UI | Ostrom principles implicit in architecture; explicit governance is future work |
-
-> Source: Issue #66 command deck critical path (Feb 25), Bridgebuilder deep review Part IV
+- Commons module governed resource adoption (future cycle)
+- Dynamic contract negotiation
+- Governance enforcement SDK wiring
+- State machine configuration
+- Dixie-side changes
 
 ---
 
-## 7. Risks & Dependencies
+## 4. Technical Context
 
-### Risks
+### 4.1 Current Integration Surface (25 files)
+
+The centralized re-export hub at `src/hounfour/protocol-types.ts` (143 lines, 43 named exports) is the single import point. All protocol types flow through this file. The upgrade affects this hub and its downstream consumers.
+
+**Integration categories:**
+
+| Category | Files | Key Imports |
+|----------|-------|-------------|
+| Core protocol bridge | `protocol-types.ts`, `wire-boundary.ts`, `protocol-handshake.ts` | 43 re-exports, branded types, version validation |
+| Economic evaluation | `economic-boundary.ts`, `pool-enforcement.ts`, `tier-bridge.ts` | `evaluateEconomicBoundary()`, `TIER_TRUST_MAP`, pool claims |
+| Billing/finance | `billing/types.ts`, `billing/ledger.ts`, `billing/pricing.ts`, `billing/state-machine.ts` | `BrandedMicroUSD` |
+| Credits | `credits/conversion.ts`, `credits/purchase.ts` | `BrandedMicroUSD` |
+| NFT routing | `nft-routing-config.ts` | `PoolId`, `Tier`, `TaskType` |
+| JWT/auth | `jwt-auth.ts`, `s2s-jwt.ts`, `jti-replay.ts` | JWT schemas |
+| Quality | `quality-gate-scorer.ts` | Quality scoring (adoption target for `QualityObservation`) |
+
+### 4.2 Breaking Change Impact Analysis
+
+#### GovernanceMutation.actor_id (v8.1.0)
+
+**Current usage**: NONE. Grep for `GovernanceMutation` across `src/` returns zero hits. This type exists in the protocol but is not yet constructed by loa-finn.
+
+**Action**: No code changes needed. Document requirement in protocol-types.ts JSDoc for future adoption.
+
+#### ModelPerformanceEvent (v8.2.0)
+
+**Current usage**: NONE. `ReputationEvent` is not routed or switched on in loa-finn. The reputation system uses `TIER_TRUST_MAP` (static mapping) and `ReputationProvider` interface (boost lookup), not event-driven processing.
+
+**Action**: (1) Re-export the new type and schema from protocol-types.ts. (2) Add a `normalizeReputationEvent()` function that exhaustively pattern-matches all 4 variants with a `never` default. The `model_performance` variant is recognized, logged with a metric (`reputation_event_received{type="model_performance"}`), and returned — no routing action. This provides runtime safety against silent event drops and establishes the integration point for future Dixie-driven reputation routing.
+
+#### commons module (v8.0.0)
+
+**Current usage**: NONE. New import path `@0xhoneyjar/loa-hounfour/commons`.
+
+**Action**: No immediate adoption. Re-export key schemas from protocol-types.ts for discoverability. The `GovernedCredits` schema is a natural fit for billing ledger governance in a future cycle.
+
+### 4.3 Additive Feature Analysis
+
+#### QualityObservation (v8.2.0)
+
+**Natural fit**: `src/hounfour/quality-gate-scorer.ts` currently uses ad-hoc quality scoring. `QualityObservation` provides a canonical schema: `score: [0,1]`, optional `dimensions`, `latency`, `evaluator`. Adopting this aligns Finn's quality gate output with the protocol's expectation for Dixie consumption.
+
+**Integration point**: `scoreQualityGate()` is the function that produces quality results. Its return type will be refactored to conform to `QualityObservation`. The output is validated at the call site using hounfour's schema validator (TypeBox `Value.Check(QualityObservationSchema, output)`). This output is an internal event consumed by the quality governance pipeline (cycle-031) and will become the payload Dixie reads for `ModelPerformanceEvent` emission.
+
+#### TaskType 'unspecified' (v8.2.0)
+
+**Natural fit**: `src/hounfour/nft-routing-config.ts` defines a local `NFTTaskType = "chat" | "analysis" | "architecture" | "code" | "default"`. The protocol `TaskType` now includes `'unspecified'` as a reserved fallback.
+
+**Strategy**: Replace the local `NFTTaskType` union with protocol `TaskType` as the input type. Add an explicit mapping function `mapTaskTypeToRoutingKey(taskType: TaskType): NFTRoutingKey` where `NFTRoutingKey` remains the internal union (`"chat" | "analysis" | "architecture" | "code" | "default"`). The mapping sends `'unspecified'` → `'default'` and unknown values → `'default'` with a warning log. This creates a single source of truth (protocol `TaskType`) with a well-defined narrowing boundary.
+
+### 4.4 Conformance Vectors
+
+Current: 202 vectors validated in `tests/finn/conformance-vectors.test.ts` (auto-discovered from manifest).
+Target: v8.2.0 manifest vectors (expected ~219 but not hardcoded). The test suite reads `schemas/index.json` from the installed package and auto-discovers all schemas. Assertions verify: (1) discovered count ≥ 202 baseline (no regression), (2) discovered count matches manifest entry count (no orphans or missing schemas), (3) all schemas parse and validate structurally. The actual count is logged for observability but not used as a gate value, avoiding brittleness when upstream adds vectors in patch releases.
+
+---
+
+## 5. Risks & Mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| E2E test reveals integration bugs between JWT auth and hounfour router | High | Medium | Budget extra time for integration debugging; this is the *purpose* of the E2E harness |
-| x402 on-chain verification complexity | Medium | High | Use mock payment provider in E2E; real on-chain in staging only |
-| Feature flag interactions (6 flags, 64 combinations) | Medium | Medium | Test flags individually first, then all-on; don't test every combination |
-| Docker image size bloats past 500MB | Low | Low | Multi-stage build, `.dockerignore`, no dev deps in production |
-
-### Dependencies
-
-| Dependency | Status | Blocking |
-|-----------|--------|----------|
-| loa-hounfour v7.11.0 | Released ✅ | — |
-| loa-finn PR #103 (product layer) | Merged ✅ | — |
-| loa-finn PR #104 (protocol convergence) | Merged ✅ | — |
-| loa-freeside PR #96 (v7.11.0 adoption) | Merged ✅ | — |
-| loa-dixie PR #9 (v7.11.0 adoption) | Merged ✅ | — |
-| Redis 7.x | Available via Docker | FR-1.2 |
-| `@hono/zod-openapi` | npm package | FR-5.1 |
-| EIP-3009 reference implementation | Public | FR-4.2 |
-
-> Source: Issue #66 ecosystem status map (Feb 25 update)
+| Schema structural changes break existing validation | Low | High | Conformance vectors test all schemas; CI catches structural drift |
+| New required fields on existing schemas | Low | High | MIGRATION.md documents only `actor_id` on `GovernanceMutation` (unused) |
+| `commons` import path breaks bundler | Low | Medium | Verify `exports` map in package.json supports `@0xhoneyjar/loa-hounfour/commons` |
+| Version handshake rejects v8.2.0 or breaks 7.9.2 peers during rollout | Medium | High | Define compatibility window: accept 8.x primary + 7.9.2 grace period. Test both directions. `FINN_MIN_SUPPORTED` stays at `"7.9.2"` during grace, moves to `"8.0.0"` after. |
+| Post-install build script incompatibility | Low | High | v8.2.0 has clean dist — verify no postinstall workaround is needed |
 
 ---
 
-## 8. Success Criteria
+## 6. Acceptance Criteria
 
-This cycle is complete when:
-
-1. `docker compose up` starts loa-finn + Redis + loa-freeside, all health endpoints return 200 within 30s
-2. E2E test completes: generate ES256 keypair → sign JWT → POST `/api/v1/chat` → receive streamed response → verify budget debit
-3. All 6 feature flags from PR #104 are validated individually and collectively
-4. x402 middleware returns 402 with pricing headers for unauthenticated requests, and delivers inference for valid payment
-5. `GET /openapi.json` returns valid OpenAPI 3.1 spec covering all `/api/v1/*` endpoints
-6. E2E test runs in GitHub Actions CI without manual intervention
-
-**The atomic success metric**: A single command (`docker compose up && npm run test:e2e`) that proves the full economic inference loop works.
-
-> Source: Issue #66 ("What bridges infrastructure to product?"), Issue #84, PR #104 Bridgebuilder meditation Part V
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| AC1 | `@0xhoneyjar/loa-hounfour` resolves to v8.2.0 tag | `pnpm ls @0xhoneyjar/loa-hounfour` shows 8.2.0 |
+| AC2 | All existing tests pass with zero regression | `pnpm test` exits 0 |
+| AC3 | Conformance vectors pass against installed manifest | `conformance-vectors.test.ts` passes; discovered count ≥ 202 baseline AND matches manifest `index.json` entry count (no orphans, no missing). Actual count logged but not hardcoded. |
+| AC4 | Protocol handshake succeeds with `CONTRACT_VERSION` "8.2.0" and backward-compat with 7.9.2 | `interop-handshake.test.ts` passes with both `"8.2.0"` (primary) and `"7.9.2"` (grace period). Test for `"6.0.0"` rejects. |
+| AC5 | `protocol-types.ts` re-exports new v8.2.0 types | Import test: `ModelPerformanceEvent`, `QualityObservation`, `GovernanceError` resolve without errors |
+| AC6 | `scoreQualityGate()` returns `QualityObservation`-conformant output | Unit test: call `scoreQualityGate()`, validate return value against `QualityObservationSchema` via `Value.Check()`, assert pass |
+| AC7 | `'unspecified'` TaskType routes to default pool | Unit test: call `resolvePool(tier, 'unspecified')` through the actual routing entrypoint, assert default pool selected |
+| AC8 | `normalizeReputationEvent()` handles all 4 variants | Unit test: feed `model_performance` fixture, assert recognized and metered (not dropped). Exhaustive `never` check on unknown variants. |
+| AC9 | No postinstall patch script required | `scripts/patch-hounfour-dist.sh` not invoked (or removed if exists) |
 
 ---
 
-## Appendix A: Ecosystem State at Cycle Start
+## 7. Dependencies
 
-```
-loa-hounfour v7.11.0  ── RELEASED ✅
-loa-finn main         ── PR #103 + #104 merged ✅
-loa-freeside main     ── PR #96 merged ✅
-loa-dixie v2.0.0      ── PR #9 merged ✅
+| Dependency | Status | Notes |
+|------------|--------|-------|
+| loa-hounfour v8.2.0 release | Released | 2026-02-25, tag available |
+| cycle-032 completion | Archived | All 6 sprints completed, no blocking items |
+| Dixie contract (consumer) | External | Dixie adopts v8.2.0 independently |
 
-Global sprints: 131+ across 4 repos
-Total tests: 9,874+
-Protocol version: v7.11.0 (4 of 4 repos converged)
-```
+---
 
-## Appendix B: Issue Cross-Reference
+## 8. Appendix: Migration Checklist (from MIGRATION.md)
 
-| Issue | Title | PRD Section |
-|-------|-------|-------------|
-| #84 | Dockerize + E2E Harness | FR-1, FR-2 |
-| #85 | x402 Pay-Per-Request | FR-4 |
-| #91 | OpenAPI + SDK | FR-5 |
-| #93 | Dixie API Contracts | FR-6 |
-| #94 | Corpus Version Header | FR-6.3 |
-| #95 | Oracle Metacognition | Out of Scope |
+Per the [loa-finn consumer migration path](https://github.com/0xHoneyJar/loa-hounfour/blob/main/MIGRATION.md#loa-finn):
+
+1. ✅ Update `@0xhoneyjar/loa-hounfour` to `^8.2.0`
+2. ✅ Add `actor_id` to all `GovernanceMutation` payloads (no current usage — forward-compat only)
+3. ✅ Handle `model_performance` variant in `ReputationEvent` routing (no current routing — forward-compat only)
+4. ✅ Optionally import governance enforcement utilities from `./commons`

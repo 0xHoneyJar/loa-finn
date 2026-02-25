@@ -1,676 +1,461 @@
-# SDD: Launch Readiness — Product Integration & Live Testing
+# SDD: Hounfour v8.2.0 Upgrade — Commons Protocol + ModelPerformance
 
-**Status:** Draft
-**Author:** Jani (via Loa)
-**Date:** 2026-02-25
-**Cycle:** cycle-035
-**PRD:** `grimoires/loa/prd.md` (GPT-5.2 APPROVED, iteration 2)
-
----
-
-## 1. Executive Summary
-
-Cycle-035 is an **integration and composition cycle**, not a greenfield build. The codebase already contains:
-
-- Multi-stage Dockerfile (`deploy/Dockerfile`) — Node.js 22-slim, corepack/pnpm, non-root user, healthcheck
-- Five Docker Compose configs (dev, prod, e2e, gpu, test)
-- Full x402 stack (`src/x402/` — 14 files: middleware, settlement, receipt-verifier, verify, atomic-verify, credit-note, challenge-issuer, failure-recorder, pricing, rpc-pool, types, hmac, lua scripts)
-- Feature flag service (`src/gateway/feature-flags.ts`) with 5 Redis-backed flags + admin API
-- OpenAPI 3.1 spec (`src/gateway/openapi-spec.ts`) served at `GET /openapi.json`
-- E2E test infrastructure (`tests/e2e/` — 10+ test files, compose, smoke-test)
-- ES256 JWT validation via JWKS discovery (`src/hounfour/jwt-auth.ts` + `jose` v6)
-- S2S JWT signer with JWKS endpoint at `/.well-known/jwks.json` (`src/hounfour/s2s-jwt.ts`)
-
-**The work is connecting, hardening, and proving these subsystems compose correctly.** The SDD focuses on: (1) upgrading the E2E compose topology from arrakis/HS256 to freeside/ES256/JWKS-sidecar, (2) writing the full-loop E2E test, (3) augmenting the existing OpenAPI spec, (4) aligning x402 endpoint naming with the PRD's auth/payment precedence table, and (5) validating feature flag promotion.
-
-### PRD/Code Reconciliation
-
-The following divergences exist between the PRD and the current codebase. This SDD resolves each:
-
-| PRD States | Code Reality | SDD Resolution |
-|------------|-------------|----------------|
-| 6 feature flags from PR #104 | 5 `DEFAULT_FLAGS` + dynamic `x402:public` | Document 6 flags: 5 defaults + `x402:public` (already used in `x402-routes.ts:119`) |
-| `/api/v1/pay/chat` x402 endpoint | `/api/v1/x402/invoke` exists with full middleware | Keep `/api/v1/x402/invoke` as canonical. Add `/api/v1/pay/chat` as alias route (§3.4) |
-| E2E uses freeside + ES256 | E2E compose uses arrakis + HS256 | New compose profile `docker-compose.e2e-v2.yml` with freeside + JWKS sidecar (§3.1) |
-| JWKS sidecar container | Finn already serves `/.well-known/jwks.json` | Use finn's own JWKS endpoint for E2E — no sidecar needed (§3.2) |
-| Docker Compose starts freeside | Dev compose has no freeside | Add freeside service to E2E compose (§3.1) |
-| OpenAPI covers all `/api/v1/*` | Spec missing x402, admin, identity routes | Augment existing `buildOpenApiSpec()` (§3.5) |
+> **Version**: 1.1.0
+> **Date**: 2026-02-25
+> **Author**: @janitooor + Claude Opus 4.6 (Bridgebuilder)
+> **Status**: Draft
+> **Cycle**: cycle-033
+> **PRD**: `grimoires/loa/prd.md` v1.1.0 (GPT-5.2 APPROVED iteration 2)
 
 ---
 
-## 2. System Architecture
+## 1. Overview
 
-### 2.1 High-Level Component Diagram
+This SDD describes the technical design for upgrading `@0xhoneyjar/loa-hounfour` from v7.9.2 to v8.2.0 in loa-finn. The upgrade crosses a major version boundary with three breaking changes (commons module, required `actor_id`, `ModelPerformanceEvent` variant) — none causing compile-time breaks but requiring runtime behavioral changes.
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    Docker Compose Network                     │
-│                                                              │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐   │
-│  │   Redis 7   │   │  loa-finn   │   │  loa-freeside   │   │
-│  │  (shared)   │◄──┤  port:3001  │──►│   port:3002     │   │
-│  │             │   │             │   │                 │   │
-│  │ feature:*   │   │ JWT(ES256)  │   │ conservation    │   │
-│  │ x402:*      │   │ x402 stack  │   │ credit lots     │   │
-│  │ sessions    │   │ WebSocket   │   │ reconciliation  │   │
-│  │ rate-limits │   │ OpenAPI     │   │ sweeps          │   │
-│  └─────────────┘   └──────┬──────┘   └─────────────────┘   │
-│                           │                                  │
-│                    ┌──────┴──────┐                           │
-│                    │  E2E Test   │                           │
-│                    │  Harness    │                           │
-│                    │  (host)     │                           │
-│                    └─────────────┘                           │
-└──────────────────────────────────────────────────────────────┘
-```
-
-### 2.2 Composition Topology Change
-
-**Current** (`tests/e2e/docker-compose.e2e.yml`):
-```
-redis-e2e → arrakis-e2e → loa-finn-e2e
-              (HS256)
-```
-
-**Target** (`tests/e2e/docker-compose.e2e-v2.yml`):
-```
-redis-e2e → loa-freeside-e2e → loa-finn-e2e
-               (shared Redis)     (ES256 JWKS self-serve)
-```
-
-**Key changes:**
-1. Replace `arrakis-e2e` with `loa-freeside-e2e` — freeside is the economic boundary, arrakis is deferred
-2. Upgrade from HS256 shared secret to ES256 with JWKS discovery — finn already serves `/.well-known/jwks.json` via `S2SJwtSigner`
-3. Add `FINN_JWT_ENABLED=true` and `FINN_JWKS_URL=http://loa-finn-e2e:3000/.well-known/jwks.json` (self-referencing JWKS via Docker service DNS — **not** `localhost`, which resolves to the container's loopback only)
-4. Preserve existing E2E compose as legacy fallback (no deletion)
-
-**JWKS bootstrap safety:** The `jose` library's `createRemoteJWKSet()` fetches JWKS lazily on the first JWT validation request, not at server startup. The `/.well-known/jwks.json` endpoint is a public route (no JWT middleware). This means there is no startup dependency loop: finn starts → healthcheck passes → E2E sends request with JWT → `jwtVerify()` triggers first JWKS fetch → `/.well-known/jwks.json` responds (already serving). The JWKS cache TTL is 5 minutes with automatic refetch on `kid` miss.
+**Design principles:**
+- Centralized re-export hub (`protocol-types.ts`) remains the single import point
+- Backward-compatible handshake during rollout grace period
+- Explicit mapping boundaries at protocol-to-application type narrowing
+- Schema-validated output contracts for downstream consumers (Dixie)
 
 ---
 
-## 3. Component Design
+## 2. Component Design
 
-### 3.1 E2E Compose Stack (FR-1, FR-2)
+### 2.1 Dependency Bump
 
-**File:** `tests/e2e/docker-compose.e2e-v2.yml`
+**File**: `package.json`
 
-```yaml
-services:
-  redis-e2e:
-    image: redis:7-alpine
-    ports: ["6380:6379"]
-    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 5 }
-
-  loa-freeside-e2e:
-    image: ghcr.io/0xhoneyjar/loa-freeside:v7.11.0  # pinned to protocol-compatible version (Flatline IMP-002/SKP-004)
-    environment:
-      NODE_ENV: test
-      REDIS_URL: redis://redis-e2e:6379
-      FREESIDE_MODE: test
-    depends_on:
-      redis-e2e: { condition: service_healthy }
-    healthcheck: { test: [...], interval: 5s, timeout: 5s, start_period: 15s, retries: 5 }
-
-  loa-finn-e2e:
-    build: { context: ../.. , dockerfile: deploy/Dockerfile }
-    ports: ["3001:3000"]
-    environment:
-      NODE_ENV: test
-      REDIS_URL: redis://redis-e2e:6379
-      CHEVAL_MODE: mock
-      FINN_JWT_ENABLED: "true"
-      FINN_JWKS_URL: http://loa-finn-e2e:3000/.well-known/jwks.json  # self-referencing via Docker DNS
-      FINN_JWT_ISSUER: e2e-harness
-      FINN_JWT_AUDIENCE: loa-finn
-      FINN_S2S_PRIVATE_KEY: ${E2E_ES256_PRIVATE_KEY}  # generated by test harness
-      FINN_S2S_KID: e2e-v1
-      FINN_S2S_ISSUER: e2e-harness
-      FREESIDE_URL: http://loa-freeside-e2e:3002
-      PORT: "3000"
-    depends_on:
-      redis-e2e: { condition: service_healthy }
-      loa-freeside-e2e: { condition: service_healthy }
-    healthcheck: { test: [...], interval: 5s, timeout: 5s, start_period: 15s, retries: 5 }
+```diff
+- "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#ff8c16b899b5bbebb9bf1a5e3f9e791342b49bea",
++ "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#v8.2.0",
 ```
 
-**JWKS Strategy:** Finn already exposes `GET /.well-known/jwks.json` via `S2SJwtSigner` (see `reality/routes.md`). In E2E mode, the test harness generates an ES256 keypair, passes the private key to finn via `FINN_S2S_PRIVATE_KEY`, and finn self-serves the public key at its JWKS endpoint. The test harness signs JWTs using the same private key. This means **no separate JWKS sidecar is needed** — finn is both the JWKS provider and consumer in E2E, which simplifies the compose topology while still exercising real JWKS discovery + ES256 validation.
+After bump: `pnpm install`, verify `CONTRACT_VERSION` export resolves to `"8.2.0"`, verify `@0xhoneyjar/loa-hounfour/commons` import path resolves.
 
-**JWKS fetch resilience** (Flatline IMP-001): The `jose` `createRemoteJWKSet()` is configured with:
-- **Timeout:** 5s per fetch attempt (default; configurable via `FINN_JWKS_TIMEOUT_MS`)
-- **Cache TTL:** 5 minutes with stale-while-revalidate — on cache miss or `kid` mismatch, refetch; on transient failure, serve stale cached JWKS for up to 10 minutes
-- **Retry:** Single retry with 1s backoff on network error before returning 503
-- **Rotation:** New `kid` values trigger immediate JWKS refetch; E2E tests include a negative test for unknown `kid` → 401
+### 2.2 Protocol Handshake — Compatibility Window
 
-**E2E JWKS limitation** (Flatline SKP-001, overridden): Self-referential JWKS proves the ES256+JWKS machinery works end-to-end but does not exercise TLS, remote host resolution, or multi-key rotation across services. A true external JWKS provider (sidecar or separate service) is deferred to the production staging cycle (Fly.io deployment). This is acceptable because: (a) the `jose` JWKS client is battle-tested for remote fetching, (b) the E2E proves the configuration wiring and claim validation, (c) production will use arrakis or a dedicated auth service as the JWKS issuer.
+**File**: `src/hounfour/protocol-handshake.ts`
 
-**Freeside Integration:** Freeside connects to the same Redis instance. Billing debit events from finn's budget engine are correlated with freeside's lot entries via shared Redis keys. The E2E test asserts both sides.
+**Current behavior**: `finnValidateCompatibility()` uses semver comparison with `FINN_MIN_SUPPORTED = "4.0.0"`. The v4.0.0 floor was set during the arrakis v4.6.0 transition era (cycle-012). With finn moving to v8.2.0, the v4-v6 era is over.
 
-### 3.2 E2E Test Harness (FR-2)
+**Changes**:
 
-**File:** `tests/e2e/full-loop.test.ts`
+1. **Bump `FINN_MIN_SUPPORTED`** from `"4.0.0"` to `"7.0.0"`:
 
-**Test flow:**
-
-```
-1. Generate ES256 keypair (P-256)
-2. Wait for all compose services healthy
-3. Sign JWT: { iss: "e2e-harness", aud: "loa-finn", tenant_id: "e2e-tenant", tier: "pro", req_hash: sha256(body) }
-4. POST /api/v1/agent/chat with JWT → assert 200 or WebSocket connect
-5. Connect WebSocket /ws/:sessionId with bearer token
-6. Send { type: "prompt", text: "Hello" }
-7. Assert receipt of text_delta + turn_end messages
-8. Query finn /health → assert billing.spent_usd > 0
-9. Query freeside → assert lot entry created for e2e-tenant
-10. Send request exceeding budget → assert 429 with evaluation_gap
+```typescript
+export const FINN_MIN_SUPPORTED = "7.0.0" as const
 ```
 
-**Key implementation details:**
+This creates a precise compatibility window:
+- `remote = "8.2.0"` → compatible (same major, same minor)
+- `remote = "8.0.0"` → compatible with warning (minor mismatch)
+- `remote = "7.9.2"` → compatible with warning (cross-major, above min 7.0.0) — **grace period**
+- `remote = "7.0.0"` → compatible with warning (cross-major, above min)
+- `remote = "6.0.0"` → **incompatible** (below FINN_MIN_SUPPORTED 7.0.0) — **AC4 satisfied**
+- `remote = "4.6.0"` → **incompatible** (below min)
+- `remote = "9.0.0"` → **incompatible** (future major)
 
-- **JWT signing:** Use `jose` library (`new SignJWT(claims).setProtectedHeader({ alg: "ES256", kid: "e2e-v1" }).sign(privateKey)`)
-- **WebSocket client:** Native `WebSocket` (Node.js 22 has built-in WebSocket) or `ws` package. Auth via query param: `ws://localhost:3001/ws/{sessionId}?token={bearer}`. Alternative: send `{ token: "..." }` as first message (both supported by `src/gateway/ws.ts`). Connection limit: 5 per IP. Idle timeout: 5 minutes (send `{ type: "ping" }` to keep alive). On token expiry mid-session: server sends `{ type: "error", message: "Token expired", recoverable: false }` and closes. E2E test mints short-lived tokens (60s) to avoid expiry during test, and includes a negative test for expired-token rejection.
-- **Budget assertion:** The existing health endpoint already reports billing state. Freeside assertion uses freeside's API endpoint.
-- **Test runner:** Vitest with JUnit XML reporter for CI (`--reporter=junit --outputFile=test-results/e2e.xml`)
-- **Timeout:** 5-minute test suite budget (NFR-1)
+2. **New feature thresholds** for v8.x capabilities:
 
-**Existing infrastructure leveraged:**
-- `tests/e2e/smoke-test.sh` — existing test script, used as reference
-- `src/hounfour/jwt-auth.ts` — already validates ES256 via JWKS, already extracts `tenant_id`/`tier`/`req_hash`
-- `src/gateway/ws.ts` — WebSocket protocol already defined with `prompt`, `text_delta`, `turn_end` message types
+```typescript
+// Add to FEATURE_THRESHOLDS
+commonsModule:        { major: 8, minor: 0, patch: 0 },
+governanceActorId:    { major: 8, minor: 1, patch: 0 },
+modelPerformance:     { major: 8, minor: 2, patch: 0 },
+```
 
-### 3.3 Feature Flag Promotion (FR-3)
+3. **Extend PeerFeatures**:
 
-**Existing infrastructure:** `src/gateway/feature-flags.ts` — `FeatureFlagService` class with Redis-backed `feature:{name}:enabled` keys, admin API at `POST /api/v1/admin/feature-flags`.
+```typescript
+/** Remote supports commons module governance schemas (v8.0.0+). */
+commonsModule: boolean
+/** Remote requires actor_id on GovernanceMutation (v8.1.0+). */
+governanceActorId: boolean
+/** Remote supports ModelPerformanceEvent reputation variant (v8.2.0+). */
+modelPerformance: boolean
+```
 
-**Flag inventory (6 flags):**
+**Decision**: Bumping `FINN_MIN_SUPPORTED` to `"7.0.0"` is the correct action because: (a) no known peers run v4-v6 anymore, (b) AC4 requires rejecting v6.0.0, (c) the cross-major warning in `finnValidateCompatibility()` naturally provides v7.9.2 grace. The grace window is `[7.0.0, 8.x]`. It closes when `FINN_MIN_SUPPORTED` is bumped to `"8.0.0"` in a future cycle.
 
-| # | Flag Name | Redis Key | Default | ON Behavior | OFF Behavior |
-|---|-----------|-----------|---------|-------------|--------------|
-| 1 | `billing` | `feature:billing:enabled` | OFF | Budget enforcement active, costs recorded | Free tier, no cost tracking |
-| 2 | `credits` | `feature:credits:enabled` | OFF | Credit balance system active | Credits ignored |
-| 3 | `nft` | `feature:nft:enabled` | OFF | NFT-routed personality conditioning | Generic system prompt |
-| 4 | `onboarding` | `feature:onboarding:enabled` | OFF | Guided onboarding flow active | Skip onboarding |
-| 5 | `x402` | `feature:x402:enabled` | OFF | x402 payment endpoint active | 503 on `/api/v1/x402/invoke` |
-| 6 | `x402:public` | `feature:x402:public:enabled` | OFF | x402 open to all wallets | Allowlist-gated beta |
+### 2.3 Protocol Types Hub — New Re-exports
 
-**Promotion test strategy:**
+**File**: `src/hounfour/protocol-types.ts`
 
-1. **Individual validation:** For each flag, toggle ON via admin API → run full test suite → toggle OFF → verify no side effects
-2. **All-on validation:** Enable all 6 flags → run full test suite
-3. **Rollback:** Disable all flags → verify clean state
-4. **Automation:** `tests/e2e/flag-promotion.test.ts` — Vitest suite that exercises all combinations via admin API
+Add re-exports for v8.x types. Grouped by subpackage:
 
-**Design decision:** Flags are toggled via the admin API (`POST /api/v1/admin/feature-flags`) during E2E tests, not via environment variables. This matches production behavior (Redis-backed runtime toggle) and is more representative than compose `.env` restarts. The promotion runbook for future cloud staging will document the admin API toggle sequence.
+```typescript
+// === v8.0.0: Commons Module ===
+export {
+  GovernedCreditsSchema,
+  ConservationLawSchema,
+  AuditTrailSchema,
+  StateMachineConfigSchema,
+  GovernanceMutationSchema,
+  DynamicContractSchema,
+  GovernanceErrorSchema,
+} from "@0xhoneyjar/loa-hounfour/commons"
+export type {
+  GovernedCredits,
+  ConservationLaw,
+  AuditTrail,
+  StateMachineConfig,
+  GovernanceMutation,
+  DynamicContract,
+  GovernanceError,
+} from "@0xhoneyjar/loa-hounfour/commons"
 
-**Admin auth contract for E2E:**
+// === v8.2.0: Governance Additions ===
+export { QualityObservationSchema } from "@0xhoneyjar/loa-hounfour/governance"
+export type { QualityObservation } from "@0xhoneyjar/loa-hounfour/governance"
 
-The admin API (`/api/v1/admin/*`) uses a separate auth middleware (`validateAdminToken` in `feature-flags.ts:89`) that checks for `role: "admin"` in the JWT claims. In E2E:
+// === v8.2.0: ReputationEvent with ModelPerformance variant ===
+export { ModelPerformanceEventSchema } from "@0xhoneyjar/loa-hounfour/governance"
+export type { ModelPerformanceEvent, ReputationEvent } from "@0xhoneyjar/loa-hounfour/governance"
+```
 
-1. **Same JWKS:** Admin JWTs are validated against the same JWKS endpoint (`/.well-known/jwks.json`) as user JWTs — no separate keypair needed.
-2. **Same ES256 key:** The E2E harness mints admin tokens using the same ephemeral ES256 private key used for user tokens.
-3. **Admin claims:** `{ iss: "e2e-harness", aud: "loa-finn-admin", role: "admin", tenant_id: "e2e-admin" }` — note the `aud: "loa-finn-admin"` matches `AUDIENCE_MAP.admin` from `jwt-auth.ts:71`.
-4. **User claims:** `{ iss: "e2e-harness", aud: "loa-finn", tenant_id: "e2e-tenant", tier: "pro", req_hash: "sha256:..." }` — note `aud: "loa-finn"` matches `AUDIENCE_MAP.invoke`.
+**Implementation protocol — exports verification** (addresses speculative re-export risk):
 
-The E2E test harness exports a `mintToken(claims, privateKey)` helper that accepts arbitrary claims, allowing both user and admin tokens from a single keypair. The `kid` header is `e2e-v1` for both.
+1. After `pnpm install`, run an import surface test before writing re-exports:
+   ```bash
+   node --input-type=module -e "import('@0xhoneyjar/loa-hounfour/commons').then(m => console.log('commons:', Object.keys(m).join(', ')))"
+   node --input-type=module -e "import('@0xhoneyjar/loa-hounfour/governance').then(m => console.log('governance:', Object.keys(m).join(', ')))"
+   ```
+2. Derive the re-export list from the actual named exports — do not copy the speculative list above verbatim.
+3. Add a compile-time import surface test (`tests/finn/protocol-imports.test.ts`) that imports every re-exported symbol from `src/hounfour/protocol-types.ts` and asserts they are defined. This test satisfies AC5 and catches export map regressions.
 
-### 3.4 x402 Endpoint Alignment (FR-4)
+### 2.4 ReputationEvent Normalizer
 
-**Current state:** The x402 endpoint is `POST /api/v1/x402/invoke` (in `src/gateway/x402-routes.ts`). The PRD defines the auth/payment precedence table as:
+**New file**: `src/hounfour/reputation-event-normalizer.ts`
 
-| Endpoint | Auth Mode |
+```typescript
+import { Value } from "@sinclair/typebox/value"
+import type { ReputationEvent } from "./protocol-types.js"
+import { ReputationEventSchema } from "./protocol-types.js"
+
+export interface NormalizedReputationEvent {
+  type: string
+  recognized: true
+  metered: boolean
+}
+
+/**
+ * Validate and normalize a ReputationEvent.
+ *
+ * Step 1: Runtime schema validation (catches discriminant/shape mismatches).
+ * Step 2: Exhaustive switch on verified discriminant.
+ *
+ * The discriminant field and literal values are verified against
+ * ReputationEventSchema at runtime, not assumed from documentation.
+ */
+export function normalizeReputationEvent(event: unknown): NormalizedReputationEvent {
+  // Runtime validation — catches shape/discriminant mismatches
+  if (!Value.Check(ReputationEventSchema, event)) {
+    const errors = [...Value.Errors(ReputationEventSchema, event)]
+    throw new Error(`Invalid ReputationEvent: ${errors.map(e => e.message).join(", ")}`)
+  }
+
+  const validated = event as ReputationEvent
+  switch (validated.type) {
+    case "quality_signal":
+      return { type: "quality_signal", recognized: true, metered: true }
+    case "task_completion":
+      return { type: "task_completion", recognized: true, metered: true }
+    case "peer_review":
+      return { type: "peer_review", recognized: true, metered: true }
+    case "model_performance":
+      return { type: "model_performance", recognized: true, metered: true }
+    default: {
+      // If schema validation passes but switch doesn't match, the schema
+      // has variants we haven't coded for — fail loudly.
+      throw new Error(`Unhandled ReputationEvent type after schema validation: ${(validated as { type: string }).type}`)
+    }
+  }
+}
+```
+
+**Implementation note**: The discriminant field (`type`) and literal values (`quality_signal`, etc.) are documented in MIGRATION.md but MUST be verified against the actual `ReputationEventSchema` export after v8.2.0 install. The `Value.Check()` gate at the boundary ensures runtime safety regardless of whether the documented values are accurate.
+
+**Integration point**: Not wired into any existing pipeline (no existing ReputationEvent routing). This function exists for:
+1. Runtime safety — `Value.Check()` at boundary prevents silent misclassification
+2. Compile-time safety — adding a 5th variant that passes schema but not switch triggers the default throw
+3. Test anchor — AC8 unit test exercises all 4 variants + one invalid input
+
+### 2.5 QualityObservation Adoption
+
+**File**: `src/hounfour/quality-gate-scorer.ts`
+
+The current `score()` method returns `Promise<number>`. Refactoring approach:
+
+1. **Add `scoreToObservation()`** method returning `QualityObservation`:
+
+```typescript
+import { Value } from "@sinclair/typebox/value"
+import { QualityObservationSchema } from "./protocol-types.js"
+import type { QualityObservation } from "./protocol-types.js"
+
+async scoreToObservation(result: CompletionResult): Promise<QualityObservation> {
+  const startMs = Date.now()
+  const rawScore = await this.score(result)
+  const latencyMs = Date.now() - startMs
+
+  // Clamp score to [0, 1] — guard against gate script returning out-of-range values
+  const clampedScore = Math.max(0, Math.min(1, Number.isFinite(rawScore) ? rawScore : 0))
+
+  // Build observation — fields derived from QualityObservationSchema after install.
+  // The field list below is illustrative; implementation MUST inspect the actual
+  // schema to discover required/optional fields and constraints.
+  const observation: QualityObservation = {
+    score: clampedScore,
+    evaluator: "quality-gates-sh",
+    latency_ms: Math.round(latencyMs),
+    // Additional fields populated after schema inspection:
+    // dimensions, task_type, model_id, timestamp_ms, source — as required by schema
+  }
+
+  if (!Value.Check(QualityObservationSchema, observation)) {
+    const errors = [...Value.Errors(QualityObservationSchema, observation)]
+    throw new Error(`QualityObservation schema validation failed: ${errors.map(e => e.message).join(", ")}`)
+  }
+
+  return observation
+}
+```
+
+**Implementation protocol — schema-led field discovery**:
+
+1. After `pnpm install`, inspect `QualityObservationSchema` to discover all required and optional fields:
+   ```bash
+   node --input-type=module -e "import('@0xhoneyjar/loa-hounfour/governance').then(m => console.log(JSON.stringify(m.QualityObservationSchema, null, 2)))"
+   ```
+2. Populate all required fields in `scoreToObservation()`. The code above is illustrative — adapt to actual schema.
+3. Unit test MUST include: (a) valid output passes `Value.Check()`, (b) `Value.Errors()` returns empty array, (c) negative test with out-of-range score (e.g., `NaN`, `-1`, `2.0`) asserts the clamp/guard works.
+
+2. **Keep `score()` unchanged** — backward compatible for `ScorerFunction` consumers.
+
+3. **Keep `toScorerFunction()` unchanged** — ensemble still gets `Promise<number>`.
+
+**Decision**: Additive refactor. `scoreToObservation()` wraps `score()` and adds schema validation. No existing callers change. New callers (future Dixie integration) use `scoreToObservation()`.
+
+### 2.6 TaskType Mapping Layer
+
+**File**: `src/hounfour/nft-routing-config.ts`
+
+**Current**: Local `NFTTaskType = "chat" | "analysis" | "architecture" | "code" | "default"` used throughout.
+
+**Design**:
+
+1. **Rename local union** to `NFTRoutingKey` (internal implementation detail):
+
+```typescript
+export type NFTRoutingKey = "chat" | "analysis" | "architecture" | "code" | "default"
+```
+
+2. **Add two mapping functions** — typed (compile-time safe) and wire (runtime safe):
+
+```typescript
+import type { TaskType } from "./protocol-types.js"
+
+const KNOWN_ROUTING_KEYS = new Set<string>(["chat", "analysis", "architecture", "code", "default"])
+
+/**
+ * Type-safe mapping for verified TaskType values.
+ * Exhaustive switch with never — compile error if protocol adds new variants.
+ */
+export function mapTaskTypeToRoutingKey(taskType: TaskType): NFTRoutingKey {
+  switch (taskType) {
+    case "chat":
+    case "analysis":
+    case "architecture":
+    case "code":
+      return taskType
+    case "unspecified":
+      return "default"
+    default: {
+      const _exhaustive: never = taskType
+      throw new Error(`Unhandled TaskType: ${_exhaustive}`)
+    }
+  }
+}
+
+/**
+ * Wire-boundary mapping for untrusted string input.
+ * Runtime guard — warns and falls back to "default" for unknown values.
+ * 'unspecified' is handled first as an expected protocol value (no warning).
+ */
+export function mapUnknownTaskTypeToRoutingKey(taskType: unknown): NFTRoutingKey {
+  if (taskType === "unspecified") return "default"
+  if (typeof taskType === "string" && KNOWN_ROUTING_KEYS.has(taskType)) {
+    return taskType as NFTRoutingKey
+  }
+  console.warn(`[nft-routing] Unknown task type "${String(taskType)}", routing to default`)
+  return "default"
+}
+```
+
+3. **`NFTRoutingCache.resolvePool()` accepts `NFTRoutingKey` only** — mapping happens at the boundary:
+
+```typescript
+// Signature unchanged — accepts NFTRoutingKey (the internal type)
+resolvePool(personalityId: string, taskType: NFTRoutingKey): PoolId | null {
+  // ... existing logic, no casts needed
+}
+```
+
+**File**: `src/hounfour/tier-bridge.ts`
+
+The mapping happens at the protocol boundary in `resolvePool()`, before passing to NFT routing:
+
+```typescript
+import { mapUnknownTaskTypeToRoutingKey } from "./nft-routing-config.js"
+
+// taskType comes from external input (string), map at the boundary
+const routingKey = taskType ? mapUnknownTaskTypeToRoutingKey(taskType) : "default"
+const preferredPool = nftPreferences?.[routingKey]
+```
+
+**Decision**: Two-function split creates a clean narrowing boundary. `mapTaskTypeToRoutingKey()` is compile-time exhaustive for internal callers with verified `TaskType`. `mapUnknownTaskTypeToRoutingKey()` handles untrusted wire input at `tier-bridge.ts`. `NFTRoutingCache.resolvePool()` accepts only `NFTRoutingKey` — no union types, no casts.
+
+### 2.7 Conformance Vector Tests
+
+**File**: `tests/finn/conformance-vectors.test.ts`
+
+**Changes**:
+
+1. **Add manifest-match assertion** alongside baseline:
+
+```typescript
+expect(schemas.length).toBeGreaterThanOrEqual(202)  // Regression baseline
+expect(schemas.length).toBe(manifest.schemas.length)  // Exact manifest match
+console.log(`[conformance-vectors] Discovered ${schemas.length} schemas from manifest`)
+```
+
+2. **Add new required categories** if v8.2.0 introduces them (e.g., `commons`). Verify against installed manifest. Add `commons` pattern to `classifySchema()`:
+
+```typescript
+if (/commons|governed|conservation|audit.trail|state.machine|governance.error/i.test(name)) return "commons"
+```
+
+---
+
+## 3. Data Flow
+
+### 3.1 TaskType Narrowing Flow
+
+```
+Protocol TaskType (external)
+  │ 'chat' | 'analysis' | 'architecture' | 'code' | 'unspecified' | ...
+  │
+  ▼
+mapTaskTypeToRoutingKey()     ← narrowing boundary
+  │ NFTRoutingKey: 'chat' | 'analysis' | 'architecture' | 'code' | 'default'
+  │
+  ▼
+NFTRoutingCache.resolvePool()
+  │
+  ▼
+PoolId
+```
+
+### 3.2 QualityObservation Flow
+
+```
+CompletionResult.content
+  │
+  ▼
+QualityGateScorer.score()     ← existing, returns number
+  │
+  ▼
+QualityGateScorer.scoreToObservation()  ← new wrapper
+  │ QualityObservation { score, evaluator, latency_ms }
+  │
+  ▼
+Value.Check(QualityObservationSchema)  ← runtime validation
+  │
+  ▼
+Quality governance pipeline (cycle-031)
+  │
+  ▼
+[Future] Dixie ModelPerformanceEvent emission
+```
+
+### 3.3 Handshake Compatibility Flow
+
+```
+Boot time
+  │
+  ▼
+validateProtocolAtBoot()
+  │ CONTRACT_VERSION = "8.2.0"
+  │ FINN_MIN_SUPPORTED = "7.0.0"
+  │
+  ├── remote = "8.2.0" → compatible (same major, same minor)
+  ├── remote = "8.0.0" → compatible with warning (minor mismatch)
+  ├── remote = "7.9.2" → compatible with warning (cross-major, above min)
+  ├── remote = "7.0.0" → compatible with warning (cross-major, at min)
+  ├── remote = "6.0.0" → incompatible (below FINN_MIN_SUPPORTED 7.0.0)
+  ├── remote = "4.6.0" → incompatible (below min)
+  └── remote = "9.0.0" → incompatible (future major)
+```
+
+---
+
+## 4. File Change Summary
+
+| File | Change Type | Description |
+|------|-------------|-------------|
+| `package.json` | Modify | Bump hounfour to v8.2.0 tag |
+| `src/hounfour/protocol-types.ts` | Modify | Add new re-exports from commons, governance (derived from install) |
+| `src/hounfour/protocol-handshake.ts` | Modify | Add 3 feature thresholds, extend PeerFeatures |
+| `src/hounfour/reputation-event-normalizer.ts` | **New** | Exhaustive ReputationEvent normalizer |
+| `src/hounfour/quality-gate-scorer.ts` | Modify | Add `scoreToObservation()` method |
+| `src/hounfour/nft-routing-config.ts` | Modify | Rename NFTTaskType → NFTRoutingKey, add mapping function |
+| `src/hounfour/tier-bridge.ts` | Modify | Use mapping function in resolvePool NFT path |
+| `tests/finn/conformance-vectors.test.ts` | Modify | Add manifest-match assertion, log count |
+| `tests/finn/interop-handshake.test.ts` | Modify | Add v8.2.0 + v7.9.2 grace + v6.0.0 reject cases |
+| `tests/finn/reputation-event-normalizer.test.ts` | **New** | All 4 variants + invalid input + exhaustiveness test |
+| `tests/finn/quality-observation.test.ts` | **New** | Schema validation + negative tests (NaN, out-of-range) |
+| `tests/finn/protocol-imports.test.ts` | **New** | Import surface test — all re-exports resolve (AC5) |
+| `tests/finn/nft-routing.test.ts` | Modify | Add 'unspecified' TaskType routing test |
+
+**New files**: 2 source, 3 test
+**Modified files**: 8 (4 source, 4 test)
+
+---
+
+## 5. Testing Strategy
+
+| Test | Type | Verifies |
+|------|------|----------|
+| All existing tests pass | Regression | AC2: zero regression |
+| `conformance-vectors.test.ts` | Conformance | AC3: manifest match, ≥202 baseline |
+| `interop-handshake.test.ts` (new cases) | Integration | AC4: v8.2.0 accept, v7.9.2 grace, v6.0.0 reject |
+| Import compilation test | Unit | AC5: new type re-exports resolve |
+| `quality-observation.test.ts` | Unit | AC6: `scoreToObservation()` output passes `Value.Check()` |
+| `nft-routing.test.ts` (new case) | Unit | AC7: `resolvePool(tier, 'unspecified')` → default pool |
+| `reputation-event-normalizer.test.ts` | Unit | AC8: all 4 variants handled, never exhaustiveness |
+
+---
+
+## 6. Risks & Mitigations (SDD-Level)
+
+| Risk | Mitigation |
+|------|------------|
+| v8.2.0 `exports` map doesn't include `./commons` | Verify immediately after `pnpm install` with a bare import test |
+| `QualityObservationSchema` fields differ from assumption | Read schema source after install; adjust `scoreToObservation()` fields |
+| `ReputationEvent` type name or discriminant differs | Verify exact type export name from `governance` subpackage |
+| `TaskType` union members changed in v8.x (beyond adding `'unspecified'`) | Typed `mapTaskTypeToRoutingKey()` is compile-time exhaustive — new variants cause `never` error. Wire `mapUnknownTaskTypeToRoutingKey()` handles arbitrary strings at runtime. |
+| `parseSemver()` behavior changes in v8.2.0 | Unlikely (utility function), but handshake tests cover both directions |
+
+---
+
+## 7. Decisions & Rationale
+
+| Decision | Rationale |
 |----------|-----------|
-| `/api/v1/chat` | JWT only (401 if missing) |
-| `/api/v1/pay/chat` | x402 only (402 if missing) |
-
-**Resolution:** Add `/api/v1/pay/chat` as a **single explicit alias** in `server.ts` that delegates to the existing x402 invoke handler. The existing `/api/v1/x402/invoke` remains unchanged. The x402 router is NOT re-mounted — only the handler function is reused.
-
-**Implementation — extract handler, register alias in `server.ts`:**
-
-```typescript
-// In x402-routes.ts: extract the handler as a named export
-export function createX402InvokeHandler(deps: X402RouteDeps) {
-  return async (c: Context) => { /* existing POST /invoke body */ }
-}
-
-export function x402Routes(deps: X402RouteDeps): Hono {
-  const app = new Hono()
-  // Canonical endpoint (existing, unchanged)
-  app.post("/invoke", createX402InvokeHandler(deps))
-  return app
-}
-```
-
-```typescript
-// In server.ts: mount canonical + register single alias
-app.route("/api/v1/x402", x402Routes(deps))            // → POST /api/v1/x402/invoke
-app.post("/api/v1/pay/chat", createX402InvokeHandler(deps))  // → single alias, no extra routes
-```
-
-This approach avoids the route duplication problem: mounting the full `x402Routes` router at `/api/v1/pay` would create unintended endpoints (`/api/v1/pay/invoke`). Instead, only the handler function is reused for the single alias path.
-
-**Auth/payment precedence (no code change needed):** The existing middleware stack already enforces this:
-- `/api/v1/*` routes pass through `jwtAuthMiddleware` which checks `FINN_JWT_ENABLED`
-- x402 routes are mounted separately and do NOT pass through JWT middleware
-- The x402 handler already returns 402 when no `X-Payment` header is present (line 91-107 of `x402-routes.ts`)
-- The alias route (`/api/v1/pay/chat`) is registered outside the JWT middleware scope, matching the same middleware-free treatment as `/api/v1/x402/*`
-
-The x402 middleware stack (feature flag check → parse → allowlist → rate limit → quote → verify → settle → inference) is already complete.
-
-**x402 failure modes and error schemas** (Flatline IMP-003):
-
-| Failure | Status | Error Code | Behavior |
-|---------|--------|------------|----------|
-| Feature flag `x402` OFF | 503 | `FEATURE_DISABLED` | No quote issued |
-| Missing `X-Payment` header | 402 | `PAYMENT_REQUIRED` | Returns quote in `X-Payment-Required` header |
-| Invalid payment JSON | 400 | `INVALID_PAYMENT` | Rejects before verification |
-| Quote expired (>5min TTL) | 402 | `QUOTE_NOT_FOUND` | Client must re-request quote |
-| Quote expiry mid-inference | N/A | N/A | Quote is consumed at settlement time (before inference starts). If inference is slow, quote TTL is irrelevant — the payment is already settled. |
-| Nonce replay | 409 | `NONCE_REPLAY` | Idempotent replay returns original result if `idempotent_replay=true`; otherwise rejects |
-| Payment amount < estimated cost | 402 | `INSUFFICIENT_PAYMENT` | Conservation guard rejects |
-| Wallet not on allowlist (beta) | 403 | `NOT_ALLOWLISTED` | During closed beta only |
-| Rate limit exceeded | 429 | `RATE_LIMITED` | 100 req/hour per wallet |
-| Inference fails after settlement | 502 | `INFERENCE_FAILED` | Credit note issued for full `max_cost`; `credit_note.id` returned in response |
-| Credit note issuance fails | 502 | `INFERENCE_FAILED` | Best-effort; `credit_note: null` in response. Logged for manual reconciliation. |
-| Partial settlement (on-chain only) | N/A | N/A | Out of scope — E2E uses off-chain verification only. On-chain settlement is atomic (tx succeeds or fails). |
-
-### 3.5 OpenAPI Spec Augmentation (FR-5)
-
-**Current state:** `src/gateway/openapi-spec.ts` covers `/api/v1/agent/chat`, `/api/v1/keys`, `/api/v1/auth/*`, `/health`, `/metrics`, `/llms.txt`, `/agents.md`, `/agent/{tokenId}`. Missing: x402 endpoints, admin API, identity endpoints, WebSocket documentation.
-
-**Additions to `buildOpenApiSpec()`:**
-
-1. **x402 endpoints:**
-   - `POST /api/v1/x402/invoke` — with 402 response schema (existing `X402Challenge`)
-   - `POST /api/v1/pay/chat` — alias, same schema
-
-2. **Admin endpoints:**
-   - `POST /api/v1/admin/feature-flags` — toggle flags
-   - `GET /api/v1/admin/feature-flags` — list flag states
-   - `POST /api/v1/admin/allowlist` — manage wallet allowlist
-
-3. **Identity endpoints (FR-6):**
-   - `GET /api/identity/wallet/{wallet}/nfts` — multi-NFT resolution
-
-4. **WebSocket documentation:**
-   - `x-websocket` extension on `/ws/{sessionId}` describing message envelope types
-   - Reference to `reality/routes.md` for full protocol spec
-
-5. **Corpus version header (FR-6.3):**
-   - `x-corpus-version` response header on `/api/knowledge/*` paths
-
-**Implementation approach:** Extend the existing `buildOpenApiSpec()` function in-place. No new files needed. The spec is already programmatically built, so adding paths is straightforward.
-
-### 3.6 TypeScript SDK (FR-5.2)
-
-**Package:** `packages/sdk/` (new directory — monorepo package)
-
-**Scope for this cycle:**
-- REST client wrapping `/api/v1/agent/chat` and `/api/v1/x402/invoke`
-- WebSocket client wrapping `/ws/:sessionId` with typed message handlers
-- JWT auth helper (sign with ES256 key)
-- Published as `@0xhoneyjar/loa-finn-sdk` (npm)
-
-**Generation strategy:** Manual TypeScript client (not auto-generated from OpenAPI). The WebSocket protocol cannot be generated from OpenAPI, and the authentication flow (SIWE → JWT → API key) requires custom logic. The SDK uses the OpenAPI spec as documentation source, not as code generator input.
-
-**SDK structure:**
-
-```
-packages/sdk/
-├── src/
-│   ├── client.ts        # FinnClient class (REST + auth)
-│   ├── ws.ts            # FinnWebSocket class (streaming)
-│   ├── x402.ts          # X402Client (payment flow)
-│   ├── types.ts         # Shared types (from OpenAPI schemas)
-│   └── index.ts         # Re-exports
-├── package.json
-├── tsconfig.json
-└── README.md
-```
-
-### 3.7 Dixie Contract Alignment (FR-6)
-
-**FR-6.1 — Multi-NFT resolution:** Existing endpoint `/api/identity/wallet/:wallet/nfts` currently returns the first NFT only. Change to return array of all NFTs.
-
-**Backward compatibility** (Flatline IMP-010): Changing from single-object to array is a breaking change for any existing consumers. Mitigation:
-- The current endpoint has no external consumers yet (dixie integration is this cycle's work)
-- Response schema: `{ nfts: NFTInfo[], total: number }` — always an array, even for single results
-- No pagination needed for MVP (wallets typically hold <10 NFTs in this collection)
-- If a legacy single-NFT endpoint is needed, preserve `GET /api/identity/wallet/:wallet/nft` (singular) as deprecated alias returning the first result
-
-**FR-6.2 — Contract documentation:** Documented as part of OpenAPI augmentation (§3.5).
-
-**FR-6.3 — Corpus version header:** Add `x-corpus-version` header middleware to all `/api/knowledge/*` routes. Version sourced from the deployed dixie corpus manifest (`grimoires/oracle-dixie/manifest.json` or `DIXIE_REF` build arg).
-
----
-
-## 4. Data Architecture
-
-### 4.1 No Schema Changes
-
-This cycle introduces **no new database tables or schema migrations.** All data flows use existing structures:
-
-| Data | Storage | Existing |
-|------|---------|----------|
-| Feature flags | Redis (`feature:{name}:enabled`) | `FeatureFlagService` |
-| x402 quotes | Redis (`x402:quote_id:{id}`) | `QuoteService` |
-| x402 rate limits | Redis (`x402:rate:{wallet}`) | `x402-routes.ts` |
-| JWT replay guard | Redis (`jti:{hash}`) | `JtiReplayGuard` |
-| Budget state | In-memory `BudgetSnapshot` + WAL | Budget engine |
-| Sessions | File-based WAL + R2 sync | Session manager |
-
-### 4.2 Freeside Data Correlation
-
-The E2E test needs to assert that finn's budget debit is mirrored in freeside's ledger.
-
-**Finn side (observable):**
-- After inference, `BudgetSnapshot.spent_usd` increases
-- Observable via `GET /health` → `response.billing.spent_usd` (existing health endpoint)
-- Budget engine writes cost events to WAL namespace `budget` with key pattern `budget:{tenant_id}`
-
-**Freeside side (observable via Redis):**
-- Freeside records lot entries in Redis with key pattern `freeside:lot:{tenant_id}:{lot_id}`
-- Each lot entry is a JSON object: `{ tenant_id, lot_id, amount_micro, direction: "debit"|"credit", timestamp, source_service }`
-- The E2E test queries Redis directly using the shared Redis connection: `SCAN 0 MATCH freeside:lot:e2e-tenant:* COUNT 100` (using `SCAN` instead of `KEYS` to avoid O(N) performance issues per Flatline SKP-004), then verifies at least one entry with `direction: "debit"` and `amount_micro > 0`
-
-**Freeside health API (fallback):**
-- `GET /v1/health` on freeside returns `{ status, ledger: { total_lots, last_entry_at } }`
-- If freeside exposes a tenant query endpoint (e.g., `GET /v1/ledger/{tenant_id}`), the E2E test uses it as the primary assertion. If not, direct Redis key query is the primary path.
-
-**Correlation identifiers:**
-- Primary: `tenant_id` (from JWT claim, set to `e2e-tenant` in test harness)
-- Secondary: `quote_id` (for x402 flow correlation)
-
-**Implementation note:** If freeside's Redis key schema differs from the above at implementation time, the E2E test adapts to freeside's actual schema. The sprint implementation task must verify freeside's key patterns before writing assertions. The shared Redis instance (`redis-e2e:6379`) is accessible from the test harness via the mapped port `localhost:6380`.
-
----
-
-## 5. API Design
-
-### 5.1 Endpoint Summary (After Changes)
-
-| Endpoint | Auth | Status | Change |
-|----------|------|--------|--------|
-| `POST /api/v1/agent/chat` | JWT (ES256) | Existing | No change |
-| `POST /api/v1/x402/invoke` | x402 payment | Existing | No change |
-| `POST /api/v1/pay/chat` | x402 payment | **New** | Alias to x402/invoke (§3.4) |
-| `GET /api/v1/admin/feature-flags` | Admin JWT | Existing | No change |
-| `POST /api/v1/admin/feature-flags` | Admin JWT | Existing | No change |
-| `GET /api/identity/wallet/:wallet/nfts` | Bearer | Existing | Fix: return array (§3.7) |
-| `GET /openapi.json` | None | Existing | Augmented (§3.5) |
-| `WS /ws/:sessionId` | Bearer query/msg | Existing | No change |
-| `GET /.well-known/jwks.json` | None | Existing | No change |
-| `GET /health` | None | Existing | No change |
-
-### 5.2 Auth/Payment Precedence (PRD Decision Table)
-
-```
-Request to /api/v1/agent/chat:
-  ├── Has valid JWT? → Process inference (billing via budget engine)
-  ├── Has invalid JWT? → 401 Unauthorized
-  └── No auth header? → 401 Unauthorized (no x402 fallback)
-
-Request to /api/v1/pay/chat (or /api/v1/x402/invoke):
-  ├── Has X-Payment header? → Verify payment → Process inference
-  ├── No X-Payment? → 402 with quote (X-Payment-Required header)
-  └── Feature flag x402 OFF? → 503 Service Unavailable
-```
-
-No code change required for precedence enforcement — the existing route registration already separates JWT-gated and x402-gated paths.
-
----
-
-## 6. Security Architecture
-
-### 6.1 Auth Changes
-
-| Component | Current | After |
-|-----------|---------|-------|
-| E2E JWT algorithm | HS256 (shared secret) | **ES256 (JWKS discovery)** |
-| E2E JWKS source | N/A | Finn self-serves at `/.well-known/jwks.json` |
-| E2E key management | Hardcoded `FINN_S2S_JWT_SECRET` | **Generated ES256 keypair per test run** |
-| x402 nonce replay | Redis-based `atomic-verify.ts` | No change |
-| Request hash | SHA-256 body hash in JWT `req_hash` | No change |
-
-### 6.2 JWT Claim Contract (Flatline SKP-002)
-
-All JWTs are validated by `src/hounfour/jwt-auth.ts` with the following enforced contract:
-
-| Claim | Required | Validation | User Token | Admin Token |
-|-------|----------|------------|------------|-------------|
-| `iss` | Yes | Must match `FINN_JWT_ISSUER` | `e2e-harness` | `e2e-harness` |
-| `aud` | Yes | Must match endpoint audience map | `loa-finn` | `loa-finn-admin` |
-| `exp` | Yes | Must be in future (+ clock skew) | Required | Required |
-| `iat` | Yes | Must be in past | Required | Required |
-| `nbf` | Optional | If present, must be in past (+ skew) | Optional | Optional |
-| `jti` | Conditional | Required for invoke/admin per `EFFECTIVE_JTI_POLICY` | Required | Required |
-| `tenant_id` | Yes | Non-empty string | `e2e-tenant` | `e2e-admin` |
-| `tier` | Yes (user) | `free\|pro\|enterprise` | `pro` | N/A |
-| `role` | Yes (admin) | Must be `admin` for admin endpoints | N/A | `admin` |
-| `req_hash` | Conditional | `sha256:<hex>` of request body for POST/PUT/PATCH | Required for POST | N/A |
-
-**Clock skew:** `FINN_JWT_CLOCK_SKEW` (default 30s). **Max lifetime:** `FINN_JWT_MAX_LIFETIME` (default 3600s — tokens older than this are rejected regardless of `exp`).
-
-**Negative E2E tests** (in `tests/e2e/auth-negative.test.ts`):
-- Wrong `aud` (user token hitting admin endpoint) → 403
-- Missing `exp` → 401
-- Expired token → 401
-- Future `nbf` → 401
-- Missing `role` on admin endpoint → 403
-- `role=user` on admin endpoint → 403
-- Unknown `kid` → 401
-- Replayed `jti` → 401
-
-### 6.3 Admin Auth Production Hardening (Flatline SKP-003, Deferred)
-
-**This cycle (E2E compose):** Admin and user tokens share the same JWKS trust root and ES256 keypair. This is acceptable for local/CI testing where the keypair is ephemeral and the compose network is isolated.
-
-**Future production hardening (Fly.io cycle):** The following controls must be added before exposing admin endpoints to non-local networks:
-- Separate JWKS issuer for admin tokens (dedicated auth service or separate keypair)
-- IP allowlist or mTLS for `/api/v1/admin/*` routes
-- Rate limiting on admin endpoints (lower than user endpoints)
-- Audit logging: all flag changes logged with `who` (JWT `sub`/`tenant_id`), `when` (timestamp), `what` (flag name, old→new value) — already partially implemented via `writeAudit()` in `feature-flags.ts:68`
-- Consider network segmentation (admin endpoints on internal port only)
-
-### 6.5 E2E Key Generation
-
-The test harness generates a fresh ES256 keypair before each test run:
-
-```typescript
-import { generateKeyPair, exportPKCS8, exportSPKI } from "jose"
-
-const { privateKey, publicKey } = await generateKeyPair("ES256")
-const privatePem = await exportPKCS8(privateKey)
-// Pass to compose via E2E_ES256_PRIVATE_KEY env var
-```
-
-This key is ephemeral — generated, used, discarded. No key material persists beyond the test run.
-
-### 6.6 x402 Security (Unchanged)
-
-The existing x402 stack provides:
-- **Nonce atomicity:** `atomic-verify.ts` + Redis Lua scripts ensure single-use nonces
-- **Quote binding:** Quote ID links payment proof to specific inference parameters
-- **Rate limiting:** 100 requests/hour per wallet (`x402-routes.ts:38-48`)
-- **Allowlist gating:** `x402:public` flag controls open vs beta access
-- **Credit notes:** `credit-note.ts` handles over-payment refunds (off-chain)
-
-No changes to x402 security model.
-
----
-
-## 7. Technology Stack
-
-### 7.1 No New Dependencies (Runtime)
-
-All runtime dependencies already exist in `package.json`:
-- `hono` v4 — HTTP framework
-- `jose` v6 — JWT/JWKS
-- `ioredis` — Redis client (via `@0xhoneyjar/loa-hounfour`)
-- `zod` — Schema validation
-
-### 7.2 New Dev Dependencies
-
-| Package | Purpose | Version |
-|---------|---------|---------|
-| `vitest` | E2E test runner (already in devDeps) | Existing |
-| `@vitest/reporter-junit` | JUnit XML output for CI | ^1.0 |
-
-### 7.3 New Package (SDK)
-
-| Package | Purpose |
-|---------|---------|
-| `@0xhoneyjar/loa-finn-sdk` | TypeScript SDK (`packages/sdk/`) |
-
----
-
-## 8. Deployment Architecture
-
-### 8.1 CI Pipeline Changes
-
-**Current:** GitHub Actions runs `pnpm test` and `pnpm build`. E2E tests are skipped (require `ARRAKIS_CHECKOUT_TOKEN` secret not configured).
-
-**Target:** Add E2E workflow step:
-
-```yaml
-# .github/workflows/e2e.yml
-jobs:
-  e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Generate ES256 keypair
-        run: node tests/e2e/generate-keys.js
-      - name: Start compose stack
-        run: docker compose -f tests/e2e/docker-compose.e2e-v2.yml up -d --build
-      - name: Wait for healthy
-        run: tests/e2e/wait-healthy.sh
-      - name: Run E2E tests
-        run: pnpm vitest run tests/e2e/full-loop.test.ts --reporter=junit --outputFile=test-results/e2e.xml
-      - name: Tear down
-        if: always()
-        run: docker compose -f tests/e2e/docker-compose.e2e-v2.yml down -v
-```
-
-**Freeside image:** In CI, use `ghcr.io/0xhoneyjar/loa-freeside:latest` (pre-built). For local development, build from sibling directory `../loa-freeside` if available.
-
-### 8.2 Docker Image (No Changes)
-
-The existing `deploy/Dockerfile` already meets all PRD requirements:
-- Multi-stage build ✅
-- Node.js 22 LTS ✅
-- Non-root user (`finn`) ✅
-- Health check instruction ✅
-- No secrets baked in (runtime env vars) ✅
-- Under 500MB (estimated ~350MB based on slim base) ✅
-
-No Dockerfile changes needed.
-
----
-
-## 9. Scalability & Performance
-
-No scalability changes in this cycle. The E2E harness runs in CI with `CHEVAL_MODE=mock` (no real LLM calls), keeping test suite runtime under 5 minutes (NFR-1).
-
-**x402 payment verification:** Off-chain signature verification only (no RPC calls in E2E). Target: <500ms per verification (NFR-1). The existing `verify.ts` already performs off-chain ECDSA recovery — no optimization needed.
-
----
-
-## 10. Testing Strategy
-
-### 10.1 Test Pyramid
-
-| Level | Existing | This Cycle |
-|-------|----------|------------|
-| Unit | 200+ tests (`pnpm test`) | No additions |
-| Integration | 22 BATS tests (`tests/integration/`) | No additions |
-| E2E | `tests/e2e/smoke-test.sh` (arrakis/HS256) | **New:** `full-loop.test.ts` (freeside/ES256) |
-| E2E | — | **New:** `flag-promotion.test.ts` |
-| E2E | — | **New:** `x402-flow.test.ts` |
-
-### 10.2 E2E Test Matrix
-
-| Test | Asserts | Priority |
-|------|---------|----------|
-| `full-loop.test.ts` | JWT → inference → billing debit → WebSocket stream | P0 |
-| `flag-promotion.test.ts` | Each flag individually → all-on → rollback | P0 |
-| `x402-flow.test.ts` | 402 response → payment → inference → credit-back | P1 |
-| `budget-conservation.test.ts` | Budget exhaustion → 429 → evaluation_gap | P0 |
-
-### 10.3 Mock Strategy
-
-| Component | E2E Behavior | Production Behavior |
-|-----------|-------------|-------------------|
-| LLM inference | `CHEVAL_MODE=mock` (deterministic responses) | Real model calls |
-| x402 settlement | Off-chain signature verification only | On-chain via Base (future) |
-| Redis | Real Redis (compose service) | Real Redis |
-| JWT | Real ES256 + JWKS discovery | Real ES256 + JWKS discovery |
-| Freeside | Real freeside service (compose) | Real freeside service |
-
----
-
-## 11. Development Workflow
-
-### 11.1 Sprint Scope
-
-Based on PRD priority ordering:
-
-| Sprint | Focus | PRD Section | Priority |
-|--------|-------|-------------|----------|
-| Sprint 1 | E2E Compose + Full Loop Test | FR-1, FR-2 | P0 |
-| Sprint 2 | Feature Flag Promotion + x402 Alignment | FR-3, FR-4 | P0/P1 |
-| Sprint 3 | OpenAPI Augmentation + SDK + Dixie Contracts | FR-5, FR-6 | P1/P2 |
-
-### 11.2 File Change Map
-
-| File | Change Type | Sprint |
-|------|-------------|--------|
-| `tests/e2e/docker-compose.e2e-v2.yml` | New | 1 |
-| `tests/e2e/generate-keys.ts` | New | 1 |
-| `tests/e2e/full-loop.test.ts` | New | 1 |
-| `tests/e2e/wait-healthy.sh` | New | 1 |
-| `tests/e2e/budget-conservation.test.ts` | New | 1 |
-| `tests/e2e/auth-negative.test.ts` | New | 1 |
-| `tests/e2e/flag-promotion.test.ts` | New | 2 |
-| `tests/e2e/x402-flow.test.ts` | New | 2 |
-| `src/gateway/x402-routes.ts` | Modify (add alias) | 2 |
-| `src/gateway/server.ts` | Modify (mount alias) | 2 |
-| `src/gateway/openapi-spec.ts` | Modify (augment) | 3 |
-| `packages/sdk/` | New directory | 3 |
-| `src/gateway/identity-routes.ts` | Modify (multi-NFT) | 3 |
-| `.github/workflows/e2e.yml` | New | 1 |
-
----
-
-## 12. Technical Risks & Mitigation
-
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Freeside Docker image unavailable in CI | Medium | High | Fallback to building from source if GHCR image missing |
-| JWKS self-referencing causes timing issue (finn serves JWKS but also consumes it during startup) | Low | Medium | JWKS cache with retry; finn's JWKS endpoint is available before JWT middleware activates |
-| E2E tests flaky due to compose startup timing | Medium | Medium | `wait-healthy.sh` with exponential backoff + service health checks |
-| x402 alias route conflicts with existing route tree | Low | Low | Mount at `/api/v1/pay` — no collision with `/api/v1/x402` |
-| Feature flag interactions (2^6 = 64 combinations) | Medium | Medium | Test individually + all-on only; don't test every combination |
-
----
-
-## 13. Appendix: Existing Infrastructure Inventory
-
-Files that already exist and are leveraged (not created) by this cycle:
-
-| File | Purpose | Lines |
-|------|---------|-------|
-| `deploy/Dockerfile` | Multi-stage build | 91 |
-| `docker-compose.dev.yml` | Dev stack (finn+pg+redis) | 100 |
-| `tests/e2e/docker-compose.e2e.yml` | Legacy E2E (arrakis/HS256) | 64 |
-| `src/gateway/feature-flags.ts` | Flag service + admin API | 151 |
-| `src/x402/middleware.ts` | Quote service | 125 |
-| `src/x402/types.ts` | x402 types + constants | 135 |
-| `src/gateway/x402-routes.ts` | x402 endpoint handler | 206 |
-| `src/x402/verify.ts` | Payment verification | ~150 |
-| `src/x402/settlement.ts` | Settlement service | ~200 |
-| `src/x402/credit-note.ts` | Credit-back service | ~100 |
-| `src/x402/atomic-verify.ts` | Nonce atomicity (Lua) | ~100 |
-| `src/gateway/openapi-spec.ts` | OpenAPI 3.1 spec builder | 534 |
-| `src/hounfour/jwt-auth.ts` | ES256 JWT validation + JWKS | ~300 |
-| `src/hounfour/s2s-jwt.ts` | S2S JWT signer + JWKS serve | ~150 |
-| `src/gateway/ws.ts` | WebSocket protocol | ~200 |
-| `src/gateway/server.ts` | Route registration | ~400 |
+| Bump `FINN_MIN_SUPPORTED` from `"4.0.0"` to `"7.0.0"` | The v4-v6 era is over (no known peers). AC4 requires rejecting v6.0.0. Cross-major warning provides v7.9.2 grace. |
+| Additive `scoreToObservation()` instead of changing `score()` return type | Backward compatible — `ScorerFunction` callers (ensemble) are unchanged. |
+| New file for reputation normalizer instead of adding to economic-boundary.ts | Separation of concerns — economic boundary handles trust x capital, normalizer handles event type dispatch. |
+| Rename `NFTTaskType` to `NFTRoutingKey` | Clarifies that the internal union is a routing implementation detail, not the protocol type. Protocol `TaskType` is the input type. |
+| No configurable grace period timer | Cross-major warning is already built into handshake. Grace ends when `FINN_MIN_SUPPORTED` is bumped — a deliberate manual action in a future cycle. |

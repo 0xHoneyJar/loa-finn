@@ -2,7 +2,7 @@
   "billing_entry_id": "billing-entry-fixture-001",
   "billing_method": "provider_reported",
   "content": "Hello, I'm an AI assistant.",
-  "contract_version": "7.11.0",
+  "contract_version": "8.2.0",
   "id": "trace-fixture-001",
   "latency_ms": 1500,
   "model": "claude-sonnet-4-5-20250929",

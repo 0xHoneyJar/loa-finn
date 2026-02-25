@@ -151,12 +151,81 @@ export { TaskTypeCohortSchema } from "@0xhoneyjar/loa-hounfour"
 export type { ScoringPath, ScoringPathLog } from "@0xhoneyjar/loa-hounfour"
 export { ScoringPathSchema, ScoringPathLogSchema } from "@0xhoneyjar/loa-hounfour"
 
-// Open Task Types — GovernanceTaskType is the upstream alias;
-// finn's parseTaskType() in wire-boundary.ts is the authoritative constructor.
-export type { GovernanceTaskType as TaskType } from "@0xhoneyjar/loa-hounfour"
-export { GovernanceTaskTypeSchema as TaskTypeSchema } from "@0xhoneyjar/loa-hounfour"
-export { TASK_TYPES } from "@0xhoneyjar/loa-hounfour"
+// ── v8.2.0 additions ──────────────────────────────────────────────────
 
-// Reputation events (FR-3)
-export type { GovernanceReputationEvent as ReputationEvent } from "@0xhoneyjar/loa-hounfour"
-export { GovernanceReputationEventSchema as ReputationEventSchema } from "@0xhoneyjar/loa-hounfour"
+// Governance — ReputationEvent discriminated union (v8.2.0)
+export {
+  ReputationEventSchema,
+  ModelPerformanceEventSchema,
+} from "@0xhoneyjar/loa-hounfour/governance"
+export type {
+  ReputationEvent,
+  ModelPerformanceEvent,
+} from "@0xhoneyjar/loa-hounfour/governance"
+
+// Governance — QualityObservation (v8.2.0)
+export {
+  QualityObservationSchema,
+} from "@0xhoneyjar/loa-hounfour/governance"
+export type {
+  QualityObservation,
+} from "@0xhoneyjar/loa-hounfour/governance"
+
+// Governance — TaskType vocabulary (v8.2.0)
+// Note: supersedes v7.11 GovernanceTaskType alias — v8.2.0 exports from /governance subpackage
+export {
+  TaskTypeSchema,
+  TASK_TYPES,
+} from "@0xhoneyjar/loa-hounfour/governance"
+export type {
+  TaskType,
+} from "@0xhoneyjar/loa-hounfour/governance"
+
+// Commons — governance infrastructure (v8.0.0)
+export {
+  GovernanceMutationSchema,
+  evaluateGovernanceMutation,
+  InvariantSchema,
+  InvariantViolationSchema,
+  ProtocolCapabilitySchema,
+  ProtocolSurfaceSchema,
+  QuarantineRecordSchema,
+  QuarantineStatusSchema,
+} from "@0xhoneyjar/loa-hounfour/commons"
+export type {
+  GovernanceMutation,
+  Invariant,
+  InvariantViolation,
+  ProtocolCapability,
+  ProtocolSurface,
+  QuarantineRecord,
+  QuarantineStatus,
+} from "@0xhoneyjar/loa-hounfour/commons"
+
+// Commons — conservation law factories (v8.0.0, Sprint 5 T-5.5)
+export {
+  ConservationLawSchema,
+  buildSumInvariant,
+  buildNonNegativeInvariant,
+  buildBoundedInvariant,
+  createBalanceConservation,
+} from "@0xhoneyjar/loa-hounfour/commons"
+export type {
+  ConservationLaw,
+} from "@0xhoneyjar/loa-hounfour/commons"
+
+// Commons — audit trail hash chain (v8.0.0, Sprint 5 T-5.5)
+export {
+  AuditEntrySchema,
+  AuditTrailSchema,
+  AUDIT_TRAIL_GENESIS_HASH,
+  buildDomainTag,
+  computeAuditEntryHash,
+  verifyAuditTrailIntegrity,
+} from "@0xhoneyjar/loa-hounfour/commons"
+export type {
+  AuditEntry,
+  AuditTrail,
+  AuditEntryHashInput,
+  AuditTrailVerificationResult,
+} from "@0xhoneyjar/loa-hounfour/commons"
