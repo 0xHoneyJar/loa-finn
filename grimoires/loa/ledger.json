@@ -231,7 +231,7 @@
       "archived": "2026-02-12T00:00:00Z",
       "prd": "grimoires/loa/prd-hounfour-phase5.md",
       "sdd": "grimoires/loa/sdd-hounfour-phase5.md",
-      "notes": "Superseded by cycle-018 which re-planned and executed all work. Sprints 22-24 never implemented \u2014 work covered by cycle-018 sprints 43-46.",
+      "notes": "Superseded by cycle-018 which re-planned and executed all work. Sprints 22-24 never implemented — work covered by cycle-018 sprints 43-46.",
       "sprints": [
         {
           "local_id": "sprint-A",
@@ -486,7 +486,7 @@
           "label": "Protocol Package & Foundation",
           "status": "completed",
           "tasks": 15,
-          "notes": "Commit 5bb3fad \u2014 protocol package, cheval adapter imports, budget golden vectors"
+          "notes": "Commit 5bb3fad — protocol package, cheval adapter imports, budget golden vectors"
         },
         {
           "local_id": "sprint-2",
@@ -494,7 +494,7 @@
           "label": "Integration Hardening",
           "status": "completed",
           "tasks": 11,
-          "notes": "Commit 8cbea71 \u2014 budget, JWT, reconciliation, E2E tests"
+          "notes": "Commit 8cbea71 — budget, JWT, reconciliation, E2E tests"
         },
         {
           "local_id": "sprint-3",
@@ -502,7 +502,7 @@
           "label": "NativeRuntime & Ensemble",
           "status": "completed",
           "tasks": 10,
-          "notes": "Commit 3f1ae92 \u2014 NativeRuntime adapter, ensemble orchestrator, routing matrix \u2014 121 tests"
+          "notes": "Commit 3f1ae92 — NativeRuntime adapter, ensemble orchestrator, routing matrix — 121 tests"
         },
         {
           "local_id": "sprint-4",
@@ -510,7 +510,7 @@
           "label": "NFT Routing & BYOK",
           "status": "completed",
           "tasks": 7,
-          "notes": "Commit 637c8c6 \u2014 review approved, audit passed, sprint-46 COMPLETED \u2014 144 tests"
+          "notes": "Commit 637c8c6 — review approved, audit passed, sprint-46 COMPLETED — 144 tests"
         },
         {
           "local_id": "sprint-extraction",
@@ -526,7 +526,7 @@
           "label": "BridgeBuilder Findings: Protocol Hardening",
           "status": "completed",
           "tasks": 8,
-          "notes": "loa-hounfour v1.1.0 \u2014 7 BridgeBuilder findings implemented, 91 tests passing"
+          "notes": "loa-hounfour v1.1.0 — 7 BridgeBuilder findings implemented, 91 tests passing"
         },
         {
           "local_id": "sprint-bb-consumer",
@@ -534,19 +534,19 @@
           "label": "BridgeBuilder Findings: Consumer Updates",
           "status": "completed",
           "tasks": 2,
-          "notes": "Commit 0e747a1 \u2014 pinned v1.1.0, fixed budget-migration test no-op"
+          "notes": "Commit 0e747a1 — pinned v1.1.0, fixed budget-migration test no-op"
         }
       ],
       "sprint_plan_extraction": "grimoires/loa/sprint-hounfour-extraction.md",
       "sprint_plan_bridgebuilder": "grimoires/loa/sprint-bridgebuilder-findings.md"
     },
     {
-      "label": "Loa Update & Bridgebuilder Migration (v1.33.1 \u2192 v1.35.0)",
+      "label": "Loa Update & Bridgebuilder Migration (v1.33.1 → v1.35.0)",
       "status": "archived",
       "started": "2026-02-13T00:00:00Z",
       "archived": "2026-02-13T13:25:00Z",
       "archive_path": "grimoires/loa/archive/2026-02-13-bridgebuilder-v3-migration",
-      "notes": "Sprint-50 + 3-iteration Bridgebuilder review loop on PR #63. 35 findings \u2192 0 unresolved HIGH/MEDIUM. 256 tests pass.",
+      "notes": "Sprint-50 + 3-iteration Bridgebuilder review loop on PR #63. 35 findings → 0 unresolved HIGH/MEDIUM. 256 tests pass.",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -554,7 +554,7 @@
           "label": "Framework Update & Bridgebuilder Port Adaptation",
           "status": "completed",
           "tasks": 7,
-          "notes": "Bridgebuilder V3 migration \u2014 R2ContextStore SHA methods, upstream re-exports, dist rebuild \u2014 40 tests"
+          "notes": "Bridgebuilder V3 migration — R2ContextStore SHA methods, upstream re-exports, dist rebuild — 40 tests"
         }
       ]
     },
@@ -566,7 +566,7 @@
       "archive_path": "grimoires/loa/archive/2026-02-13-pool-claim-enforcement-complete",
       "prd": "grimoires/loa/prd-pool-claim-enforcement.md",
       "sdd": "grimoires/loa/sdd-pool-claim-enforcement.md",
-      "notes": "RFC #31 Phase 4 remaining work. Issue #53 CLOSED. PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 7 blocking issues resolved). Sprint plan: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). PR #65 merged. Bridge flatlined: 54\u21920 in 2 iterations. 24 findings fixed (22 Bridge + 2 GPT-5.2).",
+      "notes": "RFC #31 Phase 4 remaining work. Issue #53 CLOSED. PRD: GPT-5.2 APPROVED (iteration 2). SDD: GPT-5.2 APPROVED (iteration 3, 7 blocking issues resolved). Sprint plan: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). PR #65 merged. Bridge flatlined: 54→0 in 2 iterations. 24 findings fixed (22 Bridge + 2 GPT-5.2).",
       "sprint_plan": "grimoires/loa/sprint-pool-claim-enforcement.md",
       "sprints": [
         {
@@ -575,7 +575,7 @@
           "label": "Pool Enforcement Foundation & Integration",
           "status": "completed",
           "tasks": 5,
-          "notes": "Commit 46e93a8 \u2014 pool enforcement, composed auth, 40 tests. Review approved, audit passed."
+          "notes": "Commit 46e93a8 — pool enforcement, composed auth, 40 tests. Review approved, audit passed."
         },
         {
           "local_id": "sprint-2",
@@ -583,7 +583,7 @@
           "label": "Bridgebuilder Findings: Code Quality & Test Hardening",
           "status": "completed",
           "tasks": 7,
-          "notes": "Commit d82c352 \u2014 22 findings fixed (8M+14L), GPT-5.2 APPROVED, 45 tests. Bridge flatlined: 54\u21920 in 2 iterations."
+          "notes": "Commit d82c352 — 22 findings fixed (8M+14L), GPT-5.2 APPROVED, 45 tests. Bridge flatlined: 54→0 in 2 iterations."
         }
       ]
     },
@@ -609,15 +609,15 @@
         {
           "local_id": "sprint-2",
           "global_id": 54,
-          "label": "Bridgebuilder Excellence \u2014 Billing Finalize Hardening",
+          "label": "Bridgebuilder Excellence — Billing Finalize Hardening",
           "status": "completed",
           "tasks": 7,
-          "notes": "All 10 Bridgebuilder findings addressed. 1 HIGH (float\u2192BigInt), 3 MEDIUM (DLQ isolation, handshake states, decision trail), 2 LOW (timeout, JWT identity). GPT-5.2 APPROVED. Bridge converged 0.92\u21920.98 (FLATLINE). 57 tests."
+          "notes": "All 10 Bridgebuilder findings addressed. 1 HIGH (float→BigInt), 3 MEDIUM (DLQ isolation, handshake states, decision trail), 2 LOW (timeout, JWT identity). GPT-5.2 APPROVED. Bridge converged 0.92→0.98 (FLATLINE). 57 tests."
         }
       ]
     },
     {
-      "label": "Sprint B: E2E Smoke Test \u2014 Billing Wire Verification",
+      "label": "Sprint B: E2E Smoke Test — Billing Wire Verification",
       "status": "archived",
       "started": "2026-02-17T03:00:00Z",
       "archived": "2026-02-17T06:00:00Z",
@@ -625,7 +625,7 @@
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprint_plan": "grimoires/loa/sprint.md",
-      "notes": "Issue #69. PR #71 MERGED. P0 critical path: proves the billing wire works against real containers. Fixes 5 integration mismatches (JWT algo, field naming, identity field, URL path, Docker config). 52 tests (22 JWT + 30 billing). Bridge flatlined: 10\u21925 in 2 iterations. Bridgebuilder Deep Review posted across PR #71, Issues #66, #31, #24.",
+      "notes": "Issue #69. PR #71 MERGED. P0 critical path: proves the billing wire works against real containers. Fixes 5 integration mismatches (JWT algo, field naming, identity field, URL path, Docker config). 52 tests (22 JWT + 30 billing). Bridge flatlined: 10→5 in 2 iterations. Bridgebuilder Deep Review posted across PR #71, Issues #66, #31, #24.",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -644,7 +644,7 @@
       "archive_path": "grimoires/loa/archive/2026-02-17-dlq-persistence-shadow-deploy",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
-      "notes": "Last infrastructure P0 before product pivot. DLQ persistence (Ostrom Principle 7), billing invariants formalization, shadow deploy configuration. Synthesized from Bridgebuilder Deep Review findings (PR #71). PRD: GPT-5.2 APPROVED (iteration 2, 6 blocking issues resolved). SDD: GPT-5.2 APPROVED (iteration 2, 10 blocking issues resolved). Sprint: GPT-5.2 APPROVED (iteration 2, 4 blocking issues resolved). PR #72 merged. Bridge flatlined: 4\u21920 in 2 iterations. Bridgebuilder Deep Review posted (3 comments: conservation invariant, permission scape, environment design). 62 tests.",
+      "notes": "Last infrastructure P0 before product pivot. DLQ persistence (Ostrom Principle 7), billing invariants formalization, shadow deploy configuration. Synthesized from Bridgebuilder Deep Review findings (PR #71). PRD: GPT-5.2 APPROVED (iteration 2, 6 blocking issues resolved). SDD: GPT-5.2 APPROVED (iteration 2, 10 blocking issues resolved). Sprint: GPT-5.2 APPROVED (iteration 2, 4 blocking issues resolved). PR #72 merged. Bridge flatlined: 4→0 in 2 iterations. Bridgebuilder Deep Review posted (3 comments: conservation invariant, permission scape, environment design). 62 tests.",
       "sprint_plan": "grimoires/loa/sprint.md",
       "sprints": [
         {
@@ -692,7 +692,7 @@
       ]
     },
     {
-      "label": "The Oracle \u2014 Unified Knowledge Interface",
+      "label": "The Oracle — Unified Knowledge Interface",
       "status": "archived",
       "started": "2026-02-16T22:00:00Z",
       "prd": "grimoires/loa/prd.md",
@@ -705,7 +705,7 @@
           "label": "Knowledge Engine Foundation",
           "status": "completed",
           "tasks": 8,
-          "notes": "Commit 34ce166+448f959 \u2014 knowledge types, loader (5-gate security), registry (schema validation), enricher (budget/trust boundary), 72 tests. Review: All good. Audit: APPROVED."
+          "notes": "Commit 34ce166+448f959 — knowledge types, loader (5-gate security), registry (schema validation), enricher (budget/trust boundary), 72 tests. Review: All good. Audit: APPROVED."
         },
         {
           "local_id": "sprint-2",
@@ -713,7 +713,7 @@
           "label": "Knowledge Corpus & E2E Verification",
           "status": "completed",
           "tasks": 7,
-          "notes": "Commit ab0fd85 \u2014 10 knowledge sources, oracle persona, sources.json, bootstrap integration, 35 new tests (11 E2E + 12 gold-set + 12 red-team). 107 total Oracle tests. Review: All good. Audit: APPROVED."
+          "notes": "Commit ab0fd85 — 10 knowledge sources, oracle persona, sources.json, bootstrap integration, 35 new tests (11 E2E + 12 gold-set + 12 red-team). 107 total Oracle tests. Review: All good. Audit: APPROVED."
         },
         {
           "local_id": "sprint-3",
@@ -721,7 +721,7 @@
           "label": "Oracle Product API & Middleware",
           "status": "completed",
           "tasks": 8,
-          "notes": "Commit b2edebe \u2014 rate limiter (atomic Lua), auth (dk_ prefix, fail-closed), concurrency limiter, handler, CORS, server registration, health enrichment. 77 tests across 5 files."
+          "notes": "Commit b2edebe — rate limiter (atomic Lua), auth (dk_ prefix, fail-closed), concurrency limiter, handler, CORS, server registration, health enrichment. 77 tests across 5 files."
         },
         {
           "local_id": "sprint-4",
@@ -729,7 +729,7 @@
           "label": "Infrastructure & Knowledge Sync",
           "status": "completed",
           "tasks": 9,
-          "notes": "Commit daeb02e \u2014 Terraform (backend, dnft-site module, oracle-site, OIDC, ElastiCache), Dockerfile CI-fetch, oracle-keys.sh, 10 new knowledge sources (20 total), gold-set 20/20 (100% pass rate). 29 files, 2974 insertions."
+          "notes": "Commit daeb02e — Terraform (backend, dnft-site module, oracle-site, OIDC, ElastiCache), Dockerfile CI-fetch, oracle-keys.sh, 10 new knowledge sources (20 total), gold-set 20/20 (100% pass rate). 29 files, 2974 insertions."
         },
         {
           "local_id": "sprint-5",
@@ -737,14 +737,14 @@
           "label": "Frontend & E2E Integration",
           "status": "completed",
           "tasks": 7,
-          "notes": "Commit f34f80b \u2014 E2E harness (mock Redis, mock router, IP/CORS helpers), 14 E2E integration tests, 11 XSS prevention tests (OWASP vectors), deploy-dixie workflow reference. 147 total Oracle tests."
+          "notes": "Commit f34f80b — E2E harness (mock Redis, mock router, IP/CORS helpers), 14 E2E integration tests, 11 XSS prevention tests (OWASP vectors), deploy-dixie workflow reference. 147 total Oracle tests."
         }
       ],
       "archived_at": "2026-02-18T00:00:00Z",
       "archive_path": "grimoires/loa/archive/2026-02-18-oracle-phase1-complete"
     },
     {
-      "label": "Protocol Convergence \u2014 loa-hounfour v5.0.0 \u2192 v7.0.0",
+      "label": "Protocol Convergence — loa-hounfour v5.0.0 → v7.0.0",
       "status": "archived",
       "started": "2026-02-18T00:00:00Z",
       "archived": "2026-02-19T03:00:00Z",
@@ -756,14 +756,14 @@
         {
           "local_id": "sprint-1",
           "global_id": 65,
-          "label": "Foundation \u2014 Bump + Cleanup + Safety Gates",
+          "label": "Foundation — Bump + Cleanup + Safety Gates",
           "status": "completed",
           "tasks": 9
         },
         {
           "local_id": "sprint-2",
           "global_id": 66,
-          "label": "Type Adoption \u2014 Branded Types + Evaluator",
+          "label": "Type Adoption — Branded Types + Evaluator",
           "status": "superseded",
           "tasks": 10,
           "notes": "Superseded by cycle-027 Sprint 1-2 (billing + credit denomination)"
@@ -779,7 +779,7 @@
       ]
     },
     {
-      "label": "Full Stack Launch \u2014 Build Everything, Then Ship",
+      "label": "Full Stack Launch — Build Everything, Then Ship",
       "status": "archived",
       "started": "2026-02-19T03:00:00Z",
       "prd": "grimoires/loa/prd.md",
@@ -892,13 +892,13 @@
       "archived": "2026-02-19T15:00:00Z"
     },
     {
-      "label": "The Theory of Identity \u2014 BEAUVOIR.md as Agent Soul Architecture",
+      "label": "The Theory of Identity — BEAUVOIR.md as Agent Soul Architecture",
       "status": "archived",
       "started": "2026-02-19T15:00:00Z",
       "archived": "2026-02-20T12:00:00Z",
       "prd": "grimoires/loa/prd-cycle027-fullstack-launch.md.bak",
       "sdd": "grimoires/loa/sdd-cycle027-fullstack-launch.md.bak",
-      "notes": "Superseded by cycle-029 'Launch Execution'. Identity depth deferred to post-launch. 30 sprints planned, 0 executed \u2014 all work covered by the identity code already built in cycle-027 (PR #82, 1,105 tests).",
+      "notes": "Superseded by cycle-029 'Launch Execution'. Identity depth deferred to post-launch. 30 sprints planned, 0 executed — all work covered by the identity code already built in cycle-027 (PR #82, 1,105 tests).",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -980,14 +980,14 @@
         {
           "local_id": "sprint-12",
           "global_id": 92,
-          "label": "Evaluation Harness \u2014 Core",
+          "label": "Evaluation Harness — Core",
           "status": "pending",
           "tasks": 5
         },
         {
           "local_id": "sprint-13",
           "global_id": 93,
-          "label": "Evaluation Harness \u2014 Advanced",
+          "label": "Evaluation Harness — Advanced",
           "status": "pending",
           "tasks": 2
         },
@@ -1057,28 +1057,28 @@
         {
           "local_id": "sprint-23",
           "global_id": 103,
-          "label": "Credit Marketplace \u2014 Order Book",
+          "label": "Credit Marketplace — Order Book",
           "status": "pending",
           "tasks": 3
         },
         {
           "local_id": "sprint-24",
           "global_id": 104,
-          "label": "Credit Marketplace \u2014 Settlement & Anti-Abuse",
+          "label": "Credit Marketplace — Settlement & Anti-Abuse",
           "status": "pending",
           "tasks": 3
         },
         {
           "local_id": "sprint-25",
           "global_id": 105,
-          "label": "Experience Accumulation \u2014 Types & Epoch Engine",
+          "label": "Experience Accumulation — Types & Epoch Engine",
           "status": "pending",
           "tasks": 3
         },
         {
           "local_id": "sprint-26",
           "global_id": 106,
-          "label": "Experience Feedback Loop \u2014 Integration & Collection Config",
+          "label": "Experience Feedback Loop — Integration & Collection Config",
           "status": "pending",
           "tasks": 3
         },
@@ -1113,7 +1113,7 @@
       ]
     },
     {
-      "label": "Launch Execution \u2014 From Built to Operable",
+      "label": "Launch Execution — From Built to Operable",
       "status": "archived",
       "started": "2026-02-20T12:00:00Z",
       "archived": "2026-02-21T02:00:00Z",
@@ -1199,7 +1199,7 @@
       ]
     },
     {
-      "label": "Forward Architecture \u2014 Economic Consciousness",
+      "label": "Forward Architecture — Economic Consciousness",
       "status": "archived",
       "started": "2026-02-21T02:00:00Z",
       "archived": "2026-02-21T12:00:00Z",
@@ -1223,7 +1223,7 @@
           "label": "Personality-Aware Model Routing",
           "status": "completed",
           "tasks": 6,
-          "notes": "6/6 tasks, 33 new tests, 0 regressions. Archetype affinity matrix, dial-weighted scoring, combined routing, tier-safe pool selection, agent-chat wiring. Security audit APPROVED \u2014 tier safety invariant verified with 3-layer defense-in-depth."
+          "notes": "6/6 tasks, 33 new tests, 0 regressions. Archetype affinity matrix, dial-weighted scoring, combined routing, tier-safe pool selection, agent-chat wiring. Security audit APPROVED — tier safety invariant verified with 3-layer defense-in-depth."
         },
         {
           "local_id": "sprint-3",
@@ -1236,7 +1236,7 @@
       ]
     },
     {
-      "label": "Adaptive Intelligence \u2014 Quality Governance & Reputation Bootstrap",
+      "label": "Adaptive Intelligence — Quality Governance & Reputation Bootstrap",
       "status": "archived",
       "started": "2026-02-21T12:00:00Z",
       "archived": "2026-02-21T18:00:00Z",
@@ -1244,7 +1244,7 @@
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprint_plan": "grimoires/loa/sprint.md",
-      "notes": "Cycle-031. Implements actionable suggestions from Bridgebuilder Deep Review of PR #92 (cycle-030). Finding #6 (MEDIUM): Quality Signal Ontology governance \u2014 anti-sycophancy, challenge_rate, archetype-aware weighting. Finding #7 (LOW) + Questions 2-3: EventStore indexed access, stream compaction, collection-level reputation bootstrap. GPT-5.2 APPROVED (iteration 2, 7 blocking issues resolved in v1.1.0).",
+      "notes": "Cycle-031. Implements actionable suggestions from Bridgebuilder Deep Review of PR #92 (cycle-030). Finding #6 (MEDIUM): Quality Signal Ontology governance — anti-sycophancy, challenge_rate, archetype-aware weighting. Finding #7 (LOW) + Questions 2-3: EventStore indexed access, stream compaction, collection-level reputation bootstrap. GPT-5.2 APPROVED (iteration 2, 7 blocking issues resolved in v1.1.0).",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -1265,13 +1265,13 @@
       ]
     },
     {
-      "label": "Protocol Convergence v7.9.2 \u2014 Full Adoption",
+      "label": "Protocol Convergence v7.9.2 — Full Adoption",
       "status": "archived",
       "started": "2026-02-23T12:00:00Z",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprint_plan": "grimoires/loa/sprint.md",
-      "notes": "Issue #66 Sprint A. loa-hounfour v7.0.0 \u2192 v7.9.2. PRD v1.1.0: GPT-5.2 APPROVED (iteration 2, 7 blocking issues resolved). SDD v1.0.0: GPT-5.2 APPROVED + Flatline APPROVED. Sprint v1.0.0: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Sprint v1.1.0 (Sprints 4-5): GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Sprint v1.2.0 (Sprint 6): GPT-5.2 APPROVED (iteration 2, 4 findings resolved \u2014 ADR location, test-count consistency, BudgetEpoch log-only, timeout backward-compat).",
+      "notes": "Issue #66 Sprint A. loa-hounfour v7.0.0 → v7.9.2. PRD v1.1.0: GPT-5.2 APPROVED (iteration 2, 7 blocking issues resolved). SDD v1.0.0: GPT-5.2 APPROVED + Flatline APPROVED. Sprint v1.0.0: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Sprint v1.1.0 (Sprints 4-5): GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Sprint v1.2.0 (Sprint 6): GPT-5.2 APPROVED (iteration 2, 4 findings resolved — ADR location, test-count consistency, BudgetEpoch log-only, timeout backward-compat).",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -1320,13 +1320,13 @@
       "archive_path": "grimoires/loa/archive/2026-02-25-protocol-convergence-v792-complete"
     },
     {
-      "label": "Hounfour v8.2.0 Upgrade \u2014 Commons Protocol + ModelPerformance",
+      "label": "Hounfour v8.2.0 Upgrade — Commons Protocol + ModelPerformance",
       "status": "active",
       "started": "2026-02-25T10:00:00Z",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprint_plan": "grimoires/loa/sprint.md",
-      "notes": "Cycle-033. loa-hounfour v7.9.2 \u2192 v8.2.0. PRD v1.1.0: GPT-5.2 APPROVED. SDD v1.1.0: GPT-5.2 APPROVED. Sprint v1.2.0: GPT-5.2 APPROVED (iteration 2, 3 blocking issues resolved). Sprints 1-2 implemented via PR #107. Sprint 3: Bridgebuilder Review Excellence \u2014 all findings from Bridgebuilder review of PR #107.",
+      "notes": "Cycle-033. loa-hounfour v7.9.2 → v8.2.0. PRD v1.1.0: GPT-5.2 APPROVED. SDD v1.1.0: GPT-5.2 APPROVED. Sprint v1.2.0: GPT-5.2 APPROVED (iteration 2, 3 blocking issues resolved). Sprints 1-2 implemented via PR #107. Sprint 3: Bridgebuilder Review Excellence — all findings from Bridgebuilder review of PR #107.",
       "sprints": [
         {
           "local_id": "sprint-1",
@@ -1346,7 +1346,7 @@
           "local_id": "sprint-3",
           "global_id": 134,
           "label": "Bridgebuilder Excellence",
-          "status": "pending",
+          "status": "completed",
           "tasks": 9
         }
       ]
@@ -1354,13 +1354,13 @@
   ],
   "next_global_sprint_id": 134,
   "active_cycle": {
-    "label": "Hounfour v8.2.0 Upgrade \u2014 Commons Protocol + ModelPerformance",
+    "label": "Hounfour v8.2.0 Upgrade — Commons Protocol + ModelPerformance",
     "status": "active",
     "started": "2026-02-25T15:30:00Z",
     "prd": "grimoires/loa/prd.md",
     "sdd": "grimoires/loa/sdd.md",
     "sprint_plan": "grimoires/loa/sprint.md",
-    "notes": "loa-hounfour v7.9.2 \u2192 v8.2.0. Breaking: commons module (v8.0.0), actor_id required (v8.1.0), ModelPerformanceEvent 4th variant (v8.2.0).",
+    "notes": "loa-hounfour v7.9.2 → v8.2.0. Breaking: commons module (v8.0.0), actor_id required (v8.1.0), ModelPerformanceEvent 4th variant (v8.2.0).",
     "sprints": [
       {
         "local_id": "sprint-1",
