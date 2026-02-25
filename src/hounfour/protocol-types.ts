@@ -140,3 +140,53 @@ export type {
   AccessPolicyContext,
   AccessPolicyResult,
 } from "@0xhoneyjar/loa-hounfour"
+
+// ── v8.2.0 additions ──────────────────────────────────────────────────
+
+// Governance — ReputationEvent discriminated union (v8.2.0)
+export {
+  ReputationEventSchema,
+  ModelPerformanceEventSchema,
+} from "@0xhoneyjar/loa-hounfour/governance"
+export type {
+  ReputationEvent,
+  ModelPerformanceEvent,
+} from "@0xhoneyjar/loa-hounfour/governance"
+
+// Governance — QualityObservation (v8.2.0)
+export {
+  QualityObservationSchema,
+} from "@0xhoneyjar/loa-hounfour/governance"
+export type {
+  QualityObservation,
+} from "@0xhoneyjar/loa-hounfour/governance"
+
+// Governance — TaskType vocabulary (v8.2.0)
+export {
+  TaskTypeSchema,
+  TASK_TYPES,
+} from "@0xhoneyjar/loa-hounfour/governance"
+export type {
+  TaskType,
+} from "@0xhoneyjar/loa-hounfour/governance"
+
+// Commons — governance infrastructure (v8.0.0)
+export {
+  GovernanceMutationSchema,
+  evaluateGovernanceMutation,
+  InvariantSchema,
+  InvariantViolationSchema,
+  ProtocolCapabilitySchema,
+  ProtocolSurfaceSchema,
+  QuarantineRecordSchema,
+  QuarantineStatusSchema,
+} from "@0xhoneyjar/loa-hounfour/commons"
+export type {
+  GovernanceMutation,
+  Invariant,
+  InvariantViolation,
+  ProtocolCapability,
+  ProtocolSurface,
+  QuarantineRecord,
+  QuarantineStatus,
+} from "@0xhoneyjar/loa-hounfour/commons"

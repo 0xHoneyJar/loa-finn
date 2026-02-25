@@ -1,22 +1,13 @@
-// tests/finn/interop-handshake.test.ts — Interop Handshake Fixture (Sprint 65 Task 1.7)
+// tests/finn/interop-handshake.test.ts — Interop Handshake Fixture (Sprint 132 Task 1.6)
 //
-// Verifies loa-finn v7.0.0 accepts handshakes from:
-//   - arrakis v4.6.0 (transition period — synthetic fixture)
-//   - arrakis v7.0.0 (current — exact match)
-//   - versions below FINN_MIN_SUPPORTED (4.0.0) → rejected
+// Verifies loa-finn v8.2.0 handshake acceptance window:
+//   - v8.2.0 accepted (primary target, same major)
+//   - v7.9.2 accepted (grace period — cross-major with warning)
+//   - v6.0.0 rejected (below FINN_MIN_SUPPORTED 7.0.0)
+//   - v9.0.0 rejected (future major)
 //
-// Arrakis source references (commit 3b19224b):
-//   Health endpoint:  themes/sietch/src/api/routes/public.routes.ts:156
-//     → Returns: { status, protocol_version: CONTRACT_VERSION, ... }
-//   Compat endpoint:  themes/sietch/src/api/routes/public.routes.ts:174
-//     → Returns: { contract_version: CONTRACT_VERSION, min_supported: MIN_SUPPORTED_VERSION }
-//   Import:           themes/sietch/src/packages/core/protocol/arrakis-compat.ts:14
-//     → import { validateCompatibility, CONTRACT_VERSION } from '@0xhoneyjar/loa-hounfour'
-//   Pinned SHA:        packages/adapters/package.json:74
-//     → github:0xHoneyJar/loa-hounfour#d091a3c0d4802402825fc7765bcc888f2477742f (v7.0.0)
-//
-// Wire captures: No stored captures from cycle-022 (PR #71). E2E billing tests
-// existed but raw wire traffic was not preserved. Risk documented per acceptance criteria.
+// Feature thresholds now include v8.x capabilities:
+//   commonsModule (8.0.0), governanceActorId (8.1.0), modelPerformance (8.2.0)
 
 import { describe, it, expect, afterEach } from "vitest"
 import {
@@ -80,84 +71,77 @@ describe("Interop Handshake Fixtures", () => {
     await stopMockServer()
   })
 
-  // --- Arrakis v4.6.0 (transition period) ---
+  // --- AC4: v8.2.0 accepted (primary target) ---
 
-  it("accepts arrakis v4.6.0 handshake (above FINN_MIN_SUPPORTED)", async () => {
-    // Synthetic fixture: arrakis v4.6.0 returns contract_version: '4.6.0'
-    // This is above FINN_MIN_SUPPORTED (4.0.0) but below local (7.0.0)
-    const port = await startArrakisHealth("4.6.0")
+  it("accepts v8.2.0 handshake (exact match — primary target)", async () => {
+    const port = await startArrakisHealth("8.2.0")
     const result = await handshake(port)
 
     expect(result.ok).toBe(true)
     expect(result.status).toBe("compatible")
-    expect(result.remoteVersion).toBe("4.6.0")
-    // Cross-major warning expected (remote major 4 < local major 7)
-    expect(result.message).toContain("Cross-major version")
+    expect(result.remoteVersion).toBe("8.2.0")
   })
 
-  it("detects trust_scopes=false for arrakis v4.6.0", async () => {
-    const port = await startArrakisHealth("4.6.0")
-    const result = await handshake(port)
-
-    expect(result.peerFeatures).toBeDefined()
-    expect(result.peerFeatures!.trustScopes).toBe(false)
-  })
-
-  it("detects trust_scopes=true for arrakis v4.6.0 with explicit trust_scopes field", async () => {
-    // Even if version is pre-6.0.0, if the health response includes trust_scopes,
-    // feature detection should recognize it (forward-compatible)
-    const port = await startArrakisHealth("4.6.0", { trust_scopes: ["read", "write"] })
-    const result = await handshake(port)
-
-    expect(result.peerFeatures).toBeDefined()
-    expect(result.peerFeatures!.trustScopes).toBe(true)
-  })
-
-  // --- Arrakis v7.0.0 (same major, minor mismatch vs local 7.9.1) ---
-
-  it("accepts arrakis v7.0.0 handshake (same major, minor mismatch)", async () => {
-    const port = await startArrakisHealth("7.0.0")
+  it("accepts v8.0.0 with minor mismatch warning", async () => {
+    const port = await startArrakisHealth("8.0.0")
     const result = await handshake(port)
 
     expect(result.ok).toBe(true)
     expect(result.status).toBe("compatible")
-    expect(result.remoteVersion).toBe("7.0.0")
-    // Same major — no cross-major warning
-    expect(result.message).not.toContain("Cross-major")
-    // Minor version mismatch expected: remote=7.0.0 vs local=7.9.1
     expect(result.message).toContain("Minor version mismatch")
   })
 
-  it("detects trust_scopes=true for arrakis v7.0.0", async () => {
+  // --- AC4: v7.9.2 accepted (grace period, cross-major warning) ---
+
+  it("accepts v7.9.2 handshake (grace period — cross-major warning)", async () => {
+    const port = await startArrakisHealth("7.9.2")
+    const result = await handshake(port)
+
+    expect(result.ok).toBe(true)
+    expect(result.status).toBe("compatible")
+    expect(result.remoteVersion).toBe("7.9.2")
+    expect(result.message).toContain("Cross-major version")
+  })
+
+  it("accepts v7.0.0 with cross-major warning", async () => {
     const port = await startArrakisHealth("7.0.0")
     const result = await handshake(port)
 
-    expect(result.peerFeatures).toBeDefined()
-    expect(result.peerFeatures!.trustScopes).toBe(true)
+    expect(result.ok).toBe(true)
+    expect(result.status).toBe("compatible")
+    expect(result.message).toContain("Cross-major version")
   })
 
-  // --- Boundary: FINN_MIN_SUPPORTED ---
-
-  it("accepts exactly FINN_MIN_SUPPORTED (4.0.0)", async () => {
-    const port = await startArrakisHealth("4.0.0")
+  it("accepts exactly FINN_MIN_SUPPORTED (7.0.0)", async () => {
+    const port = await startArrakisHealth("7.0.0")
     const result = await handshake(port)
 
     expect(result.ok).toBe(true)
     expect(result.status).toBe("compatible")
   })
 
-  it("rejects version below FINN_MIN_SUPPORTED (3.9.9)", async () => {
-    const port = await startArrakisHealth("3.9.9")
+  // --- AC4: v6.0.0 rejected ---
+
+  it("rejects v6.0.0 (below FINN_MIN_SUPPORTED 7.0.0)", async () => {
+    const port = await startArrakisHealth("6.0.0")
     const result = await handshake(port)
 
-    // Dev mode: ok=true but status=incompatible
-    expect(result.ok).toBe(true)
+    expect(result.ok).toBe(true) // dev mode
     expect(result.status).toBe("incompatible")
     expect(result.message).toContain("below minimum supported")
   })
 
-  it("rejects version below FINN_MIN_SUPPORTED in production (throws)", async () => {
-    const port = await startArrakisHealth("3.9.9")
+  it("rejects v4.6.0 (below FINN_MIN_SUPPORTED 7.0.0)", async () => {
+    const port = await startArrakisHealth("4.6.0")
+    const result = await handshake(port)
+
+    expect(result.ok).toBe(true) // dev mode
+    expect(result.status).toBe("incompatible")
+    expect(result.message).toContain("below minimum supported")
+  })
+
+  it("rejects v6.9.9 in production (throws FATAL)", async () => {
+    const port = await startArrakisHealth("6.9.9")
     await expect(validateProtocolAtBoot({
       arrakisBaseUrl: `http://127.0.0.1:${port}`,
       env: "production",
@@ -166,8 +150,8 @@ describe("Interop Handshake Fixtures", () => {
 
   // --- Future version ---
 
-  it("rejects future major version (8.0.0)", async () => {
-    const port = await startArrakisHealth("8.0.0")
+  it("rejects future major version (9.0.0)", async () => {
+    const port = await startArrakisHealth("9.0.0")
     const result = await handshake(port)
 
     expect(result.ok).toBe(true) // dev mode
@@ -175,35 +159,7 @@ describe("Interop Handshake Fixtures", () => {
     expect(result.message).toContain("future major version")
   })
 
-  // --- Version range coverage ---
-
-  it("accepts v5.0.0 with cross-major warning", async () => {
-    const port = await startArrakisHealth("5.0.0")
-    const result = await handshake(port)
-
-    expect(result.status).toBe("compatible")
-    expect(result.message).toContain("Cross-major version")
-    expect(result.peerFeatures!.trustScopes).toBe(false) // < 6.0.0
-  })
-
-  it("accepts v6.0.0 with cross-major warning and trust_scopes=true", async () => {
-    const port = await startArrakisHealth("6.0.0")
-    const result = await handshake(port)
-
-    expect(result.status).toBe("compatible")
-    expect(result.message).toContain("Cross-major version")
-    expect(result.peerFeatures!.trustScopes).toBe(true) // >= 6.0.0
-  })
-
-  it("accepts v7.1.0 with minor mismatch warning", async () => {
-    const port = await startArrakisHealth("7.1.0")
-    const result = await handshake(port)
-
-    expect(result.status).toBe("compatible")
-    expect(result.message).toContain("Minor version mismatch")
-  })
-
-  // --- Feature detection thresholds (Task 2.7) ---
+  // --- Feature detection: v8.x thresholds ---
 
   it("FEATURE_THRESHOLDS covers all PeerFeatures keys", () => {
     const expectedKeys: (keyof PeerFeatures)[] = [
@@ -212,22 +168,61 @@ describe("Interop Handshake Fixtures", () => {
       "compoundPolicies",
       "economicBoundary",
       "denialCodes",
+      "commonsModule",
+      "governanceActorId",
+      "modelPerformance",
     ]
     for (const key of expectedKeys) {
       expect(FEATURE_THRESHOLDS[key]).toBeDefined()
-      expect(FEATURE_THRESHOLDS[key].major).toBeGreaterThanOrEqual(4)
+      expect(FEATURE_THRESHOLDS[key].major).toBeGreaterThanOrEqual(6)
     }
   })
 
-  it("v4.6.0: only trustScopes=false, all v7 features=false", async () => {
-    const port = await startArrakisHealth("4.6.0")
+  it("v7.9.2: all v7 features=true, all v8 features=false", async () => {
+    const port = await startArrakisHealth("7.9.2")
     const result = await handshake(port)
     const f = result.peerFeatures!
-    expect(f.trustScopes).toBe(false)
-    expect(f.reputationGated).toBe(false)
-    expect(f.compoundPolicies).toBe(false)
-    expect(f.economicBoundary).toBe(false)
-    expect(f.denialCodes).toBe(false)
+    expect(f.trustScopes).toBe(true)
+    expect(f.reputationGated).toBe(true)
+    expect(f.compoundPolicies).toBe(true)
+    expect(f.economicBoundary).toBe(true)
+    expect(f.denialCodes).toBe(true)
+    expect(f.commonsModule).toBe(false)
+    expect(f.governanceActorId).toBe(false)
+    expect(f.modelPerformance).toBe(false)
+  })
+
+  it("v8.0.0: commonsModule=true, governanceActorId=false", async () => {
+    const port = await startArrakisHealth("8.0.0")
+    const result = await handshake(port)
+    const f = result.peerFeatures!
+    expect(f.denialCodes).toBe(true)
+    expect(f.commonsModule).toBe(true)
+    expect(f.governanceActorId).toBe(false)
+    expect(f.modelPerformance).toBe(false)
+  })
+
+  it("v8.1.0: governanceActorId=true, modelPerformance=false", async () => {
+    const port = await startArrakisHealth("8.1.0")
+    const result = await handshake(port)
+    const f = result.peerFeatures!
+    expect(f.commonsModule).toBe(true)
+    expect(f.governanceActorId).toBe(true)
+    expect(f.modelPerformance).toBe(false)
+  })
+
+  it("v8.2.0: all features=true (full v8.2.0 protocol)", async () => {
+    const port = await startArrakisHealth("8.2.0")
+    const result = await handshake(port)
+    const f = result.peerFeatures!
+    expect(f.trustScopes).toBe(true)
+    expect(f.reputationGated).toBe(true)
+    expect(f.compoundPolicies).toBe(true)
+    expect(f.economicBoundary).toBe(true)
+    expect(f.denialCodes).toBe(true)
+    expect(f.commonsModule).toBe(true)
+    expect(f.governanceActorId).toBe(true)
+    expect(f.modelPerformance).toBe(true)
   })
 
   it("v7.0.0: trustScopes=true, all v7.3+ features=false", async () => {
@@ -239,58 +234,13 @@ describe("Interop Handshake Fixtures", () => {
     expect(f.compoundPolicies).toBe(false)
     expect(f.economicBoundary).toBe(false)
     expect(f.denialCodes).toBe(false)
+    expect(f.commonsModule).toBe(false)
   })
 
-  it("v7.3.0: reputationGated=true, compoundPolicies=false", async () => {
-    const port = await startArrakisHealth("7.3.0")
+  it("detects trust_scopes=true for v7.0.0 with explicit trust_scopes field", async () => {
+    const port = await startArrakisHealth("7.0.0", { trust_scopes: ["read", "write"] })
     const result = await handshake(port)
-    const f = result.peerFeatures!
-    expect(f.trustScopes).toBe(true)
-    expect(f.reputationGated).toBe(true)
-    expect(f.compoundPolicies).toBe(false)
-    expect(f.economicBoundary).toBe(false)
-    expect(f.denialCodes).toBe(false)
-  })
-
-  it("v7.4.0: compoundPolicies=true, economicBoundary=false", async () => {
-    const port = await startArrakisHealth("7.4.0")
-    const result = await handshake(port)
-    const f = result.peerFeatures!
-    expect(f.trustScopes).toBe(true)
-    expect(f.reputationGated).toBe(true)
-    expect(f.compoundPolicies).toBe(true)
-    expect(f.economicBoundary).toBe(false)
-    expect(f.denialCodes).toBe(false)
-  })
-
-  it("v7.7.0: economicBoundary=true, denialCodes=false", async () => {
-    const port = await startArrakisHealth("7.7.0")
-    const result = await handshake(port)
-    const f = result.peerFeatures!
-    expect(f.trustScopes).toBe(true)
-    expect(f.reputationGated).toBe(true)
-    expect(f.compoundPolicies).toBe(true)
-    expect(f.economicBoundary).toBe(true)
-    expect(f.denialCodes).toBe(false)
-  })
-
-  it("v7.9.1: all features=true (full v7.9.2 protocol)", async () => {
-    const port = await startArrakisHealth("7.9.1")
-    const result = await handshake(port)
-    const f = result.peerFeatures!
-    expect(f.trustScopes).toBe(true)
-    expect(f.reputationGated).toBe(true)
-    expect(f.compoundPolicies).toBe(true)
-    expect(f.economicBoundary).toBe(true)
-    expect(f.denialCodes).toBe(true)
-  })
-
-  it("v7.9.0: denialCodes=false (requires v7.9.1+)", async () => {
-    const port = await startArrakisHealth("7.9.0")
-    const result = await handshake(port)
-    const f = result.peerFeatures!
-    expect(f.denialCodes).toBe(false)
-    expect(f.economicBoundary).toBe(true)
+    expect(result.peerFeatures!.trustScopes).toBe(true)
   })
 
   // --- Protocol info for /health ---
@@ -298,8 +248,8 @@ describe("Interop Handshake Fixtures", () => {
   it("getProtocolInfo returns correct version constants", () => {
     const info = getProtocolInfo()
     expect(info.contract_version).toBe(CONTRACT_VERSION)
-    expect(info.contract_version).toBe("7.9.1")
+    expect(info.contract_version).toBe("8.2.0")
     expect(info.finn_min_supported).toBe(FINN_MIN_SUPPORTED)
-    expect(info.finn_min_supported).toBe("4.0.0")
+    expect(info.finn_min_supported).toBe("7.0.0")
   })
 })

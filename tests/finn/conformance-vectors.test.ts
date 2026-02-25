@@ -1,4 +1,4 @@
-// tests/finn/conformance-vectors.test.ts — Conformance Vector Infrastructure (Sprint 126 Task 1.5/1.6)
+// tests/finn/conformance-vectors.test.ts — Conformance Vector Infrastructure (Sprint 126 Task 1.5/1.6, Sprint 132 Task 1.7)
 //
 // Self-verifying conformance test infrastructure for loa-hounfour schemas.
 // Discovery uses filesystem resolution (not hardcoded node_modules paths).
@@ -98,10 +98,12 @@ describe("Conformance Vector Infrastructure", () => {
     expect(Array.isArray(manifest.schemas)).toBe(true)
   })
 
-  it("manifest declares non-empty schema set", () => {
+  it("manifest declares non-empty schema set above baseline", () => {
     // Self-verifying: exact count comes from the manifest, not hardcoded.
     // If hounfour adds/removes schemas, the disk check below catches drift.
+    // Baseline: ≥180 for v8.2.0 (191 actual). Catches a dramatically broken package.
     expect(manifest.schemas.length).toBeGreaterThan(0)
+    expect(manifest.schemas.length).toBeGreaterThanOrEqual(180)
   })
 
   it("all manifest schemas have required fields", () => {

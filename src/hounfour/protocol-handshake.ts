@@ -8,10 +8,10 @@ import { CONTRACT_VERSION, parseSemver } from "@0xhoneyjar/loa-hounfour"
 
 /**
  * loa-finn's own minimum supported version.
- * Wider than loa-hounfour v7's MIN_SUPPORTED_VERSION (6.0.0) because
- * arrakis is at v4.6.0 during the transition period.
+ * Bumped from 4.0.0 → 7.0.0 for v8.2.0 upgrade (cycle-033).
+ * v7.9.2 accepted as grace period; v6.0.0 and below rejected.
  */
-export const FINN_MIN_SUPPORTED = "4.0.0" as const
+export const FINN_MIN_SUPPORTED = "7.0.0" as const
 
 // --- Types ---
 
@@ -49,6 +49,12 @@ export interface PeerFeatures {
   economicBoundary: boolean
   /** Remote supports denial codes and evaluation gaps (v7.9.1+). */
   denialCodes: boolean
+  /** Remote supports commons governance module (v8.0.0+). */
+  commonsModule: boolean
+  /** Remote requires actor_id on GovernanceMutation (v8.1.0+). */
+  governanceActorId: boolean
+  /** Remote supports ModelPerformanceEvent as 4th ReputationEvent variant (v8.2.0+). */
+  modelPerformance: boolean
 }
 
 /**
@@ -56,11 +62,14 @@ export interface PeerFeatures {
  * Used by detectPeerFeatures() to determine capabilities from remote version.
  */
 export const FEATURE_THRESHOLDS = {
-  trustScopes:      { major: 6, minor: 0, patch: 0 },
-  reputationGated:  { major: 7, minor: 3, patch: 0 },
-  compoundPolicies: { major: 7, minor: 4, patch: 0 },
-  economicBoundary: { major: 7, minor: 7, patch: 0 },
-  denialCodes:      { major: 7, minor: 9, patch: 1 },
+  trustScopes:        { major: 6, minor: 0, patch: 0 },
+  reputationGated:    { major: 7, minor: 3, patch: 0 },
+  compoundPolicies:   { major: 7, minor: 4, patch: 0 },
+  economicBoundary:   { major: 7, minor: 7, patch: 0 },
+  denialCodes:        { major: 7, minor: 9, patch: 1 },
+  commonsModule:      { major: 8, minor: 0, patch: 0 },
+  governanceActorId:  { major: 8, minor: 1, patch: 0 },
+  modelPerformance:   { major: 8, minor: 2, patch: 0 },
 } as const satisfies Record<keyof PeerFeatures, { major: number; minor: number; patch: number }>
 
 // --- Public ---
@@ -188,8 +197,8 @@ type CompatResult =
 
 /**
  * loa-finn-specific compatibility check.
- * Uses FINN_MIN_SUPPORTED (4.0.0) for wider acceptance than loa-hounfour v7's
- * MIN_SUPPORTED_VERSION (6.0.0), allowing arrakis v4.6.0 during transition.
+ * Uses FINN_MIN_SUPPORTED (7.0.0) — accepts v7.9.2 as grace period,
+ * rejects v6.0.0 and below. v8.x is the primary target.
  */
 function finnValidateCompatibility(remoteVersion: string): CompatResult {
   let remote
@@ -262,10 +271,13 @@ function detectPeerFeatures(remoteVersion: string, healthData: Record<string, un
     compareSemver(remote, threshold) >= 0
 
   return {
-    trustScopes:      meetsThreshold(FEATURE_THRESHOLDS.trustScopes) || "trust_scopes" in healthData,
-    reputationGated:  meetsThreshold(FEATURE_THRESHOLDS.reputationGated),
-    compoundPolicies: meetsThreshold(FEATURE_THRESHOLDS.compoundPolicies),
-    economicBoundary: meetsThreshold(FEATURE_THRESHOLDS.economicBoundary),
-    denialCodes:      meetsThreshold(FEATURE_THRESHOLDS.denialCodes),
+    trustScopes:        meetsThreshold(FEATURE_THRESHOLDS.trustScopes) || "trust_scopes" in healthData,
+    reputationGated:    meetsThreshold(FEATURE_THRESHOLDS.reputationGated),
+    compoundPolicies:   meetsThreshold(FEATURE_THRESHOLDS.compoundPolicies),
+    economicBoundary:   meetsThreshold(FEATURE_THRESHOLDS.economicBoundary),
+    denialCodes:        meetsThreshold(FEATURE_THRESHOLDS.denialCodes),
+    commonsModule:      meetsThreshold(FEATURE_THRESHOLDS.commonsModule),
+    governanceActorId:  meetsThreshold(FEATURE_THRESHOLDS.governanceActorId),
+    modelPerformance:   meetsThreshold(FEATURE_THRESHOLDS.modelPerformance),
   }
 }
