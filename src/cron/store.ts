@@ -382,7 +382,12 @@ export class AtomicJsonStore<T> {
       return
     }
 
-    // Write QuarantineRecord to .quarantine.jsonl sidecar (best-effort)
+    // Write QuarantineRecord to .quarantine.jsonl sidecar (best-effort).
+    // Note: QuarantineRecordSchema was designed for audit trail discontinuities.
+    // We reuse it for store corruption with semantic approximation:
+    //   first/last_affected_index = 0 (no meaningful index for file corruption)
+    //   discontinuity_id = fresh UUID (not referencing an audit trail discontinuity)
+    // See Bridgebuilder review MEDIUM-3 on PR #107 for upstream proposal context.
     try {
       const { randomUUID } = await import("node:crypto")
       const record: QuarantineRecord = {
