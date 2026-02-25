@@ -113,8 +113,8 @@ export function getProtocolInfo(): {
  * Validate protocol compatibility with arrakis at boot time.
  * MUST be called before server.listen().
  *
- * Uses FINN_MIN_SUPPORTED (4.0.0) instead of loa-hounfour's MIN_SUPPORTED_VERSION (6.0.0)
- * to maintain backward compatibility with arrakis v4.6.0 during the transition.
+ * Uses FINN_MIN_SUPPORTED (7.0.0) as the compatibility floor.
+ * v7.x accepted as grace period (cross-major warning), v6.x and below rejected.
  *
  * Production: incompatible/unreachable/missing → throws (fail-fast)
  * Development: incompatible/unreachable/missing → warns + continues
