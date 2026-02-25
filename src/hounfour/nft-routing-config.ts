@@ -108,8 +108,11 @@ export function mapKnownTaskType(taskType: KnownTaskType): NFTRoutingKey {
  * Delegates to mapKnownTaskType for known literals,
  * with a default fallback for community-defined types (open `string` union).
  */
+/** Set membership check for known protocol TaskType literals (O(1) lookup) */
+const KNOWN_TASK_TYPE_SET: ReadonlySet<string> = new Set(KNOWN_TASK_TYPES)
+
 export function mapTaskTypeToRoutingKey(taskType: TaskType): NFTRoutingKey {
-  if ((KNOWN_TASK_TYPES as readonly string[]).includes(taskType)) {
+  if (KNOWN_TASK_TYPE_SET.has(taskType)) {
     return mapKnownTaskType(taskType as KnownTaskType)
   }
   // Forward-compat: community-defined types (namespace:type) or future protocol types

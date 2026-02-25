@@ -7,8 +7,11 @@ import {
   NFTRoutingCache,
   type NFTRoutingPolicy,
   type NFTRoutingKey,
+  mapKnownTaskType,
   mapTaskTypeToRoutingKey,
   mapUnknownTaskTypeToRoutingKey,
+  KNOWN_TASK_TYPES,
+  type KnownTaskType,
 } from "../../src/hounfour/nft-routing-config.js"
 import {
   resolvePool,
@@ -252,6 +255,29 @@ describe("Per-NFT model routing", () => {
       }
       const poolId = resolvePool("enterprise" as Tier, "code_review", preferences)
       expect(poolId).toBe("fast-code") // 'code_review' maps to 'code' routing key
+    })
+  })
+
+  // --- Bridge Iteration 2: Direct mapKnownTaskType tests (LOW-2) ---
+
+  describe("mapKnownTaskType direct tests", () => {
+    it("maps all known task types directly", () => {
+      expect(mapKnownTaskType("code_review")).toBe("code")
+      expect(mapKnownTaskType("creative_writing")).toBe("chat")
+      expect(mapKnownTaskType("analysis")).toBe("analysis")
+      expect(mapKnownTaskType("summarization")).toBe("analysis")
+      expect(mapKnownTaskType("general")).toBe("default")
+      expect(mapKnownTaskType("unspecified")).toBe("default")
+    })
+
+    it("KNOWN_TASK_TYPES contains all 6 protocol literals", () => {
+      expect(KNOWN_TASK_TYPES).toHaveLength(6)
+      expect(KNOWN_TASK_TYPES).toContain("code_review")
+      expect(KNOWN_TASK_TYPES).toContain("creative_writing")
+      expect(KNOWN_TASK_TYPES).toContain("analysis")
+      expect(KNOWN_TASK_TYPES).toContain("summarization")
+      expect(KNOWN_TASK_TYPES).toContain("general")
+      expect(KNOWN_TASK_TYPES).toContain("unspecified")
     })
   })
 })
