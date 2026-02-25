@@ -16,6 +16,8 @@ jobs:
   # =============================================================================
   template-guard:
     name: Template Protection
+    # Only run on the loa template repo — deployed instances (loa-finn, etc.) have these files legitimately
+    if: github.repository == '0xHoneyJar/loa'
     runs-on: ubuntu-latest
 
     steps:

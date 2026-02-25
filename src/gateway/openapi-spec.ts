@@ -285,6 +285,505 @@ export function buildOpenApiSpec(): Record<string, unknown> {
           },
         },
       },
+      // -----------------------------------------------------------------------
+      // x402 Payment Endpoints
+      // -----------------------------------------------------------------------
+      "/api/v1/x402/invoke": {
+        post: {
+          operationId: "x402Invoke",
+          summary: "Invoke agent via x402 payment",
+          description:
+            "Submit a prompt to an agent using x402 on-chain payment. Returns a 402 quote on first call. After payment, returns the agent response with payment confirmation.",
+          tags: ["x402"],
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    model: {
+                      type: "string",
+                      description: "Agent model identifier. Defaults to claude-sonnet-4-6 if omitted.",
+                      default: "claude-sonnet-4-6",
+                    },
+                    max_tokens: {
+                      type: "integer",
+                      description: "Optional maximum tokens for the response",
+                    },
+                    prompt: {
+                      type: "string",
+                      description: "The user prompt to send to the agent",
+                    },
+                  },
+                  required: ["prompt"],
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Successful invocation after payment",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      result: {
+                        type: "string",
+                        description: "Agent response text",
+                      },
+                      payment_id: {
+                        type: "string",
+                        description: "On-chain payment transaction identifier",
+                      },
+                      quote_id: {
+                        type: "string",
+                        description: "Reference to the original quote that was paid",
+                      },
+                    },
+                    required: ["result", "payment_id", "quote_id"],
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid request body",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
+                },
+              },
+            },
+            "402": {
+              description: "Payment required — returns x402 quote",
+              headers: {
+                "X-Payment-Required": {
+                  description: "Indicates payment is required to proceed",
+                  schema: { type: "string" },
+                },
+              },
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/X402Quote" },
+                },
+              },
+            },
+            "429": {
+              description: "Rate limit exceeded",
+              headers: {
+                "Retry-After": {
+                  schema: { type: "integer" },
+                },
+              },
+            },
+            "502": {
+              description: "Upstream model provider error",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
+                },
+              },
+            },
+            "503": {
+              description: "Service temporarily unavailable",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/api/v1/pay/chat": {
+        post: {
+          operationId: "payChat",
+          summary: "Chat via x402 payment (alias)",
+          description:
+            "Alias of POST /api/v1/x402/invoke. Accepts the same request body and returns the same responses. Provided for convenience as an alternative payment-oriented chat endpoint.",
+          tags: ["x402"],
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    model: {
+                      type: "string",
+                      description: "Agent model identifier. Defaults to claude-sonnet-4-6 if omitted.",
+                      default: "claude-sonnet-4-6",
+                    },
+                    max_tokens: {
+                      type: "integer",
+                      description: "Optional maximum tokens for the response",
+                    },
+                    prompt: {
+                      type: "string",
+                      description: "The user prompt to send to the agent",
+                    },
+                  },
+                  required: ["prompt"],
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Successful invocation after payment",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      result: {
+                        type: "string",
+                        description: "Agent response text",
+                      },
+                      payment_id: {
+                        type: "string",
+                        description: "On-chain payment transaction identifier",
+                      },
+                      quote_id: {
+                        type: "string",
+                        description: "Reference to the original quote that was paid",
+                      },
+                    },
+                    required: ["result", "payment_id", "quote_id"],
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid request body",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
+                },
+              },
+            },
+            "402": {
+              description: "Payment required — returns x402 quote",
+              headers: {
+                "X-Payment-Required": {
+                  description: "Indicates payment is required to proceed",
+                  schema: { type: "string" },
+                },
+              },
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/X402Quote" },
+                },
+              },
+            },
+            "429": {
+              description: "Rate limit exceeded",
+              headers: {
+                "Retry-After": {
+                  schema: { type: "integer" },
+                },
+              },
+            },
+            "502": {
+              description: "Upstream model provider error",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
+                },
+              },
+            },
+            "503": {
+              description: "Service temporarily unavailable",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
+                },
+              },
+            },
+          },
+        },
+      },
+      // -----------------------------------------------------------------------
+      // Admin Endpoints
+      // -----------------------------------------------------------------------
+      "/api/v1/admin/feature-flags": {
+        post: {
+          operationId: "toggleFeatureFlag",
+          summary: "Toggle a feature flag",
+          description: "Enable or disable a feature flag. Requires admin JWT authentication.",
+          tags: ["Admin"],
+          security: [{ adminJwt: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    flag: {
+                      type: "string",
+                      description: "Feature flag name",
+                    },
+                    enabled: {
+                      type: "boolean",
+                      description: "Whether the flag should be enabled",
+                    },
+                  },
+                  required: ["flag", "enabled"],
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Flag toggled successfully",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      flag: { type: "string" },
+                      enabled: { type: "boolean" },
+                    },
+                    required: ["flag", "enabled"],
+                  },
+                },
+              },
+            },
+            "401": { description: "Missing or invalid admin JWT" },
+            "403": { description: "Insufficient permissions" },
+          },
+        },
+        get: {
+          operationId: "getFeatureFlags",
+          summary: "Get all feature flags",
+          description: "Returns the current state of all feature flags. Requires admin JWT authentication.",
+          tags: ["Admin"],
+          security: [{ adminJwt: [] }],
+          responses: {
+            "200": {
+              description: "All feature flags",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      flags: {
+                        type: "object",
+                        additionalProperties: { type: "boolean" },
+                        description: "Map of flag names to their enabled state",
+                      },
+                    },
+                    required: ["flags"],
+                  },
+                },
+              },
+            },
+            "401": { description: "Missing or invalid admin JWT" },
+            "403": { description: "Insufficient permissions" },
+          },
+        },
+      },
+      "/api/v1/admin/allowlist": {
+        post: {
+          operationId: "manageAllowlist",
+          summary: "Manage beta allowlist",
+          description: "Add or remove wallet addresses from the beta allowlist. Requires admin JWT authentication.",
+          tags: ["Admin"],
+          security: [{ adminJwt: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    action: {
+                      type: "string",
+                      enum: ["add", "remove"],
+                      description: "Whether to add or remove the addresses",
+                    },
+                    addresses: {
+                      type: "array",
+                      items: { type: "string" },
+                      description: "Wallet addresses to add or remove",
+                    },
+                  },
+                  required: ["action", "addresses"],
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Allowlist updated",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      action: {
+                        type: "string",
+                        enum: ["add", "remove"],
+                      },
+                      addresses: {
+                        type: "array",
+                        items: { type: "string" },
+                      },
+                      updated: {
+                        type: "integer",
+                        description: "Number of addresses affected",
+                      },
+                    },
+                    required: ["action", "addresses", "updated"],
+                  },
+                },
+              },
+            },
+            "401": { description: "Missing or invalid admin JWT" },
+            "403": { description: "Insufficient permissions" },
+          },
+        },
+      },
+      // -----------------------------------------------------------------------
+      // Identity Endpoints
+      // -----------------------------------------------------------------------
+      "/api/identity/wallet/{wallet}/nfts": {
+        get: {
+          operationId: "getWalletNfts",
+          summary: "Resolve NFTs for a wallet",
+          description:
+            "Returns all NFTs held by the given wallet address across supported collections. No authentication required.",
+          tags: ["Identity"],
+          parameters: [
+            {
+              name: "wallet",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "Wallet address (0x...)",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "NFTs resolved for wallet",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      nfts: {
+                        type: "array",
+                        items: { $ref: "#/components/schemas/NFTInfo" },
+                      },
+                      total: {
+                        type: "integer",
+                        description: "Total number of NFTs found",
+                      },
+                    },
+                    required: ["nfts", "total"],
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid wallet address",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
+                },
+              },
+            },
+            "502": {
+              description: "NFT resolution upstream failure",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
+                },
+              },
+            },
+          },
+        },
+      },
+      // -----------------------------------------------------------------------
+      // WebSocket Endpoint
+      // -----------------------------------------------------------------------
+      "/ws/{sessionId}": {
+        get: {
+          operationId: "websocketConnect",
+          summary: "WebSocket streaming connection",
+          description:
+            "Establish a WebSocket connection for real-time streaming of agent responses. Upgrade via standard WebSocket handshake.",
+          tags: ["Agent"],
+          parameters: [
+            {
+              name: "sessionId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "Session ID for the WebSocket connection",
+            },
+          ],
+          responses: {
+            "101": {
+              description: "Switching Protocols — WebSocket connection established",
+            },
+            "400": {
+              description: "Invalid session ID",
+            },
+          },
+          "x-websocket": {
+            messageTypes: {
+              text_delta: {
+                description: "Incremental text chunk from the agent response",
+                schema: {
+                  type: "object",
+                  properties: {
+                    type: { type: "string", const: "text_delta" },
+                    delta: {
+                      type: "string",
+                      description: "Partial text content",
+                    },
+                  },
+                  required: ["type", "delta"],
+                },
+              },
+              turn_end: {
+                description: "Signals the agent has finished its response",
+                schema: {
+                  type: "object",
+                  properties: {
+                    type: { type: "string", const: "turn_end" },
+                    usage: {
+                      type: "object",
+                      properties: {
+                        prompt_tokens: { type: "integer" },
+                        completion_tokens: { type: "integer" },
+                      },
+                    },
+                  },
+                  required: ["type"],
+                },
+              },
+              error: {
+                description: "Error event on the WebSocket stream",
+                schema: {
+                  type: "object",
+                  properties: {
+                    type: { type: "string", const: "error" },
+                    code: { type: "string" },
+                    message: { type: "string" },
+                  },
+                  required: ["type", "code", "message"],
+                },
+              },
+            },
+          },
+        },
+      },
       "/health": {
         get: {
           operationId: "getHealth",
@@ -336,6 +835,12 @@ export function buildOpenApiSpec(): Record<string, unknown> {
               description: "llms.txt format",
               content: {
                 "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+              headers: {
+                "x-corpus-version": {
+                  description: "Version identifier for the knowledge corpus backing agent responses",
                   schema: { type: "string" },
                 },
               },
@@ -467,6 +972,56 @@ export function buildOpenApiSpec(): Record<string, unknown> {
           },
           required: ["error", "code", "challenge"],
         },
+        X402Quote: {
+          type: "object",
+          description: "Payment quote returned with a 402 response for x402 payment endpoints",
+          properties: {
+            quote_id: {
+              type: "string",
+              description: "Unique identifier for this quote",
+            },
+            model: {
+              type: "string",
+              description: "Model/agent that was requested",
+            },
+            max_tokens: {
+              type: "integer",
+              description: "Maximum tokens allocated for the response",
+            },
+            max_cost: {
+              type: "string",
+              description: "Maximum cost in USDC (string to preserve decimal precision)",
+            },
+            payment_address: {
+              type: "string",
+              description: "On-chain address to send payment to",
+            },
+            chain_id: {
+              type: "integer",
+              const: 8453,
+              description: "Chain ID for payment (Base mainnet = 8453)",
+            },
+            token_address: {
+              type: "string",
+              description: "ERC-20 token contract address (USDC on Base)",
+            },
+            valid_until: {
+              type: "string",
+              format: "date-time",
+              description: "ISO 8601 timestamp after which this quote expires",
+            },
+          },
+          required: [
+            "quote_id",
+            "model",
+            "max_tokens",
+            "max_cost",
+            "payment_address",
+            "chain_id",
+            "token_address",
+            "valid_until",
+          ],
+        },
         CreateKeyResponse: {
           type: "object",
           properties: {
@@ -488,6 +1043,25 @@ export function buildOpenApiSpec(): Record<string, unknown> {
             billing: { type: "object" },
             protocol: { type: "object" },
           },
+        },
+        NFTInfo: {
+          type: "object",
+          description: "Information about a single NFT held by a wallet",
+          properties: {
+            collection: {
+              type: "string",
+              description: "Collection contract address or slug",
+            },
+            tokenId: {
+              type: "string",
+              description: "Token ID within the collection",
+            },
+            title: {
+              type: "string",
+              description: "Human-readable title or name of the NFT",
+            },
+          },
+          required: ["collection", "tokenId", "title"],
         },
         Error: {
           type: "object",
@@ -521,12 +1095,21 @@ export function buildOpenApiSpec(): Record<string, unknown> {
           scheme: "bearer",
           description: "Metrics endpoint bearer token (METRICS_BEARER_TOKEN).",
         },
+        adminJwt: {
+          type: "http",
+          scheme: "bearer",
+          description:
+            "Admin JWT with aud: \"loa-finn-admin\" and role: \"admin\". Used for administrative endpoints.",
+        },
       },
     },
     tags: [
       { name: "Agent", description: "Personality-conditioned AI agent interactions" },
       { name: "Keys", description: "API key lifecycle management" },
       { name: "Auth", description: "SIWE (Sign-In With Ethereum) authentication" },
+      { name: "x402", description: "x402 on-chain payment endpoints" },
+      { name: "Admin", description: "Administrative endpoints for feature flags and allowlist management" },
+      { name: "Identity", description: "NFT identity resolution and wallet-based lookups" },
       { name: "Discovery", description: "Agent discovery and documentation" },
       { name: "System", description: "Health, metrics, and operational endpoints" },
     ],

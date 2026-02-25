@@ -1,502 +1,416 @@
-# Sprint Plan: Hounfour v7.11.0 Protocol Convergence
+# Sprint Plan: Launch Readiness — Product Integration & Live Testing
 
-> **Cycle**: 034
-> **PRD**: `grimoires/loa/prd-hounfour-v711.md` (GPT-5.2 APPROVED iteration 2)
-> **SDD**: `grimoires/loa/sdd-hounfour-v711.md` (GPT-5.2 APPROVED iteration 3, Flatline reviewed)
-> **Date**: 2026-02-24
-> **Sprints**: 3 (Global IDs: 129–131)
-> **Total Tasks**: 35
-
----
-
-## Sprint Overview
-
-| Sprint | Global ID | Label | Focus | Tasks |
-|--------|-----------|-------|-------|-------|
-| sprint-1 | 129 | Compile-Time Foundation | Dependency upgrade, feature flags, type re-exports, test vectors | 10 |
-| sprint-2 | 130 | Protocol Extension | Handshake, TaskType, routing, reputation, task type gate | 14 |
-| sprint-3 | 131 | Internal Optimizations | Native enforcement, hash chain migration, Goodhart protection | 11 |
-
-**Total Tasks**: 34
-**Dependency chain**: Sprint 1 → Sprint 2 → Sprint 3 (sequential — each builds on previous)
-**Key invariant**: All 779+ existing tests pass with zero behavior change when flags off (validated per sprint)
+**Cycle:** cycle-035
+**PRD:** `grimoires/loa/prd.md` (GPT-5.2 APPROVED)
+**SDD:** `grimoires/loa/sdd.md` (GPT-5.2 APPROVED + Flatline integrated)
+**Team:** 1 AI developer (Claude)
+**Sprints:** 3
+**Global IDs:** 132–134
 
 ---
 
-## Sprint 1: Compile-Time Foundation (Global Sprint 129)
+## Sprint 1: E2E Compose + Full Loop Test (P0)
 
-**Goal**: Upgrade to v7.11.0 with zero behavior change. All feature flags wired and defaulting to false. Shared test vectors committed.
+**Goal:** Prove end-to-end composition — `docker compose up` starts finn + redis + freeside, E2E test completes JWT auth → inference → billing debit → WebSocket stream.
 
-**Success Criteria**:
-- `npm install` succeeds with v7.11.0 pin
-- All 779+ existing tests pass identically
-- Feature flags exist in code but are all `false`
-- Conditional re-exports compile (or are simplified to direct re-exports if verified)
-- Hash chain test vector file exists with computed reference hashes
-- No runtime behavior change whatsoever
+**PRD:** FR-1 (Dockerized Deployment), FR-2 (Cross-System E2E Test Harness)
+**SDD:** §3.1, §3.2, §6.2, §6.5, §8.1
 
-**SDD Reference**: Section 4.1, Section 6.1
+### Task 1.1: E2E Compose Stack
 
-### Tasks
+**Description:** Create `tests/e2e/docker-compose.e2e-v2.yml` with finn + redis + freeside (replacing legacy arrakis/HS256 compose). Configure ES256 JWKS self-referencing via Docker DNS.
 
-#### Task 1.1: Pin dependency to v7.11.0
-**Description**: Update `package.json:32` to pin `@0xhoneyjar/loa-hounfour` to exact v7.11.0 commit hash. Run `npm install` and fix any immediate compile errors.
-**Acceptance Criteria**:
-- `package.json` references exact v7.11.0 commit hash
-- `npm install` succeeds without errors
-- `npm run build` (if applicable) succeeds
-**Effort**: Small
-**Dependencies**: None
+**Existing infrastructure leveraged:**
+- `deploy/Dockerfile` — multi-stage build already works, no changes needed
+- `GET /health` already exists in `server.ts` with subsystem checks
+- `GET /.well-known/jwks.json` already served by `S2SJwtSigner` in `src/hounfour/s2s-jwt.ts`
+- ES256 JWT validation via JWKS already implemented in `src/hounfour/jwt-auth.ts` using `jose.createRemoteJWKSet()`
+- JTI replay guard already implemented in `src/hounfour/jti-replay.ts`
+- Admin feature-flag API already exists at `POST/GET /api/v1/admin/feature-flags` in `src/gateway/feature-flags.ts:132-150`
+- Full x402 stack already exists in `src/x402/` (14 files: middleware, settlement, verify, atomic-verify, credit-note, etc.)
 
-#### Task 1.2: Verify upstream exports
-**Description**: Verify all expected exports from v7.11.0: `TaskTypeCohort`, `ReputationEvent`, `ScoringPathLog`, `TaskType`, `evaluateNativeEnforcement`. Document which exist and which are missing.
-**Acceptance Criteria**:
-- Export inventory documented (exists/missing for each)
-- If all exist: plan to use direct re-exports in Task 1.3
-- If any missing: plan conditional wrappers with local stubs
-**Effort**: Small
-**Dependencies**: Task 1.1
+**Files:** `tests/e2e/docker-compose.e2e-v2.yml` (new)
 
-#### Task 1.3: Add type re-exports to protocol-types.ts
-**Description**: Add new type re-exports to `protocol-types.ts` per SDD Section 4.1. Use direct re-exports for verified exports, static imports with startup self-check for functions (SKP-001 pattern).
-**Acceptance Criteria**:
-- `TaskTypeCohort`, `ReputationEvent`, `ScoringPathLog`, `TaskType` re-exported
-- `evaluateNativeEnforcement` imported with startup self-check pattern
-- Build succeeds; no runtime change
-**Effort**: Medium
-**Dependencies**: Task 1.2
+**Acceptance Criteria:**
+- [ ] Compose file defines 3 services: `redis-e2e` (port 6380:6379), `loa-freeside-e2e` (port 3002:3000), `loa-finn-e2e` (port 3001:3000)
+- [ ] Freeside image pinned to `ghcr.io/0xhoneyjar/loa-freeside:v7.11.0`
+- [ ] Finn configured with `FINN_JWT_ENABLED=true`, `FINN_JWKS_URL=http://loa-finn-e2e:3000/.well-known/jwks.json`
+- [ ] Finn service uses `env_file: tests/e2e/.env.e2e` for key injection (generated by Task 1.2)
+- [ ] Finn configured with `FINN_S2S_PRIVATE_KEY` (base64-encoded PEM), `FINN_S2S_KID=e2e-v1`, `FINN_S2S_ISSUER=e2e-harness`, `FINN_S2S_KEY_ENCODING=base64`
+- [ ] Finn→freeside wiring: `FINN_FREESIDE_URL=http://loa-freeside-e2e:3000` env var configured for billing event transport
+- [ ] All services have explicit healthcheck commands: redis (`redis-cli ping`), finn (`curl /health`), freeside (`curl /v1/health`)
+- [ ] `CHEVAL_MODE=mock` set for deterministic inference
+- [ ] `docker compose -f tests/e2e/docker-compose.e2e-v2.yml up -d --build` succeeds locally
+- [ ] All 3 services reach healthy state within 30s
+- [ ] Verify: `curl http://localhost:3001/.well-known/jwks.json` returns JWK with `kid: "e2e-v1"` and `kty: "EC"`
+- [ ] Legacy `docker-compose.e2e.yml` preserved (not deleted)
 
-#### Task 1.4: Remove EvaluationResultWithDenials local patch
-**Description**: If v7.11.0 includes `denial_codes` in `EconomicBoundaryEvaluationResult`, remove the local type extension in `economic-boundary.ts`. If not, retain with updated comment.
-**Acceptance Criteria**:
-- Local type patch removed (or comment updated explaining retention)
-- All existing tests pass
-**Effort**: Small
-**Dependencies**: Task 1.1
-
-#### Task 1.5: Add feature flag env vars
-**Description**: Add all 6 feature flag/config constants per SDD Section 2.2 across `economic-boundary.ts`, `pool-enforcement.ts`, and `audit-trail.ts`. All default to `false` / `expression`.
-**Acceptance Criteria**:
-- `TASK_DIMENSIONAL_REPUTATION_ENABLED` in economic-boundary.ts
-- `OPEN_TASK_TYPES_ENABLED` in economic-boundary.ts
-- `NATIVE_ENFORCEMENT_ENABLED` in pool-enforcement.ts
-- `ENFORCEMENT_GEOMETRY` in pool-enforcement.ts
-- `PROTOCOL_HASH_CHAIN_ENABLED` in audit-trail.ts
-- `UNKNOWN_TASK_TYPE_POLICY` referenced (used in Sprint 2)
-- All flags default `false`; existing behavior unchanged
-**Effort**: Small
-**Dependencies**: Task 1.1
-
-#### Task 1.6: Add health endpoint contract types
-**Description**: Add `ArrakisHealthResponse` interface per SDD Section 2.1.1 (IMP-001). Include transport security notes (SKP-005) as code comments.
-**Acceptance Criteria**:
-- `ArrakisHealthResponse` interface defined with schema per SDD
-- Error handling for parse failure/timeout documented in code
-**Effort**: Small
-**Dependencies**: Task 1.1
-
-#### Task 1.7: Create hash chain test vectors file
-**Description**: Create `tests/safety/hash-chain-vectors.json` per SDD Section 4.5.6. Compute actual hash values using the `canonicalize` npm package (RFC 8785).
-**Acceptance Criteria**:
-- Test vector file exists with 4+ vectors (legacy_genesis, bridge_entry, protocol_v1_first, unicode_edge_case)
-- All `expected_hash` values are computed (not placeholders)
-- Legacy hash matches existing canonicalization
-- Protocol hash uses RFC 8785 library
-**Effort**: Medium
-**Dependencies**: Task 1.8 (requires canonicalize library)
-**Testing**: Verify vectors are self-consistent; cross-check legacy vectors against existing `canonicalize()` output
-
-#### Task 1.8: Install canonicalize (RFC 8785) library
-**Description**: Add `canonicalize` npm package as a dependency. Verify it's RFC 8785 compliant by running it against known test vectors.
-**Acceptance Criteria**:
-- Package installed and importable
-- Verified against RFC 8785 test cases (Unicode, number edge cases)
-**Effort**: Small
-**Dependencies**: Task 1.1
-
-#### Task 1.9: Add Hono context type augmentation
-**Description**: Add TypeScript module augmentation for Hono's `ContextVariableMap` per SDD Section 4.6.6 (IMP-006). Defines `taskType: TaskType` and `taskTypeRestricted: boolean`.
-**Acceptance Criteria**:
-- `c.get("taskType")` returns `TaskType` in TypeScript
-- `c.set("taskType", value)` requires `TaskType` parameter
-- No runtime change (types only)
-**Effort**: Small
-**Dependencies**: Task 1.3
-
-#### Task 1.10: Full regression test run
-**Description**: Run the complete test suite (779+ tests). Verify zero failures, zero behavior changes. This is the Sprint 1 gate.
-**Acceptance Criteria**:
-- All existing tests pass
-- No new warnings or deprecations from v7.11.0
-- Test output captured for comparison baseline
-**Effort**: Small
-**Dependencies**: All Sprint 1 tasks
+**Effort:** Medium
+**Dependencies:** None (first task)
 
 ---
 
-## Sprint 2: Protocol Extension (Global Sprint 130)
+### Task 1.2: ES256 Key Generation Script
 
-**Goal**: Wire all new capabilities with feature flags disabled. All new code paths are dead code until flags are enabled. TaskType flows branded end-to-end.
+**Description:** Create `tests/e2e/generate-keys.ts` that generates an ephemeral ES256 keypair and exports it as PEM for compose env injection.
 
-**Success Criteria**:
-- `PeerFeatures` has 3 new fields with dual-strategy detection
-- `parseTaskType()` exists in wire-boundary.ts and validates namespace:type format
-- TaskType is branded through RequestMetadata, LedgerEntryV2, ReputationProvider
-- Task type gate in hounfourAuth() denies unknown types before routing
-- NFT routing accepts TaskType with legacy mapping
-- All tests pass with flags off; new tests cover flag-on behavior
-- Unknown task type denial test proves gate runs before enforcement
+**Files:** `tests/e2e/generate-keys.ts` (new)
 
-**SDD Reference**: Sections 4.2, 4.3, 4.6, 5, 6.2
+**Acceptance Criteria:**
+- [ ] Generates P-256 keypair using `jose.generateKeyPair("ES256")`
+- [ ] Exports private key as base64-encoded PKCS8 PEM to `.env.e2e` file (base64 avoids multiline PEM breakage in shell/compose env propagation)
+- [ ] Compose `env_file: .env.e2e` is the single injection mechanism (no mix of env_file + env vars + secrets)
+- [ ] Finn startup decodes `E2E_ES256_PRIVATE_KEY` from base64 if `FINN_S2S_KEY_ENCODING=base64` is set (or script writes decoded PEM to a mounted volume as fallback)
+- [ ] Exports public key as SPKI PEM for test harness JWT signing
+- [ ] Key material is ephemeral — `.env.e2e` in `.gitignore`, not persisted beyond test run
+- [ ] Script runnable via `node tests/e2e/generate-keys.ts` (or `tsx`)
 
-### Tasks
-
-#### Task 2.1: Extend PeerFeatures + dual-strategy detection
-**Description**: Add 3 new fields to `PeerFeatures` (`taskDimensionalRep`, `hashChain`, `openTaskTypes`) and implement dual-strategy detection per SDD Section 4.2. Add `DetectionMethod` type and side-effect logging.
-**Acceptance Criteria**:
-- `PeerFeatures` has 8 fields (5 existing + 3 new)
-- `FEATURE_THRESHOLDS` updated for new features
-- Detection: capabilities array (primary) → semver (fallback) → legacy_field (trustScopes only) → unknown=false
-- Detection methods logged at DEBUG level
-- ~20 new tests covering all 3 strategies and version scenarios
-**Effort**: Large
-**Dependencies**: Sprint 1 complete
-
-#### Task 2.2: Add parseTaskType() to wire-boundary.ts
-**Description**: Implement `parseTaskType()` branded type parser per SDD Section 4.6.1. Validates `namespace:type` format, max 64 chars, lowercase normalized.
-**Acceptance Criteria**:
-- `parseTaskType("finn:conversation")` returns branded `TaskType`
-- Invalid inputs throw `WireBoundaryError`
-- Edge cases: empty string, too long, invalid charset, missing colon
-- ~15 new tests
-**Effort**: Medium
-**Dependencies**: Task 1.3 (TaskType type available)
-
-#### Task 2.3: Add task_type to RequestMetadata and LedgerEntryV2
-**Description**: Extend `RequestMetadata` and `LedgerEntryV2` in `types.ts` with `task_type?: TaskType`. Optional to maintain backward compatibility when flags off.
-**Acceptance Criteria**:
-- `RequestMetadata.task_type?: TaskType`
-- `LedgerEntryV2.task_type?: TaskType`
-- Existing code compiles without changes (optional field)
-**Effort**: Small
-**Dependencies**: Task 1.3
-
-#### Task 2.4: Extend ReputationProvider with cohort query
-**Description**: Add optional `getTaskCohortScore(tenantId: string, taskType: TaskType): Promise<number | null>` to `ReputationProvider` interface per SDD Section 4.3.
-**Acceptance Criteria**:
-- Optional method added to interface
-- Existing implementations don't need changes (optional)
-- When `TASK_DIMENSIONAL_REPUTATION_ENABLED=true`, cohort score is preferred over blended
-**Effort**: Small
-**Dependencies**: Task 2.3
-
-#### Task 2.5: Thread TaskType through economic boundary
-**Description**: Modify `evaluateBoundary()` to accept optional `taskType: TaskType` parameter. When flag enabled, use cohort query. Add shadow mode divergence metric.
-**Acceptance Criteria**:
-- `evaluateBoundary()` signature extended with optional `taskType`
-- Flag off: zero code path change (taskType ignored)
-- Flag on: cohort query preferred, blended fallback
-- Shadow divergence metric emitted when both scores available
-- ~25 new tests covering cohort/blended/fallback scenarios
-**Effort**: Large
-**Dependencies**: Task 2.4
-
-#### Task 2.6: Define FINN_TASK_TYPES and registry
-**Description**: Implement `FINN_TASK_TYPES` constants, `DEFAULT_TASK_TYPE`, `isRegisteredTaskType()`, and `LEGACY_TASK_TYPE_MAP` per SDD Section 4.6.2-4.6.3.
-**Acceptance Criteria**:
-- 6 finn-native task types pre-parsed at module load
-- Legacy mapping from old string literals to TaskType
-- `resolveLegacyTaskType()` for migration
-- `isRegisteredTaskType()` works for all 6 types
-**Effort**: Medium
-**Dependencies**: Task 2.2
-
-#### Task 2.7: Update NFTRoutingCache.resolvePool for TaskType
-**Description**: Update `resolvePool()` to accept `TaskType` instead of string. Returns `null` when no routing found (no silent fallback). Add legacy caller fallback via endpoint mapping.
-**Acceptance Criteria**:
-- `resolvePool(personalityId, taskType: TaskType): PoolId | null`
-- No silent fallback to hardcoded pool
-- `resolveTaskTypeFromEndpoint()` maps paths to TaskType for legacy callers
-- ~15 new tests
-**Effort**: Medium
-**Dependencies**: Task 2.6
-
-#### Task 2.8: Implement task type gate in hounfourAuth()
-**Description**: Add task type validation gate at step 1.5 in `hounfourAuth()` per SDD Section 4.6.4. Deny unknown types when `policy=deny`.
-**Acceptance Criteria**:
-- Gate runs after JWT validation, before pool routing/enforcement
-- Unknown + policy=deny → 403 with `UNKNOWN_TASK_TYPE` code
-- Unknown + policy=safe_default → allowed with restricted flag
-- Known or allowlisted → passes through
-- TaskType set in Hono context as branded type
-**Effort**: Large
-**Dependencies**: Task 2.6, Task 2.7, Task 2.9 (allowlist must exist before gate references it)
-
-#### Task 2.9: Implement tenant task type allowlist
-**Description**: Add `isTenantAllowlisted()` function per SDD Section 4.6.4.1 (IMP-004). Parse from `TENANT_TASK_TYPE_ALLOWLIST` env var. **Critical**: Parsing must be gated behind `OPEN_TASK_TYPES_ENABLED` to preserve the "flags off = zero behavior change" invariant (SKP-004).
-**Acceptance Criteria**:
-- Default deny when env var empty/missing
-- Allowlist JSON parsing ONLY when `OPEN_TASK_TYPES_ENABLED=true` (flag off = no new module-load throws, no new required env vars)
-- Invalid JSON throws at module load ONLY when flag is enabled (fail-fast when feature active, silent when inactive)
-- Allowlist grants logged at INFO level
-- Tests for deny/allow/malformed scenarios + test that malformed JSON is ignored when flag=false
-**Effort**: Small
-**Dependencies**: Task 2.2, Task 1.5 (flag must exist)
-
-#### Task 2.10: Unknown task type denial gate test
-**Description**: Critical test proving unknown task types with `policy=deny` return 403 BEFORE any routing/enforcement code executes.
-**Acceptance Criteria**:
-- Test sends request with unknown task type + deny policy
-- Verifies 403 response with `UNKNOWN_TASK_TYPE` code
-- Verifies `selectAuthorizedPool` was NOT called (mock assertion)
-- Verifies `evaluateBoundary` was NOT called (mock assertion)
-**Effort**: Medium
-**Dependencies**: Task 2.8
-
-#### Task 2.11: TaskType end-to-end integration test
-**Description**: Integration test proving branded TaskType flows from wire boundary through enforcement, routing, reputation, WAL, and audit without type widening.
-**Acceptance Criteria**:
-- Request with `X-Task-Type: finn:conversation` flows through all layers
-- RequestMetadata.task_type, LedgerEntryV2.task_type, AuditRecord.params.task_type all contain `"finn:conversation"`
-- Compile-time type assertion: `expectTypeOf(metadata.task_type).toEqualTypeOf<TaskType>()` (using vitest `expectTypeOf` or equivalent)
-- Runtime assertion: `parseTaskType(auditRecord.params.task_type)` succeeds (round-trip validates format is preserved)
-**Effort**: Medium
-**Dependencies**: Task 2.8, Task 2.5
-
-#### Task 2.12: Health endpoint contract validation
-**Description**: Validate arrakis health response against `ArrakisHealthResponse` schema at runtime. Use structural type checks (typeof/in guards) rather than adding a schema validation library — finn does not use zod/typebox elsewhere and this is a single internal endpoint.
-**Acceptance Criteria**:
-- Runtime structural validation: check `status` is string, `contract_version` is string, `capabilities` is array-of-strings (if present)
-- Invalid shape → log warning, return default PeerFeatures (all false)
-- Timeout/error → all features false (not throw)
-- Unknown capabilities silently ignored (forward-compatible)
-- Rate-limited probe caching (max 1 probe per 30s per peer)
-**Effort**: Medium
-**Dependencies**: Task 1.6 (ArrakisHealthResponse type), Task 2.1 (PeerFeatures extension)
-
-#### Task 2.13: Flags-off regression gate
-**Description**: Run full test suite with all flags explicitly set to `false`. Verify identical behavior to Sprint 1 baseline.
-**Acceptance Criteria**:
-- All 779+ original tests pass
-- All new Sprint 2 flags-off tests pass
-- No behavior change from Sprint 1 baseline
-**Effort**: Small
-**Dependencies**: All Sprint 2 tasks
-
-#### Task 2.14: Flags-on test suite
-**Description**: Run all new tests with flags set to `true`. Verify new behavior activates correctly.
-**Acceptance Criteria**:
-- Dual-strategy detection works end-to-end
-- TaskType routing resolves correctly
-- Cohort reputation queries fire when available
-- Unknown task types denied with correct codes
-**Effort**: Small
-**Dependencies**: All Sprint 2 tasks
+**Effort:** Small
+**Dependencies:** None
 
 ---
 
-## Sprint 3: Internal Optimizations (Global Sprint 131)
+### Task 1.3: Freeside Schema Verification
 
-**Goal**: Native enforcement path + hash chain migration. Performance benchmark baseline. Goodhart protection logging.
+**Description:** Verify freeside v7.11.0's observable surface for E2E billing assertions. Document the exact Redis key patterns and/or API endpoints that freeside uses for lot entries.
 
-**Success Criteria**:
-- Native enforcement produces identical results to expression path (hard CI gate)
-- Performance benchmark shows >= 3x speedup (reported, non-blocking)
-- Hash chain migration: bridge entry + dual-write + verification all work
-- Migration state recovery survives restart (IMP-003)
-- Partial write recovery on crash (SKP-004)
-- Goodhart scoring path logged
-- All tests pass with flags on and off
+**Files:** `tests/e2e/freeside-contract.md` (new — contract documentation)
 
-**SDD Reference**: Sections 4.4, 4.5, 4.7, 6.3
+**Acceptance Criteria:**
+- [ ] Pull `ghcr.io/0xhoneyjar/loa-freeside:v7.11.0` and start with test Redis
+- [ ] Identify the exact Redis key pattern for lot entries (e.g., `freeside:lot:{tenant_id}:{lot_id}` or actual pattern)
+- [ ] Document the JSON payload schema for lot entries (fields, types, correlation identifiers)
+- [ ] Identify freeside's health endpoint URL and response schema
+- [ ] If freeside exposes a tenant query API (e.g., `GET /v1/ledger/{tenant_id}`), document it
+- [ ] Update Task 1.4 assertions to match actual schema (not assumed pattern)
+- [ ] Document findings in `tests/e2e/freeside-contract.md`
 
-### Tasks
-
-#### Task 3.1: Implement evaluateWithGeometry()
-**Description**: Add native enforcement path in `pool-enforcement.ts` per SDD Section 4.4. When `ENFORCEMENT_GEOMETRY=native`, call `evaluateNativeEnforcement()` directly. Wire protocol unchanged.
-**Acceptance Criteria**:
-- `ENFORCEMENT_GEOMETRY=expression` → existing path (unchanged)
-- `ENFORCEMENT_GEOMETRY=native` → direct evaluator call
-- Both paths produce identical `PoolEnforcementResult`
-- Startup self-check validates function availability when native enabled
-**Effort**: Large
-**Dependencies**: Sprint 2 complete
-
-#### Task 3.2: Native enforcement correctness gate
-**Description**: Hard CI gate proving native and expression paths produce identical results for 1000+ diverse inputs. Equivalence is defined as structural equality on the `PoolEnforcementResult` object (decision fields must match exactly; any numeric fields use integer comparison since enforcement results use basis-point integers, not floats).
-**Acceptance Criteria**:
-- Property-based test with 1000+ generated inputs
-- Structurally identical `PoolEnforcementResult` for every input (deep-equal, not byte-identical serialization)
-- If floats are encountered: normalize to fixed precision before comparison
-- Deterministic iteration order enforced (sorted keys)
-- Test fails build if any divergence detected; reports minimal counterexample for debugging
-- ~20 new tests
-**Effort**: Medium
-**Dependencies**: Task 3.1
-
-#### Task 3.3: Native enforcement performance benchmark
-**Description**: Benchmark native vs expression. Reported metric, NOT a CI gate (SKP-002 resolution from GPT review iteration 1).
-**Acceptance Criteria**:
-- Benchmark runs in separate perf job (or skipped in CI)
-- Reports speedup ratio (target >= 3x)
-- Does NOT block merges
-- Results logged for tracking
-**Effort**: Small
-**Dependencies**: Task 3.1
-
-#### Task 3.4: Implement protocol_v1 canonicalization and hash computation
-**Description**: Add `canonicalizeProtocol()` (RFC 8785 JCS), `computePayloadHash()`, `computeProtocolEntryHash()`, and `buildEnvelope()` per SDD Sections 4.5.1-4.5.3.
-**Acceptance Criteria**:
-- Uses `canonicalize` npm package for RFC 8785
-- Exact byte sequence per formal hash spec (SKP-003)
-- Field inclusion/exclusion rules match SDD table exactly
-- All 4+ test vectors pass
-**Effort**: Large
-**Dependencies**: Task 1.7, Task 1.8
-
-#### Task 3.5: Implement bridge entry and dual-write
-**Description**: Implement `appendBridgeEntry()` and dual-write logic per SDD Sections 4.5.4-4.5.5. Dual-write count configurable via `HASH_CHAIN_DUAL_WRITE_COUNT` (default 1000). Includes migration abort/containment procedures (IMP-002).
-**Acceptance Criteria**:
-- Bridge entry links legacy chain to protocol chain
-- Dual-write records carry both `prevHashProtocol` and `prevHashLegacy`
-- Post-migration with flag off: force protocol mode + critical alert (not fatal throw) per SDD Section 4.5.5
-- `dualWriteRemaining` derived from log, not stored separately (IMP-010)
-- **Migration abort procedures implemented**:
-  - Pre-bridge: set `PROTOCOL_HASH_CHAIN_ENABLED=false` + restart → clean rollback, no chain impact
-  - Post-bridge, during dual-write: force-protocol-mode activates if flag set to false → chain remains valid, critical alert fires
-  - Post-bridge, post-dual-write: same as above (force-protocol-mode, chain integrity preserved)
-  - Full revert path: write reverse bridge entry (manual CLI command documented in code), then set flag to false
-  - `verifyChain()` must pass after any abort/recovery scenario
-**Effort**: Large
-**Dependencies**: Task 3.4
-
-#### Task 3.6: Implement migration state recovery
-**Description**: Implement `reconstructStateFromLog()` per SDD Section 4.5.5.1 (IMP-003). Reconstruct `migrated`, `lastHashProtocol`, `lastHashLegacy`, `dualWriteRemaining` from audit log on startup.
-**Acceptance Criteria**:
-- Fresh log → clean state
-- Log with bridge entry → `migrated=true`, correct chain tips
-- Log with partial dual-write → correct `dualWriteRemaining`
-- Partial trailing line → truncate and recover (SKP-004)
-- Boot-time `verifyChain()` runs; quarantine mode on failure
-**Effort**: Large
-**Dependencies**: Task 3.5
-
-#### Task 3.7: Update verifyChain() for dual-format
-**Description**: Extend `verifyChain()` to handle legacy, bridge, and protocol_v1 records per SDD Section 4.5.7. Dual-pointer verification during dual-write period.
-**Acceptance Criteria**:
-- Legacy records verified with legacy hash
-- Bridge entry verified: links to legacy chain tip
-- Protocol records verified with protocol hash
-- Dual-write records verify both chain pointers
-- Post-dual-write records verify protocol only
-**Effort**: Medium
-**Dependencies**: Task 3.5
-
-#### Task 3.8: Hash chain property-based round-trip test
-**Description**: Property-based test generating random records, writing via `appendRecord()`, reading back, and verifying via `verifyChain()` per SDD Section 4.5.3 formal spec requirement.
-**Acceptance Criteria**:
-- 100+ randomly generated records per run
-- Mix of legacy and protocol_v1 formats
-- Bridge entry included
-- Round-trip: write → read → verify succeeds
-- Any field inclusion mismatch between writer and verifier is caught
-**Effort**: Medium
-**Dependencies**: Task 3.7
-
-#### Task 3.9: Implement single-writer enforcement for audit trail
-**Description**: Implement and test the single-writer deployment constraint per SDD Section 8.3 (IMP-002). Ensure only one process appends to the audit file at a time.
-**Acceptance Criteria**:
-- Advisory file lock (`flock`) acquired before any append, released after
-- If lock acquisition fails (another writer): log CRITICAL warning, enter quarantine mode (appends buffered or denied)
-- Boot-time check: acquire lock → if stale (PID not running), take ownership → if active, refuse to start audit writer
-- Integration test: simulate two concurrent AuditTrail instances → second one is denied/quarantined
-- Graceful shutdown releases lock before process exit
-**Effort**: Medium
-**Dependencies**: Task 3.6
-
-#### Task 3.10: Implement Goodhart protection scoring path logging
-**Description**: Add `ScoringPathLog` emission in economic boundary per SDD Section 4.7. Log scoring path with tenant hash when task-dimensional reputation is active.
-**Acceptance Criteria**:
-- Structured JSON log emitted when `TASK_DIMENSIONAL_REPUTATION_ENABLED=true`
-- Includes `task_type`, `path` (scoring path), `tenant_hash`
-- No PII in logs (tenant hash, not tenant ID)
-**Effort**: Small
-**Dependencies**: Task 2.5
-
-#### Task 3.11: Full regression + integration gate
-**Description**: Final gate: all flags off = identical to Sprint 1 baseline. All flags on = all new features active and tested.
-**Acceptance Criteria**:
-- All 779+ original tests pass (flags off)
-- All ~120 new tests pass (flags on)
-- Native enforcement correctness gate passes
-- Hash chain: write bridge → dual-write → verify → restart → verify
-- Single-writer lock acquired/released correctly in tests
-- End-to-end TaskType flow verified
-**Effort**: Medium
-**Dependencies**: All Sprint 3 tasks
+**Effort:** Small
+**Dependencies:** Task 1.1 (compose stack with freeside running)
 
 ---
 
-## Flatline Finding → Task Mapping
+### Task 1.4: Wait-Healthy Script
 
-| Finding | Description | Task(s) |
-|---------|-------------|---------|
-| IMP-001 | Health endpoint schema + error codes | Task 1.6, Task 2.12 |
-| IMP-002 | Single-writer audit trail constraint | Task 3.9 |
-| IMP-003 | Migration state recovery on restart | Task 3.6 |
-| IMP-004 | Tenant task type allowlist mechanism | Task 2.9 |
-| IMP-010 | Dual-write counter persistence | Task 3.5, Task 3.6 |
-| SKP-001 | Static imports + startup self-check | Task 1.3 |
-| SKP-002 | Force-protocol-mode (not throw) post-migration | Task 3.5 |
-| SKP-003 | Formal hash input byte spec | Task 3.4, Task 3.8 |
-| SKP-004 | Partial trailing line crash recovery | Task 3.6 |
-| SKP-005 | Health endpoint transport security | Task 1.6, Task 2.12 |
-| IMP-006 | Hono context type augmentation | Task 1.9 |
+**Description:** Create `tests/e2e/wait-healthy.sh` that polls compose service health endpoints with exponential backoff until all are ready.
+
+**Files:** `tests/e2e/wait-healthy.sh` (new)
+
+**Acceptance Criteria:**
+- [ ] Polls `GET http://localhost:3001/health` (finn) and `GET http://localhost:3002/v1/health` (freeside)
+- [ ] Exponential backoff: 1s, 2s, 4s, 8s, 16s
+- [ ] Timeout after 60s with clear error message listing which services failed
+- [ ] Exit 0 on all healthy, exit 1 on timeout
+- [ ] Executable (`chmod +x`)
+
+**Effort:** Small
+**Dependencies:** Task 1.1
+
+---
+
+### Task 1.5: Full Loop E2E Test
+
+**Description:** Create `tests/e2e/full-loop.test.ts` — the core E2E test that proves JWT → inference → billing debit → WebSocket stream.
+
+**Files:** `tests/e2e/full-loop.test.ts` (new)
+
+**Acceptance Criteria:**
+- [ ] Each test run uses a unique tenant ID (e.g., `e2e-tenant-{timestamp}`) to prevent state leakage between test runs and avoid stale Redis keys / JTI replay collisions
+- [ ] Generates ES256 keypair and signs JWT with `{ iss: "e2e-harness", aud: "loa-finn", tenant_id: "<unique>", tier: "pro", req_hash: sha256(body), jti: unique, exp: now+60 }`
+- [ ] Creates session via `POST /api/sessions` with bearer token
+- [ ] Connects WebSocket to `/ws/:sessionId?token={bearer}`
+- [ ] Sends `{ type: "prompt", text: "Hello" }` message
+- [ ] Asserts receipt of `text_delta` + `turn_end` messages
+- [ ] **Finn billing assertion:** Queries `GET /health` and checks for billing/cost fields in the response. If `/health` doesn't include billing data in the expected shape, falls back to querying Redis directly for budget keys matching `budget:e2e-tenant`
+- [ ] **Freeside billing assertion:** Uses the contract discovered in Task 1.3 — queries freeside via its API endpoint or Redis `SCAN` (whichever Task 1.3 identifies as stable) to verify a debit entry for `e2e-tenant`
+- [ ] Test passes with Vitest (`pnpm vitest run tests/e2e/full-loop.test.ts`)
+- [ ] JUnit XML output via `--reporter=junit`
+
+**Effort:** Large
+**Dependencies:** Tasks 1.1, 1.2, 1.3 (freeside contract), 1.4 (wait-healthy)
 
 ---
 
-## Flag Enablement Runbook
+### Task 1.6: Budget Conservation Test
 
-After all 3 sprints are merged (code deployed with all flags `false`), flags are enabled one at a time in this order:
+**Description:** Create `tests/e2e/budget-conservation.test.ts` — assert that budget exhaustion returns 429 with `evaluation_gap` diagnostic.
 
-| Step | Flag | Prerequisites | Canary | Rollback |
-|------|------|--------------|--------|----------|
-| 1 | `OPEN_TASK_TYPES_ENABLED=true` | Sprint 2 merged, all tests pass | Enable on 1 instance, monitor `unknown_task_type_denial` for 1h | Set to `false` + restart |
-| 2 | `TASK_DIMENSIONAL_REPUTATION_ENABLED=true` | Step 1 stable | Shadow mode: log cohort vs blended delta for 24h before relying on cohort | Set to `false` + restart |
-| 3 | `NATIVE_ENFORCEMENT_ENABLED=true` + `ENFORCEMENT_GEOMETRY=native` | Step 2 stable, correctness gate passed | Run shadow comparison on 10% traffic for 4h | Set `ENFORCEMENT_GEOMETRY=expression` + restart |
-| 4 | `PROTOCOL_HASH_CHAIN_ENABLED=true` | Steps 1-3 stable, single-writer confirmed | Enable on single instance only (coordinated rollout) | **Cannot simply disable** — force-protocol-mode activates. See SDD Section 4.5.5. |
+**Files:** `tests/e2e/budget-conservation.test.ts` (new)
 
-**Decision points for abort**:
-- Step 1-3: Any spike in denial rates, enforcement divergence, or error rates → disable flag + restart (rolling, ~30s)
-- Step 4: Pre-migration: disable flag + restart. Post-migration: flag off triggers force-protocol-mode (safe but generates critical alert). Full revert requires reverse bridge entry (manual, documented in SDD).
+**Acceptance Criteria:**
+- [ ] Sets up a tenant with a very low budget limit
+- [ ] Sends enough requests to exhaust the budget
+- [ ] Asserts subsequent request returns HTTP 429
+- [ ] Response body contains `evaluation_gap` diagnostic
+- [ ] Test runs independently from full-loop test
 
-**Who flips**: Deployment config change via container orchestrator. Requires PR to config repo, reviewed by @janitooor.
+**Effort:** Medium
+**Dependencies:** Tasks 1.1, 1.2
 
 ---
+
+### Task 1.7: Auth Negative Tests
+
+**Description:** Create `tests/e2e/auth-negative.test.ts` — negative E2E tests for JWT claim validation per SDD §6.2.
+
+**Files:** `tests/e2e/auth-negative.test.ts` (new)
+
+**Acceptance Criteria:**
+- [ ] Wrong `aud` (user token hitting admin endpoint) → 403
+- [ ] Missing `exp` → 401
+- [ ] Expired token → 401
+- [ ] Future `nbf` → 401
+- [ ] Missing `role` on admin endpoint → 403
+- [ ] `role=user` on admin endpoint → 403
+- [ ] Unknown `kid` → 401
+- [ ] Replayed `jti` → 401
+- [ ] All 8 negative cases pass
+
+**Effort:** Medium
+**Dependencies:** Tasks 1.1, 1.2
+
+---
+
+### Task 1.8: CI Workflow
+
+**Description:** Create `.github/workflows/e2e.yml` — GitHub Actions workflow that runs the full E2E suite.
+
+**Files:** `.github/workflows/e2e.yml` (new)
+
+**Acceptance Criteria:**
+- [ ] Triggered on push to `main` and PR to `main`
+- [ ] Generates ES256 keypair
+- [ ] Starts compose stack with `docker-compose.e2e-v2.yml`
+- [ ] Waits for healthy via `wait-healthy.sh`
+- [ ] Runs all E2E tests via Vitest
+- [ ] Uploads JUnit XML as test artifact
+- [ ] Tears down compose on success or failure (`if: always()`)
+- [ ] Total workflow completes under 10 minutes
+
+**Effort:** Medium
+**Dependencies:** Tasks 1.1–1.7
+
+---
+
+## Sprint 2: Feature Flag Promotion + x402 Alignment (P0/P1)
+
+**Goal:** Validate all 6 feature flags individually and collectively, add x402 `/api/v1/pay/chat` alias endpoint, and test x402 payment flow end-to-end.
+
+**PRD:** FR-3 (Feature Flag Promotion), FR-4 (x402 Pay-Per-Request)
+**SDD:** §3.3, §3.4, §6.3
+
+### Task 2.1: Feature Flag Promotion Tests
+
+**Description:** Create `tests/e2e/flag-promotion.test.ts` — E2E tests that toggle each flag via admin API and validate behavior.
+
+**Files:** `tests/e2e/flag-promotion.test.ts` (new)
+
+**Acceptance Criteria:**
+- [ ] Mints admin JWT with `{ aud: "loa-finn-admin", role: "admin" }`
+- [ ] Toggles each of 6 flags individually via `POST /api/v1/admin/feature-flags`
+- [ ] Verifies flag state via `GET /api/v1/admin/feature-flags`
+- [ ] For each flag ON: runs relevant test assertions (e.g., x402 flag ON → `/api/v1/x402/invoke` returns 402 not 503)
+- [ ] For each flag OFF: verifies clean reversion
+- [ ] All-on test: enables all 6 flags simultaneously, runs full test suite subset
+- [ ] Rollback test: disables all flags, verifies clean state
+- [ ] Documents flag promotion order in test output
+
+**Effort:** Large
+**Dependencies:** Sprint 1 complete (compose stack, key generation, auth)
+
+---
+
+### Task 2.2: x402 Handler Extraction + Alias Route
+
+**Description:** Extract x402 invoke handler as a named export, register `/api/v1/pay/chat` as a single explicit alias in `server.ts`. Per SDD §3.4.
+
+**Files:** `src/gateway/x402-routes.ts` (modify), `src/gateway/server.ts` (modify)
+
+**Acceptance Criteria:**
+- [ ] `createX402InvokeHandler(deps)` exported from `x402-routes.ts`
+- [ ] `POST /api/v1/pay/chat` registered in `server.ts` using the extracted handler
+- [ ] No unintended duplicate routes (no `/api/v1/pay/invoke`, no `/api/v1/x402/pay/chat`)
+- [ ] Alias route NOT behind JWT middleware (same middleware-free treatment as `/api/v1/x402/*`)
+- [ ] Alias route has identical middleware stack as `/api/v1/x402/invoke` (rate limiting, body size limits, request logging) — no middleware drift between canonical and alias
+- [ ] Existing `/api/v1/x402/invoke` unchanged
+- [ ] Existing unit tests still pass
+
+**Effort:** Small
+**Dependencies:** None
+
+---
+
+### Task 2.3: x402 Flow E2E Test
+
+**Description:** Create `tests/e2e/x402-flow.test.ts` — E2E test for the full x402 payment flow.
+
+**Files:** `tests/e2e/x402-flow.test.ts` (new)
+
+**Acceptance Criteria:**
+- [ ] Enables `x402` feature flag via admin API
+- [ ] Sends request to `/api/v1/pay/chat` without `X-Payment` → asserts HTTP 402 with quote in `X-Payment-Required` header
+- [ ] Constructs mock EIP-3009 payment proof matching the quote
+- [ ] Sends request with `X-Payment` header → asserts successful inference response
+- [ ] Asserts `payment_id` and `quote_id` in response
+- [ ] Replays same nonce → asserts HTTP 409 Conflict (replay rejection per SDD §3.4 failure modes table: `NONCE_REUSE`)
+- [ ] Tests with `x402` flag OFF → asserts 503
+- [ ] Tests conservation guard (payment < estimated cost) → asserts 402 rejection
+- [ ] Tests credit-back (actual cost < quoted) → asserts credit note issued
+
+**Effort:** Large
+**Dependencies:** Tasks 2.1, 2.2
+
+---
+
+### Task 2.4: Flag Promotion Runbook
+
+**Description:** Document the recommended flag promotion order and monitoring checkpoints for future cloud staging.
+
+**Files:** `grimoires/loa/context/flag-promotion-runbook.md` (new)
+
+**Acceptance Criteria:**
+- [ ] Lists all 6 flags with recommended promotion order
+- [ ] Documents monitoring checkpoints for each flag (what to watch, expected behavior)
+- [ ] Includes rollback instructions
+- [ ] References admin API endpoints and example curl commands
+- [ ] Notes production-specific requirements (separate JWKS, IP allowlist per SDD §6.3)
+
+**Effort:** Small
+**Dependencies:** Task 2.1
+
+---
+
+## Sprint 3: OpenAPI + SDK + Dixie Contracts (P1/P2)
+
+**Goal:** Augment OpenAPI spec to cover all endpoints, create TypeScript SDK, and fix dixie contract gaps.
+
+**PRD:** FR-5 (OpenAPI + SDK), FR-6 (Dixie Contracts)
+**SDD:** §3.5, §3.6, §3.7
+
+### Task 3.1: OpenAPI Spec Augmentation
+
+**Description:** Extend `buildOpenApiSpec()` in `src/gateway/openapi-spec.ts` to cover x402, admin, identity, and WebSocket endpoints.
+
+**Files:** `src/gateway/openapi-spec.ts` (modify)
+
+**Acceptance Criteria:**
+- [ ] `POST /api/v1/x402/invoke` documented with 402 response schema
+- [ ] `POST /api/v1/pay/chat` documented as alias
+- [ ] `POST /api/v1/admin/feature-flags` and `GET /api/v1/admin/feature-flags` documented
+- [ ] `POST /api/v1/admin/allowlist` documented
+- [ ] `GET /api/identity/wallet/{wallet}/nfts` documented with array response schema
+- [ ] `x-websocket` extension on `/ws/{sessionId}` with message type documentation
+- [ ] `x-corpus-version` response header on knowledge endpoints
+- [ ] `GET /openapi.json` returns valid OpenAPI 3.1 (validate with `@readme/openapi-parser` or similar)
+- [ ] Existing OpenAPI paths unchanged
+
+**Effort:** Large
+**Dependencies:** Task 2.2 (alias route exists)
+
+---
+
+### Task 3.2: Multi-NFT Resolution Fix
+
+**Description:** Fix `/api/identity/wallet/:wallet/nfts` to return array of all NFTs instead of just the first. Add backward-compat singular endpoint.
+
+**Files:** `src/gateway/identity-routes.ts` (modify, or wherever identity routes are defined)
+
+**Acceptance Criteria:**
+- [ ] `GET /api/identity/wallet/:wallet/nfts` returns `{ nfts: NFTInfo[], total: number }`
+- [ ] Array contains all NFTs for the wallet (not just first)
+- [ ] `GET /api/identity/wallet/:wallet/nft` (singular) preserved as deprecated alias returning first result
+- [ ] Unit test for multi-NFT wallet returns correct count
+- [ ] Unit test for single-NFT wallet returns array with 1 element
+
+**Effort:** Medium
+**Dependencies:** None
+
+---
+
+### Task 3.3: Corpus Version Header
+
+**Description:** Add `x-corpus-version` header middleware to all `/api/knowledge/*` responses per FR-6.3.
+
+**Files:** `src/gateway/server.ts` (modify, or dedicated middleware file)
+
+**Acceptance Criteria:**
+- [ ] All `/api/knowledge/*` responses include `x-corpus-version` header
+- [ ] Version sourced from `grimoires/oracle-dixie/manifest.json` or `DIXIE_REF` build arg
+- [ ] Fallback value `unknown` if manifest unavailable
+- [ ] Unit test verifies header presence
+
+**Effort:** Small
+**Dependencies:** None
+
+---
+
+### Task 3.4: TypeScript SDK
+
+**Description:** Create `packages/sdk/` with REST client, WebSocket client, x402 client, and JWT auth helper.
+
+**Files:** `packages/sdk/` (new directory — `src/client.ts`, `src/ws.ts`, `src/x402.ts`, `src/types.ts`, `src/index.ts`, `package.json`, `tsconfig.json`, `README.md`)
+
+**Acceptance Criteria:**
+- [ ] SDK scope limited to endpoints documented in OpenAPI spec (Task 3.1) and exercised by E2E tests
+- [ ] `FinnClient` class: REST methods for `POST /api/sessions`, `POST /api/v1/x402/invoke`, `POST /api/v1/pay/chat`, `GET/POST /api/v1/admin/feature-flags`, `GET /api/identity/wallet/:wallet/nfts`
+- [ ] `FinnWebSocket` class: connects to `/ws/:sessionId`, typed message handlers for `text_delta`, `turn_end`, `error`
+- [ ] `X402Client` class: handles 402 → payment → retry flow
+- [ ] JWT auth helper: signs ES256 tokens with provided key
+- [ ] All types exported from `types.ts`, generated from OpenAPI spec where possible
+- [ ] `package.json` with name `@0xhoneyjar/loa-finn-sdk`, ESM-only
+- [ ] Builds with `tsc` without errors
+- [ ] Basic README with usage examples
+
+**Effort:** Large
+**Dependencies:** Tasks 3.1, 3.2 (for types/schemas)
+
+---
+
+### Task 3.5: Dixie Contract Documentation
+
+**Description:** Document all dixie-consumed endpoints with request/response types aligned to OpenAPI spec.
+
+**Files:** `grimoires/loa/context/dixie-contract.md` (new)
+
+**Acceptance Criteria:**
+- [ ] Lists all 10+ dixie-consumed finn endpoints
+- [ ] Each endpoint has: method, path, auth requirement, request schema, response schema
+- [ ] Types aligned with OpenAPI spec from Task 3.1
+- [ ] Notes breaking changes from multi-NFT fix (Task 3.2)
+- [ ] Includes `x-corpus-version` header documentation
+
+**Effort:** Small
+**Dependencies:** Tasks 3.1, 3.2, 3.3
+
+---
+
+## Sprint Summary
+
+| Sprint | Tasks | Focus | Priority | Global ID |
+|--------|-------|-------|----------|-----------|
+| Sprint 1 | 8 tasks (1.1–1.8) | E2E Compose + Full Loop + CI | P0 | 132 |
+| Sprint 2 | 4 tasks (2.1–2.4) | Feature Flags + x402 Alignment | P0/P1 | 133 |
+| Sprint 3 | 5 tasks (3.1–3.5) | OpenAPI + SDK + Dixie | P1/P2 | 134 |
 
 ## Risk Assessment
 
 | Risk | Sprint | Mitigation |
 |------|--------|------------|
-| v7.11.0 missing expected exports | 1 | Task 1.2 verifies before coding; static imports fail at build time |
-| Hash chain test vector mismatch with arrakis | 1 | Compute vectors from actual library output, not manually |
-| Cohort score diverges wildly from blended | 2 | Shadow mode + delta metric before enabling in production |
-| Unknown task type flood from confused clients | 2 | Deny-by-default gate + spike alert; allowlist for partners |
-| Native enforcement correctness divergence | 3 | Hard CI gate with 1000+ inputs; not deployed until gate passes |
-| Hash chain corruption during migration | 3 | Bridge entry is append-only; dual-write maintains both chains; state recovery from log |
-| Rolling deploy with mixed flag states | 3 | Force-protocol-mode (not throw) on post-migration flag mismatch |
-
-## Buffer
-
-Each sprint has ~20% buffer built into the task estimates. Sprint 1 is the lightest (foundation work), Sprint 2 is the heaviest (most new code), and Sprint 3 has the highest-risk tasks (hash chain migration).
+| Freeside GHCR image missing for `v7.11.0` | 1 | Fallback to building from `../loa-freeside` source |
+| Freeside Redis key schema differs from SDD expectation | 1 | Task 1.3 includes runtime verification step |
+| x402 mock payment proof construction complexity | 2 | Reference existing `tests/` for EIP-3009 signature patterns |
+| SDK WebSocket reconnection edge cases | 3 | Keep SDK scope minimal for this cycle — reconnect is future work |
 
 ## Success Metrics
 
-| Metric | Target | Gate Type |
-|--------|--------|-----------|
-| Existing test pass rate | 100% | Hard (per sprint) |
-| New test coverage | ~120 new tests | Soft |
-| Native enforcement correctness | 100% identical results | Hard (CI) |
-| Native enforcement performance | >= 3x speedup | Reported (non-blocking) |
-| Hash chain cross-system verification | Pass test vectors | Hard |
-| Unknown task type denial latency | < 1ms overhead | Soft |
+- Sprint 1: `docker compose up && pnpm vitest run tests/e2e/` passes all tests
+- Sprint 2: All 6 flags promotable, x402 flow completes end-to-end
+- Sprint 3: `GET /openapi.json` returns valid spec, SDK builds and types check
+
+## Dependencies
+
+All external dependencies resolved (per PRD §7):
+- loa-hounfour v7.11.0 released
+- loa-freeside PR #96 merged
+- loa-dixie PR #9 merged
+- Redis 7.x available via Docker

@@ -1,0 +1,66 @@
+# .github/workflows/e2e-v2.yml — ES256 + Freeside E2E test pipeline (Cycle-035 Sprint 1 T1.8)
+# Builds finn + redis + freeside, generates ES256 keypair, runs full E2E suite.
+
+name: E2E v2 Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@latest --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate ES256 keypair
+        run: npx tsx tests/e2e/generate-keys.ts
+
+      - name: Start E2E compose stack
+        run: docker compose -f tests/e2e/docker-compose.e2e-v2.yml up -d --build
+
+      - name: Wait for services to be healthy
+        run: ./tests/e2e/wait-healthy.sh
+
+      - name: Run E2E tests
+        run: pnpm vitest run tests/e2e/ --reporter=default --reporter=junit --outputFile=test-results/e2e-v2-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-v2-test-results
+          path: test-results/e2e-v2-results.xml
+          retention-days: 14
+
+      - name: Collect logs on failure
+        if: failure()
+        run: docker compose -f tests/e2e/docker-compose.e2e-v2.yml logs --no-color > e2e-v2-logs.txt
+
+      - name: Upload logs artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-v2-logs
+          path: e2e-v2-logs.txt
+          retention-days: 7
+
+      - name: Tear down compose stack
+        if: always()
+        run: docker compose -f tests/e2e/docker-compose.e2e-v2.yml down -v

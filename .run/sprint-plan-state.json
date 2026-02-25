@@ -1,19 +1,19 @@
 {
-  "plan_id": "plan-20260224-bridge-iter1",
-  "branch": "feature/protocol-convergence-v711",
-  "state": "RUNNING",
+  "plan_id": "plan-20260225-launch-readiness",
+  "branch": "feature/protocol-convergence-v7",
+  "state": "JACKED_OUT",
   "timestamps": {
-    "started": "2026-02-24T21:30:00Z",
-    "last_activity": "2026-02-24T21:30:00Z"
+    "started": "2026-02-25T18:15:00Z",
+    "last_activity": "2026-02-26T03:45:00Z"
   },
   "sprints": {
     "total": 3,
-    "completed": 0,
-    "current": "sprint-1",
+    "completed": 3,
+    "current": null,
     "list": [
-      {"id": "sprint-1", "status": "pending", "cycles": 0, "files_changed": 0},
-      {"id": "sprint-2", "status": "pending", "cycles": 0, "files_changed": 0},
-      {"id": "sprint-3", "status": "pending", "cycles": 0, "files_changed": 0}
+      {"id": "sprint-1", "status": "completed", "cycles": 1, "global_id": 132, "files_changed": 9},
+      {"id": "sprint-2", "status": "completed", "cycles": 1, "global_id": 133, "files_changed": 5},
+      {"id": "sprint-3", "status": "completed", "cycles": 1, "global_id": 134, "files_changed": 11}
     ]
   },
   "options": {
@@ -23,8 +23,8 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 0,
-    "total_files_changed": 0,
-    "total_findings_fixed": 0
+    "total_cycles": 3,
+    "total_files_changed": 25,
+    "total_findings_fixed": 11
   }
 }
