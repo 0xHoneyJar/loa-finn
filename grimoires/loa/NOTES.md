@@ -100,4 +100,41 @@ is a reputation query interface from dixie that loa-finn can call at routing tim
 
 **Reference**: Bridgebuilder Deep Review Finding 5 (SPECULATION), PR #107.
 
+### Trust Infrastructure — Three-Legged Architecture (cycle-033, Sprint 6)
+
+**Architecture**: The trust infrastructure spans three repositories, each owning a distinct
+verification domain:
+
+| Leg | Repository | Domain | Verification Status |
+|-----|-----------|--------|-------------------|
+| **finn** | `loa-finn` | Format validation, capability negotiation, routing, quality observation | Verified (Sprint 4-6) |
+| **freeside** | `loa-freeside` | Economic conservation, credit lots, x402 payment protocol | Partial E2E |
+| **dixie** | `loa-dixie` | Knowledge freshness, conviction voting, reputation aggregation | Unit only |
+
+**Current verification per leg**:
+- **finn**: Protocol handshake negotiates capabilities (Sprint 4). KnownFoo pattern applied to
+  TaskType and ReputationEvent discrimination (Sprint 3 + Sprint 6 T-6.1). Quality observation
+  pipeline instrumented with metrics (T-6.3). Reputation query interface defined (T-6.2).
+  Quarantine records use commons schema (T-6.4). Integration test covers stages 1, 4-6 (T-6.5).
+- **freeside**: Conservation laws verified via `BillingConservationGuard` (Sprint 5 T-5.4). Audit
+  trail hash chain with integrity verification (T-5.6). Economic invariants schema-validated.
+- **dixie**: Unit tests only. Reputation store and conviction voting not yet E2E verified.
+
+**Autopoietic loop status (updated Sprint 6)**:
+- Stage 1 (quality signal): `QualityGateScorer.scoreToObservation()` — **instrumented**
+- Stage 2 (reputation event): `normalizeReputationEvent()` with KnownFoo — **built**
+- Stage 3 (reputation store): dixie `PostgresReputationStore` — **not integrated**
+- Stage 4 (tier resolution): `resolvePoolWithReputation()` — **built** (accepts `ReputationQueryFn`)
+- Stage 5 (model selection): `PoolRegistry.resolve()` — **built**
+- Stage 6 (quality measurement): `QualityObservation` schema-validated — **instrumented**
+
+**Prerequisites for closing the loop**: All three legs must be E2E verified. The critical gap is
+Stage 3: dixie's reputation store must expose a query interface that finn can call at routing time.
+`ReputationQueryFn` (T-6.2) defines the contract; dixie must implement the provider.
+
+**Trust analog** (web4 manifesto): "Trust must be verified, but verification patterns can be
+universal." The three legs share commons schemas (`QuarantineRecordSchema`, `AuditEntrySchema`,
+`QualityObservationSchema`, `ReputationEventSchema`) ensuring consistent verification across
+the trust boundary.
+
 ## Blockers

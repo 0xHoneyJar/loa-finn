@@ -1,30 +1,30 @@
 {
-  "plan_id": "plan-20260225-launch-readiness",
-  "branch": "feature/protocol-convergence-v7",
+  "plan_id": "plan-20260225-cycle033-sprints5-6",
+  "branch": "feature/hounfour-v820-upgrade",
   "state": "JACKED_OUT",
   "timestamps": {
-    "started": "2026-02-25T18:15:00Z",
-    "last_activity": "2026-02-26T03:45:00Z"
+    "started": "2026-02-25T21:20:00Z",
+    "last_activity": "2026-02-26T00:08:00Z"
   },
   "sprints": {
-    "total": 3,
-    "completed": 3,
+    "total": 2,
+    "completed": 2,
     "current": null,
     "list": [
-      {"id": "sprint-1", "status": "completed", "cycles": 1, "global_id": 132, "files_changed": 9},
-      {"id": "sprint-2", "status": "completed", "cycles": 1, "global_id": 133, "files_changed": 5},
-      {"id": "sprint-3", "status": "completed", "cycles": 1, "global_id": 134, "files_changed": 11}
+      {"id": "sprint-5", "global_id": 136, "status": "completed", "cycles": 1, "label": "Commons Conservation + Test Health", "files_changed": 8},
+      {"id": "sprint-6", "global_id": 137, "status": "completed", "cycles": 1, "label": "Autopoietic Instrumentation + KnownFoo Propagation", "files_changed": 10}
     ]
   },
   "options": {
-    "from": 1,
-    "to": 3,
+    "from": 5,
+    "to": 6,
     "max_cycles": 20,
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 3,
-    "total_files_changed": 25,
-    "total_findings_fixed": 11
-  }
+    "total_cycles": 2,
+    "total_files_changed": 18,
+    "total_findings_fixed": 0
+  },
+  "cycle": "cycle-033"
 }

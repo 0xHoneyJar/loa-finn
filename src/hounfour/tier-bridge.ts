@@ -13,7 +13,8 @@ import {
   tierHasAccess,
 } from "@0xhoneyjar/loa-hounfour"
 import { HounfourError } from "./errors.js"
-import { mapUnknownTaskTypeToRoutingKey } from "./nft-routing-config.js"
+import { mapUnknownTaskTypeToRoutingKey, type NFTRoutingKey } from "./nft-routing-config.js"
+import type { ReputationQueryFn } from "./types.js"
 
 // --- Validation ---
 
@@ -83,6 +84,84 @@ export function resolvePool(
 
   // 2. Tier default from loa-hounfour canonical mapping
   return TIER_DEFAULT_POOL[tier]
+}
+
+/**
+ * Resolve pool with reputation-weighted scoring across candidate pools.
+ *
+ * When `reputationQuery` is provided AND the tier has access to multiple pools,
+ * each accessible pool is scored via `reputationQuery`; the highest-scoring pool wins.
+ *
+ * Score handling:
+ * - `null` = no signal (skip candidate)
+ * - `NaN` or out-of-range = treated as `null`
+ * - Scores are clamped to [0, 1] before comparison
+ *
+ * Tie-breaking: equal reputation scores → preserve existing deterministic order
+ * (tier default pool wins).
+ *
+ * Falls back to `resolvePool` when:
+ * - `reputationQuery` is not provided
+ * - All candidates return `null`/invalid scores
+ * - Tier has only one accessible pool
+ */
+export async function resolvePoolWithReputation(
+  tier: Tier,
+  taskType?: string,
+  nftPreferences?: Record<string, string>,
+  reputationQuery?: ReputationQueryFn,
+): Promise<PoolId> {
+  // Without reputation query, delegate to sync resolvePool (zero behavioral change)
+  if (!reputationQuery) {
+    return resolvePool(tier, taskType, nftPreferences)
+  }
+
+  const accessiblePools = TIER_POOL_ACCESS[tier]
+
+  // Single pool — no scoring needed
+  if (accessiblePools.length <= 1) {
+    return resolvePool(tier, taskType, nftPreferences)
+  }
+
+  const routingKey: NFTRoutingKey = taskType
+    ? mapUnknownTaskTypeToRoutingKey(taskType)
+    : "default"
+
+  // Score each accessible pool
+  let bestPool: PoolId | null = null
+  let bestScore = -1
+
+  for (const poolId of accessiblePools) {
+    let score: number | null
+    try {
+      score = await reputationQuery(poolId, routingKey)
+    } catch {
+      // Query failure = no signal for this pool
+      score = null
+    }
+
+    // Skip null, NaN, or out-of-range scores
+    if (score === null || score === undefined || !Number.isFinite(score)) {
+      continue
+    }
+
+    // Clamp to [0, 1]
+    const clamped = Math.max(0, Math.min(1, score))
+
+    // Strict greater-than preserves deterministic order on ties
+    if (clamped > bestScore) {
+      bestScore = clamped
+      bestPool = poolId
+    }
+  }
+
+  // If reputation scoring produced a winner, use it
+  if (bestPool !== null) {
+    return bestPool
+  }
+
+  // All candidates returned null/invalid — fall back to existing resolution
+  return resolvePool(tier, taskType, nftPreferences)
 }
 
 /**

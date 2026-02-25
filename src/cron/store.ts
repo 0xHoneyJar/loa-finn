@@ -12,8 +12,9 @@ import {
   computeAuditEntryHash,
   verifyAuditTrailIntegrity,
   AuditEntrySchema,
+  QuarantineRecordSchema,
 } from "../hounfour/protocol-types.js"
-import type { AuditEntry, AuditEntryHashInput, AuditTrailVerificationResult } from "../hounfour/protocol-types.js"
+import type { AuditEntry, AuditEntryHashInput, AuditTrailVerificationResult, QuarantineRecord } from "../hounfour/protocol-types.js"
 
 // ---------------------------------------------------------------------------
 // Error types (SDD §4.1)
@@ -109,6 +110,8 @@ export class AtomicJsonStore<T> {
   private auditPrevHash: string = AUDIT_TRAIL_GENESIS_HASH
   private auditEntryCount = 0
   private auditInitialized = false
+  // Quarantine sidecar (Sprint 6 T-6.4)
+  private readonly quarantinePath: string
 
   constructor(filePath: string, options?: AtomicJsonStoreOptions) {
     this.filePath = filePath
@@ -123,6 +126,7 @@ export class AtomicJsonStore<T> {
     const schemaId = options?.auditSchemaId ?? filenameStem(filePath)
     const contractVersion = options?.auditContractVersion ?? "8.2.0"
     this.auditDomainTag = buildDomainTag(schemaId, contractVersion)
+    this.quarantinePath = filePath + ".quarantine.jsonl"
 
     // Validate format registration at construction time, not on every read.
     // FormatRegistry is a global singleton — once registered, formats persist.
@@ -367,7 +371,7 @@ export class AtomicJsonStore<T> {
     this.auditEntryCount++
   }
 
-  /** Rename a corrupt file out of the way so recovery doesn't loop. */
+  /** Rename a corrupt file out of the way and write QuarantineRecord to sidecar (T-6.4). */
   private async quarantine(path: string): Promise<void> {
     const ts = Date.now()
     const dest = `${path}.corrupt.${ts}`
@@ -375,6 +379,29 @@ export class AtomicJsonStore<T> {
       await rename(path, dest)
     } catch {
       // Best effort — file may already be gone
+      return
+    }
+
+    // Write QuarantineRecord to .quarantine.jsonl sidecar (best-effort)
+    try {
+      const { randomUUID } = await import("node:crypto")
+      const record: QuarantineRecord = {
+        quarantine_id: randomUUID(),
+        discontinuity_id: randomUUID(),
+        resource_type: "json_store",
+        resource_id: this.filePath,
+        status: "active",
+        quarantined_at: new Date(ts).toISOString(),
+        first_affected_index: 0,
+        last_affected_index: 0,
+        resolution_notes: `Corrupt file moved to ${dest}`,
+      }
+
+      if (Value.Check(QuarantineRecordSchema, record)) {
+        await appendFile(this.quarantinePath, JSON.stringify(record) + "\n", "utf-8")
+      }
+    } catch {
+      // Best effort — quarantine record write failure should not block recovery
     }
   }
 }

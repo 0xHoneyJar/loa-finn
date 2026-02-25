@@ -4,6 +4,7 @@ import {
   assertValidPoolId,
   assertTierAccess,
   resolvePool,
+  resolvePoolWithReputation,
   resolveAndAuthorize,
   getAccessiblePools,
   getDefaultPool,
@@ -13,6 +14,7 @@ import {
   TIER_POOL_ACCESS,
   TIER_DEFAULT_POOL,
 } from "../../src/hounfour/tier-bridge.js"
+import type { ReputationQueryFn } from "../../src/hounfour/types.js"
 import { HounfourError } from "../../src/hounfour/errors.js"
 import { PoolRegistry, DEFAULT_POOLS } from "../../src/hounfour/pool-registry.js"
 
@@ -258,6 +260,123 @@ describe("PoolRegistry loa-hounfour integration", () => {
         expect(poolAllows).toBe(hounfourAllows)
       }
     }
+  })
+})
+
+// --- resolvePoolWithReputation (T-6.2) ---
+
+describe("resolvePoolWithReputation", () => {
+  it("without reputationQuery, returns same as resolvePool", async () => {
+    expect(await resolvePoolWithReputation("free")).toBe(resolvePool("free"))
+    expect(await resolvePoolWithReputation("pro")).toBe(resolvePool("pro"))
+    expect(await resolvePoolWithReputation("enterprise")).toBe(resolvePool("enterprise"))
+  })
+
+  it("selects highest-scoring pool from accessible pools", async () => {
+    const query: ReputationQueryFn = async (poolId) => {
+      const scores: Record<string, number> = {
+        "cheap": 0.4,
+        "fast-code": 0.9,
+        "reviewer": 0.6,
+        "reasoning": 0.3,
+        "architect": 0.5,
+      }
+      return scores[poolId] ?? null
+    }
+
+    // Enterprise has access to all 5 pools — fast-code has highest score
+    const result = await resolvePoolWithReputation("enterprise", "general", undefined, query)
+    expect(result).toBe("fast-code")
+  })
+
+  it("returns null-fallback pool when all candidates return null", async () => {
+    const query: ReputationQueryFn = async () => null
+
+    // All return null → falls back to tier default
+    const result = await resolvePoolWithReputation("enterprise", "general", undefined, query)
+    expect(result).toBe(resolvePool("enterprise"))
+  })
+
+  it("skips NaN and out-of-range scores", async () => {
+    const query: ReputationQueryFn = async (poolId) => {
+      const scores: Record<string, number | null> = {
+        "cheap": NaN,
+        "fast-code": Infinity,
+        "reviewer": 0.7, // only valid score
+        "reasoning": -5,
+        "architect": null,
+      }
+      return scores[poolId] ?? null
+    }
+
+    const result = await resolvePoolWithReputation("enterprise", "general", undefined, query)
+    // reviewer is the only pool with a valid score after filtering
+    expect(result).toBe("reviewer")
+  })
+
+  it("clamps scores to [0,1] before comparison", async () => {
+    const query: ReputationQueryFn = async (poolId) => {
+      // Both would be 1.0 after clamping — first in iteration order wins (cheap)
+      if (poolId === "cheap") return 5.0
+      if (poolId === "fast-code") return 3.0
+      return null
+    }
+
+    // Pro tier has access to: cheap, fast-code, reviewer
+    // cheap=5.0→clamped 1.0, fast-code=3.0→clamped 1.0
+    // Strict > means cheap wins (first encountered at score 1.0)
+    const result = await resolvePoolWithReputation("pro", "general", undefined, query)
+    expect(result).toBe("cheap")
+  })
+
+  it("preserves deterministic order on tie (strict greater-than)", async () => {
+    const query: ReputationQueryFn = async (poolId) => {
+      // All accessible pools have same score
+      if (poolId === "cheap" || poolId === "fast-code" || poolId === "reviewer") return 0.5
+      return null
+    }
+
+    // Pro: cheap, fast-code, reviewer — all score 0.5
+    // First pool (cheap) wins because strict > never replaces equal scores
+    const result = await resolvePoolWithReputation("pro", "general", undefined, query)
+    expect(result).toBe("cheap")
+  })
+
+  it("handles reputationQuery throwing errors gracefully", async () => {
+    const query: ReputationQueryFn = async (poolId) => {
+      if (poolId === "cheap") throw new Error("network timeout")
+      if (poolId === "fast-code") return 0.8
+      return null
+    }
+
+    // Pro: cheap throws (skipped), fast-code=0.8 (wins), reviewer=null
+    const result = await resolvePoolWithReputation("pro", "general", undefined, query)
+    expect(result).toBe("fast-code")
+  })
+
+  it("skips reputation scoring for single-pool tier (free)", async () => {
+    let queryCalled = false
+    const query: ReputationQueryFn = async () => {
+      queryCalled = true
+      return 0.9
+    }
+
+    // Free tier has only "cheap" — skips reputation scoring entirely
+    const result = await resolvePoolWithReputation("free", "general", undefined, query)
+    expect(result).toBe("cheap")
+    expect(queryCalled).toBe(false)
+  })
+
+  it("only considers pools accessible to the tier", async () => {
+    const queriedPools: string[] = []
+    const query: ReputationQueryFn = async (poolId) => {
+      queriedPools.push(poolId)
+      return 0.5
+    }
+
+    await resolvePoolWithReputation("pro", "general", undefined, query)
+    // Pro has access to: cheap, fast-code, reviewer (not reasoning, architect)
+    expect(queriedPools).toEqual(["cheap", "fast-code", "reviewer"])
   })
 })
 

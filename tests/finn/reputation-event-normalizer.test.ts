@@ -2,7 +2,11 @@
 
 import { describe, it, expect } from "vitest"
 import "../../src/hounfour/typebox-formats.js" // Register uuid/date-time formats
-import { normalizeReputationEvent } from "../../src/hounfour/reputation-event-normalizer.js"
+import {
+  normalizeReputationEvent,
+  KNOWN_REPUTATION_EVENT_TYPES,
+  type KnownReputationEventType,
+} from "../../src/hounfour/reputation-event-normalizer.js"
 
 // --- Shared envelope fields for valid events ---
 
@@ -115,6 +119,27 @@ describe("ReputationEvent Normalizer", () => {
       }),
     ).toThrow("Invalid ReputationEvent")
   })
+
+  // KnownFoo pattern: Set guard and forward-compat (T-6.1)
+
+  it("KNOWN_REPUTATION_EVENT_TYPES contains exactly the 4 known variants", () => {
+    expect(KNOWN_REPUTATION_EVENT_TYPES.size).toBe(4)
+    expect(KNOWN_REPUTATION_EVENT_TYPES.has("quality_signal")).toBe(true)
+    expect(KNOWN_REPUTATION_EVENT_TYPES.has("task_completed")).toBe(true)
+    expect(KNOWN_REPUTATION_EVENT_TYPES.has("credential_update")).toBe(true)
+    expect(KNOWN_REPUTATION_EVENT_TYPES.has("model_performance")).toBe(true)
+  })
+
+  it("KNOWN_REPUTATION_EVENT_TYPES does not contain unknown variants", () => {
+    expect(KNOWN_REPUTATION_EVENT_TYPES.has("unknown_type")).toBe(false)
+    expect(KNOWN_REPUTATION_EVENT_TYPES.has("")).toBe(false)
+  })
+
+  // Note: The KnownFoo open boundary (unknown type → { recognized: false, metered: false })
+  // is unreachable with v8.2.0 ReputationEventSchema because the schema uses strict
+  // `anyOf` with `const` discriminators. Unknown types fail schema validation before
+  // reaching the Set guard. The open boundary provides forward-compat insurance for
+  // when hounfour adds new event variants to the schema.
 
   // Return shape consistency
 
