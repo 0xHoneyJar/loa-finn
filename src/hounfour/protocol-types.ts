@@ -190,3 +190,31 @@ export type {
   QuarantineRecord,
   QuarantineStatus,
 } from "@0xhoneyjar/loa-hounfour/commons"
+
+// Commons — conservation law factories (v8.0.0, Sprint 5 T-5.5)
+export {
+  ConservationLawSchema,
+  buildSumInvariant,
+  buildNonNegativeInvariant,
+  buildBoundedInvariant,
+  createBalanceConservation,
+} from "@0xhoneyjar/loa-hounfour/commons"
+export type {
+  ConservationLaw,
+} from "@0xhoneyjar/loa-hounfour/commons"
+
+// Commons — audit trail hash chain (v8.0.0, Sprint 5 T-5.5)
+export {
+  AuditEntrySchema,
+  AuditTrailSchema,
+  AUDIT_TRAIL_GENESIS_HASH,
+  buildDomainTag,
+  computeAuditEntryHash,
+  verifyAuditTrailIntegrity,
+} from "@0xhoneyjar/loa-hounfour/commons"
+export type {
+  AuditEntry,
+  AuditTrail,
+  AuditEntryHashInput,
+  AuditTrailVerificationResult,
+} from "@0xhoneyjar/loa-hounfour/commons"

@@ -1,11 +1,19 @@
 // src/cron/store.ts — Atomic JSON file store with corruption recovery (SDD §4.1)
 
-import { open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises"
+import { open, readFile, rename, stat, unlink, writeFile, appendFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { Value } from "@sinclair/typebox/value"
 import type { TSchema } from "@sinclair/typebox"
 import "../hounfour/typebox-formats.js" // Register uuid/date-time formats for Value.Check
 import { assertFormatsRegistered } from "../hounfour/typebox-formats.js"
+import {
+  AUDIT_TRAIL_GENESIS_HASH,
+  buildDomainTag,
+  computeAuditEntryHash,
+  verifyAuditTrailIntegrity,
+  AuditEntrySchema,
+} from "../hounfour/protocol-types.js"
+import type { AuditEntry, AuditEntryHashInput, AuditTrailVerificationResult } from "../hounfour/protocol-types.js"
 
 // ---------------------------------------------------------------------------
 // Error types (SDD §4.1)
@@ -63,6 +71,12 @@ export interface AtomicJsonStoreOptions<S extends TSchema = TSchema> {
   schema?: S
   /** Migration callbacks keyed by _schemaVersion they upgrade FROM. */
   migrations?: Map<number, (data: unknown) => unknown>
+  /** Enable audit trail hash chain sidecar (.audit.jsonl). Default false. (Sprint 5 T-5.6) */
+  auditTrail?: boolean
+  /** Schema ID for audit trail domain tag (e.g., 'GovernedCredits'). Default: filename stem. */
+  auditSchemaId?: string
+  /** Protocol version for audit trail domain tag. Default: '8.2.0'. */
+  auditContractVersion?: string
 }
 
 const DEFAULT_MAX_SIZE = 10 * 1024 * 1024 // 10 MB
@@ -88,6 +102,13 @@ export class AtomicJsonStore<T> {
   private readonly schema: TSchema | undefined
   private readonly migrations: Map<number, (data: unknown) => unknown>
   private readonly mutex = new AsyncMutex()
+  // Audit trail (Sprint 5 T-5.6)
+  private readonly auditEnabled: boolean
+  private readonly auditPath: string
+  private readonly auditDomainTag: string
+  private auditPrevHash: string = AUDIT_TRAIL_GENESIS_HASH
+  private auditEntryCount = 0
+  private auditInitialized = false
 
   constructor(filePath: string, options?: AtomicJsonStoreOptions) {
     this.filePath = filePath
@@ -96,6 +117,12 @@ export class AtomicJsonStore<T> {
     this.maxSizeBytes = options?.maxSizeBytes ?? DEFAULT_MAX_SIZE
     this.schema = options?.schema
     this.migrations = options?.migrations ?? new Map()
+    // Audit trail config
+    this.auditEnabled = options?.auditTrail ?? false
+    this.auditPath = filePath + ".audit.jsonl"
+    const schemaId = options?.auditSchemaId ?? filenameStem(filePath)
+    const contractVersion = options?.auditContractVersion ?? "8.2.0"
+    this.auditDomainTag = buildDomainTag(schemaId, contractVersion)
 
     // Validate format registration at construction time, not on every read.
     // FormatRegistry is a global singleton — once registered, formats persist.
@@ -175,6 +202,54 @@ export class AtomicJsonStore<T> {
 
       // 5. fsync the containing directory so the rename is durable
       await fsyncDir(dirname(this.filePath))
+
+      // 6. Append audit trail entry (best-effort — failure logged, not thrown) (T-5.6)
+      if (this.auditEnabled) {
+        try {
+          await this.appendAuditEntry("write", json)
+        } catch (err) {
+          console.error(
+            `[store] Audit trail append failed (store write succeeded):`,
+            err instanceof Error ? err.message : String(err),
+          )
+        }
+      }
+    })
+  }
+
+  // -------------------------------------------------------------------------
+  // Audit trail (Sprint 5 T-5.6)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Verify the integrity of the audit trail hash chain.
+   * Returns the verification result from the commons verifyAuditTrailIntegrity.
+   * Throws if audit trail is not enabled or sidecar file is missing.
+   */
+  async verifyIntegrity(): Promise<AuditTrailVerificationResult> {
+    if (!this.auditEnabled) {
+      throw new Error("Audit trail is not enabled for this store")
+    }
+
+    let raw: string
+    try {
+      raw = await readFile(this.auditPath, "utf-8")
+    } catch (err) {
+      if (isEnoent(err)) {
+        // No sidecar yet — empty trail is valid
+        return { valid: true }
+      }
+      throw err
+    }
+
+    const lines = raw.trim().split("\n").filter(Boolean)
+    const entries: AuditEntry[] = lines.map((line) => JSON.parse(line))
+
+    return verifyAuditTrailIntegrity({
+      entries,
+      hash_algorithm: "sha256",
+      genesis_hash: AUDIT_TRAIL_GENESIS_HASH,
+      integrity_status: "unverified",
     })
   }
 
@@ -225,6 +300,71 @@ export class AtomicJsonStore<T> {
       current = migrate(current)
     }
     return current
+  }
+
+  /**
+   * Initialize audit chain state from existing .audit.jsonl sidecar.
+   * Reads the last entry to resume the hash chain after process restart.
+   * Called lazily on first appendAuditEntry; idempotent.
+   */
+  private async initAuditState(): Promise<void> {
+    if (this.auditInitialized) return
+    this.auditInitialized = true
+
+    let raw: string
+    try {
+      raw = await readFile(this.auditPath, "utf-8")
+    } catch (err) {
+      if (isEnoent(err)) return // No sidecar yet — start from genesis
+      throw err
+    }
+
+    const lines = raw.trim().split("\n").filter(Boolean)
+    if (lines.length === 0) return
+
+    const lastEntry = JSON.parse(lines[lines.length - 1]) as AuditEntry
+    this.auditPrevHash = lastEntry.entry_hash
+    this.auditEntryCount = lines.length
+  }
+
+  /**
+   * Append a single AuditEntry to the .audit.jsonl sidecar.
+   * Computes hash using commons computeAuditEntryHash, chains from prev_hash.
+   */
+  private async appendAuditEntry(eventType: string, canonicalJson: string): Promise<void> {
+    await this.initAuditState()
+    const { createHash, randomUUID } = await import("node:crypto")
+
+    const payloadHash = "sha256:" + createHash("sha256").update(canonicalJson, "utf-8").digest("hex")
+
+    const hashInput: AuditEntryHashInput = {
+      entry_id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      event_type: `store.data.${eventType}`,
+      payload: { payload_hash: payloadHash },
+    }
+
+    const entryHash = computeAuditEntryHash(hashInput, this.auditDomainTag)
+
+    const entry: AuditEntry = {
+      entry_id: hashInput.entry_id,
+      timestamp: hashInput.timestamp,
+      event_type: hashInput.event_type,
+      payload: hashInput.payload,
+      entry_hash: entryHash,
+      previous_hash: this.auditPrevHash,
+      hash_domain_tag: this.auditDomainTag,
+    }
+
+    // Validate entry against schema before writing
+    if (!Value.Check(AuditEntrySchema, entry)) {
+      throw new Error(`Audit entry does not conform to AuditEntrySchema`)
+    }
+
+    await appendFile(this.auditPath, JSON.stringify(entry) + "\n", "utf-8")
+
+    this.auditPrevHash = entryHash
+    this.auditEntryCount++
   }
 
   /** Rename a corrupt file out of the way so recovery doesn't loop. */
@@ -300,4 +440,11 @@ async function fsyncDir(dirPath: string): Promise<void> {
 /** Type-guard for Node ENOENT errors. */
 function isEnoent(err: unknown): boolean {
   return (err as NodeJS.ErrnoException)?.code === "ENOENT"
+}
+
+/** Extract filename stem (without extension) from a path. */
+function filenameStem(filePath: string): string {
+  const base = filePath.split("/").pop() ?? filePath
+  const dot = base.lastIndexOf(".")
+  return dot > 0 ? base.slice(0, dot) : base
 }
