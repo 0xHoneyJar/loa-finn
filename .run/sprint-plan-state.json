@@ -1,31 +1,34 @@
 {
-  "plan_id": "plan-20260226-cycle035",
-  "branch": "feature/hounfour-v820-upgrade",
-  "state": "JACKED_OUT",
+  "plan_id": "plan-20260226-cycle036",
+  "branch": "feature/cycle-036-staging-readiness",
+  "state": "RUNNING",
   "timestamps": {
-    "started": "2026-02-27T05:10:00Z",
-    "last_activity": "2026-02-27T06:14:00Z"
+    "started": "2026-02-26T08:45:00Z",
+    "last_activity": "2026-02-26T08:45:00Z"
   },
   "sprints": {
-    "total": 4,
-    "completed": 4,
-    "current": null,
+    "total": 3,
+    "completed": 0,
+    "current": "sprint-1",
     "list": [
-      {"id": "sprint-1", "global_id": 144, "status": "completed", "cycles": 1, "files_changed": 12},
-      {"id": "sprint-2", "global_id": 145, "status": "completed", "cycles": 1, "files_changed": 8},
-      {"id": "sprint-3", "global_id": 146, "status": "completed", "cycles": 1, "files_changed": 15},
-      {"id": "sprint-4", "global_id": 147, "status": "completed", "cycles": 1, "files_changed": 15}
+      {"id": "sprint-1", "global_id": 144, "status": "pending", "cycles": 0, "files_changed": 0},
+      {"id": "sprint-2", "global_id": 145, "status": "pending", "cycles": 0, "files_changed": 0},
+      {"id": "sprint-3", "global_id": 146, "status": "pending", "cycles": 0, "files_changed": 0}
     ]
   },
   "options": {
     "from": 1,
-    "to": 4,
+    "to": 3,
     "max_cycles": 20,
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 4,
-    "total_files_changed": 50,
-    "total_findings_fixed": 2
+    "total_cycles": 0,
+    "total_files_changed": 0,
+    "total_findings_fixed": 0
+  },
+  "bridge": {
+    "bridge_id": "bridge-20260226-91fc7d",
+    "iteration": 1
   }
 }

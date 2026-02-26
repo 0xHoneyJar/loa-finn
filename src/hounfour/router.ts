@@ -39,6 +39,15 @@ import type {
 import type { BillingFinalizeClient, FinalizeResult } from "./billing-finalize-client.js"
 import { enrichSystemPrompt } from "./knowledge-enricher.js"
 import type { KnowledgeRegistry } from "./knowledge-registry.js"
+import type { MechanismConfig } from "./goodhart/mechanism-interaction.js"
+import { resolveWithGoodhart as resolveWithGoodhartTyped } from "./goodhart/resolve.js"
+import type { GoodhartOptions, GoodhartResult } from "./goodhart/resolve.js"
+import type { GraduationMetrics } from "./graduation-metrics.js"
+import { resolvePool } from "./tier-bridge.js"
+
+// --- Routing State (SDD §3.3, cycle-036 T-1.6) ---
+
+export type RoutingState = "disabled" | "shadow" | "enabled" | "init_failed"
 
 // --- Router Options ---
 
@@ -53,6 +62,9 @@ export interface HounfourRouterOptions {
   byokProxy?: BYOKProxyClient           // Optional: BYOK proxy adapter (T-C.2)
   billingFinalize?: BillingFinalizeClient // Optional: S2S billing finalize (Phase 5 T5)
   knowledgeRegistry?: KnowledgeRegistry  // Optional: Oracle knowledge sources (Cycle 025)
+  goodhartConfig?: MechanismConfig       // Optional: Goodhart protection stack (cycle-036)
+  routingState?: RoutingState            // Optional: Goodhart routing state (cycle-036)
+  goodhartMetrics?: GraduationMetrics    // Optional: Goodhart Prometheus metrics (cycle-036)
   projectRoot?: string                  // For persona path resolution
   routingConfig?: Partial<RoutingConfig>
   toolCallConfig?: Partial<ToolCallLoopConfig>
@@ -175,6 +187,9 @@ export class HounfourRouter {
   private byokProxy?: BYOKProxyClient
   private billingFinalize?: BillingFinalizeClient
   private knowledgeRegistry?: KnowledgeRegistry
+  private goodhartConfig?: MechanismConfig
+  private _routingState: RoutingState
+  private goodhartMetrics?: GraduationMetrics
   private projectRoot: string
   private routingConfig: RoutingConfig
   private toolCallConfig: ToolCallLoopConfig
@@ -190,6 +205,9 @@ export class HounfourRouter {
     this.byokProxy = options.byokProxy
     this.billingFinalize = options.billingFinalize
     this.knowledgeRegistry = options.knowledgeRegistry
+    this.goodhartConfig = options.goodhartConfig
+    this._routingState = options.routingState ?? "disabled"
+    this.goodhartMetrics = options.goodhartMetrics
     this.projectRoot = options.projectRoot ?? process.cwd()
     this.routingConfig = {
       default_model: options.routingConfig?.default_model ?? "",
@@ -210,6 +228,122 @@ export class HounfourRouter {
   /** Attach billing finalize client post-construction (Phase 5 T5) */
   setBillingFinalize(client: BillingFinalizeClient): void {
     this.billingFinalize = client
+  }
+
+  /** Current routing state for health reporting */
+  get routingState(): RoutingState {
+    return this._routingState
+  }
+
+  /**
+   * Resolve pool for a tenant request using the 4-state Goodhart routing machine.
+   *
+   * Precedence (SDD §3.3):
+   *   1. KillSwitch "kill" → deterministic fallback (highest priority)
+   *   2. routingState="disabled" → deterministic only
+   *   3. routingState="init_failed" → deterministic + counter
+   *   4. routingState="shadow" → run Goodhart, log divergence, return deterministic
+   *   5. routingState="enabled" → run Goodhart, use reputation result
+   *
+   * Layered rollback plan (documented per T-1.6 AC):
+   *   1. KillSwitch Redis SET finn:killswitch:mode "kill" (instant, <1s)
+   *   2. FINN_REPUTATION_ROUTING=disabled env override (requires redeploy, ~5min)
+   *   3. Redis unreachable at boot → "disabled" (T-1.5 behavior)
+   */
+  async resolvePoolForRequest(
+    tier: import("@0xhoneyjar/loa-hounfour").Tier,
+    nftId: string,
+    taskType: string | undefined,
+    nftPreferences: Record<string, string> | undefined,
+    accessiblePools: readonly import("@0xhoneyjar/loa-hounfour").PoolId[],
+    circuitBreakerStates: Map<import("@0xhoneyjar/loa-hounfour").PoolId, "closed" | "half-open" | "open">,
+    poolCosts: Map<import("@0xhoneyjar/loa-hounfour").PoolId, number>,
+    defaultPoolCost: number,
+    poolCapabilities: Map<import("@0xhoneyjar/loa-hounfour").PoolId, Set<import("../nft-routing-config.js").NFTRoutingKey>>,
+    requestId: string,
+  ): Promise<{ pool: import("@0xhoneyjar/loa-hounfour").PoolId; source: "deterministic" | "reputation" | "shadow" }> {
+    const startMs = Date.now()
+
+    // 1. KillSwitch — highest precedence override (SDD §3.3)
+    //    Redis key: finn:killswitch:mode (prefixed via PrefixedRedisClient)
+    //    Values: "normal" (default/missing) | "kill" (force-disable)
+    //    Missing key = "normal" (safe default)
+    //    Redis unavailable = "normal" (fail-open for the switch)
+    if (this.goodhartConfig?.killSwitch) {
+      try {
+        const killState = await this.goodhartConfig.killSwitch.getState()
+        if (killState === "disabled") {
+          this.goodhartMetrics?.killswitchActivatedTotal.inc()
+          this.goodhartMetrics?.recordRoutingDuration("kill_switch", Date.now() - startMs)
+          const pool = resolvePool(tier, taskType, nftPreferences)
+          return { pool, source: "deterministic" }
+        }
+      } catch {
+        // KillSwitch check failed — fail-open (continue with routing state)
+      }
+    }
+
+    // 2. Disabled — no Goodhart invocation
+    if (this._routingState === "disabled") {
+      this.goodhartMetrics?.recordRoutingDuration("disabled", Date.now() - startMs)
+      const pool = resolvePool(tier, taskType, nftPreferences)
+      return { pool, source: "deterministic" }
+    }
+
+    // 3. Init failed — deterministic + counter
+    if (this._routingState === "init_failed") {
+      this.goodhartMetrics?.goodhartInitFailedRequests.inc()
+      this.goodhartMetrics?.recordRoutingDuration("init_failed", Date.now() - startMs)
+      const pool = resolvePool(tier, taskType, nftPreferences)
+      return { pool, source: "deterministic" }
+    }
+
+    // 4/5. Shadow or Enabled — invoke Goodhart
+    const deterministicPool = resolvePool(tier, taskType, nftPreferences)
+
+    if (!this.goodhartConfig) {
+      // Safety: config missing despite routing state — fall back
+      this.goodhartMetrics?.recordRoutingDuration("fallback", Date.now() - startMs)
+      return { pool: deterministicPool, source: "deterministic" }
+    }
+
+    const options: GoodhartOptions = {
+      mode: this._routingState as "shadow" | "enabled",
+      seed: requestId,
+      allowWrites: this._routingState === "enabled",
+    }
+
+    const reputationResult = await resolveWithGoodhartTyped(
+      this.goodhartConfig,
+      tier,
+      nftId,
+      taskType,
+      nftPreferences,
+      accessiblePools,
+      circuitBreakerStates,
+      poolCosts,
+      defaultPoolCost,
+      poolCapabilities,
+      options,
+      this.goodhartMetrics,
+    )
+
+    if (this._routingState === "shadow") {
+      // Shadow: log divergence, return deterministic
+      this.goodhartMetrics?.recordShadowDecision(tier, reputationResult?.pool !== deterministicPool)
+      this.goodhartMetrics?.recordRoutingDuration("shadow", Date.now() - startMs)
+      return { pool: deterministicPool, source: "shadow" }
+    }
+
+    // Enabled: use reputation result if available
+    if (reputationResult) {
+      this.goodhartMetrics?.recordRoutingDuration("reputation", Date.now() - startMs)
+      return { pool: reputationResult.pool, source: "reputation" }
+    }
+
+    // Reputation returned null — fall back to deterministic
+    this.goodhartMetrics?.recordRoutingDuration("fallback", Date.now() - startMs)
+    return { pool: deterministicPool, source: "deterministic" }
   }
 
   /**

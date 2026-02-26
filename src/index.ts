@@ -212,6 +212,114 @@ async function main() {
     console.log("[finn] dlq store: type=in-memory durable=false (redis unavailable)")
   }
 
+  // 6d4. Initialize Goodhart Protection Stack (SDD §3.2, cycle-036 T-1.5)
+  //
+  // Wires 7 Goodhart components into a MechanismConfig for reputation-aware routing.
+  // Non-fatal: init exception → routingState="init_failed" + counter.
+  // Redis unavailable → routingState="disabled" with warning.
+  //
+  // Layered rollback plan:
+  //   1. KillSwitch Redis SET (instant, <1s)
+  //   2. FINN_REPUTATION_ROUTING=disabled env override (requires redeploy, ~5min)
+  //   3. Redis unreachable at boot → defaults to "disabled" (existing behavior)
+  type RoutingState = "disabled" | "shadow" | "enabled" | "init_failed"
+  let goodhartConfig: import("./hounfour/goodhart/mechanism-interaction.js").MechanismConfig | undefined
+  let routingState: RoutingState = "disabled"
+  let goodhartMetrics: import("./hounfour/graduation-metrics.js").GraduationMetrics | undefined
+  const requestedMode = process.env.FINN_REPUTATION_ROUTING ?? "shadow"
+
+  if (requestedMode !== "disabled") {
+    try {
+      const { createDixieTransport } = await import("./hounfour/goodhart/transport-factory.js")
+      const { TemporalDecayEngine } = await import("./hounfour/goodhart/temporal-decay.js")
+      const { ExplorationEngine } = await import("./hounfour/goodhart/exploration.js")
+      const { CalibrationEngine } = await import("./hounfour/goodhart/calibration.js")
+      const { KillSwitch } = await import("./hounfour/goodhart/kill-switch.js")
+      const { RuntimeConfig } = await import("./hounfour/runtime-config.js")
+      const { GraduationMetrics } = await import("./hounfour/graduation-metrics.js")
+      const { createPrefixedRedisClient } = await import("./hounfour/infra/prefixed-redis.js")
+
+      const transport = createDixieTransport(process.env.DIXIE_BASE_URL)
+
+      // Prefixed Redis client for Goodhart key isolation
+      const redisPrefix = process.env.FINN_REDIS_PREFIX ?? "armitage:"
+      const redisDb = parseInt(process.env.FINN_REDIS_DB ?? "0", 10)
+      const redisClient = redis?.isConnected() ? redis.getClient() : null
+      const prefixedRedis = redisClient
+        ? createPrefixedRedisClient(redisClient, redisPrefix, redisDb)
+        : null
+
+      const decay = prefixedRedis ? new TemporalDecayEngine({
+        redis: prefixedRedis,
+        halfLifeMs: 7 * 24 * 60 * 60 * 1000,          // 7 days
+        aggregateHalfLifeMs: 30 * 24 * 60 * 60 * 1000, // 30 days
+      }) : undefined
+
+      const exploration = prefixedRedis ? new ExplorationEngine({
+        redis: prefixedRedis,
+        defaultEpsilon: parseFloat(process.env.FINN_EXPLORATION_EPSILON ?? "0.05"),
+        epsilonByTier: {},
+        blocklist: new Set(),
+        costCeiling: 2.0,
+      }) : undefined
+
+      // CalibrationEngine: only construct when explicitly configured (SDD §3.2)
+      const calibBucket = process.env.FINN_CALIBRATION_BUCKET_NAME
+      const calibHmac = process.env.FINN_CALIBRATION_HMAC_KEY
+      let calibration: import("./hounfour/goodhart/calibration.js").CalibrationEngine
+      if (calibBucket && calibHmac) {
+        calibration = new CalibrationEngine({
+          s3Bucket: calibBucket,
+          s3Key: "finn/calibration.jsonl",
+          pollIntervalMs: 60_000,
+          calibrationWeight: 3.0,
+          hmacSecret: calibHmac,
+        })
+      } else {
+        // NoopCalibrationEngine: returns neutral scores, no polling, no S3
+        calibration = new CalibrationEngine({
+          s3Bucket: "",
+          s3Key: "",
+          pollIntervalMs: Number.MAX_SAFE_INTEGER,
+          calibrationWeight: 0,
+          hmacSecret: "",
+        })
+      }
+
+      const runtimeConfig = new RuntimeConfig(prefixedRedis)
+      const killSwitch = new KillSwitch(runtimeConfig)
+
+      goodhartMetrics = new GraduationMetrics()
+
+      if (decay && exploration) {
+        goodhartConfig = {
+          decay,
+          exploration,
+          calibration,
+          killSwitch,
+          explorationFeedbackWeight: 0.5,
+          metrics: goodhartMetrics,
+        }
+        routingState = requestedMode as "shadow" | "enabled"
+        goodhartMetrics.setRoutingMode(routingState)
+      } else {
+        console.warn("[finn] goodhart: redis unavailable, degrading to deterministic")
+        goodhartMetrics.setRoutingMode("disabled")
+        // routingState stays "disabled" — not init_failed (known condition)
+      }
+    } catch (err) {
+      console.warn(`[finn] goodhart: init failed (non-fatal): ${(err as Error).message}`)
+      routingState = "init_failed"
+      if (goodhartMetrics) {
+        goodhartMetrics.goodhartInitFailed.inc()
+        goodhartMetrics.setRoutingMode("init_failed")
+      }
+      // goodhartConfig remains undefined → deterministic routing
+    }
+  }
+
+  console.log(`[finn] routing state resolved: ${routingState} (requested: ${requestedMode})`)
+
   // 6e. Initialize Hounfour multi-model routing (SDD §4, T-15.9)
   let hounfour: import("./hounfour/router.js").HounfourRouter | undefined
   try {
@@ -306,6 +414,9 @@ async function main() {
             scopeMeta, rateLimiter,
             projectRoot: process.cwd(),
             knowledgeRegistry,
+            goodhartConfig,
+            routingState,
+            goodhartMetrics,
           })
 
           // Validate all bindings at startup
