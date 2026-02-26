@@ -1,6 +1,6 @@
 # Operations Guide
 
-<!-- AGENT-CONTEXT: name=loa-finn-operations, type=operations, purpose=Deployment configuration monitoring and troubleshooting guide, key_files=[src/config.ts, src/index.ts, docker-compose.yml, docker-compose.gpu.yml, railway.toml], interfaces=[FinnConfig, Scheduler, HealthAggregator], dependencies=[hono, @hono/node-server, @aws-sdk/client-s3, ioredis], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/config.ts, src/index.ts, docker-compose.yml], trust_level=medium, model_hints=[code,fast] -->
+<!-- AGENT-CONTEXT: name=loa-finn-operations, type=operations, purpose=Deployment configuration monitoring and troubleshooting guide, key_files=[src/config.ts, src/index.ts, docker-compose.yml, docker-compose.gpu.yml], interfaces=[FinnConfig, Scheduler, HealthAggregator], dependencies=[hono, @hono/node-server, @aws-sdk/client-s3, ioredis], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/config.ts, src/index.ts, docker-compose.yml], trust_level=medium, model_hints=[code,fast] -->
 
 ## Prerequisites
 
@@ -51,10 +51,10 @@ docker compose -f docker-compose.gpu.yml up
 <!-- provenance: OPERATIONAL -->
 Full stack: loa-finn + vLLM (Qwen-7B, Qwen-1.5B) + Redis. Requires NVIDIA GPU with Docker GPU runtime (`docker-compose.gpu.yml`).
 
-### Railway (BridgeBuilder Cron)
+### BridgeBuilder (Cron)
 
 <!-- provenance: OPERATIONAL -->
-Configured via `railway.toml` — runs `npm run bridgebuilder` every 30 minutes for automated PR review. Requires `GITHUB_TOKEN` and `ANTHROPIC_API_KEY` in Railway environment.
+Runs `npm run bridgebuilder` on a cron schedule for automated PR review. Requires `GITHUB_TOKEN` and `ANTHROPIC_API_KEY` environment variables. See `deploy/BRIDGEBUILDER.md` for full deployment guide.
 
 ### Production Deployment
 
