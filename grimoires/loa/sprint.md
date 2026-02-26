@@ -6,10 +6,11 @@
 **Date:** 2026-02-26
 **Team:** 1 AI developer + 1 human reviewer
 **Sprint duration:** ~2-4 hours each (AI-paced)
+**Status:** ALL SPRINTS COMPLETE (3/3)
 
 ---
 
-## Sprint 1: Goodhart Stack Wiring + Router Integration
+## Sprint 1: Goodhart Stack Wiring + Router Integration [COMPLETED]
 
 **Goal:** Wire the 7 existing Goodhart components into the live routing path with full state machine support.
 
@@ -135,7 +136,7 @@
 
 ---
 
-## Sprint 2: Fly.io/Railway Cleanup + CI E2E Fixes
+## Sprint 2: Fly.io/Railway Cleanup + CI E2E Fixes [COMPLETED]
 
 **Goal:** Remove stale deployment references and fix CI workflows. Low-risk, high-confidence.
 
@@ -206,7 +207,7 @@
 
 ---
 
-## Sprint 3: Terraform + ECS Staging + Deploy Workflow
+## Sprint 3: Terraform + ECS Staging + Deploy Workflow [COMPLETED]
 
 **Goal:** Stand up the staging environment on ECS with Terraform workspace isolation.
 

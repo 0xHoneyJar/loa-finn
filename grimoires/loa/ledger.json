@@ -1482,22 +1482,22 @@
           "local_id": "sprint-1",
           "global_id": 144,
           "label": "Goodhart Stack Wiring + Router Integration",
-          "status": "pending",
+          "status": "completed",
           "tasks": 8
         },
         {
           "local_id": "sprint-2",
           "global_id": 145,
           "label": "Fly.io/Railway Cleanup + CI E2E Fixes",
-          "status": "pending",
+          "status": "completed",
           "tasks": 6
         },
         {
           "local_id": "sprint-3",
           "global_id": 146,
           "label": "Terraform + ECS Staging + Deploy Workflow",
-          "status": "pending",
-          "tasks": 7
+          "status": "completed",
+          "tasks": 8
         }
       ]
     }
