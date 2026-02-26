@@ -1,20 +1,20 @@
 {
   "plan_id": "plan-20260226-cycle035",
   "branch": "feature/hounfour-v820-upgrade",
-  "state": "RUNNING",
+  "state": "JACKED_OUT",
   "timestamps": {
     "started": "2026-02-27T05:10:00Z",
     "last_activity": "2026-02-27T06:14:00Z"
   },
   "sprints": {
     "total": 4,
-    "completed": 3,
-    "current": "sprint-4",
+    "completed": 4,
+    "current": null,
     "list": [
       {"id": "sprint-1", "global_id": 144, "status": "completed", "cycles": 1, "files_changed": 12},
       {"id": "sprint-2", "global_id": 145, "status": "completed", "cycles": 1, "files_changed": 8},
       {"id": "sprint-3", "global_id": 146, "status": "completed", "cycles": 1, "files_changed": 15},
-      {"id": "sprint-4", "global_id": 147, "status": "in_progress", "cycles": 0, "files_changed": 0}
+      {"id": "sprint-4", "global_id": 147, "status": "completed", "cycles": 1, "files_changed": 15}
     ]
   },
   "options": {
@@ -24,8 +24,8 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 3,
-    "total_files_changed": 35,
+    "total_cycles": 4,
+    "total_files_changed": 50,
     "total_findings_fixed": 2
   }
 }

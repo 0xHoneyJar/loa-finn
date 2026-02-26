@@ -1,107 +1,28 @@
 {
   "phase": "sdd",
   "document": "grimoires/loa/sdd.md",
-  "timestamp": "2026-02-26T14:30:00Z",
-  "cycle": "cycle-034",
+  "timestamp": "2026-02-26T03:52:40Z",
   "consensus_summary": {
-    "high_consensus_count": 7,
+    "high_consensus_count": 5,
     "disputed_count": 0,
     "low_value_count": 0,
-    "blocker_count": 6,
+    "blocker_count": 5,
     "model_agreement_percent": 100,
     "confidence": "full"
   },
   "high_consensus": [
-    {
-      "id": "IMP-001",
-      "description": "Relayer gas depletion monitoring: alert threshold, balance check on startup, periodic health probe",
-      "average_score": 925,
-      "integrated": true
-    },
-    {
-      "id": "IMP-002",
-      "description": "Reconciliation job specification: periodic check of pending/submitted settlements, finalize stale entries, handle stuck transactions",
-      "average_score": 875,
-      "integrated": true
-    },
-    {
-      "id": "IMP-003",
-      "description": "DynamoDB conditional write failure recovery: ConditionalCheckFailedException handling, re-read and retry, degraded mode entry",
-      "average_score": 805,
-      "integrated": true
-    },
-    {
-      "id": "IMP-004",
-      "description": "Shadow mode specification for Goodhart rollout: reputation scoring runs but does not affect routing, metrics emitted for comparison",
-      "average_score": 805,
-      "integrated": true
-    },
-    {
-      "id": "IMP-005",
-      "description": "Audit partition enumeration strategy: DynamoDB Scan for distinct partitionId values for daily digest computation",
-      "average_score": 795,
-      "integrated": true
-    },
-    {
-      "id": "IMP-006",
-      "description": "x402 abuse protection: rate limit quote requests (402 responses), minimum payment threshold, CPU DoS protection on signature verification",
-      "average_score": 790,
-      "integrated": true
-    },
-    {
-      "id": "IMP-007",
-      "description": "Quality observation signal definition: explicit source of quality scores that feed into EMA (latency percentile, error rate, user feedback)",
-      "average_score": 875,
-      "integrated": true
-    }
+    {"id": "IMP-001", "description": "Admin endpoint rate limiting + failed-auth throttling", "average_score": 850},
+    {"id": "IMP-002", "description": "Admin handler must write to BufferedAuditChain, not console.log", "average_score": 890},
+    {"id": "IMP-005", "description": "Deployment order needs per-step verification + rollback instructions", "average_score": 850},
+    {"id": "IMP-008", "description": "Standardize admin secret name/format (JWKS vs single key inconsistency)", "average_score": 895},
+    {"id": "IMP-010", "description": "Concrete ALB/WAF/SG controls for admin endpoint (not just 'should be internal')", "average_score": 845}
   ],
   "disputed": [],
   "blockers": [
-    {
-      "id": "SKP-001",
-      "concern": "Template artifacts/corruption in SDD — appears to contain unresolved template markers",
-      "severity_score": 930,
-      "decision": "override",
-      "rationale": "False positive — TypeScript template literals ${...} misinterpreted as unresolved doc placeholders"
-    },
-    {
-      "id": "SKP-002",
-      "concern": "Per-pool reputation scoring conceptual inconsistency — observation signal source needs precise definition to close the loop",
-      "severity_score": 900,
-      "decision": "override",
-      "rationale": "Addressed by IMP-007 integration in §4.1.1b — QualityGateScorer feeds per-(nftId,poolId,routingKey) EMA on each inference"
-    },
-    {
-      "id": "SKP-003",
-      "concern": "EMA idempotency insufficient for distributed delivery — lastEventHash only deduplicates most recent event",
-      "severity_score": 760,
-      "decision": "override",
-      "rationale": "Documented tradeoff — old replays caught by out-of-order timestamp rejection (timestamp < lastTimestamp → drop). Bounded-memory design choice."
-    },
-    {
-      "id": "SKP-004",
-      "concern": "Parallel scoring abort listener leaks — addEventListener on shared controller signal per pool query without cleanup",
-      "severity_score": 720,
-      "decision": "accept",
-      "rationale": "Replaced addEventListener with AbortSignal.any() (Node 22+) for clean signal composition"
-    },
-    {
-      "id": "SKP-005",
-      "concern": "x402 on-chain confirmation DoS vector — 30s blocking call ties up request thread, RPC dependency",
-      "severity_score": 880,
-      "decision": "accept",
-      "rationale": "Added bounded concurrency semaphore (p-limit, default 5 slots) + 503 RELAYER_BUSY when saturated"
-    },
-    {
-      "id": "SKP-010",
-      "concern": "Calibration S3 security/poisoning — unsigned calibration data could be tampered with to manipulate reputation",
-      "severity_score": 740,
-      "decision": "accept",
-      "rationale": "Added HMAC-SHA256 integrity verification on calibration data. HMAC secret in Secrets Manager, separate from S3 IAM."
-    }
-  ],
-  "execution": {
-    "mode": "hitl",
-    "mode_reason": "Simstim workflow"
-  }
+    {"id": "SKP-001", "severity": "CRITICAL", "severity_score": 920, "concern": "Admin secrets/JWKS design internally inconsistent across sections"},
+    {"id": "SKP-002", "severity": "CRITICAL", "severity_score": 880, "concern": "Admin endpoint lacks concrete network and app-layer hardening"},
+    {"id": "SKP-003", "severity": "HIGH", "severity_score": 760, "concern": "Per-request Redis GET without bounded fallback cache"},
+    {"id": "SKP-005", "severity": "HIGH", "severity_score": 740, "concern": "Admin mode change not atomic with audit logging"},
+    {"id": "SKP-010", "severity": "HIGH", "severity_score": 720, "concern": "x402 chain config footguns without startup validation"}
+  ]
 }

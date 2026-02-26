@@ -1,2135 +1,1351 @@
-# SDD: Loop Closure & Launch Infrastructure — Goodhart Protection, AWS Deployment, x402 Payments
+# SDD: Production Activation & Loop Go-Live — Deploy, Wire, Graduate, Verify
 
 > **Version**: 1.2.0
 > **Date**: 2026-02-26
 > **Author**: @janitooor + Claude Opus 4.6 (Bridgebuilder)
 > **Status**: Draft
-> **Cycle**: cycle-034
-> **PRD**: `grimoires/loa/prd.md` v1.2.0 (GPT-5.2 APPROVED iteration 4, Flatline APPROVED)
+> **Cycle**: cycle-035
+> **PRD**: `grimoires/loa/prd.md` v1.1.0 (GPT-5.2 APPROVED iteration 2)
+> **Predecessor SDD**: cycle-034 SDD v1.2.0 (archived: `grimoires/loa/archive/2026-02-26-loop-closure-launch-infrastructure/sdd.md`)
 
 ---
 
 ## 1. Overview
 
-This SDD describes the technical design for closing the autopoietic feedback loop with Goodhart protection, deploying loa-finn to AWS ECS via loa-freeside infrastructure, and upgrading the x402 payment system with merchant relayer settlement.
+This SDD describes the technical design for activating the mechanisms built in cycle-034: deploying loa-finn to AWS ECS, wiring the live dixie reputation endpoint, graduating from shadow to live routing, verifying the complete autopoietic loop via three-leg E2E, and activating x402 on-chain settlement on Base.
 
-**Design principles:**
-- Goodhart protection mechanisms are **first-class subsystem**, not afterthought middleware
-- Redis Lua atomicity for all EMA state mutations — no distributed locks
-- `AbortController` deadline propagation for parallel scoring — hard 200ms wall-clock
-- Existing x402 module extended with on-chain settlement, not replaced
-- AWS infrastructure leverages existing loa-freeside Terraform — no new cloud resource provisioning
-- Tamper-evident audit trail uses per-partition DynamoDB hash chains with S3 Object Lock immutable anchor
+**This is an activation SDD, not a feature SDD.** No new mechanisms are designed. The work is:
+- Configure runtime routing mode via Redis (replacing env-var-only kill switch)
+- Add two-tier health endpoints for production ALB
+- Wire the dixie HTTP adapter with connection pooling and circuit breaker
+- Add Prometheus graduation metrics
+- Extend E2E compose to three legs (finn + freeside + dixie)
+- Make x402 chain/contract configurable for testnet→mainnet migration
+- Add admin API for runtime mode changes
 
-**What changes:**
-- `resolvePoolWithReputation()` signature enriched with `nftId` query parameter
-- New `ReputationQueryFn` contract: `(query: { nftId, poolId, routingKey }) => Promise<number | null>`
-- New Goodhart protection engine: `src/hounfour/goodhart/` module
-- x402 settlement upgraded from quote-verify-settle to full merchant relayer with on-chain confirmation
-- Deployment target permanently changed from Fly.io to AWS ECS Fargate
-- DynamoDB table + S3 Object Lock bucket for tamper-evident audit
+**Architectural decisions** (confirmed during HITL architecture phase):
+1. **Admin auth**: Separate ES256 admin keypair (not shared with service-to-service JWKS)
+2. **Runtime config read**: Direct Redis GET per request (sub-1ms, no polling/caching layer)
+3. **Three-leg E2E**: Real Docker images for freeside + dixie (not stubs)
+
+**Existing cycle-034 components referenced but not modified** (unless stated):
+- Goodhart Protection Engine (`src/hounfour/goodhart/`)
+- Temporal Decay EMA + Redis Lua (`temporal-decay.ts`, `lua/ema-update.lua`)
+- Epsilon-Greedy Exploration (`exploration.ts`)
+- External Calibration via S3 (`calibration.ts`)
+- Mechanism Interaction Rules (`mechanism-interaction.ts`)
+- Reputation Adapter (`reputation-adapter.ts`)
+- x402 Settlement / Merchant Relayer (`src/x402/settlement.ts`)
+- DynamoDB Audit Trail (`src/hounfour/audit/dynamo-audit.ts`)
+- S3 Object Lock Anchor (`src/hounfour/audit/s3-anchor.ts`)
 
 ---
 
 ## 2. System Architecture
 
-### 2.1 High-Level Component Diagram
+### 2.1 Activation Delta — What Changes
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                           loa-finn                                  │
-│                                                                     │
-│  ┌──────────────┐    ┌──────────────────────────────────────────┐  │
-│  │  Hono Gateway │    │          Hounfour Layer                  │  │
-│  │              │    │                                          │  │
-│  │ /api/v1/*   ├───►│  tier-bridge.ts                          │  │
-│  │ /api/v1/x402├─┐  │    ├── resolvePoolWithReputation()  ◄────┤  │
-│  │ /health     │ │  │    │     (enriched: nftId + poolId       │  │
-│  │             │ │  │    │      + routingKey)                   │  │
-│  └──────────────┘ │  │    │                                     │  │
-│                   │  │  ┌─▼────────────────────────────────┐    │  │
-│                   │  │  │    Goodhart Protection Engine     │    │  │
-│                   │  │  │                                  │    │  │
-│                   │  │  │  ┌───────────┐ ┌────────────┐   │    │  │
-│                   │  │  │  │ Temporal   │ │ Epsilon-   │   │    │  │
-│                   │  │  │  │ Decay     │ │ Greedy     │   │    │  │
-│                   │  │  │  │ (EMA+Lua) │ │ Exploration│   │    │  │
-│                   │  │  │  └─────┬─────┘ └──────┬─────┘   │    │  │
-│                   │  │  │        │               │         │    │  │
-│                   │  │  │  ┌─────▼───────────────▼─────┐   │    │  │
-│                   │  │  │  │   Mechanism Interaction    │   │    │  │
-│                   │  │  │  │   Rules (FR1.4)           │   │    │  │
-│                   │  │  │  └─────────────┬─────────────┘   │    │  │
-│                   │  │  │        ┌───────▼──────┐          │    │  │
-│                   │  │  │        │ Kill Switch  │          │    │  │
-│                   │  │  │        │ (FR1.5)      │          │    │  │
-│                   │  │  │        └──────────────┘          │    │  │
-│                   │  │  │  ┌────────────┐                  │    │  │
-│                   │  │  │  │ External   │                  │    │  │
-│                   │  │  │  │ Calibration│                  │    │  │
-│                   │  │  │  │ (S3-backed)│                  │    │  │
-│                   │  │  │  └────────────┘                  │    │  │
-│                   │  │  └──────────────────────────────────┘    │  │
-│                   │  │                                          │  │
-│                   │  │  ┌──────────────────────────────────┐    │  │
-│                   │  │  │  Reputation Query Bridge          │    │  │
-│                   │  │  │  (dixie adapter + parallel score) │    │  │
-│                   │  │  └──────────────────────────────────┘    │  │
-│                   │  └──────────────────────────────────────────┘  │
-│                   │                                                 │
-│                   │  ┌──────────────────────────────────────────┐  │
-│                   └─►│  x402 Settlement (Merchant Relayer)      │  │
-│                      │  EIP-3009 verify → on-chain submit       │  │
-│                      │  → receipt confirm → serve inference      │  │
-│                      └──────────────────────────────────────────┘  │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │  Tamper-Evident Audit Trail                                  │  │
-│  │  DynamoDB per-partition hash chain + S3 Object Lock anchor   │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           loa-finn (cycle-035 changes)                   │
+│                                                                          │
+│  ┌────────────────────────────────┐  ┌──────────────────────────────┐   │
+│  │  Hono Gateway (MODIFIED)       │  │  Runtime Config (NEW §3.1)   │   │
+│  │                                │  │                              │   │
+│  │  GET /healthz        (NEW)     │  │  Redis key per-request GET   │   │
+│  │  GET /health/deps    (NEW)     │  │  POST /admin/routing-mode    │   │
+│  │  POST /admin/routing-mode (NEW)│  │  Admin ES256 JWT auth        │   │
+│  │  GET /metrics         (NEW)    │  │                              │   │
+│  └────────────────────────────────┘  └──────────────────────────────┘   │
+│                                                                          │
+│  ┌────────────────────────────────┐  ┌──────────────────────────────┐   │
+│  │  Kill Switch (MODIFIED §3.2)   │  │  Graduation Metrics (NEW §3.5)│  │
+│  │                                │  │                              │   │
+│  │  Redis-first, env-var fallback │  │  Prometheus counters:        │   │
+│  │  Mode: disabled/shadow/enabled │  │    finn_shadow_total         │   │
+│  │                                │  │    finn_shadow_diverged      │   │
+│  │                                │  │    finn_reputation_query_*   │   │
+│  └────────────────────────────────┘  └──────────────────────────────┘   │
+│                                                                          │
+│  ┌────────────────────────────────┐  ┌──────────────────────────────┐   │
+│  │  Dixie HTTP Transport          │  │  x402 Chain Config (MOD §3.7)│   │
+│  │  (MODIFIED §3.3)               │  │                              │   │
+│  │                                │  │  Configurable chainId +      │   │
+│  │  Connection pooling (keep-alive)│  │  token contract address      │   │
+│  │  DNS pre-resolve + refresh     │  │  Base Sepolia ↔ Base mainnet │   │
+│  │  300ms timeout (from 100ms)    │  │                              │   │
+│  └────────────────────────────────┘  └──────────────────────────────┘   │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │  Three-Leg E2E Compose (NEW §3.6)                                 │  │
+│  │  finn + freeside + dixie + redis + postgres + localstack          │  │
+│  │  Deterministic ES256 test keypairs, JWKS endpoints, full loop     │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────────┘
          │                    │                    │
     ┌────▼───┐          ┌────▼───┐          ┌────▼────┐
-    │ Redis  │          │ DynamoDB│          │ S3 WORM │
-    │ (EMA,  │          │ (audit) │          │ (digest)│
-    │  nonce)│          │         │          │         │
-    └────────┘          └─────────┘          └─────────┘
-         │
-    ┌────▼────┐
-    │  Dixie  │
-    │ (RepStore)│
-    └─────────┘
+    │ Redis  │          │ Dixie  │          │  Base   │
+    │ + config│          │ (live) │          │ (L2)   │
+    └────────┘          └────────┘          └─────────┘
 ```
 
-### 2.2 Request Flow: Reputation-Weighted Routing
+### 2.2 Request Flow — Shadow vs Live Mode
+
+The routing engine reads the mode from Redis on every request:
 
 ```
-Request → JWT Auth → Economic Boundary → Kill Switch Check
+Request → JWT Auth → Economic Boundary
+  │
+  ├─ Redis GET finn:config:reputation_routing
   │
   ├─ [disabled] → resolvePool() (deterministic) → Provider → Response
   │
-  └─ [enabled] → Exploration Coin Flip (Bernoulli r < ε)
-       │
-       ├─ [explore] → Filter Candidate Set → Uniform Random Selection
-       │               (healthy + compatible + cost-bounded + not blocklisted)
-       │               → Provider → Response
-       │               → Feed back at 0.5x weight to EMA
-       │
-       └─ [exploit] → Parallel Reputation Scoring (AbortController 200ms)
-                       │
-                       ├─ Per-pool: dixie adapter → ReputationResponse
-                       │            → Temporal Decay (EMA Lua script)
-                       │            → Calibration Blending (FR1.4)
-                       │            → Clamped [0,1] score
-                       │
-                       └─ Best pool by score → Provider → Response
+  ├─ [shadow] → resolvePool() (deterministic) → Provider → Response
+  │              ALSO: async reputation scoring → compare → increment Prometheus counters
+  │              (shadow result is logged, not used for routing)
+  │
+  └─ [enabled] → Goodhart Protection Engine (cycle-034 §4.1)
+                  Kill Switch → Exploration → Reputation Scoring
+                  → Provider → Response
 ```
 
-### 2.3 Request Flow: x402 Settlement
-
-```
-Request (no JWT, X-Payment header) → x402 Middleware
-  │
-  ├─ [no X-Payment] → 402 + Quote (X-Payment-Required header)
-  │
-  └─ [has X-Payment] → Parse proof → Verify signature
-       │                  (chain: 8453, contract: USDC, recipient: merchant)
-       │
-       ├─ [invalid] → 402 + error details
-       │
-       └─ [valid] → Dedup check (Redis NX) → Submit on-chain
-                     │
-                     ├─ [receipt confirmed] → Conservation Guard → Inference → Response
-                     ├─ [revert] → 402 settlement_failed
-                     ├─ [timeout] → 503 Retry-After
-                     └─ [gas fail] → 503 relayer_unavailable + alert
-```
+**Key difference from cycle-034**: The mode is no longer read from `process.env.FINN_REPUTATION_ROUTING` on every call. Instead, Redis is checked first; env var is the cold-start fallback only.
 
 ---
 
-## 3. Technology Stack
+## 3. Component Design
 
-| Layer | Technology | Justification |
-|-------|-----------|---------------|
-| Runtime | Node.js 22 (existing) | Already in Dockerfile, LTS |
-| HTTP | Hono (existing) | Existing gateway, sub-app isolation for x402 |
-| EMA State | Redis + Lua scripts | Atomic read-compute-write without distributed locks |
-| Audit Store | DynamoDB | Per-partition hash chains, conditional writes for exactly-once |
-| Immutable Anchor | S3 Object Lock (compliance mode) | WORM storage outside DynamoDB trust domain |
-| Calibration | S3 versioned object | ETag-based conditional GET for hot reload without restart |
-| On-chain | viem (existing in x402/) | Already used for EIP-3009 verification |
-| Infrastructure | AWS ECS Fargate via loa-freeside Terraform | `ecs-finn.tf` already provisioned |
-| CI/CD | GitHub Actions → ECR → ECS | Matching freeside deploy pattern |
+### 3.1 Runtime Config Module
 
-### New Dependencies
+**New file**: `src/hounfour/runtime-config.ts`
 
-| Package | Purpose | Version |
-|---------|---------|---------|
-| `@aws-sdk/client-dynamodb` | Audit trail storage | ^3.x |
-| `@aws-sdk/client-s3` | Calibration reads + digest writes | ^3.x |
-| `@aws-sdk/client-kms` | Daily digest signing | ^3.x |
-
-### Existing Dependencies (no changes)
-
-| Package | Used For |
-|---------|----------|
-| `ioredis` | EMA cache, nonce dedup, exploration counters |
-| `viem` | EIP-3009 verification, on-chain settlement |
-| `hono` | HTTP gateway |
-| `@0xhoneyjar/loa-hounfour` | Protocol types, tier resolution |
-| `@sinclair/typebox` | Schema validation |
-
----
-
-## 4. Component Design
-
-### 4.1 Goodhart Protection Engine
-
-**New module**: `src/hounfour/goodhart/`
-
-```
-src/hounfour/goodhart/
-├── index.ts                    # Re-exports
-├── temporal-decay.ts           # EMA computation + Redis Lua
-├── exploration.ts              # Bernoulli sampling + candidate filtering
-├── calibration.ts              # S3-backed HITL calibration
-├── mechanism-interaction.ts    # Precedence rules (FR1.4)
-├── kill-switch.ts              # Feature flag (FR1.5)
-├── reputation-adapter.ts       # ReputationQueryFn implementation
-└── lua/
-    └── ema-update.lua          # Atomic EMA update script
-```
-
-#### 4.1.1 Temporal Decay — EMA with Redis Lua
-
-**File**: `src/hounfour/goodhart/temporal-decay.ts`
-
-The EMA cache stores decayed reputation per `(nftId, poolId, routingKey)` tuple. All mutations use a Lua script for atomicity.
-
-**Redis Key Schema**:
-```
-finn:ema:{nftId}:{poolId}:{routingKey}
-```
-
-**Redis Value** (JSON string):
-```typescript
-interface EMAState {
-  ema: number           // Current EMA value [0, 1]
-  lastTimestamp: number  // Unix millis of last update
-  sampleCount: number   // Number of observations incorporated
-}
-```
-
-**TTL**: `2 * halfLifeMs` (default: 14 days for task-cohort, 60 days for aggregate)
-
-**Lua Script** (`lua/ema-update.lua`):
-
-```lua
--- KEYS[1] = finn:ema:{nftId}:{poolId}:{routingKey}
--- ARGV[1] = new observation value
--- ARGV[2] = observation timestamp (unix millis)
--- ARGV[3] = halfLifeMs
--- ARGV[4] = TTL seconds
--- ARGV[5] = event hash (for inline idempotency check)
-
--- 1. GET current state (idempotency is checked inline via lastEventHash)
-local raw = redis.call("GET", KEYS[1])
-local value = tonumber(ARGV[1])
-local timestamp = tonumber(ARGV[2])
-local halfLife = tonumber(ARGV[3])
-local ttl = tonumber(ARGV[4])
-
-if raw == false then
-  -- Cold start: first observation
-  local state = cjson.encode({ema = value, lastTimestamp = timestamp, sampleCount = 1, lastEventHash = ARGV[5]})
-  redis.call("SET", KEYS[1], state, "EX", ttl)
-  return state
-end
-
-local state = cjson.decode(raw)
-
--- 2. Idempotency check: compare against last-seen event hash stored in EMA state
--- This is O(1) per key — no separate idempotency keys, no unbounded growth
-if state.lastEventHash == ARGV[5] then
-  return raw  -- Duplicate event, return existing state
-end
-
--- 3. Out-of-order check
-if timestamp < state.lastTimestamp then
-  return raw  -- Drop stale event
-end
-
--- 4. Compute alpha and new EMA
-local dt = timestamp - state.lastTimestamp
-local alpha = 1 - math.exp(-0.693147 * dt / halfLife)  -- ln(2) ≈ 0.693147
-local newEma = alpha * value + (1 - alpha) * state.ema
-
--- 5. SET new state (include lastEventHash for idempotency)
-local newState = cjson.encode({
-  ema = newEma,
-  lastTimestamp = timestamp,
-  sampleCount = state.sampleCount + 1,
-  lastEventHash = ARGV[5]
-})
-redis.call("SET", KEYS[1], newState, "EX", ttl)
-return newState
-```
-
-**Bounded idempotency**: Instead of creating a separate Redis key per event (which would grow unbounded over the EMA TTL window), idempotency is tracked by storing the `lastEventHash` directly in the EMA state value. The Lua script compares the incoming event hash against the stored one — if they match, the event is a duplicate and the existing state is returned. This is O(1) per EMA key with zero additional memory overhead. The tradeoff is that only the most recent event is deduplicated; very old replays (where intermediate events have already updated `lastEventHash`) will be caught by the out-of-order timestamp check instead.
-
-**TypeScript Interface**:
+This module replaces the env-var-only configuration for hot-reloadable settings. The key insight from GPT review: ECS env vars don't hot-reload — changing them requires a redeploy. Redis keys can change instantly.
 
 ```typescript
-interface TemporalDecayConfig {
-  halfLifeMs: number           // Default: 7 * 24 * 60 * 60 * 1000 (7 days)
-  aggregateHalfLifeMs: number  // Default: 30 * 24 * 60 * 60 * 1000 (30 days)
-  redis: RedisCommandClient
+type RoutingMode = "disabled" | "shadow" | "enabled"
+
+interface RuntimeConfigKeys {
+  "finn:config:reputation_routing": RoutingMode
+  "finn:config:exploration_epsilon": string  // JSON: Record<tier, number>
 }
 
-class TemporalDecayEngine {
-  constructor(config: TemporalDecayConfig)
-
-  /** Update EMA with new observation. Atomic via Lua. */
-  updateEMA(key: EMAKey, value: number, timestamp: number, eventHash: string): Promise<EMAState>
-
-  /** Query decayed score at current time. O(1). */
-  getDecayedScore(key: EMAKey): Promise<{ score: number; decay: "applied" | "unavailable" } | null>
-}
-
-interface EMAKey {
-  nftId: string
-  poolId: PoolId
-  routingKey: NFTRoutingKey
-}
-```
-
-**Decay at query time**: When `getDecayedScore()` is called, the stored EMA is further decayed to `now`:
-
-```
-decayedScore = emaValue * exp(-ln(2) * (now - lastTimestamp) / halfLifeMs)
-```
-
-This is a pure read — no Redis write on query.
-
-#### 4.1.1b Quality Observation Signal
-
-The EMA requires a numeric observation value ∈ [0, 1] per inference request. This section defines the **quality signal** that closes the autopoietic loop.
-
-**Signal source**: The existing `QualityGateScorer` (`src/hounfour/quality-gate-scorer.ts`) produces a `QualityObservation` from each inference response. The `scoreToObservation()` function at line 89 computes a composite score from:
-
-| Factor | Weight | Source | Range |
-|--------|--------|--------|-------|
-| Latency percentile | 0.3 | Response time vs p50/p95 of pool's recent history | 0 (>p95) to 1 (<p50) |
-| Error indicator | 0.4 | 0 if provider error/timeout, 1 if successful response | binary |
-| Content quality | 0.3 | Model-reported finish_reason + token utilization ratio | 0-1 |
-
-**Composite formula**:
-```
-observation = (latencyScore * 0.3) + (errorScore * 0.4) + (contentScore * 0.3)
-```
-
-**Flow**: After each inference response:
-1. `QualityGateScorer.scoreToObservation(response, pool, latencyMs)` → `QualityObservation`
-2. `ReputationEventNormalizer.normalize(observation)` → `ReputationEvent`
-3. `TemporalDecayEngine.updateEMA(key, event.score, event.timestamp, event.hash)` → updated EMA
-
-**Event hash**: `SHA-256(nftId + poolId + routingKey + timestamp + score)` — deterministic, used for inline idempotency check in the Lua script.
-
-**Exploration observations**: When the scoring path is `exploration`, the observation is weighted at `explorationFeedbackWeight` (0.5) before feeding into the EMA. This prevents exploration noise from dominating the decayed score.
-
-**Cold start**: When no EMA exists for a (nftId, poolId, routingKey) tuple, the first observation initializes the EMA directly (`ema = observation`). No bootstrapping or synthetic data is needed — the system gracefully transitions from deterministic routing to reputation-weighted routing as observations accumulate.
-
-#### 4.1.2 Epsilon-Greedy Exploration
-
-**File**: `src/hounfour/goodhart/exploration.ts`
-
-```typescript
-interface ExplorationConfig {
-  /** Default epsilon per tier. Key = tier name, value = epsilon ∈ [0, 1]. */
-  epsilonByTier: Record<string, number>
-  /** Default epsilon when tier not in map. */
-  defaultEpsilon: number  // 0.05
-  /** Blocklisted pool IDs (excluded from exploration). */
-  blocklist: ReadonlySet<PoolId>
-  /** Max cost multiplier for exploration candidates. */
-  costCeiling: number  // 2.0
-  /** Redis client for observability counters. */
-  redis: RedisCommandClient
-}
-
-interface ExplorationDecision {
-  explore: boolean
-  candidateSetSize: number
-  selectedPool?: PoolId
-  randomValue: number
-  reason?: string  // "exploration_skipped" when no eligible candidates
-}
-
-class ExplorationEngine {
-  constructor(config: ExplorationConfig)
+class RuntimeConfig {
+  constructor(private redis: RedisCommandClient) {}
 
   /**
-   * Decide whether to explore and, if so, select a pool.
-   * Pure Bernoulli: Math.random() < epsilon.
+   * Get routing mode. Direct Redis GET per request (~0.2ms on ElastiCache).
+   * Falls back to env var on Redis failure or missing key.
    */
-  decide(
-    tier: Tier,
-    accessiblePools: readonly PoolId[],
-    circuitBreakerStates: Map<PoolId, "closed" | "half-open" | "open">,
-    poolCosts: Map<PoolId, number>,
-    defaultPoolCost: number,
-    routingKey: NFTRoutingKey,
-    poolCapabilities: Map<PoolId, Set<NFTRoutingKey>>,
-  ): ExplorationDecision
+  async getRoutingMode(): Promise<RoutingMode> {
+    try {
+      const mode = await this.redis.get("finn:config:reputation_routing")
+      if (mode === "disabled" || mode === "shadow" || mode === "enabled") {
+        return mode
+      }
+      // Key missing or invalid value — fall back to env var
+    } catch {
+      // Redis unreachable — fall back to env var (best-effort)
+    }
+    const envMode = process.env.FINN_REPUTATION_ROUTING
+    if (envMode === "disabled" || envMode === "shadow" || envMode === "enabled") {
+      return envMode
+    }
+    return "shadow"  // Safe default: shadow mode (score but don't route)
+  }
 
-  /** Increment daily observability counter (best-effort). */
-  recordExploration(tier: string): Promise<void>
-}
-```
-
-**Candidate Set Filtering** (FR1.2 constrained):
-
-```typescript
-function filterCandidateSet(
-  pools: readonly PoolId[],
-  circuitBreakerStates: Map<PoolId, "closed" | "half-open" | "open">,
-  poolCosts: Map<PoolId, number>,
-  defaultPoolCost: number,
-  costCeiling: number,
-  routingKey: NFTRoutingKey,
-  poolCapabilities: Map<PoolId, Set<NFTRoutingKey>>,
-  blocklist: ReadonlySet<PoolId>,
-): PoolId[] {
-  return pools.filter(pool => {
-    // 1. Healthy: circuit breaker closed or half-open
-    const cbState = circuitBreakerStates.get(pool) ?? "closed"
-    if (cbState === "open") return false
-
-    // 2. Compatible: pool supports requested routing key
-    const caps = poolCapabilities.get(pool)
-    if (caps && !caps.has(routingKey)) return false
-
-    // 3. Within cost bounds: pool cost <= costCeiling * default
-    const cost = poolCosts.get(pool) ?? 0
-    if (cost > costCeiling * defaultPoolCost) return false
-
-    // 4. Not blocklisted
-    if (blocklist.has(pool)) return false
-
-    return true
-  })
-}
-```
-
-**Observability Counter** (best-effort):
-```
-finn:explore:count:{tier}:{YYYY-MM-DD}
-```
-Redis INCR with TTL = 48 hours. Loss on restart is acceptable.
-
-#### 4.1.3 External Calibration via S3
-
-**File**: `src/hounfour/goodhart/calibration.ts`
-
-```typescript
-interface CalibrationConfig {
-  s3Bucket: string
-  s3Key: string                  // "finn/calibration.jsonl"
-  pollIntervalMs: number         // 60000 (1 minute)
-  localFallbackPath?: string     // "data/calibration.jsonl"
-  calibrationWeight: number      // 3.0
-  /** HMAC key for calibration data integrity verification (from Secrets Manager). */
-  hmacSecret: string
-}
-
-interface CalibrationEntry {
-  nftId: string
-  poolId: PoolId
-  routingKey: NFTRoutingKey
-  score: number                  // [0, 1]
-  evaluator: "human"
-  timestamp: string              // ISO 8601
-  note?: string
-}
-
-class CalibrationEngine {
-  private entries: Map<string, CalibrationEntry[]>  // keyed by {nftId}:{poolId}:{routingKey}
-  private lastETag: string | null
-  private pollTimer: ReturnType<typeof setInterval> | null
-
-  constructor(config: CalibrationConfig)
-
-  /** Start ETag-based polling. Returns immediately. */
-  startPolling(): void
-
-  /** Stop polling. For graceful shutdown. */
-  stopPolling(): void
-
-  /** Get calibration data for a key. Returns empty array if none. */
-  getCalibration(nftId: string, poolId: PoolId, routingKey: NFTRoutingKey): CalibrationEntry[]
-
-  /** Blend calibration with decayed EMA (FR1.4 formula). */
-  blendWithDecay(
-    decayedEma: number,
-    sampleCount: number,
-    calibrationEntries: CalibrationEntry[],
-  ): number
-}
-```
-
-**Blending formula** (FR1.4 §3):
-
-```
-finalScore = (decayedEma * sampleCount + calibrationScore * calibrationWeight * calibrationCount)
-             / (sampleCount + calibrationWeight * calibrationCount)
-```
-
-Where `calibrationScore` is the mean of all calibration entries for that key, and `calibrationWeight` defaults to 3.0.
-
-**S3 Polling**:
-- Uses `GetObject` with `If-None-Match: {lastETag}`
-- 304 Not Modified → no-op (no parsing, no allocation)
-- 200 → verify HMAC signature before parsing (see below), parse JSONL, rebuild lookup map, update `lastETag`
-- HMAC mismatch → log alarm-severity warning, retain existing entries, do NOT apply tainted data
-- Error → log warning, retain existing entries
-
-**Calibration HMAC integrity** (defense-in-depth):
-The calibration JSONL file includes a trailing HMAC line: `{"hmac":"<hex>"}`. The HMAC is computed as `HMAC-SHA256(hmacSecret, content_before_hmac_line)`. On fetch:
-1. Split last line from body.
-2. Verify HMAC against `hmacSecret` (from Secrets Manager).
-3. If valid → parse entries. If invalid → reject and retain stale data.
-
-This prevents an attacker with S3 write access (but not Secrets Manager access) from injecting biased calibration entries to manipulate reputation scores. The HMAC secret is stored in Secrets Manager, separate from S3 IAM permissions.
-
-**Local Fallback** (dev mode): When `localFallbackPath` is set and S3 is unreachable (no `AWS_REGION` or connection failure), reads from local JSONL file at startup. No hot-reload in local mode.
-
-#### 4.1.4 Mechanism Interaction Rules
-
-**File**: `src/hounfour/goodhart/mechanism-interaction.ts`
-
-This module implements the precedence rules from FR1.4 as a single entry point for reputation-weighted pool selection.
-
-```typescript
-interface MechanismConfig {
-  decay: TemporalDecayEngine
-  exploration: ExplorationEngine
-  calibration: CalibrationEngine
-  killSwitch: KillSwitch
-  explorationFeedbackWeight: number  // 0.5
-}
-
-interface ReputationScoringResult {
-  pool: PoolId
-  score: number | null
-  path: "kill_switch" | "exploration" | "reputation" | "deterministic" | "exploration_skipped"
-  metadata: {
-    decayApplied?: boolean
-    calibrationApplied?: boolean
-    explorationCandidateSetSize?: number
-    randomValue?: number
+  /**
+   * Set routing mode via Redis. No TTL — persists until changed.
+   * Called by admin endpoint or direct Redis CLI.
+   */
+  async setRoutingMode(mode: RoutingMode): Promise<void> {
+    await this.redis.set("finn:config:reputation_routing", mode)
   }
 }
-
-/**
- * Orchestrate all Goodhart protection mechanisms per FR1.4 precedence:
- * 1. Kill switch → deterministic
- * 2. Exploration → random from constrained candidate set
- * 3. Reputation → decay + calibration blending → best score
- */
-async function resolveWithGoodhart(
-  config: MechanismConfig,
-  tier: Tier,
-  nftId: string,
-  taskType: string | undefined,
-  nftPreferences: Record<string, string> | undefined,
-  accessiblePools: readonly PoolId[],
-  circuitBreakerStates: Map<PoolId, "closed" | "half-open" | "open">,
-  poolCosts: Map<PoolId, number>,
-  defaultPoolCost: number,
-  poolCapabilities: Map<PoolId, Set<NFTRoutingKey>>,
-  abortSignal?: AbortSignal,
-): Promise<ReputationScoringResult>
 ```
 
-**Precedence implementation**:
+**Redis key schema** (additions to cycle-034 §5.1):
 
-```typescript
-// 1. Kill switch first
-if (config.killSwitch.isDisabled()) {
-  return {
-    pool: resolvePool(tier, taskType, nftPreferences),
-    score: null,
-    path: "kill_switch",
-    metadata: {},
-  }
-}
+| Key | Value | TTL | Purpose |
+|-----|-------|-----|---------|
+| `finn:config:reputation_routing` | `"disabled" \| "shadow" \| "enabled"` | None | Routing mode (hot-reloadable) |
+| `finn:config:exploration_epsilon` | JSON `Record<tier, number>` | None | Per-tier epsilon override |
 
-// 2. Exploration coin flip
-const routingKey = taskType ? mapUnknownTaskTypeToRoutingKey(taskType) : "default"
-const explorationDecision = config.exploration.decide(
-  tier, accessiblePools, circuitBreakerStates,
-  poolCosts, defaultPoolCost, routingKey, poolCapabilities,
-)
+**Why direct GET, not polling/caching**: ElastiCache p99 for a GET is <1ms. Adding a polling layer would introduce stale reads (up to poll interval), complexity, and a timer that needs cleanup on shutdown. The Redis roundtrip is already on the hot path (EMA reads are more expensive). The admin endpoint is called rarely; the per-request cost is negligible.
 
-if (explorationDecision.explore && explorationDecision.selectedPool) {
-  // Exploration selected a valid candidate — use it
-  return {
-    pool: explorationDecision.selectedPool,
-    score: null,
-    path: "exploration",
-    metadata: {
-      explorationCandidateSetSize: explorationDecision.candidateSetSize,
-      randomValue: explorationDecision.randomValue,
-    },
-  }
-}
+### 3.2 Kill Switch Modification
 
-// If exploration was triggered but no eligible candidates existed,
-// fall through to reputation scoring (NOT deterministic fallback).
-// This ensures the feedback loop can still close for constrained tiers.
-// The exploration_skipped path is logged for observability.
-if (explorationDecision.explore && !explorationDecision.selectedPool) {
-  // Log but continue to reputation scoring below
-  logScoringPath("exploration_skipped", { reason: "no_eligible_candidates", randomValue: explorationDecision.randomValue })
-}
+**Modified file**: `src/hounfour/goodhart/kill-switch.ts`
 
-// 3. Reputation scoring with decay + calibration
-// (parallel scoring with AbortController — see §4.2.3)
-// Falls back to deterministic resolvePool() ONLY when all reputation queries return null/invalid.
-```
-
-**Exploration feedback weighting** (FR1.4 §5):
-
-When an exploration result feeds back into the EMA, the observation is weighted at `explorationFeedbackWeight` (default 0.5):
-
-```typescript
-// After inference completes for an exploration decision:
-await decayEngine.updateEMA(key, score * config.explorationFeedbackWeight, timestamp, eventHash)
-```
-
-#### 4.1.5 Runtime Kill Switch
-
-**File**: `src/hounfour/goodhart/kill-switch.ts`
+The cycle-034 kill switch reads `process.env.FINN_REPUTATION_ROUTING` on every call. This cycle upgrades it to use `RuntimeConfig`:
 
 ```typescript
 class KillSwitch {
-  /** Check if reputation routing is disabled. Reads env on every call (no cache). */
-  isDisabled(): boolean {
-    return process.env.FINN_REPUTATION_ROUTING === "disabled"
+  constructor(private runtimeConfig: RuntimeConfig) {}
+
+  /**
+   * Check current routing mode. Redis-first, env-var fallback.
+   * Replaces the cycle-034 process.env.FINN_REPUTATION_ROUTING check.
+   */
+  async getMode(): Promise<RoutingMode> {
+    return this.runtimeConfig.getRoutingMode()
   }
 
-  /** Log state transition for audit trail. */
-  logTransition(previousState: boolean, currentState: boolean): void {
-    if (previousState !== currentState) {
-      const action = currentState ? "disabled" : "enabled"
-      console.log(JSON.stringify({
-        component: "kill-switch",
-        event: "state_transition",
-        action: `kill_switch_toggle`,
-        from: previousState ? "disabled" : "enabled",
-        to: action,
+  /** Check if reputation routing is disabled. */
+  async isDisabled(): Promise<boolean> {
+    const mode = await this.getMode()
+    return mode === "disabled"
+  }
+
+  /** Check if in shadow mode (score but don't route). */
+  async isShadow(): Promise<boolean> {
+    const mode = await this.getMode()
+    return mode === "shadow"
+  }
+}
+```
+
+**Breaking change**: `isDisabled()` becomes `async` (was sync). Callers in `mechanism-interaction.ts` already `await` the surrounding function, so threading the `await` is straightforward. The hot-path impact is <0.5ms (Redis GET).
+
+### 3.3 Admin API
+
+**New file**: `src/gateway/routes/admin.ts`
+
+A separate Hono sub-app mounted at `/admin` for operator-only endpoints.
+
+```typescript
+import { Hono } from "hono"
+import { createLocalJWKSet, jwtVerify } from "jose"
+
+interface AdminRouteConfig {
+  /**
+   * Admin JWKS — stored as JSON in Secrets Manager (not a single PEM).
+   * Contains one or more ES256 public keys with `kid` for rotation.
+   * Refreshed on SecretsLoader TTL (default: 1 hour) without restart.
+   */
+  getAdminJwks: () => Promise<ReturnType<typeof createLocalJWKSet>>
+  /** Expected issuer claim. */
+  adminIssuer: string  // "loa-admin"
+  runtimeConfig: RuntimeConfig
+}
+
+function createAdminRoutes(config: AdminRouteConfig): Hono {
+  const app = new Hono()
+
+  // Admin JWT middleware — separate from service-to-service auth
+  // Uses JWKS with kid selection for safe key rotation
+  app.use("/*", async (c, next) => {
+    const authHeader = c.req.header("Authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return c.json({ error: "Missing admin token" }, 401)
+    }
+
+    const token = authHeader.slice(7)
+    try {
+      const jwks = await config.getAdminJwks()
+      const { payload } = await jwtVerify(token, jwks, {
+        issuer: config.adminIssuer,
+        audience: "loa-finn",
+        algorithms: ["ES256"],
+        clockTolerance: 30,
+      })
+      // Require admin role claim
+      if (payload.role !== "admin") {
+        return c.json({ error: "Insufficient role" }, 403)
+      }
+      c.set("adminSub", payload.sub)
+    } catch (err) {
+      return c.json({ error: "Invalid admin token" }, 401)
+    }
+
+    await next()
+  })
+
+  // POST /admin/routing-mode — change routing mode
+  // Audit-first: write tamper-evident record BEFORE applying change.
+  // Fail closed: if audit write fails, reject the mode change (503).
+  app.post("/routing-mode", async (c) => {
+    const body = await c.req.json<{ mode: string }>()
+    const mode = body.mode
+    if (mode !== "disabled" && mode !== "shadow" && mode !== "enabled") {
+      return c.json({ error: "Invalid mode. Must be: disabled, shadow, enabled" }, 400)
+    }
+
+    const previousMode = await config.runtimeConfig.getRoutingMode()
+    const operator = c.get("adminSub")
+
+    // 1. Write to tamper-evident audit trail FIRST (fail closed)
+    try {
+      await config.auditChain.append("routing_mode_change", {
+        previousMode,
+        newMode: mode,
+        changedBy: operator,
         timestamp: new Date().toISOString(),
+        phase: "intent",  // Records intent before effect
+      })
+    } catch (err) {
+      // Audit unavailable — reject the mode change (fail closed)
+      return c.json({ error: "Audit trail unavailable — mode change rejected" }, 503)
+    }
+
+    // 2. Apply the mode change to Redis
+    await config.runtimeConfig.setRoutingMode(mode)
+
+    // 3. Write confirmation audit entry (best-effort — change already applied)
+    try {
+      await config.auditChain.append("routing_mode_change", {
+        previousMode,
+        newMode: mode,
+        changedBy: operator,
+        timestamp: new Date().toISOString(),
+        phase: "confirmed",
+      })
+    } catch {
+      // Log warning but don't roll back — the intent record exists
+      console.warn(JSON.stringify({
+        component: "admin",
+        event: "audit_confirmation_failed",
+        previousMode,
+        newMode: mode,
       }))
     }
-  }
+
+    return c.json({ previousMode, newMode: mode, effectiveImmediately: true })
+  })
+
+  // GET /admin/routing-mode — read current mode
+  app.get("/routing-mode", async (c) => {
+    const mode = await config.runtimeConfig.getRoutingMode()
+    return c.json({ mode })
+  })
+
+  return app
 }
 ```
 
-The kill switch is the simplest component: a single env var check on every routing decision. No caching — `process.env` reads are fast enough (~100ns) and caching would delay propagation of changes.
+**Auth model**: The admin JWKS is separate from service-to-service JWKS. This prevents a compromised service JWT from being used to change routing mode. The admin JWKS is stored in Secrets Manager (`finn/admin-jwks`) as a JSON Web Key Set containing one or more ES256 public keys with `kid` identifiers. The `SecretsLoader` refreshes this on its TTL (default: 1 hour), so rotation does **not** require a restart.
 
-### 4.2 Reputation Query Bridge
+**Admin key rotation procedure**:
+1. Generate new ES256 keypair with unique `kid`
+2. Add new public key to JWKS in Secrets Manager (both old and new present)
+3. Wait for SecretsLoader TTL refresh (~1 hour max, or trigger manual refresh)
+4. Start issuing admin tokens with new `kid`
+5. After old tokens expire (5min + 30s skew), remove old key from JWKS
+6. No restart or redeploy required at any step
 
-#### 4.2.1 Enriched ReputationQueryFn
+**Admin JWT claims**:
 
-**File**: `src/hounfour/goodhart/reputation-adapter.ts`
+| Claim | Value | Purpose |
+|-------|-------|---------|
+| `iss` | `loa-admin` | Distinguishes from service-to-service tokens |
+| `aud` | `loa-finn` | Target service |
+| `sub` | Operator identifier | Audit trail |
+| `role` | `admin` | Authorization |
+| `kid` | Key identifier (header) | Selects verification key from JWKS |
+| `exp` | 5 minutes | Short-lived |
 
-The existing `ReputationQueryFn` type in `src/hounfour/types.ts` takes `(poolId, routingKey)`. This cycle enriches it with `nftId`:
+### 3.4 Two-Tier Health Endpoints
 
-**Current** (`src/hounfour/types.ts:290`):
-```typescript
-export type ReputationQueryFn = (
-  poolId: PoolId,
-  routingKey: NFTRoutingKey,
-) => Promise<number | null>
-```
+**Modified file**: `src/gateway/server.ts`
 
-**New** (same file, updated):
-```typescript
-export interface ReputationQuery {
-  nftId: string
-  poolId: PoolId
-  routingKey: NFTRoutingKey
-}
-
-export interface ReputationQueryOptions {
-  signal?: AbortSignal
-}
-
-export type ReputationQueryFn = (
-  query: ReputationQuery,
-  options?: ReputationQueryOptions,
-) => Promise<number | null>
-```
-
-**AbortSignal threading**: The `signal` is passed from the shared `AbortController` (200ms deadline) through every reputation query and into the Dixie transport layer. Transports must honor the signal by passing it to `fetch()` or equivalent I/O calls. If aborted, the query rejects immediately — `Promise.allSettled` captures it as `"rejected"`.
-
-**Migration**: `resolvePoolWithReputation()` in `tier-bridge.ts:108` currently calls `reputationQuery(poolId, routingKey)`. Updated to `reputationQuery({ nftId, poolId, routingKey })`. The `nftId` is threaded from JWT claims through the routing context.
-
-**Adapter Implementation**:
+Cycle-034 has a single `/health` endpoint. This cycle splits it into two:
 
 ```typescript
-class ReputationAdapter {
-  constructor(
-    private decay: TemporalDecayEngine,
-    private calibration: CalibrationEngine,
-    private transport: DixieTransport | null,  // null = stub mode
-  )
-
-  async query(q: ReputationQuery): Promise<number | null> {
-    // 1. Fetch from dixie
-    const response = await this.fetchFromDixie(q)
-
-    // 2. If null/error, return null (deterministic fallback)
-    if (!response) return null
-
-    // 3. Update EMA with observation (if timestamped)
-    if (response.asOfTimestamp !== "unknown") {
-      const timestamp = new Date(response.asOfTimestamp).getTime()
-      const eventHash = hashReputationEvent(q, response)
-      await this.decay.updateEMA(
-        { nftId: q.nftId, poolId: q.poolId, routingKey: q.routingKey },
-        response.score,
-        timestamp,
-        eventHash,
-      )
-    }
-
-    // 4. Get decayed score
-    const decayed = await this.decay.getDecayedScore({
-      nftId: q.nftId, poolId: q.poolId, routingKey: q.routingKey,
-    })
-
-    if (!decayed) return response.score  // No EMA yet, use raw
-
-    // 5. Blend with calibration (FR1.4 precedence: decay before calibration)
-    const calibrationEntries = this.calibration.getCalibration(
-      q.nftId, q.poolId, q.routingKey,
-    )
-
-    if (calibrationEntries.length > 0) {
-      return this.calibration.blendWithDecay(
-        decayed.score,
-        (await this.decay.getEMAState({ nftId: q.nftId, poolId: q.poolId, routingKey: q.routingKey }))?.sampleCount ?? 1,
-        calibrationEntries,
-      )
-    }
-
-    // 6. Return decayed score, clamped
-    return Math.max(0, Math.min(1, decayed.score))
-  }
-}
-```
-
-#### 4.2.2 ReputationResponse Schema
-
-**File**: `src/hounfour/goodhart/reputation-response.ts`
-
-Versioned internal contract (not a hounfour protocol type):
-
-```typescript
-import { Type, type Static } from "@sinclair/typebox"
-
-export const ReputationResponseSchema = Type.Object({
-  version: Type.Literal(1),
-  score: Type.Number({ minimum: 0, maximum: 1 }),
-  asOfTimestamp: Type.String(),  // ISO 8601 UTC or "unknown"
-  sampleCount: Type.Integer({ minimum: 0 }),
-  taskCohort: Type.Optional(Type.Object({
-    routingKey: Type.String(),
-    score: Type.Number({ minimum: 0, maximum: 1 }),
-    sampleCount: Type.Integer({ minimum: 0 }),
-  })),
+// Liveness — ALB target group health check
+// No dependency checks. Returns 200 if process can respond.
+app.get("/healthz", (c) => {
+  return c.json({ status: "ok", timestamp: new Date().toISOString() }, 200)
 })
 
-export type ReputationResponse = Static<typeof ReputationResponseSchema>
-```
+// Readiness — monitoring dashboards and alerts
+// Checks critical and non-critical dependencies.
+app.get("/health/deps", async (c) => {
+  const deps: Record<string, { status: string; latencyMs?: number }> = {}
+  let hasCriticalFailure = false
 
-**Degraded modes**:
-
-| Dixie Returns | Adapter Behavior |
-|--------------|-----------------|
-| Full `ReputationResponse` | Normal: decay + calibration |
-| Bare number | Wrap as `{ version: 1, score, asOfTimestamp: "unknown", sampleCount: 0 }`. Decay skipped. |
-| Error / null | Return `null`. Deterministic fallback. |
-| `version > 1` | Forward-compatible: use only known fields. |
-
-#### 4.2.3 Parallel Scoring with AbortController
-
-**File**: Modified `src/hounfour/tier-bridge.ts`
-
-The current `resolvePoolWithReputation()` scores pools sequentially (`for...of` at line 134). This cycle switches to `Promise.allSettled()` with a shared `AbortController`.
-
-```typescript
-export async function resolvePoolWithReputation(
-  tier: Tier,
-  nftId: string,
-  taskType?: string,
-  nftPreferences?: Record<string, string>,
-  reputationQuery?: ReputationQueryFn,
-): Promise<PoolId> {
-  if (!reputationQuery) {
-    return resolvePool(tier, taskType, nftPreferences)
-  }
-
-  const accessiblePools = TIER_POOL_ACCESS[tier]
-  if (accessiblePools.length <= 1) {
-    return resolvePool(tier, taskType, nftPreferences)
-  }
-
-  const routingKey: NFTRoutingKey = taskType
-    ? mapUnknownTaskTypeToRoutingKey(taskType)
-    : "default"
-
-  // Shared deadline: 200ms wall-clock
-  const controller = new AbortController()
-  const deadline = setTimeout(() => controller.abort(), 200)
-
+  // Critical: Redis (routing mode, EMA state, nonce dedup)
   try {
-    const results = await Promise.allSettled(
-      accessiblePools.map(async (poolId) => {
-        // Per-query timeout: 100ms (races against shared 200ms deadline)
-        const perQueryController = new AbortController()
-        const perQueryTimeout = setTimeout(() => perQueryController.abort(), 100)
-
-        // Compose signals: abort per-query if either its own timeout or shared deadline fires.
-        // AbortSignal.any() (Node 22+) avoids listener accumulation on the shared controller.
-        const composedSignal = AbortSignal.any([controller.signal, perQueryController.signal])
-
-        try {
-          const score = await reputationQuery(
-            { nftId, poolId, routingKey },
-            { signal: composedSignal },  // Composed: per-query + shared deadline
-          )
-          return { poolId, score }
-        } finally {
-          clearTimeout(perQueryTimeout)
-        }
-      })
-    )
-
-    // Find best pool from fulfilled results
-    let bestPool: PoolId | null = null
-    let bestScore = -1
-
-    for (const result of results) {
-      if (result.status !== "fulfilled") continue
-      const { poolId, score } = result.value
-      if (score === null || score === undefined || !Number.isFinite(score)) continue
-      const clamped = Math.max(0, Math.min(1, score))
-      if (clamped > bestScore) {
-        bestScore = clamped
-        bestPool = poolId
-      }
-    }
-
-    if (bestPool !== null) return bestPool
-    return resolvePool(tier, taskType, nftPreferences)
-  } finally {
-    clearTimeout(deadline)
+    const start = performance.now()
+    await redis.ping()
+    deps.redis = { status: "ok", latencyMs: Math.round(performance.now() - start) }
+  } catch {
+    deps.redis = { status: "unreachable" }
+    hasCriticalFailure = true
   }
-}
+
+  // Non-critical: DynamoDB (audit trail — buffers locally if unavailable)
+  // Uses data-plane GetItem (not control-plane DescribeTable) to avoid
+  // API throttling and rate-limit flapping on frequent scrapes.
+  try {
+    const start = performance.now()
+    await dynamoClient.send(new GetItemCommand({
+      TableName: auditTableName,
+      Key: marshall({ partitionId: "__health__", sequenceNumber: 0 }),
+    }))
+    // Missing item is fine — we're testing connectivity, not data
+    deps.dynamodb = { status: "ok", latencyMs: Math.round(performance.now() - start) }
+  } catch {
+    deps.dynamodb = { status: "unreachable" }
+    // NOT critical — audit buffers in-memory (see §3.10 Audit Resilience)
+  }
+
+  // Non-critical: Dixie (reputation — falls back to deterministic routing)
+  try {
+    const start = performance.now()
+    const resp = await fetch(`${dixieEndpoint}/healthz`, { signal: AbortSignal.timeout(2000) })
+    deps.dixie = { status: resp.ok ? "ok" : "degraded", latencyMs: Math.round(performance.now() - start) }
+  } catch {
+    deps.dixie = { status: "unreachable" }
+    // NOT critical — routing degrades to deterministic
+  }
+
+  const statusCode = hasCriticalFailure ? 503 : 200
+  return c.json({
+    status: hasCriticalFailure ? "degraded" : "ok",
+    dependencies: deps,
+    timestamp: new Date().toISOString(),
+  }, statusCode)
+})
+
+// Legacy /health — redirect to /healthz for backward compat
+app.get("/health", (c) => c.redirect("/healthz", 301))
 ```
 
-**Key design decisions**:
-- **200ms total, 100ms per-query**: The per-query timeout catches individual slow queries. The shared 200ms catches the case where multiple queries are slow simultaneously.
-- **`AbortSignal.any()` composition** (Node 22+): Replaces manual `addEventListener` on the shared controller's signal. Each per-query signal is composed with the shared deadline signal via `AbortSignal.any()`, which avoids listener accumulation on the shared controller and ensures clean GC when the request completes.
-- **`Promise.allSettled`**: Rejected promises (timeouts, errors) don't cancel other queries. Each pool gets its own chance.
+**ALB configuration change**: The ALB target group health check path must be updated from `/health` to `/healthz` in the `ecs-finn.tf` Terraform file in loa-freeside. This is an infrastructure change, not a code change.
 
-### 4.3 AWS Production Deployment
+| Endpoint | ALB? | Status Codes | Dependencies Checked |
+|----------|------|-------------|---------------------|
+| `/healthz` | Yes | Always 200 (unless process crashed) | None |
+| `/health/deps` | No (monitoring) | 200 if all OK, 503 if Redis down | Redis (critical), DynamoDB, Dixie |
 
-#### 4.3.1 Fly.io Removal
+### 3.5 Dixie HTTP Transport — Connection Optimization
 
-All Fly.io references are deleted per PRD Appendix B:
+**Modified file**: `src/hounfour/goodhart/reputation-adapter.ts` (transport layer)
 
-| File | Action |
-|------|--------|
-| `deploy/fly.toml` | DELETE |
-| `deploy/vllm/README.md` | EDIT — remove Fly.io GPU section |
-| `CHANGELOG.md` | EDIT — remove Fly.io mentions |
-| `grimoires/loa/context/research-minimal-pi.md` | EDIT — document AWS decision |
-| `.claude/settings.json` | EDIT — remove `fly`/`flyctl` permissions |
-| `.claude/commands/permission-audit.md` | EDIT — remove flyctl references |
-| `.claude/protocols/helper-scripts.md` | EDIT — remove flyctl suggestions |
-
-#### 4.3.2 ECS Task Definition Alignment
-
-The existing `ecs-finn.tf` in loa-freeside defines:
-- **CPU**: 512 (0.5 vCPU)
-- **Memory**: 1024 MB
-- **ECR Repository**: `arrakis-production-loa-finn`
-- **ALB Target Group**: Health check on `/health`
-- **Service Discovery**: `finn.production.local` via Cloud Map
-- **Secrets**: AWS Secrets Manager ARN references
-
-**Dockerfile changes** (`deploy/Dockerfile`): No structural changes needed. The existing multi-stage build produces an image compatible with the ECS task definition. The `HEALTHCHECK` instruction at line 88 uses `/health` which matches the ALB health check path.
-
-**New environment variables** for ECS (via Secrets Manager):
-
-| Variable | Source | Purpose |
-|----------|--------|---------|
-| `FINN_REPUTATION_ROUTING` | Secrets Manager | Kill switch (FR1.5) |
-| `FINN_MERCHANT_ADDRESS` | Secrets Manager | x402 settlement recipient |
-| `FINN_RELAYER_PRIVATE_KEY` | Secrets Manager | x402 gas payment |
-| `AWS_REGION` | Task definition | SDK region for DynamoDB/S3/KMS |
-| `DYNAMODB_AUDIT_TABLE` | Task definition | Audit trail table name |
-| `S3_AUDIT_BUCKET` | Task definition | Object Lock bucket |
-| `S3_CALIBRATION_BUCKET` | Task definition | Calibration data bucket |
-| `ECS_CONTAINER_METADATA_URI` | Injected by ECS | Partition ID for audit |
-
-#### 4.3.3 GitHub Actions Workflow
-
-**New file**: `.github/workflows/finn-deploy-aws.yml`
-
-```yaml
-name: Deploy to AWS ECS
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-arn: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: us-east-1
-
-      - name: Login to ECR
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push
-        run: |
-          docker build -f deploy/Dockerfile \
-            --build-arg BUILD_TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ) \
-            -t $ECR_REGISTRY/arrakis-production-loa-finn:${{ github.sha }} \
-            -t $ECR_REGISTRY/arrakis-production-loa-finn:latest .
-          docker push $ECR_REGISTRY/arrakis-production-loa-finn --all-tags
-
-      - name: Update ECS service
-        run: |
-          aws ecs update-service \
-            --cluster arrakis-production \
-            --service finn \
-            --force-new-deployment
-```
-
-### 4.4 x402 Settlement System
-
-#### 4.4.1 Merchant Relayer
-
-**File**: Modified `src/x402/settlement.ts`
-
-The existing settlement service performs local verification only. This cycle adds on-chain submission.
+The cycle-034 adapter uses `fetch()` with a per-request `AbortController` timeout. This cycle adds connection pooling and DNS pre-resolution for production performance.
 
 ```typescript
-interface MerchantRelayerConfig {
-  /** Private key for gas payment (from Secrets Manager). */
-  relayerPrivateKey: string
-  /** Merchant address (recipient of USDC transfer). */
-  merchantAddress: `0x${string}`
-  /** Base RPC URL (from rpc-pool.ts). */
-  rpcUrl: string
-  /** Gas surcharge as fraction of inference cost (default: 0.05). */
-  gasSurchargeRate: number
-  /** Max gas surcharge in MicroUSDC (default: 10000 = 0.01 USDC). */
-  maxGasSurchargeMicro: bigint
-  /** Confirmation timeout in ms (default: 30000). */
-  confirmationTimeoutMs: number
-  /** Max concurrent in-flight settlements (default: 5). Prevents DoS via slow payments. */
-  maxConcurrentSettlements: number
-  /** Redis for deduplication. */
-  redis: RedisCommandClient
+import { Agent } from "undici"
+
+interface DixieTransportConfig {
+  /** Base URL for dixie reputation endpoint. */
+  endpoint: string  // https://dixie.production.local/api/reputation/query
+  /** Per-request timeout in ms. */
+  timeoutMs: number  // 300 (up from 100 — headroom for TLS/DNS/network)
+  /** Circuit breaker: failures before open. */
+  circuitBreakerThreshold: number  // 3
+  /** Circuit breaker: half-open probe interval in ms. */
+  halfOpenIntervalMs: number  // 30000
+  /** ES256 JWT signing for service-to-service auth. */
+  jwtSigner: JWTSigner
+  /** DNS refresh interval in ms (Cloud Map resolves can change). */
+  dnsRefreshIntervalMs: number  // 30000
 }
 
-class MerchantRelayer implements SettlementService {
+class DixieHttpTransport {
+  private agent: Agent
+  private resolvedHost: string | null = null
+  private dnsRefreshTimer: ReturnType<typeof setInterval> | null = null
+  private circuitBreaker: CircuitBreaker
+
+  constructor(private config: DixieTransportConfig) {
+    // undici Agent with keep-alive connection pooling
+    this.agent = new Agent({
+      keepAliveTimeout: 60_000,     // Reuse connections for 60s
+      keepAliveMaxTimeout: 120_000,
+      pipelining: 1,                // HTTP/1.1 keep-alive, no pipelining
+      connections: 10,              // Max 10 concurrent connections to dixie
+    })
+
+    this.circuitBreaker = new CircuitBreaker({
+      threshold: config.circuitBreakerThreshold,
+      halfOpenIntervalMs: config.halfOpenIntervalMs,
+    })
+
+    // Pre-resolve DNS at startup and refresh periodically
+    this.refreshDns()
+    this.dnsRefreshTimer = setInterval(() => this.refreshDns(), config.dnsRefreshIntervalMs)
+  }
+
   /**
-   * Settle an EIP-3009 authorization on-chain.
-   *
-   * Idempotency key: `{chainId}:{tokenContract}:{from}:{nonce}` — this is the
-   * replay-relevant tuple per EIP-3009. Two different payers CAN use the same
-   * nonce value because nonces are per-authorizer, so the key MUST include `from`.
-   * The `to` is validated at verification time (FR4.2) and doesn't need to be in
-   * the dedup key.
-   *
-   * Settlement state machine: pending → submitted(txHash) → confirmed | reverted
-   * Stored in DynamoDB (durable) with Redis cache for hot-path dedup.
-   *
-   * Bounded concurrency: A semaphore (`p-limit(maxConcurrentSettlements)`, default 5)
-   * gates entry to the settle() method. If all slots are occupied by in-flight
-   * on-chain settlements (each blocking up to 30s), new requests immediately
-   * receive 503 RELAYER_BUSY instead of queueing indefinitely. This prevents
-   * an attacker from exhausting all request capacity with slow-to-confirm payments.
+   * Pre-resolve Cloud Map DNS to warm the OS DNS cache.
+   * Does NOT rewrite the URL hostname — that would break TLS SNI/cert
+   * verification for HTTPS connections. Instead, the periodic lookup
+   * ensures the OS resolver cache stays warm, avoiding cold-cache latency
+   * (5-50ms) on the hot path. For HTTP-only (E2E compose), this is a no-op
+   * optimization since OS caching handles it.
    */
-  async settle(authorization: EIP3009Authorization, quoteId: string): Promise<SettlementResult> {
-    const idempotencyKey = `${authorization.chainId}:${authorization.tokenContract}:${authorization.from}:${authorization.nonce}`
-    const redisKey = `finn:x402:settlement:${idempotencyKey}`
-
-    // 0. Preflight: reject if authorization validity window is not current
-    const nowSec = Math.floor(Date.now() / 1000)
-    const clockSkewAllowanceSec = 30
-    if (authorization.validAfter > 0 && nowSec < authorization.validAfter - clockSkewAllowanceSec) {
-      throw new X402Error("AUTHORIZATION_NOT_YET_VALID",
-        `Authorization validAfter=${authorization.validAfter} is in the future`, 402)
+  private async refreshDns(): Promise<void> {
+    try {
+      const url = new URL(this.config.endpoint)
+      await dns.promises.lookup(url.hostname)
+      // Result is not stored — the purpose is to warm the OS DNS cache.
+      // OS cache TTL is typically >= 30s, matching our refresh interval.
+    } catch {
+      // DNS failure — no action needed, OS resolver will retry on next request
     }
-    if (authorization.validBefore > 0 && nowSec > authorization.validBefore + clockSkewAllowanceSec) {
-      throw new X402Error("AUTHORIZATION_EXPIRED",
-        `Authorization validBefore=${authorization.validBefore} has passed`, 402)
-    }
+  }
 
-    // 1. Check for existing settlement (DynamoDB durable state, Redis cache)
-    const existing = await this.getSettlementState(idempotencyKey)
-    if (existing) {
-      switch (existing.status) {
-        case "confirmed":
-          // Idempotent replay — return cached result
-          return { txHash: existing.txHash!, status: "confirmed" }
-        case "reverted":
-          throw new X402Error("SETTLEMENT_FAILED", "Authorization previously reverted on-chain", 402)
-        case "submitted":
-          // Previous attempt submitted but not confirmed — check receipt
-          return this.resumeSettlement(existing, idempotencyKey, redisKey)
-        case "pending":
-          // Crash between pending and submitted — retry from submission
-          break
-      }
-    }
-
-    // 2. Claim pending slot (DynamoDB conditional write for durability)
-    await this.claimPendingSlot(idempotencyKey, quoteId, authorization)
-    await this.redis.set(redisKey, "pending", "EX", 7200)  // 2h Redis cache
+  /**
+   * Query dixie for reputation score.
+   * Uses keep-alive connection pooling (eliminates TLS handshake on
+   * repeated queries) and DNS cache warming (eliminates cold-cache latency).
+   * URL hostname is never rewritten to preserve TLS SNI/certificate matching.
+   */
+  async query(q: ReputationQuery, signal?: AbortSignal): Promise<ReputationResponse | null> {
+    if (this.circuitBreaker.isOpen()) return null
 
     try {
-      // 3. Submit transferWithAuthorization on-chain
-      const txHash = await this.submitOnChain(authorization)
-
-      // 4. Update state to submitted
-      await this.updateSettlementState(idempotencyKey, { status: "submitted", txHash })
-      await this.redis.set(redisKey, `submitted:${txHash}`, "EX", 7200)
-
-      // 5. Wait for receipt confirmation
-      // Base L2: use "safe" block tag when available, else wait for 1 confirmation.
-      // Re-check receipt.status to handle reorgs (receipt can appear then disappear).
-      const receipt = await this.waitForConfirmation(txHash, {
-        confirmations: 1,
-        timeoutMs: this.confirmationTimeoutMs,
-        blockTag: "safe",  // Base L2 safe head, falls back to 1-conf if unsupported
+      const jwt = await this.config.jwtSigner.sign({
+        iss: "loa-finn",
+        aud: "loa-dixie",
+        sub: q.nftId,
       })
 
-      if (receipt.status === "reverted") {
-        await this.updateSettlementState(idempotencyKey, { status: "reverted", txHash, revertReason: receipt.revertReason })
-        await this.redis.set(redisKey, `reverted:${txHash}`, "EX", 7200)
-        throw new X402Error("SETTLEMENT_FAILED", receipt.revertReason ?? "Transaction reverted", 402)
+      const url = new URL(this.config.endpoint)
+      url.searchParams.set("nftId", q.nftId)
+      url.searchParams.set("poolId", q.poolId)
+      url.searchParams.set("routingKey", q.routingKey)
+
+      // URL hostname is NOT rewritten — TLS SNI and certificate validation
+      // require the original hostname. Connection pooling via undici Agent
+      // eliminates repeated TLS handshakes; DNS cache warming via refreshDns()
+      // eliminates cold-cache DNS latency.
+
+      const timeoutSignal = AbortSignal.timeout(this.config.timeoutMs)
+      const composedSignal = signal
+        ? AbortSignal.any([signal, timeoutSignal])
+        : timeoutSignal
+
+      const response = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+        },
+        signal: composedSignal,
+        // @ts-expect-error — undici dispatcher
+        dispatcher: this.agent,
+      })
+
+      if (!response.ok) {
+        this.circuitBreaker.recordFailure()
+        return null
       }
 
-      // 6. Mark confirmed
-      await this.updateSettlementState(idempotencyKey, { status: "confirmed", txHash })
-      await this.redis.set(redisKey, `confirmed:${txHash}`, "EX", 7200)
-
-      return { txHash, status: "confirmed" }
-    } catch (err) {
-      if (err instanceof X402Error) throw err
-
-      // Gas failure — release pending slot so client can retry
-      if (isGasError(err)) {
-        await this.updateSettlementState(idempotencyKey, { status: "gas_failed" })
-        await this.redis.del(redisKey)
-        throw new X402Error("RELAYER_UNAVAILABLE", "Insufficient gas for settlement", 503)
-      }
-
-      // Timeout — tx may still confirm; keep submitted state for resume
-      if (isTimeoutError(err)) {
-        throw new X402Error("SETTLEMENT_TIMEOUT", "Transaction pending confirmation", 503)
-      }
-
-      throw err
+      this.circuitBreaker.recordSuccess()
+      const data = await response.json()
+      return parseReputationResponse(data)
+    } catch {
+      this.circuitBreaker.recordFailure()
+      return null
     }
+  }
+
+  /** Graceful shutdown — close connections and stop DNS refresh. */
+  async shutdown(): Promise<void> {
+    if (this.dnsRefreshTimer) clearInterval(this.dnsRefreshTimer)
+    await this.agent.close()
+  }
+}
+```
+
+**Graceful shutdown wiring** (ECS SIGTERM):
+
+The `DixieHttpTransport.shutdown()` method must be called during process termination. This is wired via a centralized shutdown handler in the boot sequence:
+
+```typescript
+// src/boot/shutdown.ts — new file
+interface ShutdownTarget {
+  name: string
+  shutdown: () => Promise<void>
+}
+
+class GracefulShutdown {
+  private targets: ShutdownTarget[] = []
+  private shutdownDeadlineMs: number  // Default: 25000 (ECS stopTimeout is 30s)
+
+  register(target: ShutdownTarget): void {
+    this.targets.push(target)
   }
 
   /**
-   * Resume a previously submitted but unconfirmed settlement.
-   * Called on retry (same nonce) when state is "submitted".
-   * Queries the tx receipt instead of resubmitting.
+   * Install SIGTERM/SIGINT handlers. On signal:
+   * 1. Stop accepting new HTTP requests (Hono server close)
+   * 2. Await in-flight requests with deadline
+   * 3. Shut down all registered targets in parallel
+   * 4. Exit process
    */
-  private async resumeSettlement(
-    existing: SettlementRecord,
-    idempotencyKey: string,
-    redisKey: string,
-  ): Promise<SettlementResult> {
-    const receipt = await this.getTransactionReceipt(existing.txHash!)
-    if (receipt?.status === "success") {
-      await this.updateSettlementState(idempotencyKey, { status: "confirmed", txHash: existing.txHash! })
-      await this.redis.set(redisKey, `confirmed:${existing.txHash}`, "EX", 7200)
-      return { txHash: existing.txHash!, status: "confirmed" }
+  install(): void {
+    const handler = async () => {
+      console.log(JSON.stringify({ event: "shutdown_start", targets: this.targets.map(t => t.name) }))
+      const deadline = setTimeout(() => process.exit(1), this.shutdownDeadlineMs)
+      await Promise.allSettled(this.targets.map(t => t.shutdown()))
+      clearTimeout(deadline)
+      process.exit(0)
     }
-    if (receipt?.status === "reverted") {
-      await this.updateSettlementState(idempotencyKey, { status: "reverted", txHash: existing.txHash! })
-      throw new X402Error("SETTLEMENT_FAILED", "Transaction reverted on-chain", 402)
-    }
-    // Still pending — return 503 so client retries
-    throw new X402Error("SETTLEMENT_TIMEOUT", "Transaction still pending", 503)
+    process.on("SIGTERM", handler)
+    process.on("SIGINT", handler)
   }
 }
 
-**Settlement State Table** (DynamoDB `finn-x402-settlements`):
-
-| Attribute | Type | Key | Description |
-|-----------|------|-----|-------------|
-| `idempotencyKey` | S | PK | `{chainId}:{token}:{from}:{nonce}` |
-| `status` | S | — | `pending \| submitted \| confirmed \| reverted \| gas_failed` |
-| `txHash` | S | — | On-chain tx hash (set after submission) |
-| `quoteId` | S | — | Original quote reference |
-| `createdAt` | S | — | ISO 8601 |
-| `updatedAt` | S | — | ISO 8601 |
-| `revertReason` | S | — | On-chain revert reason (if reverted) |
-
-**TTL**: 24 hours after `updatedAt` for terminal states (`confirmed`, `reverted`). Non-terminal states (`pending`, `submitted`) have no TTL — the reconciliation job handles stale entries.
-
-**Claim pending slot**: `PutItem` with `ConditionExpression: attribute_not_exists(idempotencyKey)` ensures exactly-once creation. If the key exists, the caller checks existing state instead of creating a duplicate.
+// Boot sequence registers all targets:
+// gracefulShutdown.register({ name: "dixie-transport", shutdown: () => dixieTransport.shutdown() })
+// gracefulShutdown.register({ name: "calibration-poller", shutdown: () => calibration.stopPolling() })
+// gracefulShutdown.register({ name: "relayer-monitor", shutdown: () => relayerMonitor.stopMonitoring() })
+// gracefulShutdown.register({ name: "reconciler", shutdown: () => reconciler.stopPeriodicReconciliation() })
+// gracefulShutdown.register({ name: "audit-buffer", shutdown: () => auditBuffer.flushBuffer() })
+// gracefulShutdown.install()
 ```
 
-**On-chain submission** uses `viem` (already a dependency):
+**ECS alignment**: The default `shutdownDeadlineMs` (25s) leaves 5s headroom within ECS's default `stopTimeout` (30s). If the deadline expires, `process.exit(1)` forces termination so ECS doesn't SIGKILL the container.
+
+**Transport changes from cycle-034**:
+
+| Parameter | Cycle-034 | Cycle-035 | Why |
+|-----------|-----------|-----------|-----|
+| Per-request timeout | 100ms | 300ms | Headroom for TLS/DNS/network variance (GPT review fix #4) |
+| Connection reuse | None (new conn per request) | `undici` Agent keep-alive pool | Eliminates TLS handshake on repeated queries |
+| DNS resolution | Per-request OS resolver | Pre-resolved, refreshed every 30s | Avoids 5-50ms DNS lookup on hot path |
+| Connection limit | Unbounded | 10 concurrent | Prevents connection exhaustion to dixie |
+
+### 3.6 Graduation Metrics (Prometheus)
+
+**New file**: `src/hounfour/graduation-metrics.ts`
+
+Prometheus counters are the canonical source of truth for graduation evaluation (PRD FR3.1). Logs are supplementary and may drop.
 
 ```typescript
-private async submitOnChain(auth: EIP3009Authorization): Promise<`0x${string}`> {
-  const client = createWalletClient({
-    chain: base,
-    transport: http(this.rpcUrl),
-    account: privateKeyToAccount(this.relayerPrivateKey),
+import { Counter, Histogram, Registry } from "prom-client"
+
+const registry = new Registry()
+
+// Shadow comparison counters
+const shadowTotal = new Counter({
+  name: "finn_shadow_total",
+  help: "Total shadow routing decisions",
+  labelNames: ["tier"],
+  registers: [registry],
+})
+
+const shadowDiverged = new Counter({
+  name: "finn_shadow_diverged",
+  help: "Shadow decisions that diverged from deterministic routing",
+  labelNames: ["tier"],
+  registers: [registry],
+})
+
+// Reputation query metrics
+const reputationQueryDuration = new Histogram({
+  name: "finn_reputation_query_duration_seconds",
+  help: "Dixie reputation query latency",
+  labelNames: ["status"],  // "success", "timeout", "error", "circuit_open"
+  buckets: [0.01, 0.025, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5],
+  registers: [registry],
+})
+
+const reputationQueryTotal = new Counter({
+  name: "finn_reputation_query_total",
+  help: "Total reputation queries to dixie",
+  labelNames: ["status"],
+  registers: [registry],
+})
+
+// Exploration metrics
+const explorationTotal = new Counter({
+  name: "finn_exploration_total",
+  help: "Total exploration decisions",
+  labelNames: ["tier", "outcome"],  // outcome: "explored", "skipped", "no_candidates"
+  registers: [registry],
+})
+
+// EMA metrics
+const emaUpdates = new Counter({
+  name: "finn_ema_updates_total",
+  help: "Total EMA update operations",
+  labelNames: ["outcome"],  // "updated", "duplicate", "stale", "cold_start"
+  registers: [registry],
+})
+
+// Routing mode
+const routingMode = new Counter({
+  name: "finn_routing_mode_transitions_total",
+  help: "Routing mode changes",
+  labelNames: ["from", "to"],
+  registers: [registry],
+})
+
+export { registry, shadowTotal, shadowDiverged, reputationQueryDuration,
+         reputationQueryTotal, explorationTotal, emaUpdates, routingMode }
+```
+
+**Metrics endpoint**: `GET /metrics` returns Prometheus text format from the registry.
+
+```typescript
+// Added to server.ts
+app.get("/metrics", async (c) => {
+  const metrics = await registry.metrics()
+  return c.text(metrics, 200, {
+    "Content-Type": registry.contentType,
   })
-
-  return client.writeContract({
-    address: USDC_BASE_ADDRESS,  // 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-    abi: EIP3009_ABI,
-    functionName: "transferWithAuthorization",
-    args: [auth.from, auth.to, auth.value, auth.validAfter, auth.validBefore, auth.nonce, auth.v, auth.r, auth.s],
-  })
-}
+})
 ```
 
-#### 4.4.2 EIP-3009 Chain/Contract Binding
+**Prometheus scraping infrastructure** (required for graduation):
 
-**File**: Modified `src/x402/verify.ts`
+The `/metrics` endpoint is for local/dev use only. Production graduation requires a Prometheus server (or AWS Managed Prometheus / AMP) that scrapes the finn ECS tasks. This is necessary because:
+- **Counter resets**: ECS task restarts (deploys, scale events, crashes) reset in-process counters. A Prometheus server with `increase()` / `rate()` functions handles resets correctly via its staleness/reset detection.
+- **72-hour retention**: In-process counters only live as long as the process. Prometheus retains scraped data for the full graduation window.
+- **Multi-task aggregation**: If multiple ECS tasks run, Prometheus aggregates across instances.
 
-The existing verifier checks signature validity. This cycle adds chain, contract, and recipient binding:
+**Prometheus scrape target discovery**: Use ECS service discovery (Cloud Map `finn.production.local`) or the ALB metrics endpoint. Scrape interval: 15s (default).
 
-```typescript
-// Added to verify() method:
+**Graduation evaluation script**: `scripts/evaluate-graduation.ts`
 
-// Chain binding (FR4.2)
-if (proof.chainId !== 8453n) {
-  throw new X402Error("INVALID_CHAIN", `Expected Base (8453), got ${proof.chainId}`, 402)
-}
-
-// Contract binding (FR4.2)
-if (proof.tokenContract.toLowerCase() !== USDC_BASE_ADDRESS.toLowerCase()) {
-  throw new X402Error("INVALID_TOKEN", "Only USDC on Base accepted", 402)
-}
-
-// Recipient binding (FR4.2)
-if (proof.to.toLowerCase() !== this.merchantAddress.toLowerCase()) {
-  throw new X402Error("INVALID_RECIPIENT", "Payment directed to wrong recipient", 402)
-}
-
-// EIP-712 domain separator validation
-const expectedDomain = {
-  name: "USD Coin",
-  version: "2",
-  chainId: 8453n,
-  verifyingContract: USDC_BASE_ADDRESS,
-}
-```
-
-#### 4.4.3 Conservation Guard x402 Mode
-
-**File**: Modified `src/hounfour/billing-conservation-guard.ts`
-
-New method for x402 payment verification:
+Queries the Prometheus API (not `/metrics` directly) using PromQL range vectors for the 72-hour graduation window:
 
 ```typescript
+interface GraduationResult {
+  verdict: "GRADUATE" | "NOT_READY" | "INSUFFICIENT_DATA"
+  thresholds: {
+    id: string
+    metric: string
+    promql: string
+    target: string
+    actual: string | number
+    passed: boolean
+  }[]
+  window: { start: string; end: string }
+  totalShadowDecisions: number
+}
+
+interface GraduationConfig {
+  /** Prometheus query API endpoint. */
+  prometheusUrl: string  // e.g., "http://prometheus:9090" or AMP workspace query URL
+  /** Redis client for T5 (EMA CV) and T7/T8 spot checks. */
+  redisClient: RedisCommandClient
+  /** Admin endpoint for T7 spot check. */
+  adminEndpoint: string
+}
+
 /**
- * Check x402 payment conservation: payment ≥ inference cost.
- * Uses MicroUSDC (not MicroUSD) — branded type prevents cross-unit comparison.
+ * Evaluate all 8 graduation thresholds using Prometheus range queries.
+ * Counter-based thresholds use `increase()` to handle task restarts correctly.
+ *
+ * T1: Routing divergence <15%
+ *     PromQL: sum(increase(finn_shadow_diverged[72h])) / sum(increase(finn_shadow_total[72h]))
+ * T2: Reputation query p99 <100ms
+ *     PromQL: histogram_quantile(0.99, sum(rate(finn_reputation_query_duration_seconds_bucket[72h])) by (le))
+ * T3: Latency impact <50ms delta
+ *     PromQL: (histogram_quantile(0.99, ..._with_reputation) - histogram_quantile(0.99, ..._baseline))
+ * T4: Error rate <0.1%
+ *     PromQL: sum(increase(finn_reputation_query_total{status="error"}[72h])) / sum(increase(finn_reputation_query_total[72h]))
+ * T5: EMA CV <0.3 (computed from Redis EMA state samples — not Prometheus)
+ * T6: Exploration rate within [3%, 7%]
+ *     PromQL: sum(increase(finn_exploration_total{outcome="explored"}[72h])) / sum(increase(finn_shadow_total[72h]))
+ * T7: Kill switch responsiveness <1s (spot check via admin endpoint round-trip — not Prometheus)
+ * T8: Calibration freshness <60s (S3 ETag polling timestamp check — not Prometheus)
+ *
+ * Outputs GRADUATE when all 8 pass. Outputs NOT_READY with failing thresholds.
+ * Outputs INSUFFICIENT_DATA if sum(increase(finn_shadow_total[72h])) < 1000.
  */
-checkX402Conservation(paymentMicro: bigint, costMicro: bigint): InvariantResult {
-  const adhoc = paymentMicro >= costMicro ? "pass" : "fail" as const
-  return this.runCheck("budget_conservation", {
-    spent: String(costMicro),
-    limit: String(paymentMicro),
-    zero: "0",
-  }, adhoc)
-}
+async function evaluateGraduation(
+  config: GraduationConfig,
+  window: { start: Date; end: Date },
+): Promise<GraduationResult>
 ```
 
-**Branded type** for denomination safety:
+### 3.7 Three-Leg E2E Compose
 
-```typescript
-// src/x402/denomination.ts (existing, extended)
-declare const MicroUSDCBrand: unique symbol
-export type MicroUSDC = bigint & { readonly [MicroUSDCBrand]: true }
+**New file**: `tests/e2e/docker-compose.e2e-v3.yml`
 
-export function toMicroUSDC(value: bigint): MicroUSDC {
-  return value as MicroUSDC
-}
-```
-
-This prevents `MicroUSD` (credit-balance path) from being compared with `MicroUSDC` (x402 path) at the TypeScript level.
-
-#### 4.4.4 Gas Surcharge in Quote
-
-**File**: Modified `src/x402/pricing.ts`
-
-```typescript
-function computeQuoteWithGas(inferenceCostMicro: bigint, gasSurchargeRate: number, maxSurchargeMicro: bigint): bigint {
-  const surcharge = BigInt(Math.ceil(Number(inferenceCostMicro) * gasSurchargeRate))
-  const cappedSurcharge = surcharge > maxSurchargeMicro ? maxSurchargeMicro : surcharge
-  return inferenceCostMicro + cappedSurcharge
-}
-```
-
-The `X-Price` header includes the gas surcharge. The client pays the full amount; finn covers gas from its relayer wallet.
-
-#### 4.4.5 Relayer Gas Monitoring
-
-**File**: `src/x402/relayer-monitor.ts`
-
-The relayer wallet holds ETH for gas. If depleted, all x402 settlements fail silently until refilled.
-
-```typescript
-interface RelayerMonitorConfig {
-  /** Minimum balance in wei before alerting. Default: 0.01 ETH. */
-  alertThresholdWei: bigint
-  /** Critical threshold — stop accepting new settlements. Default: 0.001 ETH. */
-  criticalThresholdWei: bigint
-  /** Check interval in ms. Default: 60000 (1 minute). */
-  checkIntervalMs: number
-}
-
-class RelayerMonitor {
-  /** Check balance on startup. Logs warning if below alert threshold. */
-  async checkOnStartup(): Promise<{ healthy: boolean; balanceWei: bigint }>
-
-  /** Periodic health probe (called by /health endpoint). */
-  async getRelayerHealth(): Promise<{
-    balanceWei: bigint
-    balanceEth: string
-    status: "healthy" | "low" | "critical"
-  }>
-
-  /** Start periodic balance monitoring. */
-  startMonitoring(): void
-
-  /** Stop monitoring (graceful shutdown). */
-  stopMonitoring(): void
-}
-```
-
-**Health endpoint integration**: The `/health` response includes relayer balance status:
-```json
-{
-  "relayer": {
-    "status": "healthy | low | critical",
-    "balance_eth": "0.05"
-  }
-}
-```
-
-**Alert flow**: When balance drops below `alertThresholdWei`, a structured log is emitted for CloudWatch alarm ingestion. At `criticalThresholdWei`, the relayer refuses new settlements (returns 503 `RELAYER_UNAVAILABLE`) rather than submitting transactions that will fail.
-
-#### 4.4.6 Settlement Reconciliation Job
-
-**File**: `src/x402/reconciliation.ts`
-
-A periodic job that finalizes stale settlement records in DynamoDB.
-
-```typescript
-interface ReconciliationConfig {
-  /** Run interval in ms. Default: 300000 (5 minutes). */
-  intervalMs: number
-  /** Max age for pending records before force-expiring. Default: 3600000 (1 hour). */
-  pendingMaxAgeMs: number
-  /** Max age for submitted records before re-checking receipt. Default: 600000 (10 minutes). */
-  submittedMaxAgeMs: number
-}
-
-class SettlementReconciler {
-  /**
-   * Scan DynamoDB for non-terminal settlement records.
-   * For each:
-   *   - "pending" older than pendingMaxAgeMs → mark "expired" (process crashed before submission)
-   *   - "submitted" older than submittedMaxAgeMs → re-check on-chain receipt:
-   *       - receipt confirmed → update to "confirmed"
-   *       - receipt reverted → update to "reverted"
-   *       - no receipt → if older than 1h, mark "expired" (tx likely dropped from mempool)
-   */
-  async reconcile(): Promise<ReconciliationResult>
-
-  startPeriodicReconciliation(): void
-  stopPeriodicReconciliation(): void
-}
-
-interface ReconciliationResult {
-  scanned: number
-  confirmed: number
-  reverted: number
-  expired: number
-  errors: number
-}
-```
-
-**DynamoDB query**: Uses a GSI on `status` (sparse index, only non-terminal states) with `updatedAt` range key to efficiently find stale records without table scan.
-
-**GSI addition to `finn-x402-settlements`**:
-
-| GSI Name | PK | SK | Projection |
-|----------|----|----|------------|
-| `status-updated-index` | `status` | `updatedAt` | `idempotencyKey`, `txHash` |
-
-### 4.5 Cross-System E2E Test Harness
-
-**New file**: `docker-compose.e2e.yml`
+Extends the cycle-034 two-leg compose (`docker-compose.e2e-v2.yml`) to three legs.
 
 ```yaml
-version: "3.8"
 services:
-  finn:
+  # === Infrastructure ===
+
+  redis-e2e:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  postgres-e2e:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  localstack-e2e:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: dynamodb,s3,kms,secretsmanager
+      DEFAULT_REGION: us-east-1
+    volumes:
+      - ./localstack-init.sh:/etc/localstack/init/ready.d/init.sh
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # === Application Services ===
+
+  loa-finn-e2e:
     build:
-      context: .
+      context: ../../
       dockerfile: deploy/Dockerfile
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=test
-      - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgres://finn:finn@postgres:5432/finn_test
-      - FREESIDE_URL=http://freeside:4000
-      - FINN_REPUTATION_ROUTING=enabled
-      - ECONOMIC_BOUNDARY_MODE=enforce
+      NODE_ENV: test
+      REDIS_URL: redis://redis-e2e:6379
+      FINN_REPUTATION_ENDPOINT: http://loa-dixie-e2e:5000/api/reputation/query
+      FINN_REPUTATION_ROUTING: shadow
+      FINN_S2S_PRIVATE_KEY_FILE: /keys/finn-private.pem
+      FINN_ADMIN_PUBLIC_KEY_FILE: /keys/admin-public.pem
+      AWS_ENDPOINT_URL: http://localstack-e2e:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      DYNAMODB_AUDIT_TABLE: finn-audit-e2e
+      S3_AUDIT_BUCKET: finn-audit-e2e
+      S3_CALIBRATION_BUCKET: finn-calibration-e2e
+      X402_CHAIN_ID: "84532"
+      X402_USDC_ADDRESS: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+      X402_SETTLEMENT_MODE: verify_only
+    volumes:
+      - ./keys:/keys:ro
     depends_on:
-      - redis
-      - postgres
-      - freeside
+      redis-e2e:
+        condition: service_healthy
+      localstack-e2e:
+        condition: service_healthy
+      loa-dixie-e2e:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
-  freeside:
+  loa-freeside-e2e:
     image: ${FREESIDE_IMAGE:-ghcr.io/0xhoneyjar/loa-freeside:latest}
     ports:
       - "4000:4000"
     environment:
-      - NODE_ENV=test
-      - DATABASE_URL=postgres://freeside:freeside@postgres:5432/freeside_test
-      - REDIS_URL=redis://redis:6379
-      - FINN_URL=http://finn:3000
-    depends_on:
-      - redis
-      - postgres
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-    ports:
-      - "5432:5432"
+      NODE_ENV: test
+      REDIS_URL: redis://redis-e2e:6379
+      DATABASE_URL: postgres://postgres:postgres@postgres-e2e:5432/freeside_test
+      FINN_URL: http://loa-finn-e2e:3000
+      FREESIDE_S2S_PRIVATE_KEY_FILE: /keys/freeside-private.pem
     volumes:
-      - ./deploy/e2e/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./keys:/keys:ro
+    depends_on:
+      redis-e2e:
+        condition: service_healthy
+      postgres-e2e:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  loa-dixie-e2e:
+    image: ${DIXIE_IMAGE:-ghcr.io/0xhoneyjar/loa-dixie:latest}
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@postgres-e2e:5432/dixie_test
+      REDIS_URL: redis://redis-e2e:6379
+      DIXIE_S2S_PRIVATE_KEY_FILE: /keys/dixie-private.pem
+    volumes:
+      - ./keys:/keys:ro
+    depends_on:
+      redis-e2e:
+        condition: service_healthy
+      postgres-e2e:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 ```
 
-**E2E Test Flow**:
-1. `docker compose -f docker-compose.e2e.yml up -d`
-2. Wait for health checks (`finn:3000/health`, `freeside:4000/health`)
-3. Create test JWT (real ES256 from freeside's JWKS)
-4. `POST /api/v1/invoke` with JWT → verify billing debit
-5. `POST /api/v1/x402/invoke` without JWT → verify 402 → submit with payment → verify inference
+**init-db.sql** — Creates databases for both freeside and dixie:
 
-### 4.6 Tamper-Evident Audit Trail
+```sql
+CREATE DATABASE freeside_test;
+CREATE DATABASE dixie_test;
+```
 
-#### 4.6.1 DynamoDB Per-Partition Hash Chain
+#### 3.6.1 Deterministic Test Keypairs
 
-**File**: `src/hounfour/audit/dynamo-audit.ts`
+**Directory**: `tests/e2e/keys/`
+
+Pre-generated ES256 keypairs for deterministic E2E testing. Same trust model as production (JWKS validation) but with known keys.
+
+```
+tests/e2e/keys/
+├── finn-private.pem        # finn service signing key
+├── finn-public.pem         # finn service verification key
+├── freeside-private.pem    # freeside service signing key
+├── freeside-public.pem     # freeside service verification key
+├── dixie-private.pem       # dixie service signing key
+├── dixie-public.pem        # dixie service verification key
+├── admin-private.pem       # admin operator signing key (for routing mode changes)
+├── admin-public.pem        # admin operator verification key
+└── generate-keys.sh        # Regeneration script (openssl ecparam -genkey)
+```
+
+**JWKS endpoint** (`GET /.well-known/jwks.json`): Each service reads its own public key from the mounted volume and serves it as JWKS. In E2E, all services also mount each other's public keys for issuer verification (mirroring production JWKS fetching).
+
+**Generate script**: `tests/e2e/keys/generate-keys.sh`
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+for service in finn freeside dixie admin; do
+  openssl ecparam -genkey -name prime256v1 -noout \
+    | openssl pkcs8 -topk8 -nocrypt -out "${service}-private.pem"
+  openssl ec -in "${service}-private.pem" -pubout -out "${service}-public.pem"
+  echo "Generated ${service} keypair"
+done
+```
+
+These keys are checked into the repo (test-only, clearly in `tests/e2e/keys/`). Production keys are in AWS Secrets Manager.
+
+#### 3.6.2 Autopoietic Path E2E Test
+
+**New file**: `tests/e2e/autopoietic-loop.test.ts`
+
+Verifies the complete 6-stage loop in the three-leg compose:
 
 ```typescript
-interface AuditEntry {
-  partitionId: string       // ECS task ID (from ECS_CONTAINER_METADATA_URI)
-  sequenceNumber: number    // Monotonic per partition
-  hash: string              // SHA-256(prev_hash + payload_hash + timestamp)
-  prevHash: string          // Hash of previous entry (genesis: "0")
-  timestamp: string         // ISO 8601
-  action: string            // e.g., "scoring_path", "kill_switch_toggle"
-  payloadHash: string       // SHA-256 of the entry payload
+describe("Autopoietic Loop E2E", () => {
+  it("closes the feedback loop across finn → dixie → finn", async () => {
+    // 1. Seed: Create a test NFT with a known nftId in dixie
+    // 2. First request: deterministic routing (no reputation data yet)
+    //    → verify ScoringPathLog.path === "deterministic"
+    // 3. Quality signal: scoreToObservation produces quality score
+    //    → verify reputation event sent to dixie
+    // 4. Wait: dixie processes and stores reputation
+    // 5. Subsequent requests: shadow mode scores reputation
+    //    → verify finn_shadow_total counter increments
+    //    → verify dixie receives reputation query
+    // 6. After N requests: verify EMA converges
+    //    → verify routing decisions shift (not always same pool)
+    // 7. Check ScoringPathLog progression: "stub" → "reputation"
+  })
+})
+```
+
+### 3.8 x402 Chain Configuration
+
+**Modified files**: `src/x402/verify.ts`, `src/x402/settlement.ts`
+
+Cycle-034 hardcodes Base mainnet chain ID (`8453`) and USDC address. This cycle makes them configurable for testnet→mainnet migration.
+
+```typescript
+interface ChainConfig {
+  chainId: bigint
+  usdcAddress: `0x${string}`
+  rpcUrl: string
+  chainName: string
 }
 
-class DynamoAuditChain {
-  private sequenceNumber: number = 0
-  private lastHash: string = "0"  // Genesis
-  private partitionId: string
-  private initialized: boolean = false
+const CHAIN_CONFIGS: Record<string, ChainConfig> = {
+  // Base mainnet
+  "8453": {
+    chainId: 8453n,
+    usdcAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    rpcUrl: process.env.BASE_RPC_URL ?? "https://mainnet.base.org",
+    chainName: "Base",
+  },
+  // Base Sepolia (testnet)
+  "84532": {
+    chainId: 84532n,
+    usdcAddress: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    rpcUrl: process.env.BASE_SEPOLIA_RPC_URL ?? "https://sepolia.base.org",
+    chainName: "Base Sepolia",
+  },
+}
+
+function getChainConfig(): ChainConfig {
+  const chainId = process.env.X402_CHAIN_ID ?? "8453"
+  const config = CHAIN_CONFIGS[chainId]
+  if (!config) {
+    throw new Error(`Unsupported chain ID: ${chainId}. Supported: ${Object.keys(CHAIN_CONFIGS).join(", ")}`)
+  }
+  // Allow override of USDC address for custom deployments
+  const usdcOverride = process.env.X402_USDC_ADDRESS
+  if (usdcOverride) {
+    return { ...config, usdcAddress: usdcOverride as `0x${string}` }
+  }
+  return config
+}
+```
+
+**Verify changes**: The hardcoded `8453n` and `USDC_BASE_ADDRESS` constants in `verify.ts` are replaced with `chainConfig.chainId` and `chainConfig.usdcAddress`. Same for the `EIP-712 domain separator.
+
+**Settlement changes**: The `MerchantRelayer.submitOnChain()` method uses `chainConfig.rpcUrl` and `chainConfig.chainId` instead of hardcoded values. The `viem` chain configuration is constructed dynamically.
+
+**Settlement timeout alignment** (GPT review fix #7):
+
+| Parameter | Cycle-034 | Cycle-035 | Why |
+|-----------|-----------|-----------|-----|
+| `confirmationTimeoutMs` | 30000 | 60000 | Headroom for Base congestion (GPT review: 30s timeout with 35s SLO was guaranteed-failure) |
+| NFR1 p99 SLO | <35s | <20s | Realistic target — Base typical is 2-5s |
+
+### 3.10 Audit Resilience — Bounded Buffer (replaces CloudWatch fallback)
+
+**Modified behavior** from cycle-034 §4.6.3: Cycle-034 specified CloudWatch as the audit fallback when DynamoDB is unavailable. GPT review correctly identified that CloudWatch is not tamper-evident and cannot substitute for the DynamoDB hash chain + S3 Object Lock guarantees. This cycle replaces the CloudWatch fallback with a bounded in-memory buffer.
+
+```typescript
+interface AuditBufferConfig {
+  /** Max entries to buffer before applying backpressure. Default: 1000. */
+  maxBufferSize: number
+  /** Retry interval for flushing buffer to DynamoDB. Default: 5000ms. */
+  retryIntervalMs: number
+  /** Max age for buffered entries before discarding. Default: 300000ms (5 min). */
+  maxEntryAgeMs: number
+}
+
+class BufferedAuditChain {
+  private buffer: AuditEntry[] = []
+  private retryTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(
-    private dynamoClient: DynamoDBClient,
-    private tableName: string,
-  ) {
-    // Extract ECS Task ID (not the metadata URI itself) for stable partition ID.
-    // Fetched once at boot from ECS container metadata JSON endpoint.
-    this.partitionId = this.extractTaskId()
-  }
+    private inner: DynamoAuditChain,  // cycle-034 §4.6.1
+    private config: AuditBufferConfig,
+  ) {}
 
   /**
-   * Extract stable ECS Task ID from container metadata.
-   * Uses the ECS_CONTAINER_METADATA_URI_V4 endpoint to fetch task ARN,
-   * then extracts the task ID suffix (e.g., "abc123def456").
-   * Falls back to hostname + boot timestamp for local dev.
+   * Append to audit trail. If DynamoDB is unreachable, buffer in memory.
+   * Buffer is bounded — when full, new entries are rejected (fail closed
+   * for admin actions, degrade for telemetry).
    */
-  private extractTaskId(): string {
-    const metadataUri = process.env.ECS_CONTAINER_METADATA_URI_V4
-    if (metadataUri) {
-      // Parsed at boot: GET {metadataUri}/task → response.TaskARN
-      // TaskARN format: arn:aws:ecs:region:account:task/cluster/task-id
-      // Extract the final segment as the stable partition ID
-      return parseTaskIdFromArn(this.cachedTaskArn)
-    }
-    // Local dev: use hostname + boot timestamp for uniqueness
-    return `local-${os.hostname()}-${Date.now()}`
-  }
-
-  /**
-   * Initialize chain state by recovering from DynamoDB.
-   * MUST be called before first append. Queries the latest entry
-   * in this partition to resume sequenceNumber and lastHash.
-   * If partition is new, starts from genesis.
-   */
-  async init(): Promise<void> {
-    if (this.initialized) return
-
-    // Query latest entry: ScanIndexForward=false, Limit=1
-    const result = await this.dynamoClient.send(new QueryCommand({
-      TableName: this.tableName,
-      KeyConditionExpression: "partitionId = :pid",
-      ExpressionAttributeValues: marshall({ ":pid": this.partitionId }),
-      ScanIndexForward: false,  // Descending by sort key
-      Limit: 1,
-    }))
-
-    if (result.Items && result.Items.length > 0) {
-      const latest = unmarshall(result.Items[0]) as AuditEntry
-      this.sequenceNumber = latest.sequenceNumber
-      this.lastHash = latest.hash
-      console.log(
-        `[dynamo-audit] Recovered partition=${this.partitionId} ` +
-        `seq=${this.sequenceNumber} hash=${this.lastHash.slice(0, 12)}...`
-      )
-    } else {
-      // New partition — start from genesis
-      console.log(`[dynamo-audit] New partition=${this.partitionId}, starting from genesis`)
-    }
-
-    this.initialized = true
-  }
-
-  /** Append entry to the chain. Atomic via conditional write. */
   async append(action: string, payload: Record<string, unknown>): Promise<void> {
-    if (!this.initialized) await this.init()
-
-    const payloadHash = createHash("sha256")
-      .update(JSON.stringify(payload))
-      .digest("hex")
-
-    const timestamp = new Date().toISOString()
-    const nextSeq = this.sequenceNumber + 1
-    const hash = createHash("sha256")
-      .update(`${this.lastHash}:${payloadHash}:${timestamp}`)
-      .digest("hex")
-
-    const entry: AuditEntry = {
-      partitionId: this.partitionId,
-      sequenceNumber: nextSeq,
-      hash,
-      prevHash: this.lastHash,
-      timestamp,
-      action,
-      payloadHash,
+    try {
+      // First try to flush any buffered entries
+      await this.flushBuffer()
+      // Then append the new entry
+      await this.inner.append(action, payload)
+    } catch {
+      // DynamoDB unreachable — buffer the entry
+      if (this.buffer.length >= this.config.maxBufferSize) {
+        // Buffer full — behavior depends on action criticality
+        if (action === "routing_mode_change" || action === "settlement") {
+          throw new Error("Audit trail unavailable for critical action")
+        }
+        // Non-critical: log warning, drop entry
+        console.warn(JSON.stringify({
+          component: "audit-buffer",
+          event: "buffer_full_drop",
+          action,
+          bufferSize: this.buffer.length,
+        }))
+        return
+      }
+      this.buffer.push({ action, payload, bufferedAt: Date.now() } as any)
+      this.startRetry()
     }
-
-    // Conditional write: ensure this exact PK+SK does not already exist.
-    // attribute_not_exists on the sort key is sufficient because DynamoDB
-    // evaluates the condition against the item with the same composite key.
-    await this.dynamoClient.send(new PutItemCommand({
-      TableName: this.tableName,
-      Item: marshall(entry),
-      ConditionExpression: "attribute_not_exists(sequenceNumber)",
-    }))
-
-    this.sequenceNumber = nextSeq
-    this.lastHash = hash
   }
 
-  /** Verify integrity of entire partition. */
-  async verifyPartitionIntegrity(): Promise<boolean> {
-    // Query all entries in sort-key order (ScanIndexForward=true)
-    // Recompute chain from genesis, verify each hash matches prevHash linkage
-    // Return false on first mismatch
-    // ...
+  /** Flush buffered entries to DynamoDB in order. */
+  private async flushBuffer(): Promise<void> {
+    while (this.buffer.length > 0) {
+      const entry = this.buffer[0]
+      if (Date.now() - entry.bufferedAt > this.config.maxEntryAgeMs) {
+        this.buffer.shift()  // Discard expired entries
+        continue
+      }
+      await this.inner.append(entry.action, entry.payload)
+      this.buffer.shift()  // Remove after successful write
+    }
+    this.stopRetry()
   }
 }
-
-/**
- * Conditional write failure recovery:
- *
- * ConditionalCheckFailedException on append means the exact PK+SK already exists.
- * This should only happen if:
- *   (a) A duplicate append was attempted (crash-recovery replayed the same event), or
- *   (b) A bug produced a sequence number collision.
- *
- * Recovery strategy:
- *   1. Re-read the existing entry at that sequence number.
- *   2. If the existing entry's payloadHash matches the one we tried to write → idempotent duplicate, no-op.
- *   3. If the payloadHash differs → genuine collision (bug). Enter degraded mode:
- *      - Log structured error with both entries for forensic analysis.
- *      - Re-query the partition head to resync sequenceNumber and lastHash.
- *      - Retry the append with the corrected sequence number.
- *      - If retry also fails, fall back to CloudWatch audit logging (§4.6.3).
- *   4. A counter tracks consecutive conditional write failures. If >3 in a row,
- *      the audit chain enters permanent degraded mode for this partition and
- *      emits an alarm-severity log for operator investigation.
- */
 ```
 
-**DynamoDB Table Schema**:
+**Critical actions** (routing mode changes, x402 settlements): If the buffer is full and DynamoDB is unreachable, these actions **fail closed** — the operation is rejected rather than proceeding without an audit record. This prevents unauditable admin actions.
 
-| Attribute | Type | Role |
-|-----------|------|------|
-| `partitionId` | String | Partition Key |
-| `sequenceNumber` | Number | Sort Key |
-| `hash` | String | Chain link hash |
-| `prevHash` | String | Previous hash (genesis = "0") |
-| `timestamp` | String | ISO 8601 |
-| `action` | String | Event type |
-| `payloadHash` | String | SHA-256 of payload |
+**Non-critical actions** (shadow comparison logs, exploration counters): If the buffer is full, entries are dropped with a structured warning log. CloudWatch receives the warning for operational alerting, but is not treated as an audit record.
 
-**Conditional write**: `attribute_not_exists(sequenceNumber)` on the target PK+SK ensures exactly-once writes. DynamoDB evaluates the condition against the specific item being written (same partitionId + sequenceNumber composite key), so this correctly prevents duplicate sequence numbers within a partition.
+**Admin endpoint integration**: The `POST /admin/routing-mode` handler writes to the `BufferedAuditChain` **before** returning success. If the audit write fails (buffer full + DynamoDB down), the mode change is rejected with 503.
 
-#### 4.6.2 S3 Object Lock Immutable Anchor
+### 3.9 Secrets Management
 
-**File**: `src/hounfour/audit/s3-anchor.ts`
+No new module — this section documents the three-category split from PRD NFR3.
+
+**Startup sequence** (`src/boot/secrets.ts` — new file):
 
 ```typescript
-class S3AuditAnchor {
-  constructor(
-    private s3Client: S3Client,
-    private kmsClient: KMSClient,
-    private bucketName: string,
-    private kmsKeyId: string,
-  )
+interface SecretsConfig {
+  /** AWS Secrets Manager client. */
+  smClient: SecretsManagerClient
+  /** Secret names to retrieve. */
+  secretNames: {
+    s2sPrivateKey: string       // "finn/s2s-private-key"
+    calibrationHmac: string     // "finn/calibration-hmac"
+    merchantPrivateKey?: string  // "finn/merchant-private-key" (only for x402 on_chain mode)
+    adminJwks: string           // "finn/admin-jwks" (JWKS JSON with kid — NOT a single PEM)
+  }
+  /** Cache TTL for secrets (default: 1 hour). */
+  cacheTtlMs: number
+}
+
+class SecretsLoader {
+  private cache: Map<string, { value: string; expiresAt: number }> = new Map()
 
   /**
-   * Compute daily digest: SHA-256 of all partition head hashes.
-   * Sign with KMS. Write to S3 Object Lock bucket.
+   * Load all secrets at startup. Fail fast if any required secret is missing.
+   * Cache in memory with TTL for rotation support.
    */
-  async writeDailyDigest(
-    partitionHeads: Map<string, { hash: string; sequenceNumber: number }>,
-  ): Promise<void> {
-    const date = new Date().toISOString().split("T")[0]  // YYYY-MM-DD
+  async loadAll(): Promise<LoadedSecrets> {
+    // Parallel fetch from Secrets Manager
+    const [s2sKey, hmac, merchantKey, adminPubKey] = await Promise.all([
+      this.getSecret(this.config.secretNames.s2sPrivateKey),
+      this.getSecret(this.config.secretNames.calibrationHmac),
+      this.config.secretNames.merchantPrivateKey
+        ? this.getSecret(this.config.secretNames.merchantPrivateKey)
+        : Promise.resolve(null),
+      this.getSecret(this.config.secretNames.adminPublicKey),
+    ])
 
-    // 1. Compute digest
-    const sorted = [...partitionHeads.entries()].sort(([a], [b]) => a.localeCompare(b))
-    const digestInput = sorted.map(([pid, head]) => `${pid}:${head.hash}:${head.sequenceNumber}`).join("|")
-    const digest = createHash("sha256").update(digestInput).digest("hex")
-
-    // 2. KMS sign
-    const signature = await this.kmsClient.send(new SignCommand({
-      KeyId: this.kmsKeyId,
-      Message: Buffer.from(digest),
-      MessageType: "RAW",
-      SigningAlgorithm: "RSASSA_PKCS1_V1_5_SHA_256",
-    }))
-
-    // 3. Write to S3 with Object Lock
-    const key = `finn/audit/daily-digest/${date}.json`
-    const body = JSON.stringify({
-      date,
-      digest,
-      signature: Buffer.from(signature.Signature!).toString("base64"),
-      partitionHeads: Object.fromEntries(sorted),
-      generatedAt: new Date().toISOString(),
-    })
-
-    await this.s3Client.send(new PutObjectCommand({
-      Bucket: this.bucketName,
-      Key: key,
-      Body: body,
-      ContentType: "application/json",
-      ObjectLockMode: "COMPLIANCE",
-      ObjectLockRetainUntilDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),  // 90 days
-    }))
+    return { s2sPrivateKey: s2sKey, calibrationHmac: hmac, merchantPrivateKey: merchantKey, adminJwks: adminJwksJson }
   }
 
-  /**
-   * Verify audit trail integrity against S3 checkpoint.
-   * Returns true only if KMS signature is valid AND recomputed hashes match.
-   */
-  async verifyAuditTrailIntegrity(date: string): Promise<boolean> {
-    // 1. Fetch S3 digest
-    // 2. Verify KMS signature
-    // 3. Query all partitions from DynamoDB
-    // 4. Recompute heads
-    // 5. Compare against signed digest
+  /** Refresh cached secrets (for key rotation). Called on timer. */
+  async refresh(): Promise<void> {
+    // Re-fetch expired secrets only
   }
-
-  /**
-   * Enumerate all active partitions for daily digest computation.
-   *
-   * Strategy: DynamoDB Scan with ProjectionExpression = "partitionId"
-   * and a filter for entries within the current digest window (last 24h).
-   * Uses pagination (ExclusiveStartKey) and deduplicates partitionId values
-   * in-memory.
-   *
-   * Expected cardinality: Low (~1-10 partitions per ECS service).
-   * Each ECS task creates one partition; tasks are short-lived (hours to days).
-   * A full table Scan is acceptable at this cardinality.
-   *
-   * For higher cardinality (>100 partitions), add a GSI:
-   *   GSI "partition-index": PK = "PARTITION", SK = partitionId
-   *   Populated by a genesis entry written at partition creation.
-   *   Query instead of Scan.
-   *
-   * Current approach: Scan with `Select: "SPECIFIC_ATTRIBUTES"` to minimize
-   * read capacity consumption. Runs once per day at digest time.
-   */
-  async enumeratePartitions(): Promise<string[]>
 }
 ```
 
-**S3 Bucket Config** (Terraform in loa-freeside):
-- Object Lock enabled (compliance mode)
-- Default retention: 90 days
-- Versioning enabled (required by Object Lock)
+**Category summary** (from PRD NFR3):
 
-#### 4.6.3 Fallback
+| Category | Mechanism | Items |
+|----------|-----------|-------|
+| Secrets | AWS Secrets Manager | `FINN_S2S_PRIVATE_KEY`, `FINN_MERCHANT_PRIVATE_KEY`, API keys, `FINN_CALIBRATION_HMAC_KEY`, `finn/admin-jwks` (JWKS JSON with `kid`) |
+| Non-secret config | ECS env vars / SSM | `FINN_REPUTATION_ENDPOINT`, `FINN_KMS_KEY_ID`, `AWS_REGION`, `X402_CHAIN_ID`, `X402_USDC_ADDRESS` |
+| Runtime config | Redis | `finn:config:reputation_routing`, `finn:config:exploration_epsilon` |
 
-When DynamoDB is unavailable, `ScoringPathLog` entries are written to CloudWatch Logs as structured JSON. No hash chain. A warning is emitted at the first fallback and every 5 minutes thereafter. This ensures routing is never blocked by audit infrastructure failures.
+---
+
+## 4. API Design
+
+### 4.1 New Endpoints
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `GET` | `/healthz` | None | ALB liveness probe |
+| `GET` | `/health/deps` | None | Dependency readiness check |
+| `GET` | `/metrics` | None (internal) | Prometheus metrics |
+| `POST` | `/admin/routing-mode` | Admin ES256 JWT | Set routing mode |
+| `GET` | `/admin/routing-mode` | Admin ES256 JWT | Get routing mode |
+| `GET` | `/.well-known/jwks.json` | None | Public keys for JWT verification |
+
+### 4.2 Modified Endpoints
+
+| Method | Path | Change |
+|--------|------|--------|
+| `GET` | `/health` | Redirects 301 → `/healthz` |
+| `POST` | `/api/v1/invoke` | Routing engine reads mode from Redis (not env var) |
+| `POST` | `/api/v1/x402/invoke` | Chain/contract configurable via env vars |
 
 ---
 
 ## 5. Data Architecture
 
-### 5.1 Redis Data Model
+### 5.1 Redis Keys — Additions
 
-| Key Pattern | Value | TTL | Purpose |
-|------------|-------|-----|---------|
-| `finn:ema:{nftId}:{poolId}:{routingKey}` | JSON `{ema, lastTimestamp, sampleCount}` | 2 × halfLife | EMA state |
-| *(idempotency is inline in EMA value via `lastEventHash` — no separate key)* | | | |
-| `finn:explore:count:{tier}:{YYYY-MM-DD}` | Integer | 48h | Exploration counter |
-| `finn:x402:settlement:{chainId}:{token}:{from}:{nonce}` | State string (`pending\|submitted:{txHash}\|confirmed:{txHash}\|reverted:{txHash}`) | 2h | Hot-path settlement dedup cache (DynamoDB is source of truth) |
-| `x402:rate:{wallet}` | Integer | 1h | Rate limit |
+| Key | Value | TTL | Purpose |
+|-----|-------|-----|---------|
+| `finn:config:reputation_routing` | `"disabled" \| "shadow" \| "enabled"` | None | Runtime routing mode |
+| `finn:config:exploration_epsilon` | JSON `Record<tier, number>` | None | Per-tier epsilon override |
 
-### 5.2 DynamoDB Schema
+(All existing keys from cycle-034 §5.1 are unchanged.)
 
-**Table**: `finn-scoring-path-log`
+### 5.2 Environment Variables — New/Changed
 
-| Attribute | Type | Key | Description |
-|-----------|------|-----|-------------|
-| `partitionId` | S | PK | ECS task ID |
-| `sequenceNumber` | N | SK | Monotonic counter |
-| `hash` | S | — | Chain link hash |
-| `prevHash` | S | — | Previous hash |
-| `timestamp` | S | — | ISO 8601 |
-| `action` | S | — | Event type |
-| `payloadHash` | S | — | SHA-256 of payload |
-
-**GSI**: None needed. All queries are partition-scoped with sort-key range.
-
-**Capacity**: On-demand (PAY_PER_REQUEST). Expected write volume: ~100 entries/hour per ECS task.
-
-### 5.2b DynamoDB Settlement State (x402)
-
-**Table**: `finn-x402-settlements`
-
-| Attribute | Type | Key | Description |
-|-----------|------|-----|-------------|
-| `idempotencyKey` | S | PK | `{chainId}:{token}:{from}:{nonce}` |
-| `status` | S | — | `pending \| submitted \| confirmed \| reverted \| gas_failed` |
-| `txHash` | S | — | On-chain tx hash |
-| `quoteId` | S | — | Quote reference |
-| `createdAt` | S | — | ISO 8601 |
-| `updatedAt` | S | — | ISO 8601 |
-| `revertReason` | S | — | Revert reason (if applicable) |
-
-**TTL**: `expiresAt` attribute — 24h after `updatedAt` for terminal states. Non-terminal states handled by reconciliation job.
-
-**Capacity**: On-demand. Expected volume: <100 settlements/hour initially.
-
-### 5.3 S3 Object Lock
-
-**Bucket**: `finn-audit-anchors-{account-id}`
-
-| Path | Content | Retention |
-|------|---------|-----------|
-| `finn/audit/daily-digest/{YYYY-MM-DD}.json` | KMS-signed digest | 90 days compliance mode |
-| `finn/calibration.jsonl` | Calibration entries | No lock (versioned) |
+| Variable | Source | Required | Default | Purpose |
+|----------|--------|----------|---------|---------|
+| `X402_CHAIN_ID` | ECS env / compose | No | `"8453"` | Target chain for settlement |
+| `X402_USDC_ADDRESS` | ECS env / compose | No | Chain-specific default | USDC contract override |
+| `BASE_SEPOLIA_RPC_URL` | ECS env / compose | No | `https://sepolia.base.org` | Base Sepolia RPC |
+| `FINN_ADMIN_JWKS` | Secrets Manager (`finn/admin-jwks`) | Yes (prod) | Test JWKS (E2E) | Admin JWT verification (JWKS JSON with `kid`) |
 
 ---
 
-## 6. API Design
+## 6. Deployment Architecture
 
-### 6.1 Modified Endpoints
+### 6.1 Infrastructure Changes (in loa-freeside)
 
-#### `POST /api/v1/invoke` (existing, modified)
+| Resource | Change | File |
+|----------|--------|------|
+| ALB health check path | `/health` → `/healthz` | `ecs-finn.tf` |
+| Secrets Manager | Add `finn/admin-jwks` (JWKS JSON, not single PEM) | Terraform or manual |
+| ECS task env vars | Add `X402_CHAIN_ID` | `ecs-finn.tf` |
 
-**Change**: `resolvePoolWithReputation()` now uses Goodhart protection engine. The routing decision is logged with the scoring path (`kill_switch`, `exploration`, `reputation`, `deterministic`).
+### 6.2 Deployment Order (with verification gates and rollback)
 
-**New response headers** (informational, debug mode only):
-- `X-Scoring-Path`: `exploration | reputation | deterministic | kill_switch`
+Each step includes a **verify** gate and **rollback** procedure. Do not proceed past a gate that fails.
 
-#### `POST /api/v1/x402/invoke` (existing, modified)
+| Step | Action | Verify Gate | Rollback |
+|------|--------|------------|----------|
+| 1 | Merge PR #108 to main | CI passes, no merge conflicts | `git revert` the merge commit |
+| 2 | Push Docker image to ECR (GitHub Actions) | `aws ecr describe-images` shows new tag | Re-push from previous commit |
+| 3 | **CRITICAL**: Update ALB health check `/health` → `/healthz` (Terraform) | `aws elbv2 describe-target-health` shows targets healthy within 60s | `terraform apply` with old health check path; **do this before ECS deploys new image** to avoid draining all targets |
+| 4 | Deploy cycle-035 code (ECS force-new-deployment) | New task starts, passes `/healthz`, stays healthy 5min | ECS rolls back automatically (minimum healthy percent); or manually update to previous image tag |
+| 5 | Verify `/healthz` returns 200, `/health/deps` all green | `curl` from bastion/VPN; check CloudWatch for errors | Roll back to step 4 image |
+| 6 | Set `finn:config:reputation_routing = "shadow"` (admin endpoint) | `GET /admin/routing-mode` returns `shadow`; Prometheus `finn_shadow_total` increments | Set mode to `disabled` via Redis CLI |
+| 7 | 72-hour shadow observation | Prometheus metrics accumulating; no error rate spikes | Set mode to `disabled`; investigate |
+| 8 | Run `evaluate-graduation.ts` → `GRADUATE` | All 8 thresholds pass | Extend observation window; tune parameters |
+| 9 | Set `finn:config:reputation_routing = "enabled"` (admin endpoint) | Routing decisions use reputation scores (verify via `/metrics`) | Immediate: set mode to `shadow` or `disabled` via admin endpoint or Redis CLI (<1s) |
+| 10 | 24h enhanced monitoring (1-min metric windows) | No regression in error rate, latency, divergence | Set mode to `shadow`; post-mortem |
 
-**Change**: Settlement now includes on-chain confirmation before serving inference.
-
-**New error responses**:
-
-| Code | Body.code | Description |
-|------|-----------|-------------|
-| 402 | `SETTLEMENT_FAILED` | On-chain tx reverted |
-| 429 | `SETTLEMENT_IN_FLIGHT` | Duplicate nonce, tx pending |
-| 503 | `RELAYER_UNAVAILABLE` | Insufficient gas |
-| 503 | `SETTLEMENT_TIMEOUT` | Tx submitted but unconfirmed |
-
-**New response fields**:
-```json
-{
-  "result": "...",
-  "payment_id": "...",
-  "quote_id": "...",
-  "tx_hash": "0x..."   // NEW: on-chain settlement tx
-}
-```
-
-### 6.2 New Endpoints
-
-#### `GET /health` (existing, extended)
-
-**New fields in response**:
-```json
-{
-  "goodhart": {
-    "kill_switch": "enabled | disabled",
-    "exploration_epsilon": 0.05,
-    "calibration_last_poll": "2026-02-26T12:00:00Z",
-    "ema_keys_active": 42
-  },
-  "audit": {
-    "dynamodb": "healthy | degraded | unavailable",
-    "last_digest": "2026-02-25",
-    "partition_id": "ecs-task-abc123"
-  }
-}
-```
-
-### 6.3 Internal Interfaces
-
-#### Dixie Transport (adapter pattern)
-
-Dixie's `ReputationStore.get(nftId)` returns an aggregate per NFT. To support per-pool scoring, the transport returns a `ReputationResponse` per NFT which includes the aggregate score. The **adapter** (not dixie) is responsible for mapping this to per-pool scores using the EMA cache — each pool's EMA is independently maintained from observations routed through that pool. Dixie provides the raw signal; finn's EMA cache provides per-pool differentiation.
-
-```typescript
-interface DixieTransport {
-  /**
-   * Fetch reputation aggregate for an NFT.
-   * Returns the NFT-level aggregate from dixie's ReputationStore.
-   * Per-pool differentiation is handled by finn's EMA cache,
-   * not by dixie (which has no concept of finn's pool topology).
-   * The optional signal enables abort on deadline expiry.
-   */
-  getReputation(nftId: string, options?: { signal?: AbortSignal }): Promise<ReputationResponse | null>
-}
-
-// HTTP transport (when dixie exposes HTTP endpoint)
-class DixieHttpTransport implements DixieTransport {
-  async getReputation(nftId: string, options?: { signal?: AbortSignal }): Promise<ReputationResponse | null> {
-    const response = await fetch(`${this.baseUrl}/reputation/${nftId}`, {
-      signal: options?.signal,  // Honors AbortController deadline
-      headers: { "Accept": "application/json" },
-    })
-    // ...
-  }
-}
-
-// Direct import transport (when dixie is a library dependency)
-class DixieDirectTransport implements DixieTransport { ... }
-
-// Stub transport (always returns null — zero behavioral change)
-class DixieStubTransport implements DixieTransport {
-  async getReputation(): Promise<null> { return null }
-}
-```
-
-**Per-pool scoring strategy**: Dixie returns one aggregate score per NFT. Finn maintains per-(nftId, poolId, routingKey) EMA caches. When a request is routed through pool X and produces a quality observation, that observation updates the EMA for (nftId, X, routingKey). Over time, each pool accumulates its own reputation per NFT. During parallel scoring, each pool's decayed EMA is queried independently — no need to query dixie per-pool.
-
----
-
-## 7. Security Architecture
-
-### 7.1 x402 Security
-
-| Threat | Mitigation | Verification |
-|--------|-----------|-------------|
-| Replay attack | Nonce tracking via Redis NX + on-chain uniqueness | AC26 |
-| Wrong chain signature | `chainId == 8453` check | AC28b |
-| Wrong token | `tokenContract == USDC_BASE_ADDRESS` check | AC28c |
-| Wrong recipient | `to == FINN_MERCHANT_ADDRESS` check | AC28a |
-| Front-running | Merchant relayer submits — not user. Nonce is authorization-bound. | AC30b |
-| Gas griefing | Rate limit (100/hr/wallet) + gas cap (0.01 USDC max surcharge) | N/A |
-| Gas depletion | Relayer balance monitoring + alert (see §4.4.5) | N/A |
-| Quote spam (free 402s) | Rate limit on unauthenticated quote requests (see §7.1.1) | N/A |
-| Dust payments | Minimum payment threshold enforcement (see §7.1.1) | N/A |
-| CPU DoS via sig verify | Bounded concurrent verification + early rejection (see §7.1.1) | N/A |
-
-#### 7.1.1 x402 Abuse Protection
-
-**Quote spam**: Unauthenticated requests that trigger 402 responses (quotes) are free — no payment required. An attacker can flood quote requests to waste compute and observe pricing.
-
-**Mitigations**:
-
-| Attack | Protection | Implementation |
-|--------|-----------|----------------|
-| Quote flooding | IP-based rate limit: 60 quotes/min/IP | Hono middleware, `x402:quote-rate:{ip}` Redis key with INCR + TTL |
-| Dust payments | Minimum payment threshold: 100 MicroUSDC ($0.0001) | Reject in `verify.ts` before signature verification |
-| CPU DoS (sig verify) | Semaphore: max 10 concurrent signature verifications | `p-limit(10)` wrapping `ecrecover` calls |
-| Wallet enumeration | Generic 402 response (no wallet-specific info in quotes) | Already implemented |
-
-**Dust payment threshold**:
-```typescript
-const MIN_PAYMENT_MICRO_USDC = 100n  // $0.0001 — below any realistic inference cost
-if (proof.value < MIN_PAYMENT_MICRO_USDC) {
-  throw new X402Error("PAYMENT_TOO_SMALL", "Payment below minimum threshold", 402)
-}
-```
-
-This check runs **before** signature verification (which is CPU-intensive), providing early rejection of trivially invalid payments.
-
-### 7.2 Audit Trail Security
-
-| Threat | Mitigation |
-|--------|-----------|
-| DynamoDB rewrite | S3 Object Lock (WORM) digest is the trust anchor outside DynamoDB |
-| Forged digest | KMS signature verification before accepting any digest |
-| Cross-partition manipulation | Each partition has its own independent chain |
-| Sequence number skip | Startup verification reads last N entries and checks continuity |
-
-### 7.3 Kill Switch Security
-
-The kill switch (`FINN_REPUTATION_ROUTING`) is a safety valve, not a security control. It's designed to be easy to activate in an emergency:
-- No authentication required (env var change)
-- Immediate effect (no cache)
-- Logged to audit trail
-
-### 7.4 Secret Management
-
-| Secret | Location | Rotation |
-|--------|----------|----------|
-| `FINN_RELAYER_PRIVATE_KEY` | AWS Secrets Manager | Manual (wallet change) |
-| `FINN_MERCHANT_ADDRESS` | AWS Secrets Manager | Manual |
-| `OPENAI_API_KEY` | AWS Secrets Manager | Existing |
-| `ANTHROPIC_API_KEY` | AWS Secrets Manager | Existing |
-| `JWT_SIGNING_KEY` | AWS Secrets Manager | Existing |
-| `REDIS_AUTH` | AWS Secrets Manager | Existing |
-| `KMS_KEY_ID` | Terraform (not secret) | Automatic (AWS-managed) |
-
----
-
-## 8. Integration Points
-
-### 8.1 Dixie Integration
-
-| Aspect | Detail |
-|--------|--------|
-| **Protocol** | HTTP or direct import (adapter pattern) |
-| **Contract** | `ReputationResponse` v1 schema |
-| **Timeout** | 100ms per query (AbortController) |
-| **Fallback** | Stub transport → null → deterministic routing |
-| **Dixie state** | v8.2.0 merged, `ReputationStore.get(nftId)` available |
-
-### 8.2 Freeside Integration
-
-| Aspect | Detail |
-|--------|--------|
-| **JWT exchange** | ES256, existing JWKS endpoint |
-| **Billing debit** | Existing finalize client |
-| **Service discovery** | `finn.production.local` via Cloud Map |
-| **E2E test** | Docker Compose with real JWT exchange |
-
-### 8.3 Base L2 Integration
-
-| Aspect | Detail |
-|--------|--------|
-| **Chain** | Base (chainId 8453) |
-| **Token** | USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) |
-| **RPC** | Existing `rpc-pool.ts` with failover |
-| **Confirmations** | 1 block (L2 finality is fast) |
-| **Reconciliation** | Every 5 minutes, last N tx hashes against on-chain |
-
----
-
-## 9. Scalability & Performance
-
-### 9.1 Latency Budget
-
-| Operation | Budget | Design |
-|-----------|--------|--------|
-| Kill switch check | <1ms | Env var read |
-| Exploration coin flip | <1ms | Math.random() |
-| EMA query (decay) | <5ms | Redis GET + local math |
-| Reputation query (dixie) | <100ms | Per-query timeout |
-| Parallel scoring (5 pools) | <200ms | AbortController deadline |
-| x402 signature verify | <5ms | Local crypto |
-| x402 settlement (on-chain) | <30s | Async with timeout |
-| Audit chain append | <10ms | DynamoDB PutItem conditional |
-
-### 9.2 Throughput
-
-| Component | Expected Load | Capacity |
-|-----------|--------------|----------|
-| Redis Lua (EMA) | ~100 ops/s | Redis single-thread handles 100K+ ops/s |
-| DynamoDB writes | ~100/hr/task | On-demand scales automatically |
-| S3 calibration poll | 1 GET/60s | Negligible |
-| S3 digest write | 1 PUT/day | Negligible |
-
-### 9.3 Memory
-
-| Component | Expected | Notes |
-|-----------|----------|-------|
-| Calibration cache | <1 MB | JSONL parsed to in-memory Map |
-| NFT routing cache | <10 MB | Existing, unchanged |
-| Exploration state | <1 KB | No persistent state (Bernoulli) |
-| Kill switch | 0 | Env var read |
-
----
-
-## 10. Deployment Architecture
-
-### 10.1 AWS Resources (loa-freeside)
-
-All resources exist in `infrastructure/terraform/` of loa-freeside:
-
-| Resource | Terraform | Status |
-|----------|-----------|--------|
-| ECS Cluster | `ecs.tf` | Provisioned |
-| ECS Task Def (finn) | `ecs-finn.tf` | Provisioned |
-| ECR Repository | `ecr.tf` | Provisioned |
-| ALB + Target Group | `alb.tf` | Provisioned |
-| Redis (ElastiCache) | `redis.tf` | Provisioned |
-| RDS PostgreSQL | `rds.tf` | Provisioned |
-| Secrets Manager | `secrets.tf` | Provisioned |
-| Cloud Map | `service-discovery.tf` | Provisioned |
-
-**New resources needed** (Terraform additions to loa-freeside):
-
-| Resource | Purpose |
-|----------|---------|
-| DynamoDB Table `finn-scoring-path-log` | Audit trail |
-| S3 Bucket `finn-audit-anchors-*` with Object Lock | Immutable digest |
-| S3 Bucket `finn-calibration-*` | Calibration data (versioned, no lock) |
-| KMS Key `finn-audit-signing` | Daily digest signing |
-| IAM Policy for finn task role | DynamoDB, S3, KMS access |
-
-### 10.2 Environment Topology
+**Step 3 is the highest-risk step**: Changing the ALB health check path while the old code is still running will cause health checks to fail (old code serves `/health` not `/healthz`). The correct sequence is: deploy new code first (step 4) that serves both `/health` and `/healthz`, then update the ALB path. The table above is simplified; in practice steps 3 and 4 should be coordinated:
 
 ```
-┌─────────────────────────────────────────────┐
-│                AWS (us-east-1)              │
-│                                             │
-│  ┌───────────┐    ┌──────────────────────┐  │
-│  │    WAF    │───►│    ALB               │  │
-│  └───────────┘    │    ├── /health       │  │
-│                   │    ├── /api/v1/*      │  │
-│                   │    └── /api/v1/x402/* │  │
-│                   └──────────┬───────────┘  │
-│                              │              │
-│                   ┌──────────▼───────────┐  │
-│                   │    ECS Fargate       │  │
-│                   │    (finn service)    │  │
-│                   │    512 CPU / 1024 MB │  │
-│                   └──────────┬───────────┘  │
-│                              │              │
-│              ┌───────────────┼───────────┐  │
-│              │               │           │  │
-│    ┌─────────▼──┐  ┌────────▼──┐ ┌──────▼─┐│
-│    │ ElastiCache│  │    RDS    │ │DynamoDB ││
-│    │  (Redis 7) │  │(Postgres) │ │ (audit) ││
-│    └────────────┘  └───────────┘ └─────────┘│
-│                                             │
-│    ┌────────────┐  ┌───────────┐            │
-│    │    S3      │  │    KMS    │            │
-│    │  (WORM +  │  │ (signing) │            │
-│    │  calibr.) │  └───────────┘            │
-│    └────────────┘                           │
-└─────────────────────────────────────────────┘
+4a. Deploy cycle-035 code (serves both /health and /healthz)
+      ↓ verify: both endpoints return 200
+3.  Update ALB health check path → /healthz (Terraform)
+      ↓ verify: targets stay healthy
+4b. (future) Remove legacy /health endpoint
 ```
 
 ---
 
-## 11. Technical Risks & Mitigation
+## 7. Testing Strategy
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Dixie adapter not ready | Low | Medium | Stub transport returns null; zero behavioral change |
-| Redis Lua script complexity | Medium | Medium | Comprehensive unit tests with real Redis; Lua script is <30 lines |
-| EMA cold start (no data) | High (first deploy) | Low | Cold start = raw score pass-through; EMA builds over first few days |
-| DynamoDB conditional write contention | Low | Low | Per-partition, monotonic sequence; collisions only on bug |
-| S3 Object Lock bucket not provisioned | Medium | Medium | Terraform PR to freeside; fallback = CloudWatch logs (degraded) |
-| On-chain settlement timeout | Medium | Medium | 30s timeout → 503 Retry-After; client retries with same nonce |
-| Base RPC unreliable | Low | High | rpc-pool.ts already has failover across multiple providers |
-| Gas price spike | Low | Medium | Gas surcharge cap (0.01 USDC); alert on relayer balance < threshold |
+### 7.1 Unit Tests (new/modified)
 
----
+| Component | Test File | Key Assertions |
+|-----------|-----------|----------------|
+| RuntimeConfig | `runtime-config.test.ts` | Redis GET → mode; Redis down → env fallback; invalid value → default |
+| KillSwitch (async) | `kill-switch.test.ts` | Async isDisabled/isShadow; mode transitions |
+| Admin routes | `admin-routes.test.ts` | Valid JWT → mode change; bad JWT → 401; wrong role → 403 |
+| Health endpoints | `health.test.ts` | /healthz always 200; /health/deps 503 on Redis down; dependency latency |
+| Graduation metrics | `graduation-metrics.test.ts` | Counter increments; histogram observations |
+| ChainConfig | `chain-config.test.ts` | Default to Base mainnet; env override to Sepolia; invalid chain ID throws |
+| DixieTransport | `dixie-transport.test.ts` | Keep-alive reuse; DNS pre-resolve; circuit breaker; 300ms timeout |
 
-## 12. Testing Strategy
+### 7.2 E2E Tests (three-leg compose)
 
-### 12.1 Unit Tests
+| Test | Compose File | Verifies |
+|------|-------------|----------|
+| JWT exchange | `docker-compose.e2e-v3.yml` | finn validates freeside-issued JWT |
+| Reputation query | `docker-compose.e2e-v3.yml` | finn queries dixie for live reputation data |
+| Autopoietic loop | `docker-compose.e2e-v3.yml` | Full 6-stage feedback loop |
+| Shadow metrics | `docker-compose.e2e-v3.yml` | Prometheus counters increment in shadow mode |
+| Admin routing mode | `docker-compose.e2e-v3.yml` | Admin JWT flips mode, next request uses new mode |
 
-| Component | Test Focus |
-|-----------|-----------|
-| `temporal-decay.ts` | EMA formula correctness, cold start, out-of-order rejection |
-| `exploration.ts` | Bernoulli distribution (1000 trials, 95% CI), candidate filtering |
-| `calibration.ts` | Blending formula, S3 ETag polling mock |
-| `mechanism-interaction.ts` | Kill switch precedence, exploration overrides reputation |
-| `kill-switch.ts` | Env var reading, transition logging |
-| `reputation-adapter.ts` | Degraded modes, version mismatch |
-| `verify.ts` | Chain/contract/recipient binding rejection |
-| `settlement.ts` | Dedup, timeout handling, gas error |
+### 7.3 x402 Tests (Base Sepolia)
 
-### 12.2 Integration Tests
-
-| Test | Scope |
-|------|-------|
-| EMA Lua script | Real Redis instance, concurrent updates |
-| DynamoDB chain | LocalStack DynamoDB, integrity verification |
-| x402 settlement | Anvil fork of Base, real EIP-3009 flow |
-| Parallel scoring | Mock reputation adapter with delays |
-
-### 12.3 E2E Tests
-
-| Test | Docker Compose |
-|------|---------------|
-| JWT exchange | finn + freeside + Redis + Postgres |
-| Billing flow | inference → billing debit → conservation check |
-| x402 flow | quote → payment → settlement → inference |
+| Test | Network | Verifies |
+|------|---------|----------|
+| Settlement flow | Base Sepolia | Full payment → chain confirm → inference |
+| Nonce replay | Base Sepolia | Second submission rejected by contract |
+| Expired deadline | Base Sepolia | 402 returned before chain submission |
+| Chain config switch | Unit | Same code runs on Sepolia (84532) and mainnet (8453) |
 
 ---
 
-## 13. Migration & Rollout
+## 8. Security Architecture
 
-### 13.1 Feature Flags
+### 8.1 Admin Endpoint Security
 
-| Flag | Default | Purpose |
-|------|---------|---------|
-| `FINN_REPUTATION_ROUTING` | `enabled` | Kill switch for entire Goodhart subsystem |
-| `EXPLORATION_ENABLED` | `true` | Granular control for exploration only |
-| `CALIBRATION_ENABLED` | `true` | Granular control for calibration only |
-| `X402_SETTLEMENT_MODE` | `verify_only` | Start with local verification; promote to `on_chain` |
+| Control | Implementation |
+|---------|---------------|
+| Separate JWKS | Admin ES256 JWKS (with `kid`) ≠ service-to-service JWKS |
+| Short-lived tokens | 5-minute expiry |
+| Role enforcement | `role: "admin"` claim required |
+| Issuer isolation | `iss: "loa-admin"` (distinct from service issuers) |
+| Tamper-evident audit | Mode changes written to DynamoDB audit chain (fail closed) |
+| Network restriction | **Required**: ALB listener rule restricts `/admin/*` — see below |
+| Rate limiting | **Required**: AWS WAF + app-layer throttle — see below |
 
-### 13.2 Rollout Phases
+#### 8.1.1 Network Controls (concrete, not advisory)
 
-1. **Deploy with kill switch disabled**: `FINN_REPUTATION_ROUTING=disabled`. All existing behavior preserved. Validates deployment pipeline.
-2. **Enable in shadow mode**: `FINN_REPUTATION_ROUTING=shadow`. Reputation scoring runs in parallel but does **not** affect routing decisions. The deterministic `resolvePool()` path is always used for the actual routing, while the Goodhart engine runs alongside and emits structured metrics for comparison. See §13.3 for shadow mode specification.
-3. **Enable exploration only**: `EXPLORATION_ENABLED=true`, decay still building EMA from observations.
-4. **Enable full Goodhart**: `FINN_REPUTATION_ROUTING=enabled`. Decay + exploration + calibration active.
-5. **Enable x402 on-chain settlement**: `X402_SETTLEMENT_MODE=on_chain`. Upgrade from verify-only to full settlement.
+These are **requirements**, not suggestions. The admin endpoint must not be reachable from the public internet.
 
-### 13.3 Shadow Mode Specification
+| Layer | Control | Configuration |
+|-------|---------|---------------|
+| ALB listener rule | Path-based routing for `/admin/*` | Forward to finn target group **only** if source IP matches VPN CIDR or internal security group |
+| Security group | Ingress restriction | Allow `/admin/*` traffic only from VPN subnet (`10.x.x.x/24`) or bastion host SG |
+| AWS WAF (optional) | Rate limiting on `/admin/*` | Max 10 requests/minute per source IP; block after 5 consecutive 401/403 responses for 15 minutes |
+| App-layer throttle | Per-subject rate limit | Max 5 mode changes per hour per `sub` claim (tracked in Redis with TTL key `finn:admin:rate:{sub}`) |
 
-When `FINN_REPUTATION_ROUTING=shadow`, the mechanism interaction module:
+If VPN is not available at go-live, an alternative is to use an internal ALB (not internet-facing) for admin traffic, accessible only from the private subnet.
 
-1. **Runs the full scoring pipeline** (exploration decision, parallel reputation scoring, calibration blending) for every request.
-2. **Discards the result** and routes via deterministic `resolvePool()` instead.
-3. **Emits a structured log** comparing the two decisions:
+#### 8.1.2 Failed Auth Response
 
-```json
-{
-  "component": "goodhart-shadow",
-  "event": "shadow_comparison",
-  "deterministic_pool": "pool-A",
-  "reputation_pool": "pool-B",
-  "reputation_score": 0.82,
-  "scoring_path": "reputation",
-  "would_have_changed": true,
-  "latency_ms": 45,
-  "timestamp": "2026-02-26T12:00:00Z"
-}
-```
+On 401/403, the response body is intentionally minimal (`{ "error": "..." }`) — no token details, no key hints, no JWKS endpoint disclosure. Failed attempts are logged as structured JSON with source IP for CloudWatch alarm ingestion.
 
-4. **Tracks shadow metrics** via Redis counters (best-effort):
-   - `finn:shadow:agreement:{YYYY-MM-DD}` — INCR when both paths select same pool
-   - `finn:shadow:divergence:{YYYY-MM-DD}` — INCR when paths disagree
-   - `finn:shadow:latency_sum:{YYYY-MM-DD}` — INCRBY with scoring latency
+### 8.2 Secret Rotation
 
-5. **No EMA writes in shadow mode**: The shadow pipeline reads existing EMA state but does not update it. EMA population begins only when promoted to `enabled`. This prevents shadow observations from polluting the EMA before the operator has validated the scoring pipeline.
-
-**Promotion criteria**: Move from `shadow` to `enabled` when:
-- Shadow mode has run for ≥24h without errors
-- Agreement rate is stable (not oscillating wildly)
-- p99 scoring latency is within the 200ms budget
+| Secret | Rotation Strategy |
+|--------|------------------|
+| `FINN_S2S_PRIVATE_KEY` | Add new key to JWKS, retain old for 10min, remove old |
+| `finn/admin-jwks` | Add new key with unique `kid` to JWKS in Secrets Manager; SecretsLoader TTL auto-refreshes (no restart); remove old key after token expiry |
+| `FINN_MERCHANT_PRIVATE_KEY` | Generate new wallet, transfer ETH, update Secrets Manager |
+| API provider keys | Update in Secrets Manager, TTL cache auto-refreshes |
 
 ---
 
-## Appendix A: File Change Manifest
+## 9. Technical Risks & Mitigation
 
-### New Files
+| Risk | Mitigation |
+|------|-----------|
+| Redis unavailable → routing mode unknown | Env var fallback in `getRoutingMode()` (safe default: shadow) |
+| Admin endpoint exposed to internet | ALB listener rules: `/admin/*` only from VPN CIDR or internal ALB |
+| Prometheus cardinality explosion | Fixed label sets (tier, status); no unbounded labels (nftId, poolId) |
+| Three-leg compose flaky on CI | Health checks with `start_period` + `retries`; each service waits for deps |
+| DNS cache cold after IP change | 30s cache-warming refresh; URL hostname never rewritten (TLS SNI safe); undici keep-alive pools survive DNS changes |
+| ECS task restart resets Prometheus counters | Graduation script queries Prometheus server via `increase()` range vectors, not raw counters |
+| DynamoDB outage during admin action | Bounded audit buffer; critical actions (mode change, settlement) fail closed if buffer full + DynamoDB down |
+| Process hangs on SIGTERM (timer/socket leak) | Centralized `GracefulShutdown` handler with 25s deadline; all transports/pollers registered at boot |
+| Base Sepolia faucet USDC depleted | Keep test amounts small (0.01 USDC per test); reusable test wallet |
+| Redis brief outage → all requests fail (no local cache) | **Deferred** (SKP-003): Add bounded stale-while-revalidate cache in future cycle. Current mitigation: env var cold-start fallback to shadow mode |
+| x402 chainId/USDC address mismatch (testnet↔mainnet) | **Deferred** (SKP-010): Add startup cross-validation of chainId against known USDC addresses in future cycle. Current mitigation: separate env vars per environment, deployment checklist |
 
-| Path | Purpose |
-|------|---------|
-| `src/hounfour/goodhart/index.ts` | Goodhart engine re-exports |
-| `src/hounfour/goodhart/temporal-decay.ts` | EMA computation + Redis Lua |
-| `src/hounfour/goodhart/exploration.ts` | Bernoulli sampling + filtering |
-| `src/hounfour/goodhart/calibration.ts` | S3-backed HITL calibration |
-| `src/hounfour/goodhart/mechanism-interaction.ts` | Precedence rules |
-| `src/hounfour/goodhart/kill-switch.ts` | Feature flag |
-| `src/hounfour/goodhart/reputation-adapter.ts` | Enriched adapter |
-| `src/hounfour/goodhart/reputation-response.ts` | Schema definition |
-| `src/hounfour/goodhart/lua/ema-update.lua` | Redis Lua script |
-| `src/hounfour/audit/dynamo-audit.ts` | DynamoDB hash chain |
-| `src/hounfour/audit/s3-anchor.ts` | S3 Object Lock anchor |
-| `docker-compose.e2e.yml` | E2E test topology |
-| `.github/workflows/finn-deploy-aws.yml` | ECR/ECS deploy |
-| `deploy/e2e/init-db.sql` | E2E database init |
+### 9.1 Deferred Concerns (Flatline SKP-003, SKP-010)
 
-### Modified Files
+The following concerns were identified by Flatline Protocol with HIGH severity and accepted as valid, but deferred out of cycle-035 scope:
 
-| Path | Change |
-|------|--------|
-| `src/hounfour/types.ts` | `ReputationQueryFn` enriched with `nftId` |
-| `src/hounfour/tier-bridge.ts` | Parallel scoring, enriched signature |
-| `src/x402/verify.ts` | Chain/contract/recipient binding |
-| `src/x402/settlement.ts` | Merchant relayer on-chain submission |
-| `src/x402/pricing.ts` | Gas surcharge in quote |
-| `src/x402/denomination.ts` | `MicroUSDC` branded type |
-| `src/hounfour/billing-conservation-guard.ts` | `checkX402Conservation()` |
-| `src/gateway/server.ts` | Health endpoint Goodhart fields |
-| `deploy/Dockerfile` | AWS SDK dependencies |
+1. **SKP-003 — Redis fallback cache** (severity 760): Per-request Redis GET has no bounded local cache. A Redis failover (~1-5s) would fail all concurrent requests. *Rationale for deferral*: The env var fallback guarantees safe-default (shadow mode) on cold start. Redis failovers in ElastiCache are rare (<5s) and the blast radius is limited to a brief period of stale routing decisions. A stale-while-revalidate cache adds complexity to the config read path that isn't justified until we observe Redis instability in production.
 
-### Deleted Files
+2. **SKP-010 — x402 chain config startup validation** (severity 720): Static `x402ChainConfig` has no cross-validation between chainId and USDC contract address. Deploying testnet chainId with mainnet USDC address (or vice versa) could cause settlement failures or, in theory, misrouted funds. *Rationale for deferral*: x402 settlement is behind its own feature flag (`x402.enabled`) and will be activated only after manual verification on Base Sepolia. The deployment checklist (§6.2) includes a chain config verification step. A startup validation lookup table is warranted before mainnet activation but not blocking for the testnet-first approach.
 
-| Path | Reason |
-|------|--------|
-| `deploy/fly.toml` | Fly.io permanently removed (IDR-001) |
+---
+
+## 10. New Dependencies
+
+| Package | Purpose | Version |
+|---------|---------|---------|
+| `prom-client` | Prometheus metrics library | ^15.x |
+| `undici` | HTTP client with connection pooling | ^6.x (bundled in Node 22, but explicit for Agent API) |
+| `jose` | JWT signing/verification for admin endpoint | ^5.x (already in use via freeside) |
+
+All other dependencies from cycle-034 are unchanged.
