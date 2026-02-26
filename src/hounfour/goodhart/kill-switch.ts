@@ -1,16 +1,30 @@
-// src/hounfour/goodhart/kill-switch.ts — Kill Switch (SDD §4.1.5, cycle-034)
+// src/hounfour/goodhart/kill-switch.ts — Kill Switch (SDD §4.1.5, cycle-035 T-1.2)
 //
-// Reads process.env.FINN_REPUTATION_ROUTING on every call (~100ns, no cache).
-// "disabled" → deterministic routing. Anything else → reputation routing active.
+// Async KillSwitch backed by RuntimeConfig (Redis GET + env fallback).
+// Race condition safety: callers reading mode during a concurrent write get
+// either the old or new value (eventually consistent via Redis GET, no partial state).
+
+import type { RuntimeConfig, RoutingMode } from "../runtime-config.js"
 
 export class KillSwitch {
-  /** Check if reputation routing is disabled. Reads env on every call (no cache). */
-  isDisabled(): boolean {
-    return process.env.FINN_REPUTATION_ROUTING === "disabled"
+  private readonly runtimeConfig: RuntimeConfig | null
+
+  constructor(runtimeConfig?: RuntimeConfig | null) {
+    this.runtimeConfig = runtimeConfig ?? null
+  }
+
+  /** Check if reputation routing is disabled. Async — reads RuntimeConfig. */
+  async isDisabled(): Promise<boolean> {
+    const state = await this.getState()
+    return state === "disabled"
   }
 
   /** Get current state string for observability. */
-  getState(): "disabled" | "enabled" | "shadow" {
+  async getState(): Promise<RoutingMode> {
+    if (this.runtimeConfig) {
+      return this.runtimeConfig.getMode()
+    }
+    // Fallback: direct env var read (backward compat when no RuntimeConfig)
     const val = process.env.FINN_REPUTATION_ROUTING
     if (val === "disabled") return "disabled"
     if (val === "shadow") return "shadow"
@@ -18,15 +32,14 @@ export class KillSwitch {
   }
 
   /** Log state transition for audit trail. */
-  logTransition(previousState: boolean, currentState: boolean): void {
+  logTransition(previousState: RoutingMode, currentState: RoutingMode): void {
     if (previousState !== currentState) {
-      const action = currentState ? "disabled" : "enabled"
       console.log(JSON.stringify({
         component: "kill-switch",
         event: "state_transition",
         action: "kill_switch_toggle",
-        from: previousState ? "disabled" : "enabled",
-        to: action,
+        from: previousState,
+        to: currentState,
         timestamp: new Date().toISOString(),
       }))
     }

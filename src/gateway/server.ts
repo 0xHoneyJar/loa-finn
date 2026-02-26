@@ -69,6 +69,10 @@ export interface AppOptions {
   auditHealth?: () => { state: string; partitionId: string; sequenceNumber: number; fallbackCount: number }
   /** Relayer health (Sprint 5 T-5.6) */
   relayerHealth?: () => { canSettle: boolean; balanceWei?: string; alertLevel: string }
+  /** Redis health for /health/deps (cycle-035 T-1.3) */
+  redisHealth?: () => Promise<{ connected: boolean; latencyMs: number }>
+  /** DynamoDB health for /health/deps (cycle-035 T-1.3) */
+  dynamoHealth?: () => Promise<{ reachable: boolean; latencyMs: number }>
 }
 
 export function createApp(config: FinnConfig, options: AppOptions) {
@@ -88,9 +92,48 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     }
   })
 
-  // Health endpoint (no auth required)
-  // NOTE: dlq_store_type exposed intentionally for ops monitoring (Datadog, Grafana).
-  // This is not sensitive — it reveals "redis" vs "in-memory", not connection strings.
+  // --- Two-tier health endpoints (cycle-035 T-1.3) ---
+
+  // /healthz — ALB liveness probe. No dependency checks. Always 200 if process is alive.
+  app.get("/healthz", (c) => {
+    return c.json({ status: "ok", uptime: process.uptime() }, 200)
+  })
+
+  // /health/deps — Readiness probe. Checks Redis + DynamoDB data-plane.
+  // Returns 503 if any critical dependency is unreachable.
+  app.get("/health/deps", async (c) => {
+    const checks: Record<string, { status: string; latencyMs?: number; error?: string }> = {}
+    let allHealthy = true
+
+    // Redis health
+    if (options?.redisHealth) {
+      try {
+        const rh = await options.redisHealth()
+        checks.redis = { status: rh.connected ? "ok" : "degraded", latencyMs: rh.latencyMs }
+        if (!rh.connected) allHealthy = false
+      } catch (err) {
+        checks.redis = { status: "error", error: (err as Error).message }
+        allHealthy = false
+      }
+    }
+
+    // DynamoDB health (data-plane GetItem, not DescribeTable)
+    if (options?.dynamoHealth) {
+      try {
+        const dh = await options.dynamoHealth()
+        checks.dynamodb = { status: dh.reachable ? "ok" : "degraded", latencyMs: dh.latencyMs }
+        if (!dh.reachable) allHealthy = false
+      } catch (err) {
+        checks.dynamodb = { status: "error", error: (err as Error).message }
+        allHealthy = false
+      }
+    }
+
+    const status = allHealthy ? 200 : 503
+    return c.json({ status: allHealthy ? "ready" : "not_ready", checks }, status)
+  })
+
+  // Legacy /health → 301 → /healthz (backward compat)
   app.get("/health", async (c) => {
     // Billing DLQ metrics — never throws
     let billing: Record<string, unknown> = {

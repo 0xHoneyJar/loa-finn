@@ -71,7 +71,7 @@ export async function resolveWithGoodhart(
     ? mapUnknownTaskTypeToRoutingKey(taskType)
     : "default"
 
-  const switchState = config.killSwitch.getState()
+  const switchState = await config.killSwitch.getState()
 
   // 1. Kill switch — deterministic routing, zero reputation queries
   if (switchState === "disabled") {
