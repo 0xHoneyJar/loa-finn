@@ -1,5 +1,6 @@
-# tests/e2e/docker-compose.e2e-v2.yml — E2E Test Stack (Cycle-035)
-# 3 services: redis, freeside (billing), finn — proves ES256 JWT + billing + WebSocket end-to-end.
+# tests/e2e/docker-compose.e2e-v2.yml — E2E Test Stack (Cycle-034)
+# 5 services: redis, freeside (billing), localstack (DynamoDB/S3/KMS), finn, postgres.
+# Proves ES256 JWT + billing + audit trail + x402 settlement end-to-end.
 #
 # Usage:
 #   npx tsx tests/e2e/generate-keys.ts   # Generate .env.e2e first
@@ -19,6 +20,40 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+
+  postgres-e2e:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: e2e
+      POSTGRES_PASSWORD: e2e
+      POSTGRES_DB: finn_test
+    volumes:
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U e2e"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  localstack-e2e:
+    image: localstack/localstack:3.8
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: dynamodb,s3,kms
+      DEFAULT_REGION: us-east-1
+      EAGER_SERVICE_LOADING: 1
+    volumes:
+      - ./localstack-init.sh:/etc/localstack/init/ready.d/init.sh
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health | grep -q '\"dynamodb\": \"running\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
 
   loa-freeside-e2e:
     image: ghcr.io/0xhoneyjar/loa-freeside:v7.11.0
@@ -51,6 +86,8 @@ services:
         condition: service_healthy
       loa-freeside-e2e:
         condition: service_healthy
+      localstack-e2e:
+        condition: service_healthy
     environment:
       NODE_ENV: test
       REDIS_URL: redis://redis-e2e:6379
@@ -63,6 +100,20 @@ services:
       FINN_S2S_KEY_ENCODING: base64
       FINN_S2S_JWT_ALG: ES256
       ARRAKIS_BILLING_URL: http://loa-freeside-e2e:3000
+      # LocalStack AWS endpoints
+      AWS_ENDPOINT_URL: http://localstack-e2e:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      # Feature flags for shadow rollout
+      FINN_REPUTATION_ROUTING: shadow
+      EXPLORATION_ENABLED: "true"
+      X402_SETTLEMENT_MODE: verify_only
+      # Audit trail config (LocalStack)
+      FINN_KMS_KEY_ID: alias/finn-audit-signing
+      FINN_AUDIT_BUCKET_NAME: finn-audit-anchors-test
+      FINN_CALIBRATION_BUCKET_NAME: finn-calibration-test
+      FINN_CALIBRATION_HMAC_KEY: e2e-calibration-hmac-secret
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 10s
