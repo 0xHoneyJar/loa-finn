@@ -1,4 +1,4 @@
-# deploy/Dockerfile — Multi-stage build for loa-finn (SDD §7.2, T-5.1)
+# deploy/Dockerfile — Multi-stage build for loa-finn (SDD §7.2, T-5.3)
 
 # Stage 1: Build
 FROM node:22-slim AS builder
@@ -79,6 +79,9 @@ ENV DATA_DIR=/data
 ENV PORT=3000
 ENV HOST=0.0.0.0
 ENV PYTHONPATH=/app
+# AWS SDK uses these env vars for region (ECS task role provides credentials automatically)
+ENV AWS_REGION=us-east-1
+ENV AWS_DEFAULT_REGION=us-east-1
 
 EXPOSE 3000
 

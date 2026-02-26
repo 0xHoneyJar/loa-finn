@@ -63,6 +63,12 @@ export interface AppOptions {
   x402Deps?: X402RouteDeps
   /** Identity route dependencies — when provided, /api/identity routes are mounted (Sprint 3 T3.2) */
   identityDeps?: IdentityRouteDeps
+  /** Goodhart engine health (Sprint 5 T-5.6) */
+  goodhartHealth?: () => { status: string; killSwitch: string; explorationEnabled: boolean }
+  /** Audit chain health (Sprint 5 T-5.6) */
+  auditHealth?: () => { state: string; partitionId: string; sequenceNumber: number; fallbackCount: number }
+  /** Relayer health (Sprint 5 T-5.6) */
+  relayerHealth?: () => { canSettle: boolean; balanceWei?: string; alertLevel: string }
 }
 
 export function createApp(config: FinnConfig, options: AppOptions) {
@@ -116,13 +122,18 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       ? billingEvaluator.billing === "ready"
       : true
 
+    // Goodhart, audit, relayer health (Sprint 5 T-5.6, AC20)
+    const goodhart = options?.goodhartHealth?.() ?? null
+    const audit = options?.auditHealth?.() ?? null
+    const relayer = options?.relayerHealth?.() ?? null
+
     if (options?.healthAggregator) {
       let health = options.healthAggregator.check()
       // Oracle Phase 1 async enrichment (rate limiter health, daily usage)
       if (health.checks.oracle && options.oracleRateLimiter) {
         health = await options.healthAggregator.enrichOracleHealth(health)
       }
-      return c.json({ ...health, billing, protocol })
+      return c.json({ ...health, billing, protocol, goodhart, audit, relayer })
     }
     return c.json({
       status: "healthy",
@@ -135,6 +146,9 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       billing,
       protocol,
       ready_for_billing: readyForBilling,
+      goodhart,
+      audit,
+      relayer,
     })
   })
 
