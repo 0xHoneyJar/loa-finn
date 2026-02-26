@@ -5,8 +5,8 @@
 
 import { createHash } from "node:crypto"
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
-import type { X402Quote, PaymentProof, EIP3009Authorization } from "./types.js"
-import { X402Error, BASE_CHAIN_ID, USDC_BASE_ADDRESS } from "./types.js"
+import type { X402Quote, PaymentProof, EIP3009Authorization, ChainConfig } from "./types.js"
+import { X402Error, resolveChainConfig } from "./types.js"
 import { getTracer } from "../tracing/otlp.js"
 
 // ---------------------------------------------------------------------------
@@ -29,6 +29,8 @@ export interface VerifyDeps {
    * Configurable via X402_MAX_PAYMENT_AMOUNT env var.
    */
   maxPaymentAmount?: number
+  /** Chain config override. Defaults to resolveChainConfig() (T-4.1). */
+  chainConfig?: ChainConfig
 }
 
 export interface VerificationResult {
@@ -49,6 +51,7 @@ export class PaymentVerifier {
   private readonly verifyEOA: (auth: EIP3009Authorization) => Promise<boolean>
   private readonly verifyContract: ((auth: EIP3009Authorization) => Promise<boolean>) | undefined
   private readonly walAppend: VerifyDeps["walAppend"]
+  private readonly chainConfig: ChainConfig
 
   private readonly maxPaymentAmount: bigint
 
@@ -59,6 +62,7 @@ export class PaymentVerifier {
     this.verifyContract = deps.verifyContractSignature
     this.walAppend = deps.walAppend
     this.maxPaymentAmount = BigInt(deps.maxPaymentAmount ?? 100_000_000)
+    this.chainConfig = deps.chainConfig ?? resolveChainConfig()
   }
 
   /**
@@ -76,19 +80,19 @@ export class PaymentVerifier {
       span?.setAttribute("wallet_address", auth.from)
       span?.setAttribute("is_replay", false)
 
-      // Chain binding (SDD §4.4.2, AC28b)
-      if (proof.chain_id !== BASE_CHAIN_ID) {
+      // Chain binding (SDD §4.4.2, AC28b) — configurable via T-4.1
+      if (proof.chain_id !== this.chainConfig.chainId) {
         throw new X402Error(
-          `Expected Base (${BASE_CHAIN_ID}), got ${proof.chain_id}`,
+          `Expected ${this.chainConfig.name} (${this.chainConfig.chainId}), got ${proof.chain_id}`,
           "INVALID_CHAIN",
           402,
         )
       }
 
-      // Token contract binding (SDD §4.4.2, AC28c)
-      if (quote.token_address.toLowerCase() !== USDC_BASE_ADDRESS.toLowerCase()) {
+      // Token contract binding (SDD §4.4.2, AC28c) — configurable via T-4.1
+      if (quote.token_address.toLowerCase() !== this.chainConfig.usdcAddress.toLowerCase()) {
         throw new X402Error(
-          "Only USDC on Base accepted",
+          `Only USDC on ${this.chainConfig.name} accepted`,
           "INVALID_TOKEN",
           402,
         )

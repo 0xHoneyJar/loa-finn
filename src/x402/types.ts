@@ -108,13 +108,69 @@ export class X402Error extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
+// Chain Configuration (cycle-035 T-4.1)
 // ---------------------------------------------------------------------------
 
-/** Base chain ID */
+/** Known chain configurations for x402 settlement */
+export interface ChainConfig {
+  chainId: number
+  name: string
+  usdcAddress: string
+  /** Whether this is a testnet */
+  testnet: boolean
+}
+
+/** CHAIN_CONFIGS lookup table — same code runs on Sepolia (84532) and mainnet (8453) */
+export const CHAIN_CONFIGS: Record<number, ChainConfig> = {
+  8453: {
+    chainId: 8453,
+    name: "Base",
+    usdcAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    testnet: false,
+  },
+  84532: {
+    chainId: 84532,
+    name: "Base Sepolia",
+    usdcAddress: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    testnet: true,
+  },
+}
+
+/**
+ * Resolve active chain config from environment.
+ *
+ * Resolution order:
+ * 1. X402_CHAIN_ID env var → lookup in CHAIN_CONFIGS
+ * 2. Default: Base mainnet (8453)
+ *
+ * X402_USDC_ADDRESS env var overrides USDC address for custom deployments.
+ */
+export function resolveChainConfig(): ChainConfig {
+  const envChainId = process.env.X402_CHAIN_ID
+  const chainId = envChainId ? parseInt(envChainId, 10) : 8453
+
+  const config = CHAIN_CONFIGS[chainId]
+  if (!config) {
+    throw new Error(`Unknown chain ID ${chainId}. Known chains: ${Object.keys(CHAIN_CONFIGS).join(", ")}`)
+  }
+
+  // Allow USDC address override for custom deployments
+  const usdcOverride = process.env.X402_USDC_ADDRESS
+  if (usdcOverride) {
+    return { ...config, usdcAddress: usdcOverride }
+  }
+
+  return config
+}
+
+// ---------------------------------------------------------------------------
+// Constants (backward compat — resolved from chain config)
+// ---------------------------------------------------------------------------
+
+/** Base chain ID (default, overridable via X402_CHAIN_ID env var) */
 export const BASE_CHAIN_ID = 8453
 
-/** USDC on Base */
+/** USDC on Base (default, overridable via X402_USDC_ADDRESS env var) */
 export const USDC_BASE_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
 /** Quote validity TTL (5 minutes) */

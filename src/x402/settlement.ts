@@ -9,7 +9,8 @@ import { X402Error } from "./types.js"
 import { getTracer } from "../tracing/otlp.js"
 import type { SettlementStore } from "./settlement-store.js"
 import { buildIdempotencyKey } from "./settlement-store.js"
-import { USDC_BASE_ADDRESS, BASE_CHAIN_ID } from "./types.js"
+import { resolveChainConfig } from "./types.js"
+import type { ChainConfig } from "./types.js"
 import type { ResilientAuditLogger } from "../hounfour/audit/audit-fallback.js"
 
 // ---------------------------------------------------------------------------
@@ -233,8 +234,8 @@ export class SettlementService {
 /** Clock skew allowance for validAfter/validBefore window check (30 seconds). */
 const CLOCK_SKEW_SECONDS = 30
 
-/** Default confirmation timeout for on-chain tx (30 seconds). */
-const DEFAULT_CONFIRMATION_TIMEOUT_MS = 30_000
+/** Default confirmation timeout for on-chain tx (60 seconds, T-4.1). */
+const DEFAULT_CONFIRMATION_TIMEOUT_MS = 60_000
 
 /** Default max concurrent settlements (semaphore). */
 const DEFAULT_MAX_CONCURRENT_SETTLEMENTS = 5
@@ -248,6 +249,8 @@ export interface MerchantRelayerDeps {
   maxConcurrentSettlements?: number
   /** Optional audit logger for tamper-evident settlement log (T-4.7). */
   auditLogger?: ResilientAuditLogger
+  /** Chain config override. Defaults to resolveChainConfig() (T-4.1). */
+  chainConfig?: ChainConfig
 }
 
 export interface MerchantRelayerResult {
@@ -266,6 +269,7 @@ export class MerchantRelayer {
   private readonly maxConcurrent: number
   private activeConcurrent = 0
   private readonly auditLogger?: ResilientAuditLogger
+  private readonly chainConfig: ChainConfig
 
   constructor(deps: MerchantRelayerDeps) {
     this.store = deps.store
@@ -274,6 +278,7 @@ export class MerchantRelayer {
     this.confirmationTimeoutMs = deps.confirmationTimeoutMs ?? DEFAULT_CONFIRMATION_TIMEOUT_MS
     this.maxConcurrent = deps.maxConcurrentSettlements ?? DEFAULT_MAX_CONCURRENT_SETTLEMENTS
     this.auditLogger = deps.auditLogger
+    this.chainConfig = deps.chainConfig ?? resolveChainConfig()
   }
 
   /**
@@ -285,7 +290,7 @@ export class MerchantRelayer {
    * Idempotent: same nonce returns cached confirmed result.
    * Bounded concurrency: max N in-flight settlements.
    */
-  async settle(auth: EIP3009Authorization, quoteId: string, chainId: number = BASE_CHAIN_ID): Promise<MerchantRelayerResult> {
+  async settle(auth: EIP3009Authorization, quoteId: string, chainId?: number): Promise<MerchantRelayerResult> {
     const tracer = getTracer("x402")
     const span = tracer?.startSpan("x402.merchant_relayer.settle")
 
@@ -307,7 +312,8 @@ export class MerchantRelayer {
         )
       }
 
-      const idempotencyKey = buildIdempotencyKey(chainId, USDC_BASE_ADDRESS, auth.from, auth.nonce)
+      const effectiveChainId = chainId ?? this.chainConfig.chainId
+      const idempotencyKey = buildIdempotencyKey(effectiveChainId, this.chainConfig.usdcAddress, auth.from, auth.nonce)
       span?.setAttribute("idempotency_key", idempotencyKey)
 
       // 1. Check existing state
@@ -369,7 +375,7 @@ export class MerchantRelayer {
       this.activeConcurrent++
       // Audit: settlement claimed (best-effort, never blocks settlement)
       void this.auditLogger?.log("settlement_claimed", {
-        idempotencyKey, quoteId, from: auth.from, nonce: auth.nonce, chainId,
+        idempotencyKey, quoteId, from: auth.from, nonce: auth.nonce, chainId: effectiveChainId,
       })
       try {
         // 4. Submit on-chain
@@ -423,7 +429,7 @@ export class MerchantRelayer {
 
         // Audit: settlement confirmed
         void this.auditLogger?.log("settlement_confirmed", {
-          idempotencyKey, txHash: result.tx_hash, quoteId, chainId,
+          idempotencyKey, txHash: result.tx_hash, quoteId, chainId: effectiveChainId,
         })
         return {
           idempotencyKey,
