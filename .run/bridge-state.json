@@ -1,91 +1,91 @@
 {
   "schema_version": 1,
-  "bridge_id": "bridge-20260225-4896e3",
-  "state": "JACKED_OUT",
+  "bridge_id": "bridge-20260226-cd778b",
+  "state": "ITERATING",
   "config": {
     "depth": 3,
     "mode": "full",
     "flatline_threshold": 0.05,
     "per_sprint": false,
     "branch": "feature/hounfour-v820-upgrade",
-    "repo": "0xHoneyJar/loa-finn"
+    "repo": ""
   },
   "timestamps": {
-    "started": "2026-02-25T09:00:17Z",
-    "last_activity": "2026-02-25T09:45:00Z"
+    "started": "2026-02-26T01:02:56Z",
+    "last_activity": "2026-02-26T01:03:01Z"
   },
   "iterations": [
     {
       "iteration": 1,
       "state": "completed",
       "sprint_plan_source": "existing",
-      "sprints_executed": 1,
+      "sprints_executed": 0,
       "bridgebuilder": {
-        "total_findings": 5,
-        "by_severity": {
-          "critical": 0,
-          "high": 0,
-          "medium": 0,
-          "low": 2,
-          "vision": 0,
-          "praise": 3
-        },
-        "severity_weighted_score": 2,
-        "pr_comment_url": "https://github.com/0xHoneyJar/loa-finn/pull/107#issuecomment-3957852142"
-      },
-      "enrichment": {
-        "persona_loaded": true,
-        "persona_validation": "valid",
-        "findings_format": "json",
-        "field_fill_rates": {
-          "faang_parallel": 0,
-          "metaphor": 0,
-          "teachable_moment": 0,
-          "connection": 0
-        },
-        "praise_count": 3,
-        "insights_size_bytes": 0,
-        "redactions_applied": 0
-      },
-      "visions_captured": 0,
-      "started_at": "2026-02-25T09:00:17Z",
-      "updated_at": "2026-02-25T09:00:17Z"
-    },
-    {
-      "iteration": 2,
-      "state": "completed",
-      "sprint_plan_source": "findings",
-      "sprints_executed": 1,
-      "bridgebuilder": {
-        "total_findings": 1,
+        "total_findings": 0,
         "by_severity": {
           "critical": 0,
           "high": 0,
           "medium": 0,
           "low": 0,
           "vision": 0,
-          "praise": 1
+          "praise": 0
         },
         "severity_weighted_score": 0,
-        "pr_comment_url": "https://github.com/0xHoneyJar/loa-finn/pull/107#issuecomment-3957861291"
+        "pr_comment_url": null
       },
       "enrichment": {
-        "persona_loaded": true,
-        "persona_validation": "valid",
-        "findings_format": "json",
+        "persona_loaded": false,
+        "persona_validation": "pending",
+        "findings_format": "unknown",
         "field_fill_rates": {
           "faang_parallel": 0,
           "metaphor": 0,
           "teachable_moment": 0,
           "connection": 0
         },
-        "praise_count": 1,
+        "praise_count": 0,
         "insights_size_bytes": 0,
         "redactions_applied": 0
       },
       "visions_captured": 0,
-      "started_at": "2026-02-25T09:00:18Z",
-      "updated_at": "2026-02-25T09:00:18Z"
+      "started_at": "2026-02-26T01:02:56Z",
+      "updated_at": "2026-02-26T01:02:57Z"
+    },
+    {
+      "iteration": 2,
+      "state": "completed",
+      "sprint_plan_source": "findings",
+      "sprints_executed": 0,
+      "bridgebuilder": {
+        "total_findings": 0,
+        "by_severity": {
+          "critical": 0,
+          "high": 0,
+          "medium": 0,
+          "low": 0,
+          "vision": 0,
+          "praise": 0
+        },
+        "severity_weighted_score": 0,
+        "pr_comment_url": null
+      },
+      "enrichment": {
+        "persona_loaded": false,
+        "persona_validation": "pending",
+        "findings_format": "unknown",
+        "field_fill_rates": {
+          "faang_parallel": 0,
+          "metaphor": 0,
+          "teachable_moment": 0,
+          "connection": 0
+        },
+        "praise_count": 0,
+        "insights_size_bytes": 0,
+        "redactions_applied": 0
+      },
+      "visions_captured": 0,
+      "started_at": "2026-02-26T01:02:57Z",
+      "updated_at": "2026-02-26T01:02:57Z"
     },
     {
       "iteration": 3,
@@ -93,46 +93,46 @@
       "sprint_plan_source": "findings",
       "sprints_executed": 0,
       "bridgebuilder": {
-        "total_findings": 1,
+        "total_findings": 0,
         "by_severity": {
           "critical": 0,
           "high": 0,
           "medium": 0,
           "low": 0,
           "vision": 0,
-          "praise": 1
+          "praise": 0
         },
         "severity_weighted_score": 0,
-        "pr_comment_url": "https://github.com/0xHoneyJar/loa-finn/pull/107#issuecomment-3957875133"
+        "pr_comment_url": null
       },
       "enrichment": {
-        "persona_loaded": true,
-        "persona_validation": "valid",
-        "findings_format": "json",
+        "persona_loaded": false,
+        "persona_validation": "pending",
+        "findings_format": "unknown",
         "field_fill_rates": {
           "faang_parallel": 0,
           "metaphor": 0,
           "teachable_moment": 0,
           "connection": 0
         },
-        "praise_count": 1,
+        "praise_count": 0,
         "insights_size_bytes": 0,
         "redactions_applied": 0
       },
       "visions_captured": 0,
-      "started_at": "2026-02-25T09:00:18Z",
-      "updated_at": "2026-02-25T09:00:18Z"
+      "started_at": "2026-02-26T01:02:57Z",
+      "updated_at": "2026-02-26T01:02:58Z"
     }
   ],
   "flatline": {
-    "initial_score": 2,
+    "initial_score": 0,
     "last_score": 0,
-    "consecutive_below_threshold": 2
+    "consecutive_below_threshold": 0
   },
   "metrics": {
-    "total_sprints_executed": 2,
-    "total_files_changed": 16,
-    "total_findings_addressed": 11,
+    "total_sprints_executed": 0,
+    "total_files_changed": 0,
+    "total_findings_addressed": 0,
     "total_visions_captured": 0
   },
   "finalization": {
