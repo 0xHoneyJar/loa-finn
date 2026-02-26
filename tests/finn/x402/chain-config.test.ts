@@ -75,19 +75,25 @@ describe("resolveChainConfig", () => {
 
   it("overrides USDC address with X402_USDC_ADDRESS", () => {
     delete process.env.X402_CHAIN_ID
-    process.env.X402_USDC_ADDRESS = "0xCustomUSDCAddress"
+    process.env.X402_USDC_ADDRESS = "0x1234567890abcdef1234567890abcdef12345678"
     const config = resolveChainConfig()
     expect(config.chainId).toBe(8453) // Still mainnet
-    expect(config.usdcAddress).toBe("0xCustomUSDCAddress")
+    expect(config.usdcAddress).toBe("0x1234567890abcdef1234567890abcdef12345678")
   })
 
   it("combines chain ID and USDC address overrides", () => {
     process.env.X402_CHAIN_ID = "84532"
-    process.env.X402_USDC_ADDRESS = "0xMyTestUSDC"
+    process.env.X402_USDC_ADDRESS = "0xaabbccddee11223344556677889900aabbccddee"
     const config = resolveChainConfig()
     expect(config.chainId).toBe(84532)
     expect(config.name).toBe("Base Sepolia")
-    expect(config.usdcAddress).toBe("0xMyTestUSDC")
+    expect(config.usdcAddress).toBe("0xaabbccddee11223344556677889900aabbccddee")
+  })
+
+  it("throws for malformed X402_USDC_ADDRESS", () => {
+    delete process.env.X402_CHAIN_ID
+    process.env.X402_USDC_ADDRESS = "0xNotAValidAddress"
+    expect(() => resolveChainConfig()).toThrow("Invalid X402_USDC_ADDRESS")
   })
 
   it("handles non-numeric X402_CHAIN_ID gracefully", () => {

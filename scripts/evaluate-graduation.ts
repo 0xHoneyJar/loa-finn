@@ -67,6 +67,7 @@ async function promQuery(
   return Number.isFinite(val) ? val : null
 }
 
+// Used by future thresholds (trend analysis over time windows)
 async function promRangeQuery(
   baseUrl: string,
   query: string,
@@ -233,7 +234,7 @@ async function evaluateT5(config: GraduationConfig): Promise<ThresholdResult> {
     if (mean === 0) {
       return { id: "T5", name: "EMA stability (CV)", status: "FAIL", value: Infinity, threshold: 0.3, detail: "Mean EMA is 0" }
     }
-    const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length
+    const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1)
     const cv = Math.sqrt(variance) / Math.abs(mean)
 
     return {

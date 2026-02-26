@@ -157,6 +157,9 @@ export function resolveChainConfig(): ChainConfig {
   // Allow USDC address override for custom deployments
   const usdcOverride = process.env.X402_USDC_ADDRESS
   if (usdcOverride) {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(usdcOverride)) {
+      throw new Error(`Invalid X402_USDC_ADDRESS: must be a 0x-prefixed 20-byte hex address, got "${usdcOverride}"`)
+    }
     return { ...config, usdcAddress: usdcOverride }
   }
 
