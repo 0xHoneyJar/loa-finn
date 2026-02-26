@@ -17,7 +17,12 @@ const BYPASS_VECTORS = new Set(["multi", "pipeline", "sendCommand", "eval", "eva
  */
 export function createReadOnlyRedisClient(redis: RedisCommandClient): RedisCommandClient {
   return new Proxy(redis, {
-    get(target, prop: string) {
+    get(target, prop: string | symbol) {
+      // Symbols (e.g. Symbol.toPrimitive, Symbol.iterator) pass through unchanged
+      if (typeof prop === "symbol") {
+        return (target as any)[prop]
+      }
+
       // Allow read methods to pass through
       if (READ_METHODS.has(prop)) {
         const method = (target as Record<string, unknown>)[prop]

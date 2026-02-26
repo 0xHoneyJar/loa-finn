@@ -133,7 +133,7 @@ export async function resolveWithGoodhart(
       pool: result.pool,
       score: result.score,
       explored: result.path === "exploration",
-      scoredPools: [],
+      scoredPools: result.scoredPools.map(({ poolId, score }) => ({ pool: poolId, score })),
       path: result.path,
     }
   } catch (err: unknown) {

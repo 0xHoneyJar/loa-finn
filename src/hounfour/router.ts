@@ -43,6 +43,7 @@ import type { MechanismConfig } from "./goodhart/mechanism-interaction.js"
 import { resolveWithGoodhart as resolveWithGoodhartTyped } from "./goodhart/resolve.js"
 import type { GoodhartOptions, GoodhartResult } from "./goodhart/resolve.js"
 import type { GraduationMetrics } from "./graduation-metrics.js"
+import { emitRoutingOverride } from "./goodhart/routing-events.js"
 import { resolvePool } from "./tier-bridge.js"
 
 // --- Routing State (SDD §3.3, cycle-036 T-1.6) ---
@@ -190,6 +191,7 @@ export class HounfourRouter {
   private goodhartConfig?: MechanismConfig
   private _routingState: RoutingState
   private goodhartMetrics?: GraduationMetrics
+  private _lastKillSwitchActive = false
   private projectRoot: string
   private routingConfig: RoutingConfig
   private toolCallConfig: ToolCallLoopConfig
@@ -273,13 +275,31 @@ export class HounfourRouter {
       try {
         const killState = await this.goodhartConfig.killSwitch.getState()
         if (killState === "disabled") {
+          // Emit override event only on state *change* (not every request) — T-4.6
+          if (!this._lastKillSwitchActive) {
+            this._lastKillSwitchActive = true
+            emitRoutingOverride("killswitch", "activated")
+          }
           this.goodhartMetrics?.killswitchActivatedTotal.inc()
           this.goodhartMetrics?.recordRoutingDuration("kill_switch", Date.now() - startMs)
           const pool = resolvePool(tier, taskType, nftPreferences)
           return { pool, source: "deterministic" }
         }
-      } catch {
+        // KillSwitch no longer active — emit deactivation on state change
+        if (this._lastKillSwitchActive) {
+          this._lastKillSwitchActive = false
+          emitRoutingOverride("killswitch", "deactivated")
+        }
+      } catch (err) {
         // KillSwitch check failed — fail-open (continue with routing state)
+        this.goodhartMetrics?.killswitchCheckFailedTotal.inc()
+        console.warn(JSON.stringify({
+          component: "hounfour-router",
+          event: "killswitch_check_failed",
+          error: err instanceof Error ? err.message : String(err),
+          action: "fail_open",
+          timestamp: new Date().toISOString(),
+        }))
       }
     }
 
@@ -329,8 +349,19 @@ export class HounfourRouter {
     )
 
     if (this._routingState === "shadow") {
-      // Shadow: log divergence, return deterministic
-      this.goodhartMetrics?.recordShadowDecision(tier, reputationResult?.pool !== deterministicPool)
+      // Shadow: log divergence with per-pool scores, return deterministic
+      const diverged = reputationResult?.pool !== deterministicPool
+      if (diverged && reputationResult?.scoredPools?.length) {
+        console.log(JSON.stringify({
+          component: "hounfour-router",
+          event: "shadow_divergence_detail",
+          deterministicPool,
+          reputationPool: reputationResult.pool,
+          scoredPools: reputationResult.scoredPools,
+          timestamp: new Date().toISOString(),
+        }))
+      }
+      this.goodhartMetrics?.recordShadowDecision(tier, diverged)
       this.goodhartMetrics?.recordRoutingDuration("shadow", Date.now() - startMs)
       return { pool: deterministicPool, source: "shadow" }
     }

@@ -88,45 +88,45 @@ describe("KillSwitch", () => {
     }
   })
 
-  it("isDisabled() returns true when FINN_REPUTATION_ROUTING=disabled (AC10f)", () => {
+  it("isDisabled() returns true when FINN_REPUTATION_ROUTING=disabled (AC10f)", async () => {
     process.env.FINN_REPUTATION_ROUTING = "disabled"
     const ks = new KillSwitch()
-    expect(ks.isDisabled()).toBe(true)
+    expect(await ks.isDisabled()).toBe(true)
   })
 
-  it("isDisabled() returns false when FINN_REPUTATION_ROUTING=enabled (AC10g)", () => {
+  it("isDisabled() returns false when FINN_REPUTATION_ROUTING=enabled (AC10g)", async () => {
     process.env.FINN_REPUTATION_ROUTING = "enabled"
     const ks = new KillSwitch()
-    expect(ks.isDisabled()).toBe(false)
+    expect(await ks.isDisabled()).toBe(false)
   })
 
-  it("isDisabled() returns false when env var is unset (AC10g)", () => {
+  it("isDisabled() returns false when env var is unset (AC10g)", async () => {
     delete process.env.FINN_REPUTATION_ROUTING
     const ks = new KillSwitch()
-    expect(ks.isDisabled()).toBe(false)
+    expect(await ks.isDisabled()).toBe(false)
   })
 
-  it("getState() returns correct state strings", () => {
+  it("getState() returns correct state strings", async () => {
     const ks = new KillSwitch()
 
     process.env.FINN_REPUTATION_ROUTING = "disabled"
-    expect(ks.getState()).toBe("disabled")
+    expect(await ks.getState()).toBe("disabled")
 
     process.env.FINN_REPUTATION_ROUTING = "shadow"
-    expect(ks.getState()).toBe("shadow")
+    expect(await ks.getState()).toBe("shadow")
 
     process.env.FINN_REPUTATION_ROUTING = "enabled"
-    expect(ks.getState()).toBe("enabled")
+    expect(await ks.getState()).toBe("enabled")
 
     delete process.env.FINN_REPUTATION_ROUTING
-    expect(ks.getState()).toBe("enabled")
+    expect(await ks.getState()).toBe("enabled")
   })
 
   it("logTransition emits structured JSON on state change (AC10h)", () => {
     const ks = new KillSwitch()
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
 
-    ks.logTransition(false, true) // enabled → disabled
+    ks.logTransition("enabled", "disabled") // enabled → disabled
     expect(logSpy).toHaveBeenCalledOnce()
     const logged = JSON.parse(logSpy.mock.calls[0][0] as string)
     expect(logged.component).toBe("kill-switch")
@@ -141,7 +141,7 @@ describe("KillSwitch", () => {
     const ks = new KillSwitch()
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
 
-    ks.logTransition(false, false) // No change
+    ks.logTransition("enabled", "enabled") // No change
     expect(logSpy).not.toHaveBeenCalled()
 
     logSpy.mockRestore()

@@ -71,6 +71,22 @@ describe("GraduationMetrics routing helpers", () => {
     expect(metrics.killswitchActivatedTotal.get()).toBe(1)
   })
 
+  it("killswitch_check_failed counter increments (T-4.2)", () => {
+    metrics.killswitchCheckFailedTotal.inc()
+    metrics.killswitchCheckFailedTotal.inc()
+    expect(metrics.killswitchCheckFailedTotal.get()).toBe(2)
+  })
+
+  it("recovery_attempt counter increments (T-4.3)", () => {
+    metrics.recoveryAttemptTotal.inc()
+    expect(metrics.recoveryAttemptTotal.get()).toBe(1)
+  })
+
+  it("recovery_success counter increments (T-4.3)", () => {
+    metrics.recoverySuccessTotal.inc()
+    expect(metrics.recoverySuccessTotal.get()).toBe(1)
+  })
+
   it("goodhart_timeout counter increments", () => {
     metrics.goodhartTimeoutTotal.inc()
     expect(metrics.goodhartTimeoutTotal.get()).toBe(1)
@@ -90,6 +106,9 @@ describe("GraduationMetrics routing helpers", () => {
     expect(output).toContain("finn_routing_duration_seconds")
     expect(output).toContain("finn_goodhart_timeout_total")
     expect(output).toContain("finn_killswitch_activated_total")
+    expect(output).toContain("finn_killswitch_check_failed_total")
+    expect(output).toContain("finn_goodhart_recovery_attempt_total")
+    expect(output).toContain("finn_goodhart_recovery_success_total")
     expect(output).toContain("finn_reputation_scoring_failed_total")
     expect(output).toContain("finn_goodhart_init_failed_requests")
   })
@@ -97,10 +116,16 @@ describe("GraduationMetrics routing helpers", () => {
   it("reset clears all counters", () => {
     metrics.goodhartInitFailed.inc()
     metrics.killswitchActivatedTotal.inc()
+    metrics.killswitchCheckFailedTotal.inc()
+    metrics.recoveryAttemptTotal.inc()
+    metrics.recoverySuccessTotal.inc()
     metrics.setRoutingMode("shadow")
     metrics.reset()
     expect(metrics.goodhartInitFailed.get()).toBe(0)
     expect(metrics.killswitchActivatedTotal.get()).toBe(0)
+    expect(metrics.killswitchCheckFailedTotal.get()).toBe(0)
+    expect(metrics.recoveryAttemptTotal.get()).toBe(0)
+    expect(metrics.recoverySuccessTotal.get()).toBe(0)
     expect(metrics.goodhartRoutingMode.get({ mode: "shadow" })).toBe(0)
   })
 })

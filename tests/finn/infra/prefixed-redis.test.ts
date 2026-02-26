@@ -77,4 +77,20 @@ describe("createPrefixedRedisClient", () => {
     const pong = await prefixed.ping()
     expect(pong).toBe("PONG")
   })
+
+  it("handles Symbol property access without throwing (T-4.5)", () => {
+    const mock = createMockRedis()
+    const prefixed = createPrefixedRedisClient(mock, "pfx:", 0)
+    expect(() => (prefixed as any)[Symbol.toPrimitive]).not.toThrow()
+    expect(() => (prefixed as any)[Symbol.iterator]).not.toThrow()
+    expect(() => (prefixed as any)[Symbol.toStringTag]).not.toThrow()
+  })
+
+  it("Symbol property returns underlying target value", () => {
+    const mock = createMockRedis()
+    const testSymbol = Symbol("test")
+    ;(mock as any)[testSymbol] = "symbol-value"
+    const prefixed = createPrefixedRedisClient(mock, "pfx:", 0)
+    expect((prefixed as any)[testSymbol]).toBe("symbol-value")
+  })
 })

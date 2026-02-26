@@ -281,6 +281,21 @@ export class GraduationMetrics {
     "KillSwitch forced deterministic fallback",
   )
 
+  readonly killswitchCheckFailedTotal = new Counter(
+    "finn_killswitch_check_failed_total",
+    "KillSwitch Redis check failed (fail-open to routing state)",
+  )
+
+  readonly recoveryAttemptTotal = new Counter(
+    "finn_goodhart_recovery_attempt_total",
+    "Goodhart init recovery attempts",
+  )
+
+  readonly recoverySuccessTotal = new Counter(
+    "finn_goodhart_recovery_success_total",
+    "Goodhart init recovery successes",
+  )
+
   readonly goodhartRoutingMode = new Gauge(
     "finn_goodhart_routing_mode",
     "Current Goodhart routing state (1 for active mode)",
@@ -347,6 +362,9 @@ export class GraduationMetrics {
       this.reputationScoringFailedTotal.toPrometheus(),
       this.goodhartTimeoutTotal.toPrometheus(),
       this.killswitchActivatedTotal.toPrometheus(),
+      this.killswitchCheckFailedTotal.toPrometheus(),
+      this.recoveryAttemptTotal.toPrometheus(),
+      this.recoverySuccessTotal.toPrometheus(),
       this.goodhartRoutingMode.toPrometheus(),
       this.routingDuration.toPrometheus(),
     ].join("\n\n")
@@ -365,6 +383,9 @@ export class GraduationMetrics {
     this.reputationScoringFailedTotal.reset()
     this.goodhartTimeoutTotal.reset()
     this.killswitchActivatedTotal.reset()
+    this.killswitchCheckFailedTotal.reset()
+    this.recoveryAttemptTotal.reset()
+    this.recoverySuccessTotal.reset()
     this.goodhartRoutingMode.reset()
     this.routingDuration.reset()
   }

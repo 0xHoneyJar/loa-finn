@@ -33,6 +33,8 @@ export interface ReputationScoringResult {
   pool: PoolId
   score: number | null
   path: "kill_switch" | "exploration" | "reputation" | "deterministic" | "exploration_skipped" | "shadow"
+  /** Per-pool scored breakdown for observability (cycle-036 T-4.1) */
+  scoredPools: Array<{ poolId: PoolId; score: number }>
   metadata: {
     decayApplied?: boolean
     calibrationApplied?: boolean
@@ -88,6 +90,7 @@ export async function resolveWithGoodhart(
       pool,
       score: null,
       path: "kill_switch",
+      scoredPools: [],
       metadata: {},
     }
   }
@@ -131,6 +134,7 @@ export async function resolveWithGoodhart(
       pool: deterministicPool,
       score: null,
       path: "shadow",
+      scoredPools: shadowResult.allScores,
       metadata: {
         decayApplied: shadowResult.anyDecayApplied,
         calibrationApplied: shadowResult.anyCalibrationApplied,
@@ -167,6 +171,7 @@ export async function resolveWithGoodhart(
       pool: explorationDecision.selectedPool,
       score: null,
       path: "exploration",
+      scoredPools: [],
       metadata: {
         explorationCandidateSetSize: explorationDecision.candidateSetSize,
         randomValue: explorationDecision.randomValue,
@@ -202,6 +207,7 @@ export async function resolveWithGoodhart(
       pool: scored.bestPool,
       score: scored.bestScore,
       path: "reputation",
+      scoredPools: scored.allScores,
       metadata: {
         decayApplied: scored.anyDecayApplied,
         calibrationApplied: scored.anyCalibrationApplied,
@@ -220,6 +226,7 @@ export async function resolveWithGoodhart(
     pool: fallbackPool,
     score: null,
     path: fallbackPath,
+    scoredPools: scored.allScores,
     metadata: {},
   }
 }
@@ -231,6 +238,8 @@ interface PoolScoringResult {
   bestScore: number
   anyDecayApplied: boolean
   anyCalibrationApplied: boolean
+  /** Individual per-pool scores for observability (cycle-036 T-4.1) */
+  allScores: Array<{ poolId: PoolId; score: number }>
 }
 
 const SCORING_CONCURRENCY = 5
@@ -272,10 +281,12 @@ async function _scorePools(
   let bestScore = -1
   let anyDecayApplied = false
   let anyCalibrationApplied = false
+  const allScores: Array<{ poolId: PoolId; score: number }> = []
 
   for (const result of results) {
     if (result.status !== "fulfilled" || !result.value) continue
     const { poolId, score, decayApplied, calibrationApplied } = result.value
+    allScores.push({ poolId, score })
     if (decayApplied) anyDecayApplied = true
     if (calibrationApplied) anyCalibrationApplied = true
     if (score > bestScore) {
@@ -289,7 +300,7 @@ async function _scorePools(
     console.warn(`[finn] reputation: all ${accessiblePools.length} pool scorings failed, falling back to deterministic`)
   }
 
-  return { bestPool, bestScore, anyDecayApplied, anyCalibrationApplied }
+  return { bestPool, bestScore, anyDecayApplied, anyCalibrationApplied, allScores }
 }
 
 interface SinglePoolScore {

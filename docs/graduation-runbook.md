@@ -62,6 +62,12 @@ curl -s http://prometheus:9090/api/v1/query \
 
 ## 2. Promotion Procedure
 
+### Pre-Deploy Checklist
+
+- [ ] `FINN_REPUTATION_ROUTING` is **explicitly set** in SSM/env (not relying on defaults). As of cycle-036 T-4.4, the default is `"disabled"` — omitting the variable will **not** enable shadow mode.
+- [ ] All exit criteria met for 48 continuous hours (see below)
+- [ ] KillSwitch state verified as `"normal"` in Redis
+
 ### Step 1: Final exit criteria validation
 
 Run the exit criteria checks above. All must pass. Record the timestamp and values in the ops channel.

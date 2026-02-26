@@ -71,4 +71,20 @@ describe("createReadOnlyRedisClient", () => {
     const ro = createReadOnlyRedisClient(mock) as any
     expect(ro.someProperty).toBe(42)
   })
+
+  it("handles Symbol property access without throwing (T-4.5)", () => {
+    const ro = createReadOnlyRedisClient(createMockRedis())
+    // Symbol.toPrimitive is commonly accessed by runtime (e.g., console.log, JSON.stringify)
+    expect(() => (ro as any)[Symbol.toPrimitive]).not.toThrow()
+    expect(() => (ro as any)[Symbol.iterator]).not.toThrow()
+    expect(() => (ro as any)[Symbol.toStringTag]).not.toThrow()
+  })
+
+  it("Symbol property returns underlying target value", () => {
+    const mock = createMockRedis() as any
+    const testSymbol = Symbol("test")
+    mock[testSymbol] = "symbol-value"
+    const ro = createReadOnlyRedisClient(mock) as any
+    expect(ro[testSymbol]).toBe("symbol-value")
+  })
 })

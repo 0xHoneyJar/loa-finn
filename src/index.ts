@@ -226,7 +226,16 @@ async function main() {
   let goodhartConfig: import("./hounfour/goodhart/mechanism-interaction.js").MechanismConfig | undefined
   let routingState: RoutingState = "disabled"
   let goodhartMetrics: import("./hounfour/graduation-metrics.js").GraduationMetrics | undefined
-  const requestedMode = process.env.FINN_REPUTATION_ROUTING ?? "shadow"
+  let goodhartRecoveryScheduler: import("./hounfour/goodhart/init.js").GoodhartRecoveryScheduler | undefined
+  const requestedMode = process.env.FINN_REPUTATION_ROUTING ?? "disabled"
+
+  if (requestedMode !== "disabled" && requestedMode !== "shadow" && requestedMode !== "enabled") {
+    console.warn(`[finn] FINN_REPUTATION_ROUTING="${requestedMode}" is not a recognized value, defaulting to disabled`)
+  }
+
+  if (!process.env.FINN_REPUTATION_ROUTING) {
+    console.warn("[finn] FINN_REPUTATION_ROUTING not set — defaulting to disabled. Set explicitly in deploy config.")
+  }
 
   if (requestedMode !== "disabled") {
     try {
@@ -300,8 +309,12 @@ async function main() {
           explorationFeedbackWeight: 0.5,
           metrics: goodhartMetrics,
         }
+        const prevState = routingState
         routingState = requestedMode as "shadow" | "enabled"
         goodhartMetrics.setRoutingMode(routingState)
+        // Emit state transition event (T-4.6)
+        const { emitRoutingStateTransition } = await import("./hounfour/goodhart/routing-events.js")
+        emitRoutingStateTransition(prevState, routingState, "goodhart_init_success")
       } else {
         console.warn("[finn] goodhart: redis unavailable, degrading to deterministic")
         goodhartMetrics.setRoutingMode("disabled")
@@ -309,12 +322,49 @@ async function main() {
       }
     } catch (err) {
       console.warn(`[finn] goodhart: init failed (non-fatal): ${(err as Error).message}`)
+      const prevState = routingState
       routingState = "init_failed"
       if (goodhartMetrics) {
         goodhartMetrics.goodhartInitFailed.inc()
         goodhartMetrics.setRoutingMode("init_failed")
       }
+      // Emit state transition event (T-4.6)
+      try {
+        const { emitRoutingStateTransition } = await import("./hounfour/goodhart/routing-events.js")
+        emitRoutingStateTransition(prevState, "init_failed", "goodhart_init_error")
+      } catch { /* routing-events import failure is non-fatal */ }
       // goodhartConfig remains undefined → deterministic routing
+
+      // Start recovery scheduler with exponential backoff (T-4.3)
+      try {
+        const { GoodhartRecoveryScheduler } = await import("./hounfour/goodhart/init.js")
+        const recoveryRuntime = {
+          goodhartConfig,
+          routingState,
+          goodhartMetrics,
+        }
+        const redisClient = redis?.isConnected() ? redis.getClient() : null
+        goodhartRecoveryScheduler = new GoodhartRecoveryScheduler(
+          recoveryRuntime,
+          {
+            redisClient,
+            redisPrefix: process.env.FINN_REDIS_PREFIX ?? "armitage:",
+            redisDb: parseInt(process.env.FINN_REDIS_DB ?? "0", 10),
+            requestedMode,
+          },
+          (recovered) => {
+            // On successful recovery, update local references for the router
+            goodhartConfig = recovered.goodhartConfig
+            routingState = recovered.routingState as RoutingState
+            goodhartMetrics = recovered.goodhartMetrics
+            console.log(`[finn] goodhart recovered: routing state now ${recovered.routingState}`)
+          },
+        )
+        goodhartRecoveryScheduler.start()
+        console.log("[finn] goodhart recovery scheduler started (exponential backoff)")
+      } catch (recoveryErr) {
+        console.warn(`[finn] goodhart recovery scheduler init failed: ${(recoveryErr as Error).message}`)
+      }
     }
   }
 
@@ -803,6 +853,9 @@ async function main() {
     // Close HTTP server first — stop accepting new connections before
     // killing the pool, so in-flight requests don't hit POOL_SHUTTING_DOWN (SD-014)
     server.close()
+
+    // Stop Goodhart recovery scheduler (T-4.3)
+    if (goodhartRecoveryScheduler) goodhartRecoveryScheduler.stop()
 
     // Stop billing guard recovery timer
     if (billingGuard) billingGuard.stopRecoveryTimer()

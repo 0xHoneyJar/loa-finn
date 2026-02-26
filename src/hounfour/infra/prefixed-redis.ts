@@ -42,7 +42,12 @@ export function createPrefixedRedisClient(
   }
 
   return new Proxy(redis, {
-    get(target, prop: string) {
+    get(target, prop: string | symbol) {
+      // Symbols (e.g. Symbol.toPrimitive, Symbol.iterator) pass through unchanged
+      if (typeof prop === "symbol") {
+        return (target as any)[prop]
+      }
+
       const value = (target as Record<string, unknown>)[prop]
 
       if (typeof value !== "function") {
