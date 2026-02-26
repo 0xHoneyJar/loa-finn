@@ -1510,22 +1510,25 @@
           "local_id": "sprint-5",
           "global_id": 149,
           "label": "Staging-Blocking Fixes (Before Activation)",
-          "status": "pending",
-          "tasks": 7
+          "status": "completed",
+          "tasks": 7,
+          "notes": "Commit e76fb86 — histogram fix, recovery-router sync, ECS health check, KillSwitch key align, shadow metrics dedup, SSM params, tfvars"
         },
         {
           "local_id": "sprint-6",
           "global_id": 150,
           "label": "Shadow Traffic Safety (Before First Shadow Traffic)",
-          "status": "pending",
-          "tasks": 9
+          "status": "completed",
+          "tasks": 9,
+          "notes": "Commit 24c2ddd — prefixed-redis rewrite (eval block, async select, multi-key DEL), timer leak fix, pinned actions, pnpm, S3 bucket scoping, metrics auth, TF backend"
         },
         {
           "local_id": "sprint-7",
           "global_id": 151,
           "label": "Excellence & Test Coverage (Before Graduation)",
-          "status": "pending",
-          "tasks": 12
+          "status": "completed",
+          "tasks": 12,
+          "notes": "Commit 3006a97 — type safety (RoutingState consolidation, as-any removal, holder pattern), 106 tests (router 26, mechanism 22, redis 39), Trivy CI scanning"
         }
       ]
     }
