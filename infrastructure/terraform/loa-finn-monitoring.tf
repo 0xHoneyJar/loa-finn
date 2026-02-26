@@ -2,23 +2,16 @@
 #
 # CloudWatch alarms for operational visibility.
 # Prometheus metrics served by application at /metrics.
+# Parameterized for multi-environment via local.service_name (cycle-036 T-3.2).
 
-# ---------------------------------------------------------------------------
-# Variables
-# ---------------------------------------------------------------------------
-
-variable "alarm_email" {
-  type        = string
-  default     = ""
-  description = "Email address for alarm notifications. Subscription will remain PendingConfirmation until manually confirmed out-of-band."
-}
+# Variables moved to variables.tf (cycle-036 T-3.1)
 
 # ---------------------------------------------------------------------------
 # SNS Topic — Alarm Notifications (Task 11.2, Bridgebuilder Deep Review §VIII)
 # ---------------------------------------------------------------------------
 
 resource "aws_sns_topic" "loa_finn_alarms" {
-  name = "loa-finn-alarms-${var.environment}"
+  name = "${local.service_name}-alarms"
 
   tags = {
     Environment = var.environment
@@ -38,7 +31,7 @@ resource "aws_sns_topic_subscription" "alarm_email" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "cpu_high" {
-  alarm_name          = "loa-finn-cpu-high-${var.environment}"
+  alarm_name          = "${local.service_name}-cpu-high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 3
   metric_name         = "CPUUtilization"
@@ -46,12 +39,12 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   period              = 300
   statistic           = "Average"
   threshold           = 80
-  alarm_description   = "WARNING: loa-finn CPU > 80%"
+  alarm_description   = "WARNING: ${local.service_name} CPU > 80%"
   alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   dimensions = {
     ClusterName = "honeyjar-${var.environment}"
-    ServiceName = "loa-finn-${var.environment}"
+    ServiceName = local.service_name
   }
 
   tags = {
@@ -61,7 +54,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "memory_high" {
-  alarm_name          = "loa-finn-memory-high-${var.environment}"
+  alarm_name          = "${local.service_name}-memory-high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 3
   metric_name         = "MemoryUtilization"
@@ -69,12 +62,12 @@ resource "aws_cloudwatch_metric_alarm" "memory_high" {
   period              = 300
   statistic           = "Average"
   threshold           = 80
-  alarm_description   = "WARNING: loa-finn memory > 80%"
+  alarm_description   = "WARNING: ${local.service_name} memory > 80%"
   alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   dimensions = {
     ClusterName = "honeyjar-${var.environment}"
-    ServiceName = "loa-finn-${var.environment}"
+    ServiceName = local.service_name
   }
 
   tags = {
@@ -88,7 +81,7 @@ resource "aws_cloudwatch_metric_alarm" "memory_high" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_metric_filter" "error_5xx" {
-  name           = "loa-finn-5xx-${var.environment}"
+  name           = "${local.service_name}-5xx"
   pattern        = "\"status\":5"
   log_group_name = aws_cloudwatch_log_group.loa_finn.name
 
@@ -100,7 +93,7 @@ resource "aws_cloudwatch_log_metric_filter" "error_5xx" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "error_5xx_rate" {
-  alarm_name          = "loa-finn-5xx-rate-${var.environment}"
+  alarm_name          = "${local.service_name}-5xx-rate"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
   metric_name         = "5xxErrorCount"
@@ -108,7 +101,7 @@ resource "aws_cloudwatch_metric_alarm" "error_5xx_rate" {
   period              = 300
   statistic           = "Sum"
   threshold           = 10
-  alarm_description   = "CRITICAL: loa-finn 5xx error rate > 1% (>10 in 5min)"
+  alarm_description   = "CRITICAL: ${local.service_name} 5xx error rate > 1% (>10 in 5min)"
   alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   tags = {
@@ -122,7 +115,7 @@ resource "aws_cloudwatch_metric_alarm" "error_5xx_rate" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_metric_filter" "billing_pending" {
-  name           = "loa-finn-billing-pending-${var.environment}"
+  name           = "${local.service_name}-billing-pending"
   pattern        = "\"billing_pending_reconciliation\""
   log_group_name = aws_cloudwatch_log_group.loa_finn.name
 
@@ -134,7 +127,7 @@ resource "aws_cloudwatch_log_metric_filter" "billing_pending" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "billing_pending_high" {
-  alarm_name          = "loa-finn-billing-pending-high-${var.environment}"
+  alarm_name          = "${local.service_name}-billing-pending-high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
   metric_name         = "BillingPendingCount"
@@ -156,7 +149,7 @@ resource "aws_cloudwatch_metric_alarm" "billing_pending_high" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_metric_filter" "settlement_circuit_open" {
-  name           = "loa-finn-settlement-circuit-open-${var.environment}"
+  name           = "${local.service_name}-settlement-circuit-open"
   pattern        = "{ $.metric = \"settlement.circuit.state_change\" && $.to = \"OPEN\" }"
   log_group_name = aws_cloudwatch_log_group.loa_finn.name
 
@@ -168,7 +161,7 @@ resource "aws_cloudwatch_log_metric_filter" "settlement_circuit_open" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "settlement_circuit_open" {
-  alarm_name          = "loa-finn-settlement-circuit-open-${var.environment}"
+  alarm_name          = "${local.service_name}-settlement-circuit-open"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
   metric_name         = "SettlementCircuitOpenCount"
