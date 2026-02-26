@@ -6,7 +6,7 @@
 **Date:** 2026-02-26
 **Team:** 1 AI developer + 1 human reviewer
 **Sprint duration:** ~2-4 hours each (AI-paced)
-**Status:** ALL SPRINTS COMPLETE (3/3)
+**Status:** ALL SPRINTS COMPLETE (4/4)
 
 ---
 
@@ -364,6 +364,123 @@ Sprint 2: All tasks can run in parallel (no interdependencies except T-2.2 after
 Sprint 3: T-3.1 → T-3.2 → T-3.4, T-3.3 parallel with T-3.2
 ```
 
+---
+
+## Sprint 4: Bridgebuilder Excellence Fixes
+
+**Goal:** Address all findings from the Bridgebuilder review of PR #109 — observability blind spots, resilience gaps, and type safety issues identified during peer review.
+
+**Source:** [Bridgebuilder Review PR #109](https://github.com/0xHoneyJar/loa-finn/pull/109#issuecomment-3965544585)
+
+**Risk:** Low — surgical fixes to existing code with no new architectural patterns. All changes are additive (new metrics, new fields, new safety checks) with zero breaking surface.
+
+### Tasks
+
+#### T-4.1: Propagate scoredPools Through Resolve Boundary (CRITICAL-01)
+- **Description:** The `scoredPools: []` in `resolve.ts:136` discards per-pool scoring data at the boundary. Modify `_scorePools()` in `mechanism-interaction.ts` to collect individual pool scores, thread them through `ReputationScoringResult`, and populate `GoodhartResult.scoredPools` in `resolve.ts`. Also emit per-pool scores in the router's shadow divergence log.
+- **Pre-step:** Dependency scan — grep all files importing `PoolScoringResult` and `ReputationScoringResult` to enumerate all call sites requiring updates. Expected: `mechanism-interaction.ts` (internal), `resolve.ts` (boundary), `router.ts` (consumer), tests. Verify no external consumers exist.
+- **Acceptance Criteria:**
+  - AC1: `PoolScoringResult` includes `allScores: Array<{poolId: PoolId, score: number}>` alongside existing `bestPool`/`bestScore`
+  - AC2: `ReputationScoringResult` includes `scoredPools: Array<{poolId: PoolId, score: number}>` threaded from `_scorePools`
+  - AC3: `resolve.ts` maps `result.scoredPools` into `GoodhartResult.scoredPools` (no longer empty `[]`)
+  - AC4: Router shadow path (`router.ts:331-336`) logs `scoredPools` in the structured divergence output
+  - AC5: TypeScript build passes with no `any` escapes; all call sites importing these types compile cleanly
+  - AC6: Existing tests pass; new test verifies scoredPools contains actual pool/score pairs
+- **Effort:** Medium
+- **Dependencies:** None
+- **Tests:** Update `tests/finn/goodhart/resolve.test.ts` to assert `scoredPools` is non-empty when pools score successfully. Update `tests/finn/goodhart/mechanism-interaction.test.ts` to verify `scoredPools` in result.
+
+#### T-4.2: KillSwitch Observability (CRITICAL-02)
+- **Description:** The empty `catch {}` in `router.ts:281-283` for KillSwitch failures is fail-silent. Add a `killswitchCheckFailedTotal` counter to the existing `GraduationMetrics` class (the single canonical metrics module from Sprint 1 T-1.8) and increment it in the catch block. Add structured JSON log for operator visibility.
+- **Acceptance Criteria:**
+  - AC1: New counter `finn_killswitch_check_failed_total` added to `GraduationMetrics` in `src/hounfour/graduation-metrics.ts` (same module as existing `killswitchActivatedTotal` — no duplicate registry)
+  - AC2: KillSwitch catch block increments counter and emits structured JSON log with `{component, event, error, timestamp}`
+  - AC3: Counter appears in `/metrics` Prometheus output alongside existing `finn_killswitch_activated_total`
+  - AC4: No duplicate metric registration — metrics test asserts new counter exists alongside existing killswitch metrics
+  - AC5: Existing tests pass; new test verifies counter increments on KillSwitch error
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `tests/finn/goodhart/routing-state.test.ts` — add case for KillSwitch error path verifying counter increment.
+
+#### T-4.3: init_failed Recovery Probe (CRITICAL-03)
+- **Description:** `init_failed` is currently terminal — no recovery without restart. Extract Goodhart init logic into a reusable function and implement a background recovery scheduler with exponential backoff.
+- **Design Decisions (from GPT review):**
+  - **State ownership:** Introduce a `GoodhartRuntime` mutable holder object `{requestedMode, routingState, goodhartConfig, goodhartMetrics}` shared between `src/index.ts` and the router. The router reads from this holder. Recovery updates the holder atomically (swap whole config object, not individual fields).
+  - **Request-time behavior during recovery:** Requests continue using deterministic routing until `routingState` flips. No request-path retries.
+  - **Shutdown:** `initGoodhartStack()` returns a `GoodhartRecoveryScheduler` with a `stop()` method. `src/index.ts` calls `stop()` on SIGTERM/SIGINT (existing shutdown path or new one if none exists). Tests assert `clearTimeout` called via fake timers.
+- **Acceptance Criteria:**
+  - AC1: Goodhart init logic extracted into `initGoodhartStack(env, redis)` in `src/hounfour/goodhart/init.ts`, returning `{config, routingState, metrics, scheduler}`
+  - AC2: `GoodhartRuntime` interface defined and used as the shared mutable holder between index.ts and router
+  - AC3: On `init_failed`, scheduler retries after 60s (then 120s, 240s — exponential backoff, capped at 5 retries)
+  - AC4: New counters in `GraduationMetrics`: `finn_goodhart_recovery_attempt_total`, `finn_goodhart_recovery_success_total`
+  - AC5: On successful recovery, scheduler atomically swaps `GoodhartRuntime.routingState` and `.goodhartConfig`; router reads updated config on next request
+  - AC6: Scheduler exposes `stop()` method; `src/index.ts` calls it on shutdown; test asserts cleanup
+  - AC7: Router test asserts it reads updated config after recovery (not just that init function returns success)
+- **Effort:** Medium-Large
+- **Dependencies:** None
+- **Tests:** `tests/finn/goodhart/init-recovery.test.ts` — mock Redis availability, verify recovery attempt after timeout, verify max retries, verify state transition on success, verify router reads recovered config.
+
+#### T-4.4: Explicit Routing Mode Default (CRITICAL-04)
+- **Description:** `process.env.FINN_REPUTATION_ROUTING ?? "shadow"` silently defaults to shadow mode on fresh deploys. Change default to `"disabled"`. Add startup warning when the env var is absent. Update `staging.env.example` and `graduation-runbook.md` to document the explicit opt-in requirement. Verify the actual deployed staging config.
+- **Acceptance Criteria:**
+  - AC1: Default changed from `"shadow"` to `"disabled"` in `src/index.ts`
+  - AC2: When `FINN_REPUTATION_ROUTING` is not set, emit `console.warn` with message: `"[finn] FINN_REPUTATION_ROUTING not set — defaulting to disabled. Set explicitly for shadow/enabled mode."`
+  - AC3: `deploy/staging.env.example` updated with comment documenting the explicit requirement
+  - AC4: `docs/graduation-runbook.md` updated with pre-deploy checklist item for this env var
+  - AC5: Existing routing-state tests updated to reflect new default
+  - AC6: Verify `FINN_REPUTATION_ROUTING=shadow` is present in `infrastructure/terraform/environments/armitage.tfvars` or ECS task definition env vars (not just the example file). If missing, add it to the Terraform staging config so the default change doesn't silently break shadow telemetry.
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Update `tests/finn/goodhart/routing-state.test.ts` — verify default is `"disabled"` when env var absent.
+
+#### T-4.5: Proxy Symbol Handling (ADVISORY)
+- **Description:** The Proxy `get` trap in `read-only-redis.ts:20` and `prefixed-redis.ts` types `prop` as `string` but ES Proxy actually passes `string | symbol`. Fix both Proxy implementations to handle Symbol properties correctly by passing them through to the target unchanged.
+- **Acceptance Criteria:**
+  - AC1: `read-only-redis.ts` Proxy handles `Symbol` props — passes through to target without blocking
+  - AC2: `prefixed-redis.ts` Proxy handles `Symbol` props — passes through to target without prefixing
+  - AC3: `typeof prop === 'symbol'` guard added before string-based logic in both files
+  - AC4: Existing tests pass; new tests verify Symbol.toPrimitive and Symbol.toStringTag pass through
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Update `tests/finn/goodhart/read-only-redis.test.ts` and `tests/finn/infra/prefixed-redis.test.ts` with Symbol property tests.
+
+#### T-4.6: Routing State Transition Structured Events (Gap)
+- **Description:** Routing state transitions (`disabled → shadow`, `init_failed → shadow` on recovery, etc.) should be recorded as structured JSON events for queryability in incident review. Add structured event emission at all state transition points.
+- **Design Decision (from GPT review):** KillSwitch is a *routing-path override*, not a state transition. `RoutingState` union (`disabled | shadow | enabled | init_failed`) remains unchanged. KillSwitch events use a separate event type `{event: "override", kind: "killswitch", active: true}` without mutating `routingState`. This prevents type cascade and event spam (killswitch checked per-request but state transitions are rare).
+- **Acceptance Criteria:**
+  - AC1: New exported function `emitRoutingStateTransition(from, to, trigger, metadata)` in `src/hounfour/goodhart/routing-events.ts` that writes structured JSON to stdout. Injectable for testing (tests spy on the function, not `console.*`).
+  - AC2: All state transitions in `src/index.ts` init block emit events: `disabled → shadow/enabled`, `* → init_failed`
+  - AC3: Recovery probe transitions (T-4.3) emit events: `init_failed → shadow/enabled`
+  - AC4: KillSwitch override emits a separate *override event* (`{event: "override", kind: "killswitch", active: true}`) — NOT a state transition. Only emitted on first activation per request batch, not per-request, to prevent spam.
+  - AC5: Transition events include: `{component: "routing-state", event: "transition", from, to, trigger, timestamp}`
+  - AC6: `routingModeTransitionsTotal` counter (already exists) incremented on each real state transition (not overrides)
+- **Effort:** Small-Medium
+- **Dependencies:** T-4.3 (recovery transitions), T-4.2 (KillSwitch events)
+- **Tests:** Tests spy on `emitRoutingStateTransition` and `emitRoutingOverride` functions directly (not `console.*`). Verify structured payload shape and transition correctness.
+
+### Task Dependencies
+
+```
+T-4.1 (parallel — no deps)
+T-4.2 (parallel — no deps)
+T-4.3 (parallel — no deps)
+T-4.4 (parallel — no deps)
+T-4.5 (parallel — no deps)
+T-4.6 (depends on T-4.2, T-4.3 for KillSwitch/recovery transition events)
+```
+
+### Sprint 4 Success Criteria
+
+1. `GoodhartResult.scoredPools` contains actual per-pool scores (not empty array)
+2. `finn_killswitch_check_failed` counter visible in `/metrics`
+3. `init_failed` state recovers automatically within 60s of Redis becoming available
+4. Fresh deploy without `FINN_REPUTATION_ROUTING` defaults to `disabled` (not shadow)
+5. Symbol properties pass through Proxy wrappers without throwing
+6. All routing state transitions emitted as structured JSON events
+7. All existing tests pass (zero regression)
+
+---
+
 ## Success Criteria (End of Cycle)
 
 1. All existing tests pass (no regression)
@@ -373,3 +490,4 @@ Sprint 3: T-3.1 → T-3.2 → T-3.4, T-3.3 parallel with T-3.2
 5. Zero Fly.io/Railway references in source
 6. CI E2E workflows pass or gracefully skip
 7. Production untouched throughout
+8. All Bridgebuilder review findings addressed (Sprint 4)
