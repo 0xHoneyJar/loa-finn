@@ -2,13 +2,14 @@
 //
 // Runtime key prefix enforcement via Proxy. All key-bearing commands prepend
 // the configured prefix. Startup assertion rejects empty/short prefix.
-// DB selection via SELECT on construction.
+// DB selection via async factory (T-6.5: awaited before returning client).
+// eval/evalsha blocked to prevent prefix bypass (T-6.1).
 
 import type { RedisCommandClient } from "../redis/client.js"
 
 // Commands where the first argument is a single key
 const SINGLE_KEY_COMMANDS = new Set([
-  "get", "set", "del", "incr", "decr", "incrby", "decrby",
+  "get", "set", "incr", "decr", "incrby", "decrby",
   "hget", "hset", "hgetall", "hdel", "hexists", "hkeys", "hvals", "hlen",
   "exists", "ttl", "pttl", "type", "expire", "pexpire",
   "lpush", "rpush", "lpop", "rpop", "llen", "lrange",
@@ -17,28 +18,32 @@ const SINGLE_KEY_COMMANDS = new Set([
   "getset", "setnx", "setex", "psetex", "append", "strlen",
 ])
 
-// Commands where the first argument is an array of keys
+// Commands where ALL arguments are keys (T-6.8: del is multi-key only)
 const MULTI_KEY_COMMANDS = new Set(["mget", "del"])
 
+// Commands that bypass prefix enforcement and must be blocked (T-6.1)
+const BLOCKED_COMMANDS = new Set(["eval", "evalsha"])
+
 /**
- * Create a Proxy-wrapped Redis client that prepends a prefix to all key-bearing commands.
+ * Async factory: creates a Proxy-wrapped Redis client with prefix enforcement.
+ * Awaits SELECT before returning to guarantee DB isolation (T-6.5).
  *
  * @param redis - Underlying Redis client
  * @param prefix - Key prefix (e.g., "armitage:") — must be >= 2 chars
- * @param dbIndex - Redis logical DB to SELECT on construction
+ * @param dbIndex - Redis logical DB to SELECT (awaited before client returned)
  */
-export function createPrefixedRedisClient(
+export async function createPrefixedRedisClient(
   redis: RedisCommandClient,
   prefix: string,
   dbIndex: number,
-): RedisCommandClient {
+): Promise<RedisCommandClient> {
   if (!prefix || prefix.length < 2) {
     throw new Error(`Redis prefix must be >= 2 chars, got: "${prefix}"`)
   }
 
-  // SELECT the correct DB on construction
+  // T-6.5: Await SELECT to guarantee DB is switched before any commands
   if (typeof (redis as any).select === "function") {
-    ;(redis as any).select(dbIndex)
+    await (redis as any).select(dbIndex)
   }
 
   return new Proxy(redis, {
@@ -54,6 +59,15 @@ export function createPrefixedRedisClient(
         return value
       }
 
+      // T-6.1: Block eval/evalsha — Lua scripts bypass prefix enforcement
+      if (BLOCKED_COMMANDS.has(prop)) {
+        return () => {
+          throw new Error(
+            `PrefixedRedisClient: "${prop}" is blocked — Lua scripts bypass key prefix enforcement. Use individual prefixed commands instead.`,
+          )
+        }
+      }
+
       // Single-key commands: prefix the first argument
       if (SINGLE_KEY_COMMANDS.has(prop)) {
         return (...args: unknown[]) => {
@@ -64,13 +78,13 @@ export function createPrefixedRedisClient(
         }
       }
 
-      // Multi-key commands: prefix each key in the array (or single key)
+      // Multi-key commands: prefix all string arguments (T-6.8: del prefixes all keys)
       if (MULTI_KEY_COMMANDS.has(prop)) {
         return (...args: unknown[]) => {
-          if (Array.isArray(args[0])) {
-            args[0] = (args[0] as string[]).map((k) => `${prefix}${k}`)
-          } else if (typeof args[0] === "string") {
-            args[0] = `${prefix}${args[0]}`
+          for (let i = 0; i < args.length; i++) {
+            if (typeof args[i] === "string") {
+              args[i] = `${prefix}${args[i]}`
+            }
           }
           return (value as Function).apply(target, args)
         }

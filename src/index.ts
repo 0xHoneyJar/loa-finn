@@ -262,7 +262,7 @@ async function main() {
       const redisDb = parseInt(process.env.FINN_REDIS_DB ?? "0", 10)
       const redisClient = redis?.isConnected() ? redis.getClient() : null
       const prefixedRedis = redisClient
-        ? createPrefixedRedisClient(redisClient, redisPrefix, redisDb)
+        ? await createPrefixedRedisClient(redisClient, redisPrefix, redisDb)
         : null
 
       const decay = prefixedRedis ? new TemporalDecayEngine({

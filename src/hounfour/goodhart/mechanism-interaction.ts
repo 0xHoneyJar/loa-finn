@@ -265,13 +265,19 @@ async function _scorePools(
       limit(async () => {
         if (abortSignal?.aborted) throw new Error("aborted")
 
-        const scored = await Promise.race([
-          _scoreOnePool(config, nftId, poolId, routingKey),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(`scoring timeout for ${poolId}`)), PER_POOL_TIMEOUT_MS),
-          ),
-        ])
-        return scored
+        // T-6.2: Clear timeout timer on scoring completion to prevent leak
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          const scored = await Promise.race([
+            _scoreOnePool(config, nftId, poolId, routingKey),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error(`scoring timeout for ${poolId}`)), PER_POOL_TIMEOUT_MS)
+            }),
+          ])
+          return scored
+        } finally {
+          if (timer !== undefined) clearTimeout(timer)
+        }
       }),
     ),
   )

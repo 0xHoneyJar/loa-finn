@@ -53,7 +53,7 @@ export async function initGoodhartStack(deps: GoodhartInitDeps): Promise<Goodhar
   const transport = createDixieTransport(process.env.DIXIE_BASE_URL)
 
   const prefixedRedis = deps.redisClient
-    ? createPrefixedRedisClient(deps.redisClient as any, deps.redisPrefix, deps.redisDb)
+    ? await createPrefixedRedisClient(deps.redisClient as any, deps.redisPrefix, deps.redisDb)
     : null
 
   const decay = prefixedRedis ? new TemporalDecayEngine({

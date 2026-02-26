@@ -4,6 +4,44 @@
 # Environment variable includes workspace validation for deployment safety.
 
 # ---------------------------------------------------------------------------
+# Terraform Configuration + Backend (T-6.9: workspace-keyed state isolation)
+# ---------------------------------------------------------------------------
+
+terraform {
+  required_version = ">= 1.5"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+
+  backend "s3" {
+    bucket         = "honeyjar-terraform-state"
+    key            = "loa-finn/terraform.tfstate"
+    region         = "us-east-1"
+    encrypt        = true
+    dynamodb_table = "terraform-locks"
+    # Workspace isolation: each workspace gets its own state file
+    # default  → loa-finn/terraform.tfstate
+    # armitage → env:/armitage/loa-finn/terraform.tfstate
+    workspace_key_prefix = "env"
+  }
+}
+
+provider "aws" {
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      Project   = "loa-finn"
+      ManagedBy = "terraform"
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Core Environment
 # ---------------------------------------------------------------------------
 

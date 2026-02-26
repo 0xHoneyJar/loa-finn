@@ -3,6 +3,7 @@ name: Deploy to Staging (Armitage)
 # cycle-036 T-3.4 — ECS Fargate staging deployment
 # Manual dispatch with environment input. Immutable image tags (git SHA).
 # Health check gating + automatic rollback via ECS circuit breaker.
+# T-6.3: All actions pinned to commit SHA. T-6.7: pnpm instead of npm.
 
 permissions:
   contents: read
@@ -40,16 +41,19 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fe02b34f77f8bc703c22d82ef19c587e31e8e696 # v4.0.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
-          cache: "npm"
+          cache: "pnpm"
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Type check
         run: npx tsc --noEmit
@@ -70,17 +74,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
       - name: Resolve image tag
         id: resolve-tag
@@ -117,7 +121,7 @@ jobs:
 
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -131,14 +135,14 @@ jobs:
 
       - name: Update task definition with new image
         id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        uses: aws-actions/amazon-ecs-render-task-definition@913b0a71297753f2da18b1a21573c78fe68a0393 # v1.7.1
         with:
           task-definition: task-definition.json
           container-name: loa-finn
           image: ${{ needs.build-and-push.outputs.image }}
 
       - name: Deploy to ECS (rolling update)
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        uses: aws-actions/amazon-ecs-deploy-task-definition@4f4e15def20e18024be53538d238afbbab498fca # v2.3.1
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE }}
@@ -179,7 +183,9 @@ jobs:
 
       - name: Metrics endpoint check
         run: |
-          curl -sf "${{ env.STAGING_URL }}/metrics" | grep -q "loa_finn_http_requests_total" || exit 1
+          # T-6.6: Metrics now requires auth — use bearer token from secrets
+          curl -sf -H "Authorization: Bearer ${{ secrets.FINN_METRICS_BEARER_TOKEN }}" \
+            "${{ env.STAGING_URL }}/metrics" | grep -q "loa_finn_http_requests_total" || exit 1
           echo "Metrics endpoint OK"
 
       - name: Routing mode check
