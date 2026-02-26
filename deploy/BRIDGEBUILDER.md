@@ -1,6 +1,6 @@
-# Bridgebuilder Deployment Guide (Railway)
+# Bridgebuilder Deployment Guide
 
-Bridgebuilder is an autonomous PR review agent. It runs as a scheduled cron job on Railway, reviewing open pull requests across configured GitHub repositories using Claude. This guide covers everything needed to go from zero to production.
+Bridgebuilder is an autonomous PR review agent. It runs as a scheduled cron job, reviewing open pull requests across configured GitHub repositories using Claude. This guide covers everything needed to go from zero to production.
 
 ---
 
@@ -58,18 +58,13 @@ This lets you verify the full pipeline end-to-end (config validation, preflight,
 
 ## Step-by-Step Deployment
 
-### 1. Create Railway Project
+### 1. Configure Environment
 
-1. Go to [railway.app](https://railway.app) and create a new project.
-2. Choose "Deploy from GitHub repo" and select the `0xHoneyJar/loa` repository.
-3. Set the root directory to `/` (the Dockerfile is at `deploy/Dockerfile`).
-4. Under service settings, set the Dockerfile path to `deploy/Dockerfile`.
-5. Configure the service as a **cron job**, not a web service. Bridgebuilder is a batch process that exits after each run.
-6. Set the cron schedule. Recommended starting schedule: every 30 minutes (`*/30 * * * *`).
+Set all required environment variables (see above) in your deployment platform (ECS task definition, SSM Parameter Store, etc.).
 
 ### 2. Configure the Start Command
 
-Override the default CMD to run the Bridgebuilder entry point instead of the main Finn server:
+The Bridgebuilder entry point runs separately from the main Finn server:
 
 ```
 node dist/src/bridgebuilder/entry.js
@@ -77,7 +72,7 @@ node dist/src/bridgebuilder/entry.js
 
 ### 3. Set Environment Variables
 
-In the Railway service settings, add all required variables and your chosen optional variables. At minimum:
+At minimum, configure:
 
 ```
 GITHUB_TOKEN=ghp_your_token_here
@@ -93,7 +88,7 @@ R2_SECRET_ACCESS_KEY=your_r2_secret
 
 ### 4. Deploy
 
-Trigger a deploy. Railway will build the Docker image using the multi-stage Dockerfile and run the cron on schedule. You can also trigger a manual run from the Railway dashboard to verify immediately.
+Trigger a deploy. The Docker image is built using the multi-stage Dockerfile and the cron runs on schedule. You can also trigger a manual run to verify immediately.
 
 ### 5. Verify (Dry-Run)
 
@@ -222,13 +217,13 @@ The process exits with code 0 and no reviews are posted.
 
 ## Adding or Removing Repos
 
-1. Update the `BRIDGEBUILDER_REPOS` environment variable in Railway. Repos are comma-separated with no spaces:
+1. Update the `BRIDGEBUILDER_REPOS` environment variable. Repos are comma-separated with no spaces:
 
    ```
    BRIDGEBUILDER_REPOS=0xHoneyJar/loa,0xHoneyJar/bears,0xHoneyJar/new-repo
    ```
 
 2. Ensure the `GITHUB_TOKEN` has access to any newly added repos.
-3. Redeploy (Railway redeploys automatically on env var changes, or trigger manually).
+3. Redeploy to pick up env var changes.
 
 The next run will preflight-check all repos and begin reviewing PRs from the updated list.

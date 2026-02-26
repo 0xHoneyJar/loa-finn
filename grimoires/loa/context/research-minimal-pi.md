@@ -342,23 +342,6 @@ loa-beauvoir proved this works. We keep the deployment target but simplify the i
 | Loa identity | `.claude/` mounted | `.claude/` mounted |
 | Gateway | moltworker + clawdbot | Custom thin gateway |
 
-### Alternative: Fly.io / Railway
-
-For even simpler deployment, a standard Docker container on Fly.io or Railway could work:
-
-```dockerfile
-FROM node:22-slim
-WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
-COPY . .
-CMD ["node", "dist/index.js"]
-```
-
-No Cloudflare-specific bindings. No wrangler. No R2. Just a process that runs.
-
-The tradeoff: Cloudflare gives us edge compute + R2 + cron triggers for free. Fly/Railway gives us simpler ops but requires separate object storage (S3) and cron (external).
-
 ### Dev Environment
 
 ```bash
@@ -504,7 +487,7 @@ If messaging channels are needed later, they can be added as **plugins** to the 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | Pi SDK API instability | Medium | High | Pin to specific version, vendor if needed |
-| Cloudflare Workers container limits | Low | High | Alternative: Fly.io fallback |
+| Cloudflare Workers container limits | Low | High | Alternative: ECS deployment |
 | Pi session format changes | Medium | Medium | Wrap in adapter layer |
 | Context window exhaustion | High | Medium | Pi's built-in auto-compaction + Loa protocols |
 | Single point of failure (1 instance) | Medium | Medium | WAL + sync means <30s data loss on crash |
@@ -520,7 +503,7 @@ If messaging channels are needed later, they can be added as **plugins** to the 
 | D-002 | WebChat only, no messaging channels | Smallest useful surface; channels are additive | 2026-02-06 |
 | D-003 | Beads as universal state machine | Follow loa-beauvoir's trajectory (PRs 16-20) | 2026-02-06 |
 | D-004 | WAL + Object Store + Git persistence | Proven 3-tier pattern from loa-beauvoir | 2026-02-06 |
-| D-005 | Cloudflare Workers primary, Fly.io fallback | Leverage existing loa-beauvoir deployment knowledge | 2026-02-06 |
+| D-005 | Cloudflare Workers primary, ECS fallback | Leverage existing loa-beauvoir deployment knowledge | 2026-02-06 |
 | D-006 | TypeScript, pnpm, Node 22+ | Match Pi SDK runtime requirements | 2026-02-06 |
 | D-007 | No SOUL.md transformation | Direct BEAUVOIR.md → system prompt, skip indirection | 2026-02-06 |
 | D-008 | Circuit breakers on all scheduled tasks | Proven pattern from loa-beauvoir (PR #16) | 2026-02-06 |

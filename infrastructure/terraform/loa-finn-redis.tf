@@ -3,13 +3,14 @@
 # Dedicated Redis for loa-finn (Flatline SKP-002: separate from shared Redis).
 # Multi-AZ replication, AOF persistence, automated backups (Flatline SKP-004).
 # Key namespace prefixes: billing:*, conv:*, x402:*, session:*
+# Parameterized for multi-environment via local.service_name (cycle-036 T-3.2).
 
 # ---------------------------------------------------------------------------
 # ElastiCache Subnet Group
 # ---------------------------------------------------------------------------
 
 resource "aws_elasticache_subnet_group" "loa_finn" {
-  name       = "loa-finn-redis-${var.environment}"
+  name       = "${local.service_name}-redis"
   subnet_ids = var.private_subnet_ids
 
   tags = {
@@ -23,9 +24,9 @@ resource "aws_elasticache_subnet_group" "loa_finn" {
 # ---------------------------------------------------------------------------
 
 resource "aws_security_group" "elasticache" {
-  name_prefix = "loa-finn-redis-${var.environment}-"
+  name_prefix = "${local.service_name}-redis-"
   vpc_id      = var.vpc_id
-  description = "loa-finn dedicated ElastiCache"
+  description = "${local.service_name} dedicated ElastiCache"
 
   # Inbound from ECS tasks only
   ingress {
@@ -47,18 +48,18 @@ resource "aws_security_group" "elasticache" {
 # ---------------------------------------------------------------------------
 
 resource "aws_elasticache_replication_group" "loa_finn" {
-  replication_group_id = "loa-finn-${var.environment}"
-  description          = "loa-finn dedicated Redis — billing, conversations, x402, sessions"
+  replication_group_id = local.service_name
+  description          = "${local.service_name} dedicated Redis — billing, conversations, x402, sessions"
 
   engine               = "redis"
   engine_version       = "7.1"
-  node_type            = "cache.t4g.small"
-  num_cache_clusters   = 2 # Primary + 1 replica (Multi-AZ)
+  node_type            = var.environment == "production" ? "cache.t4g.small" : "cache.t4g.micro"
+  num_cache_clusters   = var.environment == "production" ? 2 : 1 # Staging: single node (cost savings)
   parameter_group_name = aws_elasticache_parameter_group.loa_finn.name
 
-  # Multi-AZ replication (Flatline SKP-004)
-  automatic_failover_enabled = true
-  multi_az_enabled           = true
+  # Multi-AZ replication (Flatline SKP-004) — production only
+  automatic_failover_enabled = var.environment == "production"
+  multi_az_enabled           = var.environment == "production"
 
   # Network
   subnet_group_name  = aws_elasticache_subnet_group.loa_finn.name
@@ -69,7 +70,7 @@ resource "aws_elasticache_replication_group" "loa_finn" {
   at_rest_encryption_enabled = true
 
   # Automated backups (Flatline SKP-004)
-  snapshot_retention_limit = 7  # 7-day retention
+  snapshot_retention_limit = var.environment == "production" ? 7 : 1
   snapshot_window          = "03:00-04:00"
   maintenance_window       = "sun:04:00-sun:05:00"
 
@@ -85,7 +86,7 @@ resource "aws_elasticache_replication_group" "loa_finn" {
 # ---------------------------------------------------------------------------
 
 resource "aws_elasticache_parameter_group" "loa_finn" {
-  name   = "loa-finn-redis7-${var.environment}"
+  name   = "${local.service_name}-redis7"
   family = "redis7"
 
   # Critical: noeviction prevents silent data loss for billing state
@@ -116,7 +117,7 @@ resource "aws_elasticache_parameter_group" "loa_finn" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "redis_memory_warning" {
-  alarm_name          = "loa-finn-redis-memory-high-${var.environment}"
+  alarm_name          = "${local.service_name}-redis-memory-high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 3
   metric_name         = "DatabaseMemoryUsagePercentage"
@@ -124,8 +125,8 @@ resource "aws_cloudwatch_metric_alarm" "redis_memory_warning" {
   period              = 300
   statistic           = "Maximum"
   threshold           = 70
-  alarm_description   = "WARNING: loa-finn Redis memory > 70%. Investigate billing key growth."
-  alarm_actions       = [] # SNS topic ARN
+  alarm_description   = "WARNING: ${local.service_name} Redis memory > 70%. Investigate billing key growth."
+  alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   dimensions = {
     ReplicationGroupId = aws_elasticache_replication_group.loa_finn.id

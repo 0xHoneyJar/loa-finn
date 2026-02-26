@@ -1,0 +1,235 @@
+name: Deploy to Staging (Armitage)
+
+# cycle-036 T-3.4 — ECS Fargate staging deployment
+# Manual dispatch with environment input. Immutable image tags (git SHA).
+# Health check gating + automatic rollback via ECS circuit breaker.
+# T-6.3: All actions pinned to commit SHA. T-6.7: pnpm instead of npm.
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Staging environment name"
+        required: true
+        default: "armitage"
+        type: choice
+        options:
+          - armitage
+      image_tag:
+        description: "Docker image tag (leave empty to build from HEAD)"
+        required: false
+        type: string
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: loa-finn
+  ECS_CLUSTER: honeyjar-armitage
+  ECS_SERVICE: loa-finn-armitage
+  STAGING_URL: https://finn-armitage.arrakis.community
+
+jobs:
+  # ===========================================================================
+  # Build + Test
+  # ===========================================================================
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fe02b34f77f8bc703c22d82ef19c587e31e8e696 # v4.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npx vitest run
+
+  # ===========================================================================
+  # Docker Build + ECR Push
+  # ===========================================================================
+  build-and-push:
+    name: Build & Push Docker Image
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build-image.outputs.image }}
+      image_tag: ${{ steps.resolve-tag.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      - name: Resolve image tag
+        id: resolve-tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.resolve-tag.outputs.tag }}
+        run: |
+          docker build \
+            --label "git.sha=${{ github.sha }}" \
+            --label "git.ref=${{ github.ref }}" \
+            --label "deploy.environment=${{ inputs.environment }}" \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            .
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # T-7.12: Container vulnerability scanning before push
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947e0f18c8ea63fd80b # v0.28.0
+        with:
+          image-ref: ${{ steps.build-image.outputs.image }}
+          format: "table"
+          exit-code: "1"
+          severity: "HIGH,CRITICAL"
+          output: "trivy-results.txt"
+
+      - name: Upload Trivy scan results
+        if: always()
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: trivy-scan-results
+          path: trivy-results.txt
+          retention-days: 30
+
+      - name: Push Docker image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.resolve-tag.outputs.tag }}
+        run: |
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+  # ===========================================================================
+  # Deploy to Staging ECS
+  # ===========================================================================
+  deploy:
+    name: Deploy to ECS (${{ inputs.environment }})
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition loa-finn-${{ inputs.environment }} \
+            --query 'taskDefinition' \
+            --output json > task-definition.json
+
+      - name: Update task definition with new image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@913b0a71297753f2da18b1a21573c78fe68a0393 # v1.7.1
+        with:
+          task-definition: task-definition.json
+          container-name: loa-finn
+          image: ${{ needs.build-and-push.outputs.image }}
+
+      - name: Deploy to ECS (rolling update)
+        uses: aws-actions/amazon-ecs-deploy-task-definition@4f4e15def20e18024be53538d238afbbab498fca # v2.3.1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+          # Rollback: ECS circuit breaker auto-reverts on health check failure
+          # (deployment_circuit_breaker enabled in Terraform)
+
+  # ===========================================================================
+  # Smoke Tests
+  # ===========================================================================
+  smoke-test:
+    name: Smoke Tests
+    needs: deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Wait for service stabilization
+        run: sleep 15
+
+      - name: Health check
+        run: |
+          for i in 1 2 3 4 5; do
+            if curl -sf "${{ env.STAGING_URL }}/health"; then
+              echo "Health check passed (attempt $i)"
+              exit 0
+            fi
+            echo "Health check failed (attempt $i), retrying in 10s..."
+            sleep 10
+          done
+          echo "Health check failed after 5 attempts"
+          exit 1
+
+      - name: JWKS endpoint check
+        run: |
+          curl -sf "${{ env.STAGING_URL }}/.well-known/jwks.json" | jq '.keys | length > 0' || exit 1
+          echo "JWKS endpoint OK"
+
+      - name: Metrics endpoint check
+        run: |
+          # T-6.6: Metrics now requires auth — use bearer token from secrets
+          curl -sf -H "Authorization: Bearer ${{ secrets.FINN_METRICS_BEARER_TOKEN }}" \
+            "${{ env.STAGING_URL }}/metrics" | grep -q "loa_finn_http_requests_total" || exit 1
+          echo "Metrics endpoint OK"
+
+      - name: Routing mode check
+        run: |
+          # Verify staging is in shadow mode (not enabled)
+          HEALTH=$(curl -sf "${{ env.STAGING_URL }}/health")
+          echo "Health response: $HEALTH"
+          # Check that goodhart routing state is shadow or disabled (not enabled)
+          echo "$HEALTH" | jq -e '.routingState != "enabled"' || {
+            echo "WARNING: Staging routing state is 'enabled' — expected 'shadow' or 'disabled'"
+            exit 1
+          }
+          echo "Routing mode check passed"
+
+      - name: Summary
+        run: |
+          echo "## Staging Deploy Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`${{ needs.build-and-push.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** ${{ env.STAGING_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster:** ${{ env.ECS_CLUSTER }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service:** ${{ env.ECS_SERVICE }}" >> $GITHUB_STEP_SUMMARY

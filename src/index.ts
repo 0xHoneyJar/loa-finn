@@ -212,6 +212,111 @@ async function main() {
     console.log("[finn] dlq store: type=in-memory durable=false (redis unavailable)")
   }
 
+  // 6d4. Initialize Goodhart Protection Stack (SDD §3.2, cycle-036 T-1.5)
+  //
+  // Wires 7 Goodhart components into a MechanismConfig for reputation-aware routing.
+  // Non-fatal: init exception → routingState="init_failed" + counter.
+  // Redis unavailable → routingState="disabled" with warning.
+  //
+  // Layered rollback plan:
+  //   1. KillSwitch Redis SET (instant, <1s)
+  //   2. FINN_REPUTATION_ROUTING=disabled env override (requires redeploy, ~5min)
+  //   3. Redis unreachable at boot → defaults to "disabled" (existing behavior)
+  // T-7.3: RoutingState imported from canonical source (router.ts via init.ts re-export)
+  let goodhartConfig: import("./hounfour/goodhart/mechanism-interaction.js").MechanismConfig | undefined
+  let routingState: import("./hounfour/router.js").RoutingState = "disabled"
+  let goodhartMetrics: import("./hounfour/graduation-metrics.js").GraduationMetrics | undefined
+  let goodhartRecoveryScheduler: import("./hounfour/goodhart/init.js").GoodhartRecoveryScheduler | undefined
+  // Shared mutable holder — router reads from this on every request (T-5.2).
+  // Recovery scheduler updates this holder atomically; router picks up changes.
+  const goodhartRuntime: import("./hounfour/goodhart/init.js").GoodhartRuntime = {
+    goodhartConfig: undefined,
+    routingState: "disabled",
+    goodhartMetrics: undefined,
+  }
+  const requestedMode = process.env.FINN_REPUTATION_ROUTING ?? "disabled"
+
+  if (requestedMode !== "disabled" && requestedMode !== "shadow" && requestedMode !== "enabled") {
+    console.warn(`[finn] FINN_REPUTATION_ROUTING="${requestedMode}" is not a recognized value, defaulting to disabled`)
+  }
+
+  if (!process.env.FINN_REPUTATION_ROUTING) {
+    console.warn("[finn] FINN_REPUTATION_ROUTING not set — defaulting to disabled. Set explicitly in deploy config.")
+  }
+
+  // T-7.8: Deduplicated — all Goodhart init logic lives in init.ts
+  if (requestedMode !== "disabled") {
+    const redisClient = redis?.isConnected() ? redis.getClient() : null
+    const initDeps = {
+      redisClient: redisClient ?? null,
+      redisPrefix: process.env.FINN_REDIS_PREFIX ?? "armitage:",
+      redisDb: parseInt(process.env.FINN_REDIS_DB ?? "0", 10),
+      requestedMode,
+    }
+
+    try {
+      const { initGoodhartStack } = await import("./hounfour/goodhart/init.js")
+      const result = await initGoodhartStack(initDeps)
+      const prevState = routingState
+
+      // Sync local vars
+      goodhartConfig = result.goodhartConfig
+      routingState = result.routingState
+      goodhartMetrics = result.goodhartMetrics
+
+      // Sync shared holder for router (T-5.2)
+      goodhartRuntime.goodhartConfig = result.goodhartConfig
+      goodhartRuntime.routingState = result.routingState
+      goodhartRuntime.goodhartMetrics = result.goodhartMetrics
+
+      // Emit state transition event (T-4.6)
+      if (result.routingState !== "disabled") {
+        const { emitRoutingStateTransition } = await import("./hounfour/goodhart/routing-events.js")
+        emitRoutingStateTransition(prevState, result.routingState, "goodhart_init_success")
+      }
+    } catch (err) {
+      console.warn(`[finn] goodhart: init failed (non-fatal): ${(err as Error).message}`)
+      const prevState = routingState
+      routingState = "init_failed"
+      if (goodhartMetrics) {
+        goodhartMetrics.goodhartInitFailed.inc()
+        goodhartMetrics.setRoutingMode("init_failed")
+      }
+      // Sync holder — init_failed state (T-5.2)
+      goodhartRuntime.routingState = "init_failed"
+      goodhartRuntime.goodhartMetrics = goodhartMetrics
+      // Emit state transition event (T-4.6)
+      try {
+        const { emitRoutingStateTransition } = await import("./hounfour/goodhart/routing-events.js")
+        emitRoutingStateTransition(prevState, "init_failed", "goodhart_init_error")
+      } catch { /* routing-events import failure is non-fatal */ }
+
+      // Start recovery scheduler with exponential backoff (T-4.3)
+      try {
+        const { GoodhartRecoveryScheduler } = await import("./hounfour/goodhart/init.js")
+        goodhartRecoveryScheduler = new GoodhartRecoveryScheduler(
+          goodhartRuntime,
+          initDeps,
+          (recovered) => {
+            goodhartRuntime.goodhartConfig = recovered.goodhartConfig
+            goodhartRuntime.routingState = recovered.routingState as RoutingState
+            goodhartRuntime.goodhartMetrics = recovered.goodhartMetrics
+            goodhartConfig = recovered.goodhartConfig
+            routingState = recovered.routingState as RoutingState
+            goodhartMetrics = recovered.goodhartMetrics
+            console.log(`[finn] goodhart recovered: routing state now ${recovered.routingState}`)
+          },
+        )
+        goodhartRecoveryScheduler.start()
+        console.log("[finn] goodhart recovery scheduler started (exponential backoff)")
+      } catch (recoveryErr) {
+        console.warn(`[finn] goodhart recovery scheduler init failed: ${(recoveryErr as Error).message}`)
+      }
+    }
+  }
+
+  console.log(`[finn] routing state resolved: ${routingState} (requested: ${requestedMode})`)
+
   // 6e. Initialize Hounfour multi-model routing (SDD §4, T-15.9)
   let hounfour: import("./hounfour/router.js").HounfourRouter | undefined
   try {
@@ -306,6 +411,7 @@ async function main() {
             scopeMeta, rateLimiter,
             projectRoot: process.cwd(),
             knowledgeRegistry,
+            goodhartRuntime,
           })
 
           // Validate all bindings at startup
@@ -692,6 +798,9 @@ async function main() {
     // Close HTTP server first — stop accepting new connections before
     // killing the pool, so in-flight requests don't hit POOL_SHUTTING_DOWN (SD-014)
     server.close()
+
+    // Stop Goodhart recovery scheduler (T-4.3)
+    if (goodhartRecoveryScheduler) goodhartRecoveryScheduler.stop()
 
     // Stop billing guard recovery timer
     if (billingGuard) billingGuard.stopRecoveryTimer()

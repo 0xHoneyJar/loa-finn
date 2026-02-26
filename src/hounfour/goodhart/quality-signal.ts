@@ -90,7 +90,8 @@ export function computeEventHash(
   timestamp: number,
   score: number,
 ): string {
-  const input = `${nftId}${poolId}${routingKey}${timestamp}${score}`
+  // T-7.4: Null byte delimiters prevent collision (e.g., "ab"+"c" vs "a"+"bc")
+  const input = `${nftId}\0${poolId}\0${routingKey}\0${timestamp}\0${score}`
   return createHash("sha256").update(input).digest("hex")
 }
 

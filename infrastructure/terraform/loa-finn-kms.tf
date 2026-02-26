@@ -2,13 +2,14 @@
 #
 # Asymmetric RSA key for signing daily audit digests.
 # ECS task role granted kms:Sign and kms:Verify.
+# Parameterized for multi-environment via local.service_name (cycle-036 T-3.2).
 
 resource "aws_kms_key" "finn_audit_signing" {
-  description             = "loa-finn audit digest signing key"
-  key_usage               = "SIGN_VERIFY"
+  description              = "${local.service_name} audit digest signing key"
+  key_usage                = "SIGN_VERIFY"
   customer_master_key_spec = "RSA_2048"
-  deletion_window_in_days = 30
-  enable_key_rotation     = false # Asymmetric keys don't support auto-rotation
+  deletion_window_in_days  = 30
+  enable_key_rotation      = false # Asymmetric keys don't support auto-rotation
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -48,7 +49,7 @@ resource "aws_kms_key" "finn_audit_signing" {
 }
 
 resource "aws_kms_alias" "finn_audit_signing" {
-  name          = "alias/finn-audit-signing"
+  name          = "alias/${local.service_name}-audit-signing"
   target_key_id = aws_kms_key.finn_audit_signing.key_id
 }
 
@@ -57,7 +58,7 @@ resource "aws_kms_alias" "finn_audit_signing" {
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role_policy" "finn_task_audit_access" {
-  name = "finn-audit-trail-access"
+  name = "${local.service_name}-audit-trail-access"
   role = var.finn_task_role_name
 
   policy = jsonencode({
@@ -72,13 +73,17 @@ resource "aws_iam_role_policy" "finn_task_audit_access" {
           "dynamodb:Query",
           "dynamodb:Scan",
           "dynamodb:UpdateItem",
-          "dynamodb:DeleteItem",
         ]
         Resource = [
           aws_dynamodb_table.finn_scoring_path_log.arn,
           aws_dynamodb_table.finn_x402_settlements.arn,
           "${aws_dynamodb_table.finn_x402_settlements.arn}/index/*",
         ]
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "us-east-1"
+          }
+        }
       },
       {
         Sid    = "S3AuditAccess"
@@ -92,8 +97,14 @@ resource "aws_iam_role_policy" "finn_task_audit_access" {
           aws_s3_bucket.finn_audit_anchors.arn,
           "${aws_s3_bucket.finn_audit_anchors.arn}/*",
         ]
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "us-east-1"
+          }
+        }
       },
       {
+        # Scoped to environment prefix — staging can only read armitage/ path (SDD §4.1.1)
         Sid    = "S3CalibrationAccess"
         Effect = "Allow"
         Action = [
@@ -102,8 +113,13 @@ resource "aws_iam_role_policy" "finn_task_audit_access" {
         ]
         Resource = [
           aws_s3_bucket.finn_calibration.arn,
-          "${aws_s3_bucket.finn_calibration.arn}/*",
+          "${aws_s3_bucket.finn_calibration.arn}/${var.environment}/*",
         ]
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "us-east-1"
+          }
+        }
       },
       {
         Sid    = "KMSSignVerify"
@@ -117,27 +133,14 @@ resource "aws_iam_role_policy" "finn_task_audit_access" {
         Resource = [
           aws_kms_key.finn_audit_signing.arn,
         ]
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "us-east-1"
+          }
+        }
       },
     ]
   })
 }
 
-# ---------------------------------------------------------------------------
-# Variables
-# ---------------------------------------------------------------------------
-
-variable "finn_task_role_arn" {
-  description = "ARN of the ECS task role for loa-finn"
-  type        = string
-}
-
-variable "finn_task_role_name" {
-  description = "Name of the ECS task role for loa-finn"
-  type        = string
-}
-
-variable "environment" {
-  description = "Deployment environment (production, staging)"
-  type        = string
-  default     = "production"
-}
+# Variables moved to variables.tf (cycle-036 T-3.1)

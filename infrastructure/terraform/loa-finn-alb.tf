@@ -2,42 +2,16 @@
 #
 # WebSocket-capable ALB target group. Route53 DNS record.
 # Shares ALB with arrakis via listener rules.
+# Parameterized for multi-environment via local.service_name/hostname (cycle-036 T-3.2).
 
-# ---------------------------------------------------------------------------
-# Variables
-# ---------------------------------------------------------------------------
-
-variable "alb_arn" {
-  type        = string
-  description = "Shared ALB ARN"
-}
-
-variable "alb_listener_arn" {
-  type        = string
-  description = "HTTPS listener ARN on shared ALB"
-}
-
-variable "route53_zone_id" {
-  type        = string
-  description = "Route53 hosted zone ID for honeyjar.xyz"
-}
-
-variable "alb_dns_name" {
-  type        = string
-  description = "ALB DNS name for Route53 alias"
-}
-
-variable "alb_zone_id" {
-  type        = string
-  description = "ALB hosted zone ID for Route53 alias"
-}
+# Variables moved to variables.tf (cycle-036 T-3.1)
 
 # ---------------------------------------------------------------------------
 # Target Group — WebSocket Capable
 # ---------------------------------------------------------------------------
 
 resource "aws_lb_target_group" "loa_finn" {
-  name        = "loa-finn-${var.environment}"
+  name        = local.service_name
   port        = 3000
   protocol    = "HTTP"
   vpc_id      = var.vpc_id
@@ -73,7 +47,8 @@ resource "aws_lb_target_group" "loa_finn" {
 
 resource "aws_lb_listener_rule" "loa_finn" {
   listener_arn = var.alb_listener_arn
-  priority     = 100
+  # Production: priority 200, staging: 210 (SDD §4.2)
+  priority = var.environment == "production" ? 200 : 210
 
   action {
     type             = "forward"
@@ -82,7 +57,7 @@ resource "aws_lb_listener_rule" "loa_finn" {
 
   condition {
     host_header {
-      values = ["loa-finn.honeyjar.xyz"]
+      values = [local.hostname]
     }
   }
 
@@ -98,7 +73,7 @@ resource "aws_lb_listener_rule" "loa_finn" {
 
 resource "aws_route53_record" "loa_finn" {
   zone_id = var.route53_zone_id
-  name    = "loa-finn.honeyjar.xyz"
+  name    = local.hostname
   type    = "A"
 
   alias {
@@ -107,4 +82,3 @@ resource "aws_route53_record" "loa_finn" {
     evaluate_target_health = true
   }
 }
-

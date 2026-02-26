@@ -5,6 +5,13 @@
 
 import { Type, type Static } from "@sinclair/typebox"
 
+/** Strict RFC 3339 date-time validation (fully anchored, requires timezone) */
+const RFC3339_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/
+
+function isRFC3339(value: string): boolean {
+  return RFC3339_RE.test(value)
+}
+
 export const ReputationResponseSchema = Type.Object({
   version: Type.Literal(1),
   score: Type.Number({ minimum: 0, maximum: 1 }),
@@ -56,7 +63,7 @@ export function normalizeResponse(raw: unknown): ReputationResponse | null {
     return {
       version: 1,
       score: Math.max(0, Math.min(1, score)),
-      asOfTimestamp: typeof obj.asOfTimestamp === "string" && !isNaN(Date.parse(obj.asOfTimestamp))
+      asOfTimestamp: typeof obj.asOfTimestamp === "string" && isRFC3339(obj.asOfTimestamp)
         ? obj.asOfTimestamp : "unknown",
       sampleCount: typeof obj.sampleCount === "number" ? Math.max(0, Math.floor(obj.sampleCount)) : 0,
       ...(obj.taskCohort && typeof obj.taskCohort === "object" ? {

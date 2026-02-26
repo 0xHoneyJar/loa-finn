@@ -1,16 +1,16 @@
 {
-  "simstim_id": "simstim-20260226-production-activation",
+  "simstim_id": "simstim-20260226-staging-readiness",
   "schema_version": 1,
   "state": "RUNNING",
   "phase": "implementation",
   "timestamps": {
-    "started": "2026-02-26T17:30:00Z",
-    "last_activity": "2026-02-27T05:08:00Z"
+    "started": "2026-02-26T12:00:00Z",
+    "last_activity": "2026-02-26T08:30:00Z"
   },
   "phases": {
     "preflight": "completed",
     "discovery": "completed",
-    "flatline_prd": "skipped",
+    "flatline_prd": "completed",
     "architecture": "completed",
     "flatline_sdd": "completed",
     "planning": "completed",
@@ -23,64 +23,81 @@
     "prd": {
       "path": "grimoires/loa/prd.md",
       "checksum": "sha256:pending",
-      "note": "Cycle-035 PRD v1.1.0 — GPT-5.2 APPROVED iter 2, 9 blocking issues fixed. Flatline skipped (user chose option 2)."
+      "note": "Cycle-036 PRD — GPT-5.2 APPROVED iter 3."
     },
     "sdd": {
       "path": "grimoires/loa/sdd.md",
-      "checksum": "sha256:pending",
-      "note": "Cycle-035 SDD v1.2.0 — GPT-5.2 APPROVED iter 2. Flatline: 5 HIGH_CONSENSUS integrated, 2 BLOCKERS deferred (SKP-003 Redis cache, SKP-010 x402 validation)."
+      "checksum": "sha256:d6b939647a5c128af8c427802072927e95f8708f5e86c0480f13fab7a9f39095",
+      "note": "Cycle-036 SDD — GPT-5.2 APPROVED iter 3. Flatline: 5 HIGH_CONSENSUS + 8 BLOCKERS addressed."
     },
     "sprint": {
       "path": "grimoires/loa/sprint.md",
-      "checksum": "sha256:pending",
-      "note": "Cycle-035 Sprint v1.2.0 — GPT-5.2 APPROVED iter 2. Flatline: 3 HIGH_CONSENSUS integrated, 2 BLOCKERS accepted (de-scope matrix, audit partial failures), 2 overridden (Redis consistency, admin JWT replay), 1 deferred (JWKS atomic swap)."
+      "note": "Cycle-036 Sprint Plan — GPT-5.2 APPROVED iter 4. Flatline Sprint: 4 HIGH_CONSENSUS + 5 BLOCKERS. Flatline Beads: 4 HIGH_CONSENSUS + 2 DISPUTED + 9 BLOCKERS. 3 sprints, 22 tasks."
     }
   },
-  "cycle": "cycle-035",
-  "previous_cycle": "cycle-034",
+  "cycle": "cycle-036",
+  "previous_cycle": "cycle-035",
   "gpt_review": {
     "prd": {
-      "iterations": 2,
+      "iterations": 3,
       "verdict": "APPROVED",
-      "findings": "grimoires/loa/a2a/gpt-review/prd-findings-2.json"
+      "findings": "grimoires/loa/a2a/gpt-review/prd-findings-3.json"
     },
     "sdd": {
-      "iterations": 2,
+      "iterations": 3,
       "verdict": "APPROVED",
-      "findings": "grimoires/loa/a2a/gpt-review/sdd-findings-2.json"
+      "findings": "grimoires/loa/a2a/gpt-review/sdd-findings-3.json"
     },
     "sprint": {
-      "iterations": 2,
+      "iterations": 4,
       "verdict": "APPROVED",
-      "findings": "grimoires/loa/a2a/gpt-review/sprint-findings-2.json"
+      "findings": "grimoires/loa/a2a/gpt-review/sprint-findings-4.json"
     }
   },
   "flatline": {
+    "prd": {
+      "note": "GPT review served as primary adversarial review (3 iterations)."
+    },
     "sdd": {
       "results": "grimoires/loa/a2a/flatline/sdd-review.json",
-      "high_consensus_integrated": 5,
-      "disputed": 0,
-      "blockers_resolved": 3,
-      "blockers_deferred": 2,
-      "deferred": ["SKP-003", "SKP-010"]
+      "high_consensus": 5,
+      "disputed": 1,
+      "blockers": 8,
+      "model_agreement": 90,
+      "all_integrated": true
     },
     "sprint": {
       "results": "grimoires/loa/a2a/flatline/sprint-review.json",
-      "high_consensus_integrated": 3,
+      "high_consensus": 4,
       "disputed": 0,
-      "blockers_accepted": 2,
-      "blockers_overridden": 2,
-      "blockers_deferred": 1
+      "blockers": 5,
+      "model_agreement": 100,
+      "all_integrated": true
     },
     "beads": {
       "results": "grimoires/loa/a2a/flatline/beads-review.json",
-      "iterations": 1,
-      "high_consensus_integrated": 5,
-      "disputed": 0,
-      "blockers_overridden": 10,
-      "blockers_accepted": 2,
-      "actions": ["Added 18 dependency edges (6 critical path + 12 test-to-impl)", "Normalized Sprint 4 labels (added epic:bd-29g0)", "Enriched T-1.2 with race condition safety AC", "Enriched T-1.4 with in-flight request draining AC"],
-      "note": "Most blockers were false positives — Flatline reviewed beads JSON (titles only) without full sprint.md ACs. Concerns already addressed in sprint Flatline review."
+      "high_consensus": 4,
+      "disputed": 2,
+      "blockers": 9,
+      "model_agreement": 83,
+      "accepted": ["IMP-011"],
+      "rejected": ["IMP-012"],
+      "overridden": ["SKP-001", "SKP-002", "SKP-003", "SKP-008", "SKP-009", "SKP-010"],
+      "refined": ["SKP-005", "SKP-006", "SKP-007"],
+      "beads_created": 25,
+      "tasks_added": 1
     }
+  },
+  "config": {
+    "flatline_models": ["opus", "gpt-5.3-codex", "gemini-2.5-flash"],
+    "vision_registry": true,
+    "hounfour_flatline_routing": true
+  },
+  "ledger": {
+    "sprints_registered": [
+      {"local": "sprint-1", "global": 144, "label": "Goodhart Stack Wiring + Router Integration", "tasks": 8},
+      {"local": "sprint-2", "global": 145, "label": "Fly.io/Railway Cleanup + CI E2E Fixes", "tasks": 6},
+      {"local": "sprint-3", "global": 146, "label": "Terraform + ECS Staging + Deploy Workflow", "tasks": 8}
+    ]
   }
 }

@@ -64,6 +64,53 @@ describe("ReputationResponse normalization", () => {
     expect(normalizeResponse("bad")).toBeNull()
     expect(normalizeResponse(true)).toBeNull()
   })
+
+  describe("strict RFC 3339 timestamp validation (T-8.5)", () => {
+    it("accepts valid RFC 3339 with Z timezone", () => {
+      const result = normalizeResponse({ version: 1, score: 0.5, asOfTimestamp: "2026-02-27T12:00:00Z", sampleCount: 1 })
+      expect(result!.asOfTimestamp).toBe("2026-02-27T12:00:00Z")
+    })
+
+    it("accepts valid RFC 3339 with milliseconds", () => {
+      const result = normalizeResponse({ version: 1, score: 0.5, asOfTimestamp: "2026-02-27T12:00:00.123Z", sampleCount: 1 })
+      expect(result!.asOfTimestamp).toBe("2026-02-27T12:00:00.123Z")
+    })
+
+    it("accepts valid RFC 3339 with timezone offset", () => {
+      const result = normalizeResponse({ version: 1, score: 0.5, asOfTimestamp: "2026-02-27T12:00:00+05:30", sampleCount: 1 })
+      expect(result!.asOfTimestamp).toBe("2026-02-27T12:00:00+05:30")
+    })
+
+    it("rejects bare number string like '1'", () => {
+      const result = normalizeResponse({ version: 1, score: 0.5, asOfTimestamp: "1", sampleCount: 1 })
+      expect(result!.asOfTimestamp).toBe("unknown")
+    })
+
+    it("rejects non-date string 'abc'", () => {
+      const result = normalizeResponse({ version: 1, score: 0.5, asOfTimestamp: "abc", sampleCount: 1 })
+      expect(result!.asOfTimestamp).toBe("unknown")
+    })
+
+    it("rejects date-only string '2026-02-27'", () => {
+      const result = normalizeResponse({ version: 1, score: 0.5, asOfTimestamp: "2026-02-27", sampleCount: 1 })
+      expect(result!.asOfTimestamp).toBe("unknown")
+    })
+
+    it("rejects year-only string '2026'", () => {
+      const result = normalizeResponse({ version: 1, score: 0.5, asOfTimestamp: "2026", sampleCount: 1 })
+      expect(result!.asOfTimestamp).toBe("unknown")
+    })
+
+    it("rejects time-only string '12:00:00Z'", () => {
+      const result = normalizeResponse({ version: 1, score: 0.5, asOfTimestamp: "12:00:00Z", sampleCount: 1 })
+      expect(result!.asOfTimestamp).toBe("unknown")
+    })
+
+    it("rejects timestamp missing timezone", () => {
+      const result = normalizeResponse({ version: 1, score: 0.5, asOfTimestamp: "2026-02-27T12:00:00", sampleCount: 1 })
+      expect(result!.asOfTimestamp).toBe("unknown")
+    })
+  })
 })
 
 // --- DixieStubTransport ---

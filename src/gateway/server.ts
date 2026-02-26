@@ -521,12 +521,20 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     app.route("/api/v1/admin", createAdminRoutes(adminDeps))
   }
 
-  // Prometheus metrics endpoint (cycle-035 T-2.5)
+  // Prometheus metrics endpoint (cycle-035 T-2.5, T-6.6: bearer auth)
   if (options.graduationMetrics) {
-    const metrics = options.graduationMetrics
+    const gMetrics = options.graduationMetrics
+    const metricsToken = process.env.FINN_METRICS_BEARER_TOKEN
     app.get("/metrics", (c) => {
+      // T-6.6: Require bearer token when configured
+      if (metricsToken) {
+        const authHeader = c.req.header("Authorization")
+        if (!authHeader || authHeader !== `Bearer ${metricsToken}`) {
+          return c.json({ error: "unauthorized" }, 401)
+        }
+      }
       c.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-      return c.text(metrics.toPrometheus())
+      return c.text(gMetrics.toPrometheus())
     })
   }
 

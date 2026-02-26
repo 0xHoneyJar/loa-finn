@@ -2,13 +2,14 @@
 #
 # Tables for audit trail hash chain and x402 settlement state machine.
 # Provisioned in loa-finn repo for PR visibility; applied via loa-freeside Terraform.
+# Parameterized for multi-environment via local.dynamodb_suffix (cycle-036 T-3.2).
 
 # ---------------------------------------------------------------------------
 # Audit Trail: finn-scoring-path-log (§4.6.1)
 # ---------------------------------------------------------------------------
 
 resource "aws_dynamodb_table" "finn_scoring_path_log" {
-  name         = "finn-scoring-path-log"
+  name         = "finn-scoring-path-log${local.dynamodb_suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "partitionId"
   range_key    = "sequenceNumber"
@@ -40,7 +41,7 @@ resource "aws_dynamodb_table" "finn_scoring_path_log" {
 # ---------------------------------------------------------------------------
 
 resource "aws_dynamodb_table" "finn_x402_settlements" {
-  name         = "finn-x402-settlements"
+  name         = "finn-x402-settlements${local.dynamodb_suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "idempotencyKey"
 

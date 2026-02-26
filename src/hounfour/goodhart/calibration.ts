@@ -69,6 +69,10 @@ export class CalibrationEngine {
     // Initial fetch
     void this.fetchFromS3()
     this.pollTimer = setInterval(() => void this.fetchFromS3(), this.config.pollIntervalMs)
+    // T-7.7: Unref so polling doesn't prevent Node.js from exiting cleanly
+    if (typeof this.pollTimer === "object" && "unref" in this.pollTimer) {
+      this.pollTimer.unref()
+    }
   }
 
   /** Stop periodic polling */
@@ -80,7 +84,7 @@ export class CalibrationEngine {
   }
 
   /** Load entries from local JSONL file (fallback when S3 unavailable) */
-  async loadFromLocal(content: string): Promise<void> {
+  loadFromLocal(content: string): void {
     const parsed = this.parseJSONL(content)
     if (parsed) {
       this.rebuildLookup(parsed)

@@ -1,26 +1,133 @@
 {
-  "phase": "sprint",
-  "document": "grimoires/loa/sprint.md",
-  "timestamp": "2026-02-26T04:12:44Z",
   "consensus_summary": {
-    "high_consensus_count": 3,
+    "high_consensus_count": 4,
     "disputed_count": 0,
     "low_value_count": 0,
     "blocker_count": 5,
     "model_agreement_percent": 100,
+    "models": 2,
+    "tertiary_items": 0,
     "confidence": "full"
   },
   "high_consensus": [
-    {"id": "IMP-001", "description": "Admin mode change: specify transactional semantics for Redis write failure after audit intent (retry/backoff, rollback, idempotency key)", "average_score": 850},
-    {"id": "IMP-002", "description": "BufferedAuditChain restart: define resume algorithm (read last committed hash from DynamoDB), gap detection, crash simulation test", "average_score": 825},
-    {"id": "IMP-005", "description": "E2E compose CI: define suite/test timeouts, CI job sizing, parallelism, and merge gating policy", "average_score": 815}
+    {
+      "id": "IMP-001",
+      "description": "Real gap for a highest-risk change: shadow mode is not a rollback plan. Documenting a concrete rollback path (feature flag default-off, config override, revert procedure, and who/when) is highly actionable and low effort with high operational ROI.",
+      "gpt_score": 900,
+      "opus_score": 820,
+      "tertiary_score": null,
+      "delta": 80,
+      "average_score": 860,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-002",
+      "description": "Type contract ambiguity is a common source of integration defects, especially across tasks T-1.4/1.5/1.6. Actionable by adding explicit interfaces or a precise reference to an SDD section. Moderate effort depending on how stable the types are, but worth it.",
+      "gpt_score": 780,
+      "opus_score": 880,
+      "tertiary_score": null,
+      "delta": 100,
+      "average_score": 830,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-003",
+      "description": "Determinism in shadow mode is important for replay/debugging and for making divergence metrics meaningful. Adding acceptance criteria/tests is actionable. Specifying the exact PRNG library/algorithm may be slightly over-prescriptive, but requiring deterministic behavior for a fixed seed is solid.",
+      "gpt_score": 720,
+      "opus_score": 790,
+      "tertiary_score": null,
+      "delta": 70,
+      "average_score": 755,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-006",
+      "description": "KillSwitch is described as highest-precedence but lacks the concrete contract needed to implement safely in Sprint 1. Deferring key/value semantics to Sprint 3 is a sequencing bug. Defining key, value, polling/check frequency, and TTL is actionable and critical for safe ops.",
+      "gpt_score": 880,
+      "opus_score": 750,
+      "tertiary_score": null,
+      "delta": 130,
+      "average_score": 815,
+      "source": "gpt_scored",
+      "would_integrate": true,
+      "agreement": "HIGH"
+    }
   ],
   "disputed": [],
+  "low_value": [],
   "blockers": [
-    {"id": "SKP-001", "severity": "CRITICAL", "severity_score": 930, "concern": "Solo team + 30 tasks: single-point-of-failure, no buffer/de-scope matrix"},
-    {"id": "SKP-003", "severity": "CRITICAL", "severity_score": 900, "concern": "Audit buffer hash-chain continuity under partial failures, gaps, reorderings"},
-    {"id": "SKP-004", "severity": "CRITICAL", "severity_score": 880, "concern": "Admin JWT underspecified: replay protection, claim constraints, WAF/IP controls"},
-    {"id": "SKP-002", "severity": "HIGH", "severity_score": 760, "concern": "Redis RuntimeConfig: multi-instance propagation consistency, no pub/sub or polling interval"},
-    {"id": "SKP-005", "severity": "HIGH", "severity_score": 720, "concern": "SecretsLoader JWKS refresh: non-atomic swap, cross-instance stale key windows"}
-  ]
+    {
+      "id": "SKP-001",
+      "concern": "No explicit rollback/feature-flag strategy for a bad Goodhart deployment beyond KillSwitch; unclear how config changes propagate safely",
+      "severity": "CRITICAL",
+      "severity_score": 900,
+      "why_matters": "Sprint 1 changes sit on the core routing path. If enabled accidentally (or shadow logic has side effects), you need a fast, reliable rollback that does not depend on Redis availability or a redeploy. KillSwitch is mentioned, but its operational mechanics, availability assumptions, and failure modes are not fully specified for production incidents.",
+      "location": "Sprint 1: T-1.6 KillSwitch integration; Sprint 3: T-3.7 rollback paths",
+      "recommendation": "Define a layered rollback plan: (1) static env var default to disabled on boot if Redis unreachable, (2) KillSwitch key semantics + TTL + safe defaults, (3) deploy-time guardrails preventing enabled mode without explicit approval, (4) documented emergency procedure that works even if Redis/SSM is down.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-004",
+      "concern": "Proxy-based Redis wrappers (read-only and prefixed) are brittle across client versions and can miss mutating commands or key-bearing commands",
+      "severity": "HIGH",
+      "severity_score": 720,
+      "why_matters": "Redis clients often expose commands dynamically, via nested namespaces, pipelines, multi/exec, scripts, or modules. A proxy that only whitelists a few methods can break legitimate read paths (e.g., scan, evalsha for read scripts) or fail to block writes via alternate APIs (pipeline.set, multi().set, sendCommand). Prefixed wrapper can miss commands that accept keys in non-first positions.",
+      "location": "Sprint 1: T-1.2 ReadOnlyRedisClient Wrapper; T-1.3 PrefixedRedisClient Wrapper",
+      "recommendation": "Explicitly handle pipeline/multi/sendCommand, Lua/script paths, and any command dispatch method. Add tests for bypass vectors (multi, pipeline, sendCommand). Consider using a dedicated Redis client instance with ACL read-only user for shadow mode instead of relying solely on a proxy.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-009",
+      "concern": "Terraform workspace/environment safety relies on human process; guardrails may be insufficient to prevent production impact",
+      "severity": "CRITICAL",
+      "severity_score": 880,
+      "why_matters": "Using the same backend with different workspace keys reduces risk, but mistakes still happen (wrong workspace selected, missing var-file, or environment variable mismatch). The plan includes a runbook warning, but no hard technical enforcement is described (e.g., policy-as-code, CI checks, backend key constraints). A single accidental apply could modify production resources.",
+      "location": "Sprint 3: T-3.1 runbook; T-3.2 parameterization; Risk Assessment (Production Terraform impact)",
+      "recommendation": "Add hard guards: require `var.environment` to equal `terraform.workspace` via validation that fails plan/apply; add separate backend/workspace prefix for staging; add CI that runs `terraform plan` and fails if any production-named resources change; consider Terraform Cloud/OPA/Sentinel or at least a pre-apply script enforced in workflow.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "The 'never throws' contract in resolveWithGoodhart can mask systemic failures and create silent correctness regressions",
+      "severity": "CRITICAL",
+      "severity_score": 860,
+      "why_matters": "Catching all errors and returning null makes the system appear healthy while Goodhart is effectively offline. This can lead to prolonged undetected outages, misleading metrics, and difficulty debugging. It also risks swallowing programmer errors (e.g., type errors) that should fail fast in non-shadow environments.",
+      "location": "Sprint 1: T-1.4 resolveWithGoodhart (\"never throws\")",
+      "recommendation": "Differentiate expected operational failures (timeouts, upstream errors) from programmer errors. Emit structured error logs with rate limiting, add a 'goodhart_unavailable' gauge, and in enabled mode consider failing closed or triggering an automatic state downgrade (enabled→shadow/disabled) after threshold breaches.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-003",
+      "concern": "Timeout strategy is underspecified and may not actually bound latency due to missing cancellation/abort propagation",
+      "severity": "HIGH",
+      "severity_score": 760,
+      "why_matters": "Promise.race timeouts do not cancel underlying work. If HTTP requests or Redis calls continue after the timeout, you can accumulate in-flight work, saturate connection pools, and cause cascading latency. Per-pool 50ms timeouts plus a 200ms overall ceiling can still leave many dangling operations.",
+      "location": "Sprint 1: T-1.4 (200ms overall timeout), T-1.7 (50ms per-pool timeout)",
+      "recommendation": "Use AbortController (or transport-specific cancellation) for HTTP; ensure Redis client calls are bounded; cap total in-flight Goodhart operations per process; add metrics for in-flight requests and timeout-induced aborts.",
+      "source": "tertiary_skeptic"
+    }
+  ],
+  "degraded": false,
+  "degraded_model": null,
+  "confidence": "full",
+  "phase": "sprint",
+  "document": "grimoires/loa/sprint.md",
+  "domain": " sprint 1 goodhart stack",
+  "execution": {
+    "mode": "interactive",
+    "mode_reason": "CLI flag --interactive",
+    "run_id": null
+  },
+  "timestamp": "2026-02-26T07:54:12Z",
+  "metrics": {
+    "total_latency_ms": 213000,
+    "cost_cents": 0,
+    "cost_usd": 0
+  }
 }

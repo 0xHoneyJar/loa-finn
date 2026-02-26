@@ -23,7 +23,7 @@ describe("DixieHttpTransport", () => {
       const transport = new DixieHttpTransport({
         baseUrl: "http://localhost:9999",
         timeoutMs: 100,
-        dnsRefreshMs: 999_999,
+
       })
 
       // 3 failures → circuit opens
@@ -57,7 +57,7 @@ describe("DixieHttpTransport", () => {
       const transport = new DixieHttpTransport({
         baseUrl: "http://localhost:9999",
         timeoutMs: 100,
-        dnsRefreshMs: 999_999,
+
       })
 
       await transport.getReputation("nft-1") // fail 1
@@ -91,7 +91,7 @@ describe("DixieHttpTransport", () => {
       const transport = new DixieHttpTransport({
         baseUrl: "http://localhost:9999",
         timeoutMs: 50,
-        dnsRefreshMs: 999_999,
+
       })
 
       const result = await transport.getReputation("nft-1")
@@ -113,7 +113,7 @@ describe("DixieHttpTransport", () => {
       const transport = new DixieHttpTransport({
         baseUrl: "http://localhost:9999",
         timeoutMs: 300,
-        dnsRefreshMs: 999_999,
+
       })
 
       const result = await transport.getReputation("nft-1")
@@ -130,7 +130,7 @@ describe("DixieHttpTransport", () => {
       const transport = new DixieHttpTransport({
         baseUrl: "http://localhost:9999",
         timeoutMs: 300,
-        dnsRefreshMs: 999_999,
+
       })
 
       const result = await transport.getReputation("nft-1")
@@ -141,11 +141,10 @@ describe("DixieHttpTransport", () => {
   })
 
   describe("shutdown", () => {
-    it("clears DNS timer", async () => {
+    it("completes without error", async () => {
       const transport = new DixieHttpTransport({
         baseUrl: "http://localhost:9999",
         timeoutMs: 300,
-        dnsRefreshMs: 999_999,
       })
 
       await transport.shutdown()
@@ -157,7 +156,7 @@ describe("DixieHttpTransport", () => {
     it("rejects invalid URLs at construction", () => {
       expect(() => new DixieHttpTransport({
         baseUrl: "not-a-url",
-        dnsRefreshMs: 999_999,
+
       })).toThrow()
     })
   })

@@ -1,10 +1,11 @@
-# Sprint 144 (Sprint 1): Runtime Infrastructure — Implementation Report
+# Sprint 144 (Sprint 1): Goodhart Stack Wiring + Router Integration — Implementation Report
 
-> **Cycle**: cycle-035 — Production Activation & Loop Go-Live
+> **Cycle**: cycle-036 — Staging Readiness
 > **Sprint**: 1 (Global ID: 144)
-> **Status**: ALL TASKS COMPLETE (9/9)
-> **Tests**: 60 passing across 6 test files
-> **Branch**: `feature/hounfour-v820-upgrade`
+> **Status**: ALL TASKS COMPLETE (8/8)
+> **Tests**: 35 passing across 5 test files (+ 6 pre-existing failures in mechanism-interaction.test.ts from cycle-035 KillSwitch API mismatch)
+> **Branch**: `feature/cycle-036-staging-readiness`
+> **GPT Review**: APPROVED (iteration 2, resolve.ts — 3 findings fixed)
 
 ---
 
@@ -12,148 +13,120 @@
 
 | Task | Title | Status | Files |
 |------|-------|--------|-------|
-| T-1.1 | RuntimeConfig module (Redis GET + env fallback) | CLOSED | `src/hounfour/runtime-config.ts` (new) |
-| T-1.2 | KillSwitch async upgrade | CLOSED | `src/hounfour/goodhart/kill-switch.ts` (rewrite), `src/hounfour/goodhart/mechanism-interaction.ts` (modified) |
-| T-1.3 | Two-tier health endpoints | CLOSED | `src/gateway/server.ts` (modified) |
-| T-1.4 | GracefulShutdown handler | CLOSED | `src/boot/shutdown.ts` (new) |
-| T-1.5 | BufferedAuditChain | CLOSED | `src/hounfour/audit/buffered-audit-chain.ts` (new) |
-| T-1.6 | SecretsLoader | CLOSED | `src/boot/secrets.ts` (new) |
-| T-1.7 | Tests: RuntimeConfig + KillSwitch async | CLOSED | `tests/finn/hounfour/runtime-config.test.ts`, `tests/finn/hounfour/kill-switch-async.test.ts` |
-| T-1.8 | Tests: health + audit buffer | CLOSED | `tests/finn/gateway/health.test.ts`, `tests/finn/hounfour/audit/buffered-audit-chain.test.ts` |
-| T-1.9 | Tests: GracefulShutdown + SecretsLoader | CLOSED | `tests/finn/boot/shutdown.test.ts`, `tests/finn/boot/secrets.test.ts` |
+| T-1.1 | Transport Factory | CLOSED | `src/hounfour/goodhart/transport-factory.ts` (new, 23 lines) |
+| T-1.2 | ReadOnlyRedisClient Wrapper | CLOSED | `src/hounfour/goodhart/read-only-redis.ts` (new, 49 lines) |
+| T-1.3 | PrefixedRedisClient Wrapper | CLOSED | `src/hounfour/infra/prefixed-redis.ts` (new, 78 lines) |
+| T-1.4 | resolveWithGoodhart Function | CLOSED | `src/hounfour/goodhart/resolve.ts` (new, 163 lines) |
+| T-1.5 | Goodhart Initialization Block | CLOSED | `src/index.ts` (modified, ~70 lines added) |
+| T-1.6 | Router State Machine + KillSwitch | CLOSED | `src/hounfour/router.ts` (modified, ~130 lines added) |
+| T-1.7 | Parallel Scoring with Concurrency Limit | CLOSED | `src/hounfour/goodhart/mechanism-interaction.ts` (modified) |
+| T-1.8 | Prometheus Metrics | CLOSED | `src/hounfour/graduation-metrics.ts` (modified) |
 
 ---
 
 ## Implementation Details
 
-### T-1.1: RuntimeConfig (`src/hounfour/runtime-config.ts`)
+### T-1.1: Transport Factory (`src/hounfour/goodhart/transport-factory.ts`)
 
-**New module.** Async routing mode resolution with three-tier fallback:
-1. Redis GET `finn:config:reputation_routing` (per-request, no caching)
-2. Environment variable `FINN_REPUTATION_ROUTING`
-3. Last known mode (set on previous successful read)
-4. Default: `"shadow"`
+**New module.** Factory function `createDixieTransport()`:
+- Returns `DixieStubTransport` when `baseUrl` is undefined, empty, or `"stub"`
+- Returns `DixieHttpTransport` with given URL otherwise
+- Re-exported from `src/hounfour/goodhart/index.ts` barrel
 
-Valid modes: `"enabled"`, `"disabled"`, `"shadow"`. Invalid Redis values fall through to env var. Redis failures are non-fatal (logged, falls back). Exposes `lastLatencyMs` for health reporting.
+### T-1.2: ReadOnlyRedisClient Wrapper (`src/hounfour/goodhart/read-only-redis.ts`)
 
-**AC20 satisfied**: Mode change effective <1s — no caching, reads Redis per-request.
+**New module.** ES Proxy-based read-only wrapper per SDD §3.3:
+- Allowlist: `get`, `mget`, `hget`, `hgetall`, `exists`, `ttl`, `type`
+- All mutating methods throw: `"Redis writes blocked in shadow mode (attempted: <method>)"`
+- Bypass vectors explicitly blocked: `multi()`, `pipeline()`, `sendCommand()`, `eval()`, `evalsha()`
+- Non-function properties pass through unchanged
 
-### T-1.2: KillSwitch Async (`src/hounfour/goodhart/kill-switch.ts`)
+### T-1.3: PrefixedRedisClient Wrapper (`src/hounfour/infra/prefixed-redis.ts`)
 
-**Rewritten.** Now accepts optional `RuntimeConfig` in constructor. All public methods async:
-- `isDisabled()` → `Promise<boolean>`
-- `getState()` → `Promise<RoutingMode>`
+**New module.** Runtime key prefix enforcement per SDD §4.1.2:
+- `get("foo")` → `get("armitage:foo")` when prefix is `armitage:`
+- `mget(["a", "b"])` → `mget(["armitage:a", "armitage:b"])`
+- Startup assertion: prefix < 2 chars throws at construction
+- `select(dbIndex)` called on construction
 
-Backward compatible: without RuntimeConfig, falls back to reading `FINN_REPUTATION_ROUTING` env var directly (same behavior as cycle-034).
+### T-1.4: resolveWithGoodhart Function (`src/hounfour/goodhart/resolve.ts`)
 
-**Caller updated**: `mechanism-interaction.ts` line where `getState()` was called now uses `await`.
+**New module.** Core integration function connecting router to all Goodhart components:
+- Typed contract per SDD §3.3.1: `GoodhartOptions`, `GoodhartResult`, `ScoredPool` interfaces
+- 200ms hard timeout via `Promise.race` with `AbortController` propagation
+- Error classification: programmer errors (`TypeError`, `ReferenceError`, `SyntaxError`, `RangeError`, `EvalError`, `URIError`) propagate; operational errors caught → null
+- Timer cleanup in `finally` block prevents leaks
+- Structured JSON logging on timeout and operational error
 
-### T-1.3: Two-Tier Health (`src/gateway/server.ts`)
+**GPT Review**: Iteration 1 found 3 issues (timer leak, incomplete error classification, missing finally block). All fixed and APPROVED on iteration 2.
 
-**Modified.** Added two health endpoint tiers:
-- `/healthz` — ALB liveness probe, always returns 200 (no dependency checks)
-- `/health/deps` — Readiness probe, returns 503 when any critical dep down
+### T-1.5: Goodhart Initialization Block (`src/index.ts`)
 
-Added `redisHealth` and `dynamoHealth` optional callbacks to `AppOptions`. Legacy `/health` preserved unchanged.
+**Modified.** Added init block between DLQ init and HounfourRouter construction:
+- `RoutingState` type: `"disabled" | "shadow" | "enabled" | "init_failed"`
+- Dynamic imports of all 7 Goodhart components
+- `FINN_REPUTATION_ROUTING` env var controls mode (default: `"shadow"`)
+- `PrefixedRedisClient` wired with `FINN_REDIS_PREFIX` (default: `armitage:`)
+- CalibrationEngine gated: only when both `FINN_CALIBRATION_BUCKET_NAME` AND `FINN_CALIBRATION_HMAC_KEY` set
+- NoopCalibrationEngine pattern: `CalibrationEngine({calibrationWeight: 0})` for neutral scores
+- Redis unavailable → stays `"disabled"`; init exception → `"init_failed"` + counter
 
-**AC6/AC6a satisfied**: `/healthz` returns 200 even when Redis unreachable. `/health/deps` returns 503 when Redis or DynamoDB down.
+### T-1.6: Router State Machine (`src/hounfour/router.ts`)
 
-### T-1.4: GracefulShutdown (`src/boot/shutdown.ts`)
+**Modified.** Full 4-state routing machine in `resolvePoolForRequest()`:
+1. **KillSwitch** — highest precedence, fail-open (Redis unavailable = normal routing)
+2. **disabled** → deterministic only
+3. **init_failed** → deterministic + `finn_goodhart_init_failed_requests` counter
+4. **shadow** → invoke Goodhart, log divergence, return deterministic result
+5. **enabled** → invoke Goodhart, return reputation result; null → deterministic fallback
 
-**New module.** Centralized shutdown handler:
-- `register(target)` with priority-based ordering (lower = first)
-- Same-priority targets execute in parallel via `Promise.allSettled`
-- 25s deadline (within ECS 30s `stopTimeout`)
-- Force-exit timer with `unref()` so it doesn't keep process alive
-- Idempotent: second `execute()` call is no-op
-- SIGTERM/SIGINT handler registration
+Added fields to `HounfourRouterOptions`: `goodhartConfig?`, `routingState?`, `goodhartMetrics?`
 
-**AC satisfied**: Ordered shutdown, 25s deadline, process.exit(0) on clean, process.exit(1) on deadline.
+### T-1.7: Parallel Scoring (`src/hounfour/goodhart/mechanism-interaction.ts`)
 
-### T-1.5: BufferedAuditChain (`src/hounfour/audit/buffered-audit-chain.ts`)
+**Modified.** Replaced sequential pool scoring with `Promise.allSettled` + `p-limit(5)` + per-pool 50ms timeout. Individual failures don't block other pools; all failures → empty array.
 
-**New module.** Wraps cycle-034's `DynamoAuditChain` with bounded in-memory buffer:
-- Direct write attempted first; on failure, entry buffered
-- `CRITICAL_ACTIONS` set (`routing_mode_change`, `settlement`, `admin_action`) → throws when buffer full + DynamoDB unavailable (fail-closed)
-- Non-critical actions drop with warning when buffer full
-- Flush: in-order, respects `maxEntryAgeMs` (expired entries discarded)
-- Stops flushing on first failure to preserve ordering
-- Single-writer mutex via promise chain for concurrent appenders
-- Periodic flush timer (configurable interval, `unref`'d)
-- Delegates to `inner.append()` preserving hash chain and KMS signatures
+### T-1.8: Prometheus Metrics (`src/hounfour/graduation-metrics.ts`)
 
-**Bug found and fixed**: Mutex `acquireMutex()` was not properly `await`ing the previous operation, allowing concurrent access. Fixed by making `acquireMutex()` async and awaiting the prev promise.
-
-**Crash resume**: Delegates to `DynamoAuditChain.init()` which queries DynamoDB for last committed hash.
-
-### T-1.6: SecretsLoader (`src/boot/secrets.ts`)
-
-**New module.** Wraps existing `loadSecrets()` from `aws-secrets.ts` with:
-- TTL-based cache (default: 1 hour)
-- Background refresh (stale-while-revalidate pattern)
-- Fail-fast at startup if required secrets missing (`anthropicApiKey`, `finnAuthToken`)
-- Admin JWKS loading from `finn/admin-jwks` Secrets Manager entry
-- JWKS validation (must be parseable JSON with `keys` array)
-- Force refresh for manual rotation trigger
-
-### T-1.7–T-1.9: Tests
-
-**6 test files, 60 tests total:**
-
-| File | Tests | Coverage |
-|------|-------|----------|
-| `runtime-config.test.ts` | 11 | Redis read, env fallback, invalid values, failure fallback, last-known-mode, setMode validation |
-| `kill-switch-async.test.ts` | 9 | isDisabled, getState, mode transitions, backward compat (no RuntimeConfig), logTransition, concurrent reads |
-| `health.test.ts` | 7 | `/healthz` always 200, `/health/deps` 200/503 for Redis/DynamoDB states, throws, no deps |
-| `buffered-audit-chain.test.ts` | 9 | Direct write, buffering, fail-closed critical, drop non-critical, flush in-order, expire old entries, crash resume, concurrent mutex, shutdown |
-| `shutdown.test.ts` | 11 | All targets called, exit(0), idempotent, isShuttingDown, priority ordering, parallel same-priority, default priority, error handling, deadline logging |
-| `secrets.test.ts` | 13 | Load from env, missing required throws, cache age, getSecrets cache/refresh, background refresh failure, refresh(), admin JWKS fetch/cache/validation/stale fallback |
+**Modified.** Added 9 new metrics per SDD §3.5:
+- Counters: `finn_shadow_total`, `finn_shadow_diverged`, `finn_goodhart_init_failed`, `finn_goodhart_init_failed_requests`, `finn_reputation_scoring_failed_total`, `finn_goodhart_timeout_total`, `finn_killswitch_activated_total`
+- Gauge: `finn_goodhart_routing_mode` (label: `mode`)
+- Histogram: `finn_routing_duration_seconds` (label: `path`)
 
 ---
 
-## Files Changed
+## Test Results
 
-### New Files (6)
-- `src/hounfour/runtime-config.ts` — RuntimeConfig module
-- `src/boot/shutdown.ts` — GracefulShutdown handler
-- `src/hounfour/audit/buffered-audit-chain.ts` — BufferedAuditChain
-- `src/boot/secrets.ts` — SecretsLoader
-- `tests/finn/boot/shutdown.test.ts` — GracefulShutdown tests
-- `tests/finn/boot/secrets.test.ts` — SecretsLoader tests
+| Test File | Tests | Status |
+|-----------|-------|--------|
+| `tests/finn/goodhart/transport-factory.test.ts` | 4 | PASS |
+| `tests/finn/goodhart/read-only-redis.test.ts` | 8 | PASS |
+| `tests/finn/infra/prefixed-redis.test.ts` | 7 | PASS |
+| `tests/finn/goodhart/resolve.test.ts` | 4 | PASS |
+| `tests/finn/goodhart/routing-state.test.ts` | 12 | PASS |
+| **Total** | **35** | **PASS** |
 
-### Modified Files (2)
-- `src/hounfour/goodhart/kill-switch.ts` — Rewritten for async RuntimeConfig
-- `src/gateway/server.ts` — Added `/healthz` and `/health/deps` routes
+### Pre-existing Failures (NOT caused by Sprint 1)
 
-### Test Files Created Earlier (4)
-- `tests/finn/hounfour/runtime-config.test.ts`
-- `tests/finn/hounfour/kill-switch-async.test.ts`
-- `tests/finn/gateway/health.test.ts`
-- `tests/finn/hounfour/audit/buffered-audit-chain.test.ts`
+`tests/finn/goodhart/mechanism-interaction.test.ts` — 6 failures due to cycle-035 KillSwitch API mismatch (passes `boolean` where `RoutingMode` string expected). These failures predate Sprint 1.
 
 ---
 
-## Bug Fixes
+## GPT Review Trail
 
-1. **BufferedAuditChain mutex race condition**: The `acquireMutex()` method was synchronous and didn't await the previous promise, allowing concurrent access despite the mutex. Fixed by making it `async` with proper `await prev`. Detected by the concurrent appenders test (T-1.8).
+| File | Iteration | Verdict | Findings |
+|------|-----------|---------|----------|
+| `resolve.ts` | 1 | CHANGES_REQUIRED | Timer leak, missing EvalError/URIError, no finally block |
+| `resolve.ts` | 2 | APPROVED | All 3 findings fixed correctly |
 
----
-
-## Acceptance Criteria Verification
-
-- **AC6**: `/healthz` returns 200 even when Redis unreachable — verified in `health.test.ts`
-- **AC6a**: `/health/deps` returns 503 when Redis down — verified in `health.test.ts`
-- **AC20**: Mode change effective <1s — RuntimeConfig reads Redis per-request, no caching
-- **Fail-closed**: Critical actions throw when buffer full + DynamoDB down — verified in `buffered-audit-chain.test.ts`
-- **Crash resume**: Sequence recovery from DynamoDB — verified in `buffered-audit-chain.test.ts`
-- **Concurrent safety**: Single-writer mutex serializes appends — verified after bug fix
-- **Shutdown deadline**: 25s within ECS 30s stopTimeout — verified in `shutdown.test.ts`
-- **Secrets fail-fast**: Missing required secrets throw at startup — verified in `secrets.test.ts`
+Review artifacts: `grimoires/loa/a2a/gpt-review/code-findings-{1,2}.json`
 
 ---
 
-## Risks & Notes
+## Architecture Notes
 
-1. **KillSwitch callers**: Only `mechanism-interaction.ts` was updated. Any other callers (if they exist) would need `await` added. A grep for `killSwitch.getState` or `killSwitch.isDisabled` should confirm completeness.
-2. **BufferedAuditChain KMS**: Tests use mock DynamoDB client. KMS signing is delegated to `DynamoAuditChain.append()` internals — not directly tested in buffered chain tests (tested in dynamo-audit tests from cycle-034).
-3. **SecretsLoader in dev**: Uses env vars via `loadSecrets()` fallback (no actual Secrets Manager client). Production path tested via mock client in `loadAdminJWKS` tests.
+- **No breaking changes** to deterministic routing path — all Goodhart integration is additive
+- **Proxy pattern** used consistently for Redis wrappers (ReadOnly + Prefixed)
+- **Fail-open design**: KillSwitch Redis unavailable = continue normal routing
+- **Fail-safe design**: Goodhart init failure = deterministic fallback with metrics
+- **Shadow mode**: runs Goodhart read-only, logs divergence, returns deterministic result

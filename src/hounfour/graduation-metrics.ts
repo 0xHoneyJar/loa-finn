@@ -1,11 +1,15 @@
-// src/hounfour/graduation-metrics.ts — Prometheus Graduation Metrics (SDD §9.2, cycle-035 T-2.5)
+// src/hounfour/graduation-metrics.ts — Prometheus Graduation Metrics (SDD §9.2, cycle-035 T-2.5 + cycle-036 T-1.8)
 //
 // Lightweight Prometheus text format metrics without external dependencies.
-// Fixed label sets (tier, status) — no nftId/poolId to prevent cardinality explosion.
+// Fixed label sets (tier, status, mode, path) — no nftId/poolId to prevent cardinality explosion.
 //
 // Counters: finn_shadow_total, finn_shadow_diverged, finn_reputation_query_total,
-//   finn_exploration_total, finn_ema_updates_total, finn_routing_mode_transitions_total
-// Histogram: finn_reputation_query_duration_seconds
+//   finn_exploration_total, finn_ema_updates_total, finn_routing_mode_transitions_total,
+//   finn_goodhart_init_failed, finn_goodhart_init_failed_requests,
+//   finn_reputation_scoring_failed_total, finn_goodhart_timeout_total,
+//   finn_killswitch_activated_total
+// Gauge: finn_goodhart_routing_mode
+// Histogram: finn_reputation_query_duration_seconds, finn_routing_duration_seconds
 
 // ---------------------------------------------------------------------------
 // Types
@@ -105,12 +109,16 @@ class Histogram {
     bucket.sum += value
     bucket.count++
 
+    // Place value in the first (smallest) matching bucket only.
+    // toPrometheus() computes cumulative sums for Prometheus output.
     for (let i = 0; i < this.boundaries.length; i++) {
       if (value <= this.boundaries[i]) {
         bucket.counts[i]++
+        break
       }
     }
-    // +Inf bucket
+    // +Inf bucket: always incremented (every observation counts toward +Inf).
+    // For values exceeding all boundaries, this is the only bucket incremented.
     bucket.counts[this.boundaries.length]++
   }
 
@@ -139,6 +147,58 @@ class Histogram {
       lines.push(`${this.name}_count{${key ? key : ""}} ${bucket.count}`)
     }
 
+    return lines.join("\n")
+  }
+
+  private labelKey(labels: Record<string, string>): string {
+    if (this.labelNames.length === 0) return ""
+    return this.labelNames
+      .filter(n => labels[n] !== undefined)
+      .map(n => `${n}="${labels[n]}"`)
+      .join(",")
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Gauge
+// ---------------------------------------------------------------------------
+
+class Gauge {
+  private readonly name: string
+  private readonly help: string
+  private readonly labelNames: string[]
+  private values = new Map<string, number>()
+
+  constructor(name: string, help: string, labelNames: string[] = []) {
+    this.name = name
+    this.help = help
+    this.labelNames = labelNames
+  }
+
+  set(labels: Record<string, string>, value: number): void {
+    this.values.set(this.labelKey(labels), value)
+  }
+
+  get(labels: Record<string, string> = {}): number {
+    return this.values.get(this.labelKey(labels)) ?? 0
+  }
+
+  reset(): void {
+    this.values.clear()
+  }
+
+  toPrometheus(): string {
+    const lines: string[] = []
+    lines.push(`# HELP ${this.name} ${this.help}`)
+    lines.push(`# TYPE ${this.name} gauge`)
+    if (this.values.size === 0) {
+      lines.push(`${this.name} 0`)
+    } else {
+      for (const [key, value] of this.values) {
+        const labelStr = key ? `{${key}}` : ""
+        lines.push(`${this.name}${labelStr} ${value}`)
+      }
+    }
     return lines.join("\n")
   }
 
@@ -198,6 +258,61 @@ export class GraduationMetrics {
     ["from", "to"],
   )
 
+  // --- Cycle-036 T-1.8: New Goodhart wiring metrics (SDD §3.5) ---
+
+  readonly goodhartInitFailed = new Counter(
+    "finn_goodhart_init_failed",
+    "Goodhart initialization failures (set once at startup)",
+  )
+
+  readonly goodhartInitFailedRequests = new Counter(
+    "finn_goodhart_init_failed_requests",
+    "Requests routed through init_failed state",
+  )
+
+  readonly reputationScoringFailedTotal = new Counter(
+    "finn_reputation_scoring_failed_total",
+    "All pool scorings failed, fell back to deterministic",
+  )
+
+  readonly goodhartTimeoutTotal = new Counter(
+    "finn_goodhart_timeout_total",
+    "Goodhart resolve timeout (200ms ceiling breached)",
+  )
+
+  readonly killswitchActivatedTotal = new Counter(
+    "finn_killswitch_activated_total",
+    "KillSwitch forced deterministic fallback",
+  )
+
+  readonly killswitchCheckFailedTotal = new Counter(
+    "finn_killswitch_check_failed_total",
+    "KillSwitch Redis check failed (fail-open to routing state)",
+  )
+
+  readonly recoveryAttemptTotal = new Counter(
+    "finn_goodhart_recovery_attempt_total",
+    "Goodhart init recovery attempts",
+  )
+
+  readonly recoverySuccessTotal = new Counter(
+    "finn_goodhart_recovery_success_total",
+    "Goodhart init recovery successes",
+  )
+
+  readonly goodhartRoutingMode = new Gauge(
+    "finn_goodhart_routing_mode",
+    "Current Goodhart routing state (1 for active mode)",
+    ["mode"],
+  )
+
+  readonly routingDuration = new Histogram(
+    "finn_routing_duration_seconds",
+    "Per-request routing latency by path",
+    ["path"],
+    [0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.5],
+  )
+
   // --- Convenience methods ---
 
   recordShadowDecision(tier: string, diverged: boolean): void {
@@ -224,6 +339,17 @@ export class GraduationMetrics {
     this.routingModeTransitionsTotal.inc({ from, to })
   }
 
+  /** Set routing mode gauge — sets 1 for active mode, 0 for all others. */
+  setRoutingMode(mode: string): void {
+    for (const m of ["disabled", "shadow", "enabled", "init_failed"]) {
+      this.goodhartRoutingMode.set({ mode: m }, m === mode ? 1 : 0)
+    }
+  }
+
+  recordRoutingDuration(path: string, durationMs: number): void {
+    this.routingDuration.observe({ path }, durationMs / 1000)
+  }
+
   // --- Export ---
 
   toPrometheus(): string {
@@ -235,6 +361,16 @@ export class GraduationMetrics {
       this.explorationTotal.toPrometheus(),
       this.emaUpdatesTotal.toPrometheus(),
       this.routingModeTransitionsTotal.toPrometheus(),
+      this.goodhartInitFailed.toPrometheus(),
+      this.goodhartInitFailedRequests.toPrometheus(),
+      this.reputationScoringFailedTotal.toPrometheus(),
+      this.goodhartTimeoutTotal.toPrometheus(),
+      this.killswitchActivatedTotal.toPrometheus(),
+      this.killswitchCheckFailedTotal.toPrometheus(),
+      this.recoveryAttemptTotal.toPrometheus(),
+      this.recoverySuccessTotal.toPrometheus(),
+      this.goodhartRoutingMode.toPrometheus(),
+      this.routingDuration.toPrometheus(),
     ].join("\n\n")
   }
 
@@ -246,5 +382,15 @@ export class GraduationMetrics {
     this.explorationTotal.reset()
     this.emaUpdatesTotal.reset()
     this.routingModeTransitionsTotal.reset()
+    this.goodhartInitFailed.reset()
+    this.goodhartInitFailedRequests.reset()
+    this.reputationScoringFailedTotal.reset()
+    this.goodhartTimeoutTotal.reset()
+    this.killswitchActivatedTotal.reset()
+    this.killswitchCheckFailedTotal.reset()
+    this.recoveryAttemptTotal.reset()
+    this.recoverySuccessTotal.reset()
+    this.goodhartRoutingMode.reset()
+    this.routingDuration.reset()
   }
 }

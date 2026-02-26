@@ -3,6 +3,7 @@
 // Precedence chain: Kill switch → Exploration → Reputation → Deterministic fallback.
 // Exploration feedback weighted at 0.5x to prevent gaming.
 
+import pLimit from "p-limit"
 import type { PoolId, Tier } from "@0xhoneyjar/loa-hounfour"
 import { mapUnknownTaskTypeToRoutingKey, type NFTRoutingKey } from "../nft-routing-config.js"
 import { resolvePool } from "../tier-bridge.js"
@@ -32,6 +33,8 @@ export interface ReputationScoringResult {
   pool: PoolId
   score: number | null
   path: "kill_switch" | "exploration" | "reputation" | "deterministic" | "exploration_skipped" | "shadow"
+  /** Per-pool scored breakdown for observability (cycle-036 T-4.1) */
+  scoredPools: Array<{ poolId: PoolId; score: number }>
   metadata: {
     decayApplied?: boolean
     calibrationApplied?: boolean
@@ -87,6 +90,7 @@ export async function resolveWithGoodhart(
       pool,
       score: null,
       path: "kill_switch",
+      scoredPools: [],
       metadata: {},
     }
   }
@@ -100,8 +104,7 @@ export async function resolveWithGoodhart(
     const shadowPool = shadowResult.bestPool ?? deterministicPool
     const diverged = shadowPool !== deterministicPool
 
-    // Metrics: shadow decision + divergence (T-2.6)
-    config.metrics?.recordShadowDecision(tier, diverged)
+    // Shadow metrics recorded at router level (T-5.5: removed here to prevent double-count)
 
     // Emit shadow comparison log (structured JSON for dashboards)
     console.log(JSON.stringify({
@@ -130,6 +133,7 @@ export async function resolveWithGoodhart(
       pool: deterministicPool,
       score: null,
       path: "shadow",
+      scoredPools: shadowResult.allScores,
       metadata: {
         decayApplied: shadowResult.anyDecayApplied,
         calibrationApplied: shadowResult.anyCalibrationApplied,
@@ -166,6 +170,7 @@ export async function resolveWithGoodhart(
       pool: explorationDecision.selectedPool,
       score: null,
       path: "exploration",
+      scoredPools: [],
       metadata: {
         explorationCandidateSetSize: explorationDecision.candidateSetSize,
         randomValue: explorationDecision.randomValue,
@@ -201,6 +206,7 @@ export async function resolveWithGoodhart(
       pool: scored.bestPool,
       score: scored.bestScore,
       path: "reputation",
+      scoredPools: scored.allScores,
       metadata: {
         decayApplied: scored.anyDecayApplied,
         calibrationApplied: scored.anyCalibrationApplied,
@@ -219,6 +225,7 @@ export async function resolveWithGoodhart(
     pool: fallbackPool,
     score: null,
     path: fallbackPath,
+    scoredPools: scored.allScores,
     metadata: {},
   }
 }
@@ -230,10 +237,17 @@ interface PoolScoringResult {
   bestScore: number
   anyDecayApplied: boolean
   anyCalibrationApplied: boolean
+  /** Individual per-pool scores for observability (cycle-036 T-4.1) */
+  allScores: Array<{ poolId: PoolId; score: number }>
 }
+
+const SCORING_CONCURRENCY = 5
+const PER_POOL_TIMEOUT_MS = 50
 
 /**
  * Score all accessible pools using decay + calibration blending.
+ * Uses p-limit(5) for concurrency control with 50ms per-pool timeout.
+ * Individual failures don't block other pools (Promise.allSettled).
  * Extracted for reuse by both shadow mode and normal reputation path.
  */
 async function _scorePools(
@@ -244,39 +258,88 @@ async function _scorePools(
   accessiblePools: readonly PoolId[],
   abortSignal?: AbortSignal,
 ): Promise<PoolScoringResult> {
+  const limit = pLimit(SCORING_CONCURRENCY)
+
+  const results = await Promise.allSettled(
+    accessiblePools.map((poolId) =>
+      limit(async () => {
+        if (abortSignal?.aborted) throw new Error("aborted")
+
+        // T-6.2: Clear timeout timer on scoring completion to prevent leak
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          const scored = await Promise.race([
+            _scoreOnePool(config, nftId, poolId, routingKey),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error(`scoring timeout for ${poolId}`)), PER_POOL_TIMEOUT_MS)
+            }),
+          ])
+          return scored
+        } finally {
+          if (timer !== undefined) clearTimeout(timer)
+        }
+      }),
+    ),
+  )
+
   let bestPool: PoolId | null = null
   let bestScore = -1
   let anyDecayApplied = false
   let anyCalibrationApplied = false
+  const allScores: Array<{ poolId: PoolId; score: number }> = []
 
-  for (const poolId of accessiblePools) {
-    if (abortSignal?.aborted) break
-
-    const emaKey: EMAKey = { nftId, poolId, routingKey }
-
-    const decayResult = await config.decay.getDecayedScore(emaKey)
-    if (!decayResult) continue
-
-    anyDecayApplied = true
-    let finalScore = decayResult.score
-
-    const calibrationEntries = config.calibration.getCalibration(nftId, poolId, routingKey)
-    if (calibrationEntries.length > 0) {
-      const rawState = await config.decay.getRawState(emaKey)
-      const sampleCount = rawState?.sampleCount ?? 0
-      finalScore = config.calibration.blendWithDecay(decayResult.score, sampleCount, calibrationEntries)
-      anyCalibrationApplied = true
-    }
-
-    finalScore = Math.max(0, Math.min(1, finalScore))
-
-    if (finalScore > bestScore) {
-      bestScore = finalScore
+  for (const result of results) {
+    if (result.status !== "fulfilled" || !result.value) continue
+    const { poolId, score, decayApplied, calibrationApplied } = result.value
+    allScores.push({ poolId, score })
+    if (decayApplied) anyDecayApplied = true
+    if (calibrationApplied) anyCalibrationApplied = true
+    if (score > bestScore) {
+      bestScore = score
       bestPool = poolId
     }
   }
 
-  return { bestPool, bestScore, anyDecayApplied, anyCalibrationApplied }
+  if (bestPool === null && accessiblePools.length > 0) {
+    config.metrics?.reputationScoringFailedTotal.inc()
+    console.warn(`[finn] reputation: all ${accessiblePools.length} pool scorings failed, falling back to deterministic`)
+  }
+
+  return { bestPool, bestScore, anyDecayApplied, anyCalibrationApplied, allScores }
+}
+
+interface SinglePoolScore {
+  poolId: PoolId
+  score: number
+  decayApplied: boolean
+  calibrationApplied: boolean
+}
+
+/** Score a single pool — decay + calibration blending. Returns null if no EMA data. */
+async function _scoreOnePool(
+  config: MechanismConfig,
+  nftId: string,
+  poolId: PoolId,
+  routingKey: NFTRoutingKey,
+): Promise<SinglePoolScore | null> {
+  const emaKey: EMAKey = { nftId, poolId, routingKey }
+  const decayResult = await config.decay.getDecayedScore(emaKey)
+  if (!decayResult) return null
+
+  let finalScore = decayResult.score
+  let calibrationApplied = false
+
+  const calibrationEntries = config.calibration.getCalibration(nftId, poolId, routingKey)
+  if (calibrationEntries.length > 0) {
+    const rawState = await config.decay.getRawState(emaKey)
+    const sampleCount = rawState?.sampleCount ?? 0
+    finalScore = config.calibration.blendWithDecay(decayResult.score, sampleCount, calibrationEntries)
+    calibrationApplied = true
+  }
+
+  finalScore = Math.max(0, Math.min(1, finalScore))
+
+  return { poolId, score: finalScore, decayApplied: true, calibrationApplied }
 }
 
 /**

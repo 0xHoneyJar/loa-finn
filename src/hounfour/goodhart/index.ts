@@ -20,6 +20,13 @@ export { KillSwitch } from "./kill-switch.js"
 export { ReputationAdapter } from "./reputation-adapter.js"
 export type { ReputationAdapterConfig } from "./reputation-adapter.js"
 
+export { createDixieTransport } from "./transport-factory.js"
+
+export { createReadOnlyRedisClient } from "./read-only-redis.js"
+
+export { resolveWithGoodhart as resolveWithGoodhartTyped } from "./resolve.js"
+export type { GoodhartOptions, GoodhartResult, ScoredPool } from "./resolve.js"
+
 export { DixieStubTransport, DixieHttpTransport, DixieDirectTransport } from "./dixie-transport.js"
 export type { DixieTransport, DixieHttpConfig, DixieReputationStore } from "./dixie-transport.js"
 

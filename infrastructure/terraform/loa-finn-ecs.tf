@@ -2,64 +2,16 @@
 #
 # Single-writer WAL architecture: desiredCount=1 enforced.
 # Shared VPC with arrakis. ECS Fargate on private subnet.
+# Parameterized for multi-environment via local.service_name (cycle-036 T-3.2).
 
-# ---------------------------------------------------------------------------
-# Variables
-# ---------------------------------------------------------------------------
-
-variable "environment" {
-  type        = string
-  default     = "production"
-  description = "Deployment environment"
-}
-
-variable "vpc_id" {
-  type        = string
-  description = "Shared VPC ID (same as arrakis)"
-}
-
-variable "private_subnet_ids" {
-  type        = list(string)
-  description = "Private subnet IDs for ECS tasks"
-}
-
-variable "ecr_repository_url" {
-  type        = string
-  description = "ECR repository URL for loa-finn Docker image"
-}
-
-variable "image_tag" {
-  type        = string
-  default     = "latest"
-  description = "Docker image tag"
-}
-
-variable "alb_security_group_id" {
-  type        = string
-  description = "ALB security group ID for inbound rules"
-}
-
-variable "elasticache_security_group_id" {
-  type        = string
-  description = "ElastiCache security group ID for outbound rules"
-}
-
-variable "kms_key_arn" {
-  type        = string
-  description = "KMS key ARN for JWT signing. Must be scoped to the specific key — Resource:* is prohibited (Bridgebuilder finding medium-7, Gate 0 blocker)."
-
-  validation {
-    condition     = can(regex("^arn:aws:kms:", var.kms_key_arn))
-    error_message = "kms_key_arn must be a valid KMS key ARN (arn:aws:kms:...)."
-  }
-}
+# Variables moved to variables.tf (cycle-036 T-3.1)
 
 # ---------------------------------------------------------------------------
 # IAM — Task Execution Role
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "ecs_task_execution" {
-  name = "loa-finn-ecs-task-execution-${var.environment}"
+  name = "${local.service_name}-ecs-task-execution"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -83,7 +35,7 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "ecs_task" {
-  name = "loa-finn-ecs-task-${var.environment}"
+  name = "${local.service_name}-ecs-task"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -98,7 +50,7 @@ resource "aws_iam_role" "ecs_task" {
 }
 
 resource "aws_iam_role_policy" "ecs_task_permissions" {
-  name = "loa-finn-task-permissions"
+  name = "${local.service_name}-task-permissions"
   role = aws_iam_role.ecs_task.id
 
   policy = jsonencode({
@@ -112,7 +64,12 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
           "ssm:GetParameters",
           "ssm:GetParametersByPath"
         ]
-        Resource = "arn:aws:ssm:*:*:parameter/loa-finn/${var.environment}/*"
+        Resource = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "us-east-1"
+          }
+        }
       },
       {
         # Scoped to specific JWT signing key — Resource:* removed per Bridgebuilder
@@ -125,6 +82,11 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
           "kms:GetPublicKey"
         ]
         Resource = var.kms_key_arn
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "us-east-1"
+          }
+        }
       },
       {
         Sid    = "CloudWatchLogs"
@@ -134,6 +96,11 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
           "logs:PutLogEvents"
         ]
         Resource = "${aws_cloudwatch_log_group.loa_finn.arn}:*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = "us-east-1"
+          }
+        }
       }
     ]
   })
@@ -144,9 +111,9 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
 # ---------------------------------------------------------------------------
 
 resource "aws_security_group" "ecs_tasks" {
-  name_prefix = "loa-finn-ecs-${var.environment}-"
+  name_prefix = "${local.service_name}-ecs-"
   vpc_id      = var.vpc_id
-  description = "loa-finn ECS task security group"
+  description = "${local.service_name} ECS task security group"
 
   # Inbound from ALB only
   ingress {
@@ -176,7 +143,7 @@ resource "aws_security_group" "ecs_tasks" {
   }
 
   tags = {
-    Name        = "loa-finn-ecs-${var.environment}"
+    Name        = "${local.service_name}-ecs"
     Environment = var.environment
     Service     = "loa-finn"
   }
@@ -187,7 +154,7 @@ resource "aws_security_group" "ecs_tasks" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "loa_finn" {
-  name              = "/ecs/loa-finn-${var.environment}"
+  name              = "/ecs/${local.service_name}"
   retention_in_days = 30
 
   tags = {
@@ -201,11 +168,11 @@ resource "aws_cloudwatch_log_group" "loa_finn" {
 # ---------------------------------------------------------------------------
 
 resource "aws_ecs_task_definition" "loa_finn" {
-  family                   = "loa-finn-${var.environment}"
+  family                   = local.service_name
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = 1024 # 1 vCPU
-  memory                   = 2048 # 2 GB
+  cpu                      = var.finn_cpu
+  memory                   = var.finn_memory
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
@@ -222,16 +189,23 @@ resource "aws_ecs_task_definition" "loa_finn" {
     environment = [
       { name = "NODE_ENV", value = "production" },
       { name = "PORT", value = "3000" },
+      { name = "FINN_ENVIRONMENT", value = var.environment },
     ]
 
     secrets = [
-      { name = "ARRAKIS_URL", valueFrom = "arn:aws:ssm:us-east-1:*:parameter/loa-finn/${var.environment}/ARRAKIS_URL" },
-      { name = "FINN_S2S_SECRET", valueFrom = "arn:aws:ssm:us-east-1:*:parameter/loa-finn/${var.environment}/FINN_S2S_SECRET" },
-      { name = "BASE_RPC_URL", valueFrom = "arn:aws:ssm:us-east-1:*:parameter/loa-finn/${var.environment}/BASE_RPC_URL" },
-      { name = "TREASURY_ADDRESS", valueFrom = "arn:aws:ssm:us-east-1:*:parameter/loa-finn/${var.environment}/TREASURY_ADDRESS" },
-      { name = "REDIS_URL", valueFrom = "arn:aws:ssm:us-east-1:*:parameter/loa-finn/${var.environment}/REDIS_URL" },
-      { name = "R2_BUCKET", valueFrom = "arn:aws:ssm:us-east-1:*:parameter/loa-finn/${var.environment}/R2_BUCKET" },
-      { name = "JWT_KMS_KEY_ID", valueFrom = "arn:aws:ssm:us-east-1:*:parameter/loa-finn/${var.environment}/JWT_KMS_KEY_ID" },
+      { name = "ARRAKIS_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/ARRAKIS_URL" },
+      { name = "FINN_S2S_SECRET", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_S2S_SECRET" },
+      { name = "BASE_RPC_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/BASE_RPC_URL" },
+      { name = "TREASURY_ADDRESS", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/TREASURY_ADDRESS" },
+      { name = "REDIS_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/REDIS_URL" },
+      { name = "R2_BUCKET", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/R2_BUCKET" },
+      { name = "JWT_KMS_KEY_ID", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/JWT_KMS_KEY_ID" },
+      { name = "CHEVAL_HMAC_SECRET", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/CHEVAL_HMAC_SECRET" },
+      { name = "FINN_REPUTATION_ROUTING", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_REPUTATION_ROUTING" },
+      { name = "DIXIE_BASE_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/DIXIE_BASE_URL" },
+      { name = "FINN_CALIBRATION_BUCKET_NAME", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_BUCKET_NAME" },
+      { name = "FINN_CALIBRATION_HMAC_KEY", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_HMAC_KEY" },
+      { name = "FINN_METRICS_BEARER_TOKEN", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_METRICS_BEARER_TOKEN" },
     ]
 
     logConfiguration = {
@@ -244,7 +218,7 @@ resource "aws_ecs_task_definition" "loa_finn" {
     }
 
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      command     = ["CMD-SHELL", "node -e \"const h=require('http');const r=h.get('http://127.0.0.1:3000/health',res=>{process.exit(res.statusCode===200?0:1)});r.on('error',()=>process.exit(1))\""]
       interval    = 30
       timeout     = 5
       retries     = 3
@@ -263,7 +237,7 @@ resource "aws_ecs_task_definition" "loa_finn" {
 # ---------------------------------------------------------------------------
 
 resource "aws_ecs_service" "loa_finn" {
-  name            = "loa-finn-${var.environment}"
+  name            = local.service_name
   cluster         = "honeyjar-${var.environment}"
   task_definition = aws_ecs_task_definition.loa_finn.arn
   desired_count   = 1 # WAL single-writer invariant — DO NOT change
@@ -312,7 +286,7 @@ resource "aws_ecs_service" "loa_finn" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "ecs_desired_count_drift" {
-  alarm_name          = "loa-finn-desired-count-drift-${var.environment}"
+  alarm_name          = "${local.service_name}-desired-count-drift"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
   metric_name         = "DesiredTaskCount"
@@ -320,7 +294,7 @@ resource "aws_cloudwatch_metric_alarm" "ecs_desired_count_drift" {
   period              = 60
   statistic           = "Maximum"
   threshold           = 1
-  alarm_description   = "CRITICAL: loa-finn desired count > 1. WAL single-writer invariant violated."
+  alarm_description   = "CRITICAL: ${local.service_name} desired count > 1. WAL single-writer invariant violated."
   alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   dimensions = {

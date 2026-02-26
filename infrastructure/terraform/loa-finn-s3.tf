@@ -1,13 +1,21 @@
 # infrastructure/terraform/loa-finn-s3.tf — S3 Buckets (SDD §5.3, T-5.5)
 #
 # Audit anchor bucket (Object Lock COMPLIANCE) and calibration bucket (versioned).
+# T-6.4: Conditional naming — default workspace keeps existing names unchanged;
+# non-default workspaces append -${var.environment} for staging isolation.
+
+locals {
+  # Production (default workspace) keeps existing bucket names. Staging appends environment.
+  audit_bucket_name       = terraform.workspace == "default" ? "finn-audit-anchors-${data.aws_caller_identity.current.account_id}" : "finn-audit-anchors-${var.environment}-${data.aws_caller_identity.current.account_id}"
+  calibration_bucket_name = terraform.workspace == "default" ? "finn-calibration-${data.aws_caller_identity.current.account_id}" : "finn-calibration-${var.environment}-${data.aws_caller_identity.current.account_id}"
+}
 
 # ---------------------------------------------------------------------------
 # Audit Anchor Bucket (§4.6.2)
 # ---------------------------------------------------------------------------
 
 resource "aws_s3_bucket" "finn_audit_anchors" {
-  bucket = "finn-audit-anchors-${data.aws_caller_identity.current.account_id}"
+  bucket = local.audit_bucket_name
 
   # Object Lock must be enabled at bucket creation — cannot be added later
   object_lock_enabled = true
@@ -53,7 +61,7 @@ resource "aws_s3_bucket_public_access_block" "finn_audit_anchors" {
 # ---------------------------------------------------------------------------
 
 resource "aws_s3_bucket" "finn_calibration" {
-  bucket = "finn-calibration-${data.aws_caller_identity.current.account_id}"
+  bucket = local.calibration_bucket_name
 
   tags = {
     Project     = "loa-finn"

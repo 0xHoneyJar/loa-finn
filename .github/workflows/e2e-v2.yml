@@ -18,31 +18,56 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check GHCR token
+        id: check-token
+        run: |
+          if [ -n "${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "::warning::ARRAKIS_CHECKOUT_TOKEN not available — skipping e2e-v2 (GHCR login required)"
+          fi
+
+      - name: Login to GHCR
+        if: steps.check-token.outputs.available == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}
+
       - name: Setup Node.js
+        if: steps.check-token.outputs.available == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Install pnpm
+        if: steps.check-token.outputs.available == 'true'
         run: corepack enable && corepack prepare pnpm@latest --activate
 
       - name: Install dependencies
+        if: steps.check-token.outputs.available == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Generate ES256 keypair
+        if: steps.check-token.outputs.available == 'true'
         run: npx tsx tests/e2e/generate-keys.ts
 
       - name: Start E2E compose stack
+        if: steps.check-token.outputs.available == 'true'
         run: docker compose -f tests/e2e/docker-compose.e2e-v2.yml up -d --build
 
       - name: Wait for services to be healthy
+        if: steps.check-token.outputs.available == 'true'
         run: ./tests/e2e/wait-healthy.sh
 
       - name: Run E2E tests
+        if: steps.check-token.outputs.available == 'true'
         run: pnpm vitest run tests/e2e/ --reporter=default --reporter=junit --outputFile=test-results/e2e-v2-results.xml
 
       - name: Upload test results
-        if: always()
+        if: always() && steps.check-token.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: e2e-v2-test-results
@@ -50,11 +75,11 @@ jobs:
           retention-days: 14
 
       - name: Collect logs on failure
-        if: failure()
+        if: failure() && steps.check-token.outputs.available == 'true'
         run: docker compose -f tests/e2e/docker-compose.e2e-v2.yml logs --no-color > e2e-v2-logs.txt
 
       - name: Upload logs artifact
-        if: failure()
+        if: failure() && steps.check-token.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: e2e-v2-logs
@@ -62,5 +87,5 @@ jobs:
           retention-days: 7
 
       - name: Tear down compose stack
-        if: always()
+        if: always() && steps.check-token.outputs.available == 'true'
         run: docker compose -f tests/e2e/docker-compose.e2e-v2.yml down -v
