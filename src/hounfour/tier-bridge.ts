@@ -87,15 +87,18 @@ export function resolvePool(
 }
 
 /**
- * Resolve pool with reputation-weighted scoring across candidate pools.
+ * Resolve pool with reputation-weighted parallel scoring (SDD §4.2.3, T-2.6).
  *
  * When `reputationQuery` is provided AND the tier has access to multiple pools,
- * each accessible pool is scored via `reputationQuery`; the highest-scoring pool wins.
+ * all accessible pools are scored in parallel via `Promise.allSettled()` with
+ * a two-level timeout: 200ms shared deadline + 100ms per-query, composed via
+ * `AbortSignal.any()` (Node 22+).
  *
  * Score handling:
  * - `null` = no signal (skip candidate)
  * - `NaN` or out-of-range = treated as `null`
  * - Scores are clamped to [0, 1] before comparison
+ * - Rejected promises (timeouts, errors) = null
  *
  * Tie-breaking: equal reputation scores → preserve existing deterministic order
  * (tier default pool wins).
@@ -107,6 +110,7 @@ export function resolvePool(
  */
 export async function resolvePoolWithReputation(
   tier: Tier,
+  nftId: string,
   taskType?: string,
   nftPreferences?: Record<string, string>,
   reputationQuery?: ReputationQueryFn,
@@ -127,41 +131,56 @@ export async function resolvePoolWithReputation(
     ? mapUnknownTaskTypeToRoutingKey(taskType)
     : "default"
 
-  // Score each accessible pool
-  let bestPool: PoolId | null = null
-  let bestScore = -1
+  // Shared deadline: 200ms wall-clock (AC14, AC16a)
+  const controller = new AbortController()
+  const deadline = setTimeout(() => controller.abort(), 200)
 
-  for (const poolId of accessiblePools) {
-    let score: number | null
-    try {
-      score = await reputationQuery(poolId, routingKey)
-    } catch {
-      // Query failure = no signal for this pool
-      score = null
+  try {
+    const results = await Promise.allSettled(
+      accessiblePools.map(async (poolId) => {
+        // Per-query timeout: 100ms (races against shared 200ms deadline) (AC15)
+        const perQueryController = new AbortController()
+        const perQueryTimeout = setTimeout(() => perQueryController.abort(), 100)
+
+        // AbortSignal.any() (Node 22+): avoids listener accumulation
+        const composedSignal = AbortSignal.any([controller.signal, perQueryController.signal])
+
+        try {
+          const score = await reputationQuery(
+            { nftId, poolId, routingKey },
+            { signal: composedSignal },
+          )
+          return { poolId, score }
+        } finally {
+          clearTimeout(perQueryTimeout)
+        }
+      })
+    )
+
+    // Find best from fulfilled results
+    let bestPool: PoolId | null = null
+    let bestScore = -1
+
+    for (const result of results) {
+      if (result.status !== "fulfilled") continue // Rejected = null (AC16)
+
+      const { poolId, score } = result.value
+      if (score === null || score === undefined || !Number.isFinite(score)) continue
+
+      const clamped = Math.max(0, Math.min(1, score))
+      if (clamped > bestScore) {
+        bestScore = clamped
+        bestPool = poolId
+      }
     }
 
-    // Skip null, NaN, or out-of-range scores
-    if (score === null || score === undefined || !Number.isFinite(score)) {
-      continue
-    }
+    if (bestPool !== null) return bestPool
 
-    // Clamp to [0, 1]
-    const clamped = Math.max(0, Math.min(1, score))
-
-    // Strict greater-than preserves deterministic order on ties
-    if (clamped > bestScore) {
-      bestScore = clamped
-      bestPool = poolId
-    }
+    // All candidates returned null/invalid — deterministic fallback
+    return resolvePool(tier, taskType, nftPreferences)
+  } finally {
+    clearTimeout(deadline)
   }
-
-  // If reputation scoring produced a winner, use it
-  if (bestPool !== null) {
-    return bestPool
-  }
-
-  // All candidates returned null/invalid — fall back to existing resolution
-  return resolvePool(tier, taskType, nftPreferences)
 }
 
 /**

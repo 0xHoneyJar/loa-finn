@@ -1,182 +1,232 @@
-# Sprint Plan: Hounfour v8.2.0 Upgrade — Commons Protocol + ModelPerformance
+# Sprint Plan: Production Activation & Loop Go-Live — Deploy, Wire, Graduate, Verify
 
-> **Version**: 1.3.0
-> **Date**: 2026-02-25
-> **Cycle**: cycle-033
-> **PRD**: v1.1.0 (GPT-5.2 APPROVED)
-> **SDD**: v1.1.0 (GPT-5.2 APPROVED)
-> **Global Sprint IDs**: 132-135
+> **Version**: 1.2.0
+> **Date**: 2026-02-26
+> **Cycle**: cycle-035
+> **PRD**: v1.1.0 (GPT-5.2 APPROVED iter 2)
+> **SDD**: v1.2.0 (GPT-5.2 APPROVED iter 2, Flatline: 5 HIGH integrated, 2 BLOCKERS deferred)
+> **Global Sprint IDs**: 144-147
 > **Total Tasks**: 30
-> **Bridgebuilder Review**: [PR #107 Comment](https://github.com/0xHoneyJar/loa-finn/pull/107#issuecomment-3957731958)
-> **Deep Review**: [PR #107 Deep Review](https://github.com/0xHoneyJar/loa-finn/pull/107#issuecomment-3957980938)
+> **Team**: Solo (@janitooor + Claude Opus 4.6)
 
 ---
 
-## Sprint 1: Bump + Foundation (Global ID: 132)
+## Sprint Overview
 
-**Goal**: Bump dependency, verify exports, update handshake, establish re-export hub.
+This is an **activation sprint plan**. No new mechanisms — all work is configuring, wiring, deploying, and verifying cycle-034 components in production.
+
+**4 sprints following PRD phasing:**
+
+| Sprint | Phase | Goal | Tasks |
+|--------|-------|------|-------|
+| 1 | A (Foundation) | Runtime infrastructure + health + shutdown | 9 |
+| 2 | A (Foundation) | Admin API + dixie transport + metrics | 8 |
+| 3 | B/C (Verification) | Three-leg E2E compose + autopoietic loop tests | 7 |
+| 4 | D (Settlement) | x402 chain config + graduation script + Sepolia test | 6 |
+
+**Critical path**: Sprint 1 → Sprint 2 → Sprint 3 (E2E needs all services). Sprint 4 is mostly independent (can partially overlap with Sprint 3).
+
+---
+
+## Sprint 1: Runtime Infrastructure (Global ID: 144)
+
+**Goal**: Build the foundational runtime modules that all other sprints depend on: Redis-backed config, async kill switch, two-tier health endpoints, graceful shutdown, secrets management, and audit buffer.
 
 | Task | Title | Files | AC |
 |------|-------|-------|-----|
-| T-1.1 | Bump `@0xhoneyjar/loa-hounfour` to v8.2.0 tag | `package.json`, `pnpm-lock.yaml` | AC1: `pnpm ls` shows 8.2.0 |
-| T-1.2 | Verify exports map — run import surface discovery | (bash verification) → `grimoires/loa/context/hounfour-v8.2.0-exports.md` (new) | AC5: (1) checked-in artifact listing all resolved entrypoints + named exports used by finn, (2) `./commons` and `./governance` resolve in TS compile context, (3) commands used to generate logged in artifact |
-| T-1.3 | Update protocol-types.ts re-export hub | `src/hounfour/protocol-types.ts` | AC5: new types importable from hub |
-| T-1.4 | Add import surface test | `tests/finn/protocol-imports.test.ts` (new) | AC5: all re-exports resolve without errors |
-| T-1.5 | Bump `FINN_MIN_SUPPORTED` to `"7.0.0"`, add feature thresholds | `src/hounfour/protocol-handshake.ts` | AC4: Acceptance window = `[FINN_MIN_SUPPORTED, CONTRACT_VERSION.major]`. Algorithm: (1) reject `remote < 7.0.0` (below min), (2) reject `remote.major > local.major` (future major), (3) accept `remote.major == local.major` (same major — 8.x), (4) accept `remote.major < local.major && remote >= 7.0.0` with cross-major warning (grace for 7.9.2). Boundary tests: 7.0.0=accept+warn, 7.9.2=accept+warn, 8.0.0=accept+warn(minor), 8.2.0=accept, 6.9.9=reject, 9.0.0=reject |
-| T-1.6 | Add handshake test cases | `tests/finn/interop-handshake.test.ts` | AC4: test all boundary cases from T-1.5 AC + v6.0.0 reject-in-prod throws FATAL |
-| T-1.7 | Update conformance vector assertions | `tests/finn/conformance-vectors.test.ts` | AC3: manifest match + ≥202 baseline |
-| T-1.8 | Run full test suite — zero regression + AC9 verification | (all tests) | AC2: `pnpm test` exits 0; AC9: verify no `postinstall` script referencing hounfour in `package.json`, no `pnpm.patchedDependencies` entry for hounfour, no `patch-package` patches for hounfour |
+| T-1.1 | Implement RuntimeConfig module (Redis GET + env fallback) | `src/hounfour/runtime-config.ts` (new) | AC20: Mode change effective <1s without restart. Redis GET returns valid mode. Redis down → env var fallback. Invalid/missing key → `"shadow"` default. |
+| T-1.2 | Upgrade KillSwitch to async (RuntimeConfig integration) | `src/hounfour/goodhart/kill-switch.ts` (modified) | `isDisabled()` and `isShadow()` become async. All callers in `mechanism-interaction.ts` updated to `await`. Existing tests pass with async signatures. |
+| T-1.3 | Implement two-tier health endpoints | `src/gateway/server.ts` (modified) | AC6: `/healthz` returns 200 even when Redis is unreachable. AC6a: `/health/deps` returns 503 when Redis down. DynamoDB health uses data-plane `GetItemCommand` (not DescribeTable). Legacy `/health` → 301 → `/healthz`. |
+| T-1.4 | Implement GracefulShutdown handler | `src/boot/shutdown.ts` (new) | AC: SIGTERM triggers ordered shutdown. 25s deadline within ECS 30s stopTimeout. All registered targets receive shutdown call. Process exits 0 on clean shutdown, 1 on deadline. |
+| T-1.5 | Implement BufferedAuditChain (bounded buffer, fail-closed, hash-chain preserved, crash-resume) | `src/hounfour/audit/buffered-audit-chain.ts` (new) | Critical actions (`routing_mode_change`, `settlement`) throw when buffer full + DynamoDB down. Non-critical actions drop with warning. Buffer flushes in-order on DynamoDB recovery. Expired entries (>5min) discarded. **Tamper-evidence AC**: BufferedAuditChain wraps cycle-034's `DynamoAuditChain` (which provides `prev_hash`/`hash` continuity + KMS signing). Flush path delegates to `inner.append()` preserving hash chain and KMS signatures. Unit test verifies: (1) buffered entries maintain hash-chain continuity after flush, (2) KMS signature present on each flushed record (mock KMS), (3) fail-closed triggers for critical actions when both buffer full AND DynamoDB+KMS unavailable. **Crash resume** (Flatline IMP-002): On startup, `DynamoAuditChain.initialize()` reads the last committed record from DynamoDB (query by partition, descending sequence number, limit 1) to recover `prev_hash`. If no records exist, chain starts fresh. If in-memory buffer was lost (unclean shutdown), the gap is detectable: next appended record's `prev_hash` matches DynamoDB's last `hash`, but missing sequence numbers create a verifiable discontinuity. AC: crash simulation test — append 5 entries, flush 3, simulate process kill, restart, verify chain resumes from DynamoDB's last committed hash and new entries link correctly. Alert on detected gap (structured log `audit_chain_gap_detected`). **Partial failure resilience** (Flatline SKP-003): Additional ACs for edge cases: (4) DynamoDB partial write failure (ConditionalCheckFailed on sequence conflict) → retry with re-read of last hash, no duplicate entries (idempotency via sequence number), (5) KMS transient error during flush → entry stays in buffer, retry on next flush cycle, does not break chain (KMS signing happens inside `inner.append()`), (6) concurrent appenders — BufferedAuditChain is single-writer per process (one instance per ECS task); if multiple async callers attempt concurrent appends, internal mutex/queue ensures sequential ordering. |
+| T-1.6 | Implement SecretsLoader (Secrets Manager + TTL cache) | `src/boot/secrets.ts` (new) | All secrets fetched from Secrets Manager at startup. Fail-fast if required secret missing. Cache with 1h TTL for rotation. Parallel fetch via `Promise.all`. |
+| T-1.7 | Unit tests: RuntimeConfig + KillSwitch async | `tests/finn/hounfour/runtime-config.test.ts` (new) | Redis mock: mode read, fallback chain, invalid values. KillSwitch: async mode checks, transitions. |
+| T-1.8 | Unit tests: health endpoints + audit buffer | `tests/finn/gateway/health.test.ts` (new), `tests/finn/hounfour/audit/buffered-audit-chain.test.ts` (new) | `/healthz` always 200. `/health/deps` reflects dependency states. Buffer: fill, flush, expire, fail-closed for critical actions. |
+| T-1.9 | Unit tests: GracefulShutdown + SecretsLoader | `tests/finn/boot/shutdown.test.ts` (new), `tests/finn/boot/secrets.test.ts` (new) | Shutdown: targets called in parallel, deadline enforced. SecretsLoader: cache TTL, refresh, missing secret throws. |
 
-**Sprint 1 acceptance**: All existing tests pass with v8.2.0 installed. Handshake, conformance, and import surface tests green. 8 tasks.
+**Task sizing**: T-1.1 (M), T-1.2 (S), T-1.3 (M), T-1.4 (M), T-1.5 (M), T-1.6 (M), T-1.7 (M), T-1.8 (M), T-1.9 (M).
+**Critical path**: T-1.1 → T-1.2 (RuntimeConfig before KillSwitch). T-1.5 blocks Sprint 2 admin endpoint. T-1.4 blocks Sprint 2 transport shutdown registration.
+
+**Rollback/recovery**: All modules have safe defaults — Redis down → env var fallback → shadow mode. Audit buffer fail-closed prevents unauditable admin actions. GracefulShutdown has hard deadline preventing process hangs.
+
+**Sprint 1 acceptance**: All foundational runtime modules pass unit tests. Health endpoints correctly separate liveness from readiness. Shutdown handler wires SIGTERM. Audit buffer correctly fail-closes for critical actions. 9 tasks.
 
 ---
 
-## Sprint 2: Adoption + Forward-Compat (Global ID: 133)
+## Sprint 2: Admin API + Dixie Transport + Graduation Metrics (Global ID: 145)
 
-**Goal**: Wire new v8.2.0 features into loa-finn with schema-validated contracts.
+**Goal**: Build the operator-facing admin API with JWKS auth, the optimized dixie HTTP transport with connection pooling, and Prometheus graduation metrics. These complete the "foundation code" needed before E2E.
 
 | Task | Title | Files | AC |
 |------|-------|-------|-----|
-| T-2.1 | Add ReputationEvent normalizer with schema validation | `src/hounfour/reputation-event-normalizer.ts` (new) | AC8: handles all 4 variants |
-| T-2.2 | Add normalizer tests (4 variants + invalid + exhaustiveness) | `tests/finn/reputation-event-normalizer.test.ts` (new) | AC8: all pass |
-| T-2.3 | Rename `NFTTaskType` → `NFTRoutingKey`, add mapping functions | `src/hounfour/nft-routing-config.ts` | AC7: (1) complete TaskType set from v8.2.0 protocol as input union, (2) `mapTaskTypeToRoutingKey()` with TS exhaustive switch + `never` check, (3) `mapUnknownTaskTypeToRoutingKey()` total at runtime for `unknown` inputs — `'unspecified'` → `'default'`, unknown strings → `'default'` with warning, (4) `KNOWN_ROUTING_KEYS` set derived from NFTRoutingKey union |
-| T-2.4 | Wire `mapUnknownTaskTypeToRoutingKey()` into tier-bridge | `src/hounfour/tier-bridge.ts` | AC7: `'unspecified'` routes to default pool |
-| T-2.5 | Add `'unspecified'` routing test | `tests/finn/nft-routing.test.ts` | AC7: test through resolvePool entrypoint |
-| T-2.6 | Add `scoreToObservation()` to QualityGateScorer | `src/hounfour/quality-gate-scorer.ts` | AC6: returns QualityObservation-conformant output |
-| T-2.7 | Add QualityObservation schema validation tests | `tests/finn/quality-observation.test.ts` (new) | AC6: Value.Check passes + negative tests |
+| T-2.1 | Implement Admin API routes (JWKS + audit-first handler) | `src/gateway/routes/admin.ts` (new) | AC: Valid admin JWT (ES256, kid selection via `createLocalJWKSet`) → mode change succeeds. Bad JWT → 401. Wrong role → 403. Audit intent written BEFORE Redis set. Audit failure → 503 (fail closed). GET returns current mode. **JWKS mechanism**: `finn/admin-jwks` is a JWK Set JSON blob in Secrets Manager (not a URL). SecretsLoader fetches JSON → `JSON.parse` → `createLocalJWKSet(parsed)` which returns a local key resolver that selects by `kid`. On TTL refresh, SecretsLoader re-fetches JSON and reconstructs the key set — no restart needed. **Redis write failure after audit intent** (Flatline IMP-001): If `runtimeConfig.setRoutingMode()` throws after audit intent is recorded, the handler must: (1) log a `routing_mode_change_failed` audit entry (best-effort), (2) return 503 with `{ error: "Mode change failed — audit intent exists, Redis write failed" }`, (3) NOT retry automatically (operator retries via admin endpoint). The audit trail will show an intent without confirmation — this is a detectable state. AC: unit test simulates Redis write failure after audit intent succeeds; verifies 503 response, no mode change applied, and audit trail contains intent-only record. |
+| T-2.2 | Wire admin JWKS into SecretsLoader + boot + rotation test | `src/boot/secrets.ts` (modified), `src/gateway/server.ts` (modified) | `finn/admin-jwks` loaded from Secrets Manager as JWK Set JSON. `createLocalJWKSet(JSON.parse(jwksJson))` constructed at boot. SecretsLoader `refresh()` re-fetches and reconstructs on TTL expiry. Admin routes mounted at `/admin` on gateway. **Rotation AC**: Unit test simulates key rotation — old kid removed, new kid added to JWKS JSON — and verifies: (1) new kid validates immediately after refresh, (2) old kid rejects after removal, (3) refresh happens without restart. |
+| T-2.3 | Implement DixieHttpTransport (undici Agent + DNS warming) | `src/hounfour/goodhart/dixie-transport.ts` (modified) | AC8: Reputation queries return non-null for known NFTs (dixie up). AC9: Dixie down → null (deterministic routing). AC10: Circuit breaker opens after 3 failures. Keep-alive pool (10 connections). DNS pre-resolve via `dns.promises.lookup()` (no hostname rewrite). 300ms timeout. |
+| T-2.4 | Register DixieHttpTransport + pollers in GracefulShutdown | `src/boot/index.ts` (modified) | Transport `shutdown()` clears DNS timer + closes undici Agent. Calibration poller, reconciler, audit buffer flush registered. Verify: SIGTERM → all targets shut down cleanly. |
+| T-2.5 | Implement Prometheus graduation metrics | `src/hounfour/graduation-metrics.ts` (new) | AC7: `/metrics` returns Prometheus-format counters. Counters: `finn_shadow_total`, `finn_shadow_diverged`, `finn_reputation_query_duration_seconds` (histogram), `finn_reputation_query_total`, `finn_exploration_total`, `finn_ema_updates_total`, `finn_routing_mode_transitions_total`. Fixed label sets (tier, status — no nftId/poolId). |
+| T-2.6 | Wire metrics into routing engine + shadow comparisons | `src/hounfour/tier-bridge.ts` (modified), `src/hounfour/goodhart/mechanism-interaction.ts` (modified) | AC15: `finn_shadow_total` increments on every shadow routing decision. `finn_shadow_diverged` increments when shadow disagrees with deterministic. Reputation query histogram records latency per query. |
+| T-2.7 | Unit tests: Admin API (auth, mode change, audit-first) | `tests/finn/gateway/admin-routes.test.ts` (new) | JWT validation: valid → 200, expired → 401, wrong issuer → 401, wrong role → 403, missing kid → 401. Mode change: writes audit before Redis. Audit failure → 503. Per-subject rate limit (5/hour). |
+| T-2.8 | Unit tests: DixieHttpTransport + Prometheus metrics | `tests/finn/hounfour/dixie-transport.test.ts` (new), `tests/finn/hounfour/graduation-metrics.test.ts` (new) | Transport: keep-alive reuse, circuit breaker open/close/half-open, DNS refresh timer, 300ms timeout. Metrics: counter increments, histogram observations, label cardinality bounded. |
 
-**Sprint 2 acceptance**: All new tests pass. ReputationEvent normalized with schema gate. TaskType mapped through clean boundary. Quality output validated against protocol schema. 7 tasks.
+**Task sizing**: T-2.1 (L), T-2.2 (M), T-2.3 (L), T-2.4 (S), T-2.5 (M), T-2.6 (M), T-2.7 (M), T-2.8 (M).
+**Critical path**: T-2.1 → T-2.2 (admin routes before wiring). T-2.3 → T-2.4 (transport before shutdown registration). T-2.5 → T-2.6 (metrics before wiring into engine).
 
----
+**Rollback/recovery**: Admin endpoint behind network controls (ALB VPN-only rule — §8.1.1 SDD). Dixie transport degrades to null (deterministic routing). Prometheus metrics are read-only counters — no rollback needed. If admin JWKS is misconfigured, all admin requests fail-closed (401) until corrected.
 
-## Sprint 3: Bridgebuilder Excellence (Global ID: 134)
-
-**Goal**: Implement all improvements from the [Bridgebuilder review](https://github.com/0xHoneyJar/loa-finn/pull/107#issuecomment-3957731958) — compile-time safety, runtime guards, test determinism, security hardening, decision documentation, and observability enrichment.
-
-| Task | Title | Files | AC | Finding |
-|------|-------|-------|-----|---------|
-| T-3.1 | Split `mapTaskTypeToRoutingKey` into exhaustive core + wrapper | `src/hounfour/nft-routing-config.ts` | AC10: (1) new `mapKnownTaskType(taskType: TaskType): NFTRoutingKey` has no `default` branch — TypeScript compile error if new protocol variant added, (2) `mapTaskTypeToRoutingKey` delegates to `mapKnownTaskType`, (3) `mapUnknownTaskTypeToRoutingKey` unchanged, (4) all existing routing tests pass | F5 (Medium) |
-| T-3.2 | Add FormatRegistry guard in normalizer | `src/hounfour/reputation-event-normalizer.ts` | AC11: (1) `normalizeReputationEvent` checks `FormatRegistry.Has("uuid")` before `Value.Check`, (2) throws explicit `"TypeBox format 'uuid' not registered — import typebox-formats.js"` error if not registered, (3) existing normalizer tests still pass | F4 (Medium) |
-| T-3.3 | Add format registration verification test + test setup | `tests/finn/typebox-formats.test.ts` (new), `vitest.config.ts` or test setup | AC11: (1) add `tests/setup/typebox-formats.setup.ts` that imports `../../src/hounfour/typebox-formats.js` — register via vitest `setupFiles` to ensure deterministic format registration regardless of test order or module isolation, (2) test verifies `FormatRegistry.Has("uuid")` returns true after setup, (3) test verifies `FormatRegistry.Has("date-time")` returns true, (4) test verifies UUID regex accepts valid UUIDs and rejects invalid strings, (5) test verifies date-time accepts ISO 8601 and rejects garbage strings, (6) test verifies the guard from T-3.2: importing normalizer *without* format registration (via dynamic import in isolated context or mock) throws the explicit error message | F1 suggestion |
-| T-3.4 | Redact unknown task type from console.warn | `src/hounfour/nft-routing-config.ts` | AC12: (1) `console.warn` message says `"Unknown task type received"` without echoing the input value, (2) existing routing tests still pass | F6 (Low) |
-| T-3.5 | Use deterministic timestamps in test fixtures | `tests/finn/reputation-event-normalizer.test.ts` | AC13: (1) `envelope.timestamp` is a fixed ISO string (not `new Date().toISOString()`), (2) all 10 normalizer tests still pass | F7 (Low) |
-| T-3.6 | Update `resolvePool` JSDoc to document routing key mapping | `src/hounfour/tier-bridge.ts` | AC14: (1) JSDoc on `resolvePool` explicitly states that `taskType` is mapped through `mapUnknownTaskTypeToRoutingKey` before NFT preference lookup, (2) resolution order updated to mention the mapping step | F10 (Medium) |
-| T-3.7 | Add `FEATURE_THRESHOLDS_ORDERED` array | `src/hounfour/protocol-handshake.ts` | AC15: (1) define `FEATURE_ORDER: readonly (keyof PeerFeatures)[]` as a single explicit ordered list of feature names (key-name duplication is acceptable since thresholds are not duplicated), (2) derive `FEATURE_THRESHOLDS_ORDERED = FEATURE_ORDER.map(name => ({ name, threshold: FEATURE_THRESHOLDS[name] }))` — threshold values come from the existing map, (3) add `satisfies` constraint ensuring `FEATURE_ORDER` covers all `keyof PeerFeatures`, (4) add test verifying: (a) `FEATURE_ORDER.length === Object.keys(FEATURE_THRESHOLDS).length`, (b) thresholds in the ordered array are monotonically non-decreasing by version, (c) every `PeerFeatures` key appears exactly once | F3 suggestion |
-| T-3.8 | Enrich `scoreToObservation` with optional `dimensions` | `src/hounfour/quality-gate-scorer.ts` | AC16: (1) `scoreToObservation` accepts optional `dimensions?: Record<string, number>` parameter, (2) when provided, dimensions are included in the returned `QualityObservation`, (3) existing quality-observation tests still pass, (4) new test: `scoreToObservation` with dimensions validates against schema | F9 suggestion |
-| T-3.9 | Document routing vocabulary ADR + FormatRegistry footgun | `grimoires/loa/NOTES.md`, `src/hounfour/nft-routing-config.ts` (header comment) | AC17: (1) NOTES.md documents the FormatRegistry footgun with symptoms, cause, and fix, (2) NOTES.md documents why 6 protocol TaskTypes map to 5 routing keys (summarization≈analysis rationale), (3) `nft-routing-config.ts` header comment references the routing vocabulary decision and notes the Kubernetes CRD extensibility parallel | F10 + Decision Trail |
-
-**Sprint 3 acceptance**: All findings from Bridgebuilder review addressed. Zero regression (96+ hounfour tests pass). Compile-time exhaustiveness restored on known TaskType mapping. Runtime guards prevent silent format-registration failures. Test determinism improved. Security hardening on log output. Decision trails documented for future agents. 9 tasks.
+**Sprint 2 acceptance**: Admin API with JWKS auth and audit-first semantics. Dixie transport with connection pooling and circuit breaker. Prometheus metrics wired into routing engine. All unit tests pass. 8 tasks.
 
 ---
 
-## Task Dependency Graph
+## Sprint 3: Three-Leg E2E Compose + Integration Tests (Global ID: 146)
+
+**Goal**: Build the three-leg docker-compose (finn + freeside + dixie) and verify the complete autopoietic loop, JWT exchange, and shadow metrics in an integrated environment. Closes PRD FR4.
+
+| Task | Title | Files | AC |
+|------|-------|-------|-----|
+| T-3.1 | Generate deterministic ES256 test keypairs | `tests/e2e/keys/generate-keys.sh` (new), `tests/e2e/keys/*.pem` (generated) | 4 keypair sets: finn, freeside, dixie, admin. `openssl ecparam -genkey` with prime256v1. Keys checked into repo (test-only). These are seed material for LocalStack — services do NOT mount PEM files directly. |
+| T-3.2 | Create three-leg docker-compose v3 | `tests/e2e/docker-compose.e2e-v3.yml` (new), `tests/e2e/init-db.sql` (new) | AC21: `docker compose up` starts all 5 services (redis, postgres, localstack, finn, freeside, dixie). Health checks with `start_period` + `retries`. **Auth contract**: All services use SecretsLoader against LocalStack Secrets Manager (matching prod path). No direct PEM volume mounts on application services. LocalStack init (T-3.3) seeds secrets before services boot (`depends_on` + healthcheck gating). |
+| T-3.3 | Create localstack init script (DynamoDB + S3 + KMS + Secrets Manager + key seeding) | `tests/e2e/localstack-init.sh` (new) | Creates audit table, calibration bucket, KMS key. **Seeds all secrets into LocalStack Secrets Manager**: reads PEM files from `tests/e2e/keys/`, creates `finn/s2s-private-key`, `finn/admin-jwks` (constructed from admin-public.pem as JWK Set JSON), `finn/calibration-hmac`, and equivalent secrets for freeside/dixie. AC: Finn boots with `AWS_ENDPOINT_URL=http://localstack-e2e:4566` using only SecretsLoader — no env var key fallbacks. |
+| T-3.4 | E2E: JWT exchange test (finn ↔ freeside ↔ dixie) | `tests/e2e/jwt-exchange.test.ts` (new) | AC22: Finn validates JWT issued by freeside (real ES256 sig verification). AC11: Dixie validates finn-issued JWT for reputation queries. Service-to-service auth works across all three legs. |
+| T-3.5 | E2E: Autopoietic loop test (6-stage feedback loop) | `tests/e2e/autopoietic-loop.test.ts` (new) | AC25: After 10+ requests, dixie contains reputation data. AC26: Routing decisions shift based on reputation. AC27: ScoringPathLog progresses from `"stub"` to `"reputation"`. Full 6-stage loop verified. |
+| T-3.6 | E2E: Shadow metrics + admin routing mode test | `tests/e2e/shadow-metrics.test.ts` (new) | AC15: `finn_shadow_total` increments in shadow mode. Admin JWT flips mode, next request uses new mode. `/metrics` endpoint returns valid Prometheus format. |
+| T-3.7 | E2E: Full flow integration test (inference → billing → reputation → response) | `tests/e2e/full-flow.test.ts` (new) | AC24: Request → JWT validation → reputation query → model routing → billing debit → response. All three legs participate. Circuit breaker tested (dixie stopped → deterministic routing continues). |
+
+**Task sizing**: T-3.1 (S), T-3.2 (L), T-3.3 (M), T-3.4 (M), T-3.5 (L), T-3.6 (M), T-3.7 (L).
+**Critical path**: T-3.1 → T-3.2 → T-3.3 (keys → compose → localstack init). Then T-3.4, T-3.5, T-3.6, T-3.7 can run sequentially (all need compose up).
+
+**Rollback/recovery**: E2E tests run in isolated Docker environment. No production impact. If compose fails to start, check service health logs and dependency ordering. If freeside/dixie images unavailable, fall back to stubs (reduced coverage, logged as degraded).
+
+**E2E CI contract** (Flatline IMP-005):
+- **Suite timeout**: 10 minutes total (`docker compose up --wait --timeout 120` for startup + test execution). Individual test timeout: 60s per test case (configurable via test runner).
+- **CI job sizing**: Requires `large` runner (4 CPU, 16GB RAM) for 5+ concurrent containers. Docker layer caching enabled for faster builds.
+- **Parallelism**: E2E tests run sequentially within the suite (shared compose state). Sprint 3 E2E job runs in parallel with Sprint 1-2 unit test jobs (no dependency).
+- **Merge gating**: E2E tests are **advisory, not blocking** for feature branch merges. They gate the release branch → main merge only. Rationale: E2E depends on external images (freeside, dixie) which may not be updated; blocking feature merges on external repos is unreasonable. Unit tests remain hard gates on all merges.
+- **Flake policy**: If E2E fails, CI retries once automatically. Second failure → manual investigation required.
+
+**Sprint 3 acceptance**: Three-leg compose starts reliably. JWT exchange verified across all services. Autopoietic loop closes in E2E. Shadow metrics and admin mode changes work. Full flow integration passes. 7 tasks.
+
+---
+
+## Sprint 4: x402 Chain Config + Graduation Script + Sepolia Test (Global ID: 147)
+
+**Goal**: Make x402 chain/contract configurable for testnet→mainnet migration, build the graduation evaluation script, and verify settlement on Base Sepolia. Closes PRD FR3 and FR5.
+
+| Task | Title | Files | AC |
+|------|-------|-------|-----|
+| T-4.1 | Make x402 chain/contract configurable | `src/x402/verify.ts` (modified), `src/x402/settlement.ts` (modified) | AC37a: Chain ID and USDC address configurable via env vars. Same code runs on Sepolia (84532) and mainnet (8453). `CHAIN_CONFIGS` lookup table with known chains. `X402_USDC_ADDRESS` override for custom deployments. Settlement timeout increased to 60s (from 30s). |
+| T-4.2 | Implement graduation evaluation script | `scripts/evaluate-graduation.ts` (new), `scripts/graduation-config.example.json` (new) | AC16: Reads 72h of metrics from Prometheus API. AC17: All 8 thresholds evaluated (T1-T8). Outputs `GRADUATE`, `NOT_READY`, or `INSUFFICIENT_DATA`. Uses PromQL `increase()` for counter resets. **T5 Redis contract**: Reads EMA coefficient of variation from Redis keys `ema:{poolId}:{routingKey}` (written by TemporalDecayEngine in cycle-034). Fields: `value` (float), `count` (int), `lastEventTimestamp` (ISO). Script computes CV across all active EMA keys over last 24h. **T7/T8 spot checks**: T7 calls `POST /admin/routing-mode` round-trip. T8 checks S3 calibration ETag polling timestamp from Redis `calibration:last_refresh_ts`. **Config file**: `graduation-config.example.json` specifies `prometheusUrl`, `prometheusJobName` (default: `finn`), `redisUrl`, `adminEndpoint`, `adminJwtPath`. Idempotent. **Prometheus contract**: Script assumes scrape job name `finn`, path `/metrics`, port 3000, labels `tier`/`status` on counters. Smoke query `up{job="finn"}` validates connectivity before evaluation. |
+| T-4.3 | x402 Sepolia integration test | `tests/x402/sepolia-settlement.test.ts` (new) | AC35: Full x402 flow on Base Sepolia (chainId 84532) with faucet USDC. AC36: Nonce replay rejected by contract. AC37: Expired deadline returns 402 before chain submission. Real RPC call to Base Sepolia. |
+| T-4.4 | Unit tests: chain config + graduation | `tests/finn/x402/chain-config.test.ts` (new), `tests/finn/hounfour/graduation-evaluation.test.ts` (new) | Chain config: default mainnet, env override to Sepolia, invalid chain throws, USDC address override. Graduation: mock Prometheus responses, all 8 thresholds tested individually, insufficient data handling. |
+| T-4.5 | E2E: Admin mode change + shadow metrics accumulation | `tests/e2e/graduation-readiness.test.ts` (new) | Compose starts in shadow mode. Admin sets mode via JWT. Shadow metrics accumulate. Graduation script reads metrics and evaluates (INSUFFICIENT_DATA for short window is acceptable). Mode flip to `enabled` → routing uses reputation. Mode flip to `disabled` → immediate deterministic. |
+| T-4.6 | Deployment runbook + ECS/ALB preflight checklist | `grimoires/loa/a2a/deployment-runbook.md` (new) | Documents the 10-step deployment order from SDD §6.2. Includes coordinated ALB/code deploy sequence (deploy code first, then ALB path). **ECS task definition requirements**: container port 3000, `stopTimeout >= 30` (aligns with 25s shutdown deadline), health check grace period, `essential: true`, log driver `awslogs`. **ALB target group requirements**: health check path `/healthz`, success codes `200`, interval 30s, timeout 5s, healthy threshold 2, unhealthy threshold 3, deregistration delay 30s. **IAM preflight**: Task role must have `secretsmanager:GetSecretValue` for `finn/*` secrets, `kms:Sign`/`kms:Verify` for audit KMS key, `dynamodb:PutItem`/`GetItem` on audit table, `s3:GetObject` on calibration bucket. **Preflight verification script**: `scripts/preflight-check.sh` runs `aws secretsmanager get-secret-value` for each required secret, `aws kms describe-key` for audit key, `aws dynamodb describe-table` for audit table — validates permissions before deploy. Rollback procedures for each step. |
+
+**Task sizing**: T-4.1 (M), T-4.2 (L), T-4.3 (L), T-4.4 (M), T-4.5 (M), T-4.6 (M).
+**Critical path**: T-4.1 → T-4.3 (chain config before Sepolia test). T-4.2 → T-4.5 (graduation script before readiness E2E). T-4.6 is independent.
+
+**Rollback/recovery**: x402 behind `X402_SETTLEMENT_MODE=verify_only` — on-chain settlement disabled until explicitly flipped. Graduation script is read-only (evaluates metrics, doesn't change state). Sepolia tests use faucet USDC (no real money). Deployment runbook includes per-step rollback.
+
+**Sprint 4 acceptance**: x402 chain/contract configurable. Graduation script evaluates all 8 thresholds. Sepolia settlement verified end-to-end. Deployment runbook ready for production go-live. 6 tasks.
+
+---
+
+## Dependency Graph
 
 ```
-Sprint 1 (sequential within, parallel across independent tasks):
-  T-1.1 → T-1.2 → T-1.3 → T-1.4
-  T-1.1 → T-1.2 → T-1.5 → T-1.6
-  T-1.1 → T-1.2 → T-1.7
-  T-1.8 (after all above)
+Sprint 1: Runtime Infrastructure
+  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
+  │ T-1.1 Runtime    │  │ T-1.3 Health     │  │ T-1.4 Shutdown   │
+  │ Config           │  │ Endpoints        │  │ Handler          │
+  └────────┬─────────┘  └──────────────────┘  └────────┬─────────┘
+           │                                           │
+           ▼                                           │
+  ┌──────────────────┐  ┌──────────────────┐           │
+  │ T-1.2 KillSwitch │  │ T-1.5 Audit      │           │
+  │ async            │  │ Buffer           │           │
+  └──────────────────┘  └────────┬─────────┘           │
+                                 │                     │
+Sprint 2: Admin + Transport      ▼                     ▼
+  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
+  │ T-2.1 Admin API  │──│ T-2.2 Wire JWKS  │  │ T-2.3 Dixie      │
+  │ (needs T-1.5)    │  │ into boot        │  │ Transport        │
+  └──────────────────┘  └──────────────────┘  └────────┬─────────┘
+                                                       │
+  ┌──────────────────┐  ┌──────────────────┐           ▼
+  │ T-2.5 Prometheus │──│ T-2.6 Wire into  │  ┌──────────────────┐
+  │ Metrics          │  │ routing engine   │  │ T-2.4 Register   │
+  └──────────────────┘  └──────────────────┘  │ in Shutdown      │
+                                               └──────────────────┘
+Sprint 3: E2E Compose
+  ┌──────────────────┐
+  │ T-3.1 Keypairs   │
+  └────────┬─────────┘
+           ▼
+  ┌──────────────────┐  ┌──────────────────┐
+  │ T-3.2 Compose v3 │──│ T-3.3 Localstack │
+  └────────┬─────────┘  └──────────────────┘
+           │
+           ├──► T-3.4 JWT exchange
+           ├──► T-3.5 Autopoietic loop
+           ├──► T-3.6 Shadow metrics
+           └──► T-3.7 Full flow
 
-Sprint 2 (parallel tracks, all depend on Sprint 1 completion):
-  Track A: T-2.1 → T-2.2  (ReputationEvent)
-  Track B: T-2.3 → T-2.4 → T-2.5  (TaskType mapping)
-  Track C: T-2.6 → T-2.7  (QualityObservation)
-
-Sprint 3 (parallel tracks, all depend on Sprint 2 completion):
-  Track D: T-3.1 → T-3.4  (Routing: exhaustive split + redact warn)
-  Track E: T-3.2 → T-3.3 → T-3.5  (FormatRegistry: guard + test + determinism)
-  Track F: T-3.6 → T-3.9  (Documentation: JSDoc + ADR)
-  Track G: T-3.7  (Handshake: thresholds ordered)
-  Track H: T-3.8  (Quality: dimensions enrichment)
+Sprint 4: x402 + Graduation (partially independent)
+  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
+  │ T-4.1 Chain      │  │ T-4.2 Graduation │  │ T-4.6 Deployment │
+  │ Config           │  │ Script           │  │ Runbook          │
+  └────────┬─────────┘  └────────┬─────────┘  └──────────────────┘
+           │                     │
+           ▼                     ▼
+  ┌──────────────────┐  ┌──────────────────┐
+  │ T-4.3 Sepolia    │  │ T-4.5 Graduation │
+  │ Test             │  │ E2E Readiness    │
+  └──────────────────┘  └──────────────────┘
 ```
 
 ---
 
-## Acceptance Criteria Cross-Reference
+## Risk Assessment
 
-| AC | Sprint | Tasks |
-|----|--------|-------|
-| AC1: dependency resolves to v8.2.0 | S1 | T-1.1 |
-| AC2: zero regression | S1, S3 | T-1.8, all S3 tasks |
-| AC3: conformance vectors pass | S1 | T-1.7 |
-| AC4: handshake compat window | S1 | T-1.5, T-1.6 |
-| AC5: new types importable | S1 | T-1.3, T-1.4 |
-| AC6: QualityObservation validated | S2, S3 | T-2.6, T-2.7, T-3.8 |
-| AC7: 'unspecified' routes to default | S2 | T-2.3, T-2.4, T-2.5 |
-| AC8: ReputationEvent all variants | S2 | T-2.1, T-2.2 |
-| AC9: no postinstall patch | S1 | T-1.8 |
-| AC10: exhaustive TaskType mapping (no default) | S3 | T-3.1 |
-| AC11: FormatRegistry guard + verification | S3 | T-3.2, T-3.3 |
-| AC12: console.warn redacts input | S3 | T-3.4 |
-| AC13: deterministic test timestamps | S3 | T-3.5 |
-| AC14: resolvePool JSDoc documents mapping | S3 | T-3.6 |
-| AC15: FEATURE_THRESHOLDS_ORDERED | S3 | T-3.7 |
-| AC16: scoreToObservation dimensions | S3 | T-3.8 |
-| AC17: decision trail documentation | S3 | T-3.9 |
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Freeside/dixie Docker images not available | Medium | High | Fall back to stub images in compose; log degraded coverage |
+| Base Sepolia faucet USDC depleted | Low | Low | Small test amounts (0.01 USDC); reusable wallet |
+| Prometheus not available in CI | Medium | Medium | Graduation script falls back to mock Prometheus in tests |
+| AdminJWKS key format inconsistency | Low | Medium | Validated by unit tests (T-2.7) + SecretsLoader fail-fast |
+| Three-leg compose startup ordering flaky | Medium | Medium | Health checks with `start_period: 30s` + `retries: 10` |
 
 ---
 
-## Risk Mitigation Order
+## De-Scope Matrix (Flatline SKP-001)
 
-Sprint 1 is sequenced to surface risks early:
-1. **T-1.1** (bump) — if `pnpm install` fails, stop immediately
-2. **T-1.2** (exports verification) — if `./commons` doesn't resolve, need alternate import path; gates T-1.3, T-1.5, T-1.7
-3. **T-1.3** (re-exports) — derived from T-1.2 discovery artifact, not speculative
-4. **T-1.8** (full test suite + AC9 check) — catches structural schema breaks and confirms no postinstall patching before Sprint 2
+If timeline pressure requires cutting scope, use this prioritization:
 
-Sprint 3 risk is low — all tasks are refinements to existing code with existing test coverage. Key risk:
-5. **T-3.1** (exhaustive split) — removing the `default` branch could cause compile error if protocol types don't match. Run `tsc --noEmit` after the change to verify.
-6. **T-3.2** (FormatRegistry guard) — must not break existing tests that already import typebox-formats.js. Guard should be a safety net, not a behavior change.
+| Priority | Tasks | Rationale |
+|----------|-------|-----------|
+| **Must ship** (blocks go-live) | T-1.1, T-1.2, T-1.3, T-1.4, T-1.5, T-1.6, T-2.1, T-2.2, T-2.3, T-2.5, T-2.6 | Runtime config, health, shutdown, audit, admin, transport, metrics — these are the production activation path |
+| **Should ship** (high value) | T-2.4, T-3.2, T-3.3, T-3.4, T-4.1, T-4.6 | Shutdown registration, E2E compose infra, JWT exchange test, chain config, deployment runbook |
+| **Could ship** (nice-to-have) | T-3.5, T-3.6, T-3.7, T-4.2, T-4.3, T-4.5 | Autopoietic loop E2E, shadow metrics E2E, full flow E2E, graduation script, Sepolia test, graduation readiness E2E |
+| **Test tasks** (follow code) | T-1.7, T-1.8, T-1.9, T-2.7, T-2.8, T-4.4 | Unit tests follow their code tasks — cut only if parent is cut |
 
----
-
-## Sprint 4: Pre-Merge Polish — Deep Review Findings (Global ID: 135)
-
-**Goal**: Address all remaining findings from the [Bridgebuilder Deep Review](https://github.com/0xHoneyJar/loa-finn/pull/107#issuecomment-3957980938) (Field Report #41). Fix the second FormatRegistry victim (store.ts), harden side-effect import ordering, document ecosystem conventions, and sketch the feedback pathway. Prepare PR #107 for merge.
-
-**Source**: Deep Review findings 2-7 (Finding 3 already fixed in c32fb4c).
-
-| Task | Title | Files | AC | Finding |
-|------|-------|-------|-----|---------|
-| T-4.1 | Centralize format registration with assertFormatsRegistered() | `src/hounfour/typebox-formats.ts` | AC18: (1) export `assertFormatsRegistered(formats: readonly string[]): void` from the existing `typebox-formats.ts` module — same file that registers formats via side-effect, no new module needed, (2) function checks `FormatRegistry.Has()` for each format and throws with clear message listing all missing formats, (3) refactor normalizer's inline `FormatRegistry.Has` guard (T-3.2) to call `assertFormatsRegistered(["uuid", "date-time"])`, (4) all existing tests pass, (5) import path remains `./typebox-formats.js` (standard TS ESM `.js` extension convention — source is `.ts`, runtime resolves `.js`) | F7 (LOW) |
-| T-4.2 | Add FormatRegistry guard to store.ts Value.Check | `src/cron/store.ts` | AC19: (1) import `../hounfour/typebox-formats.js` side-effect at module top (registers formats), (2) import `assertFormatsRegistered` from same module, (3) call `assertFormatsRegistered(["uuid", "date-time"])` before `Value.Check()` at line 199, (4) existing store tests pass unchanged, (5) new test using `vi.isolateModules` or `vi.resetModules`: import `store.ts` without the vitest setup file's format registration and assert `assertFormatsRegistered` throws the explicit error; then import with `typebox-formats` preloaded and assert `Value.Check` succeeds on a format-dependent schema | F4 (MEDIUM) |
-| T-4.3 | Add app-level format init to entry point | `src/index.ts` | AC20: (1) import `./hounfour/typebox-formats.js` as the **first** import in `src/index.ts` (the sole runtime entry point, per SDD §10.2), (2) add comment explaining why this must be first: FormatRegistry is a global singleton, all downstream `Value.Check` calls depend on it, (3) call `assertFormatsRegistered(["uuid", "date-time"])` inside `main()` before any module that uses `Value.Check` is invoked, (4) verify: `pnpm start` (or equivalent) does not throw on startup | F7 (LOW) |
-| T-4.4 | Document KnownFoo exhaustive pattern as ecosystem convention | `grimoires/loa/NOTES.md` | AC21: (1) new section "KnownFoo Exhaustive Pattern" documenting the pattern: closed inner function with `never` check + open wrapper with Set guard, (2) names the Android API Level / protobuf open enum parallels, (3) lists the specific files implementing it: `nft-routing-config.ts` (KnownTaskType), (4) notes applicability to future open unions in the protocol (e.g., if AccessPolicyKind or ReputationEventKind grow new variants) | F2 (PRAISE → documentation) |
-| T-4.5 | Sketch reputation→routing feedback pathway | `grimoires/loa/NOTES.md` | AC22: (1) new section "Autopoietic Loop — Design Sketch" describing the 6-stage feedback cycle: quality_signal → reputation_event → reputation_store → tier_resolution → model_selection → quality_measurement, (2) identifies the current gap: scoreToObservation emits but no consumer reads reputation to influence routing, (3) names the concrete integration point: `resolvePool()` in tier-bridge.ts could query dixie's PostgresReputationStore to weight pool selection, (4) marks as SPECULATION — not blocking merge, future cycle candidate | F5 (SPECULATION) |
-| T-4.6 | Final merge readiness — test suite + conflict check | all test files, git | AC23: (1) `pnpm test` exits 0 with all hounfour tests passing (target: 112+), (2) `git merge-base --is-ancestor origin/main HEAD` confirms no divergence, (3) `tsc --noEmit` clean, (4) no console.error or unhandled rejection in test output | Merge gate |
-
-**Sprint 4 acceptance**: All deep review findings addressed or documented. store.ts FormatRegistry vulnerability closed. Format registration centralized with single assertion point (`assertFormatsRegistered`). Entry point (`src/index.ts`) registers formats before any downstream consumer. Ecosystem patterns documented for future agents. Autopoietic loop sketched but explicitly deferred. Full test suite green. Ready for merge. 6 tasks.
+**Buffer**: Sprint 4 is the most de-scopable — graduation script (T-4.2) and Sepolia test (T-4.3) can ship in a follow-up cycle since production starts in shadow mode (graduation is a later operational step). This gives ~1 sprint of buffer.
 
 ---
 
-## Updated Task Dependency Graph
+## Flatline Blocker Resolutions
 
-```
-Sprints 1-3: COMPLETED (24 tasks)
+| Blocker | Decision | Rationale |
+|---------|----------|-----------|
+| SKP-001 (solo team, 930) | **Accepted** | De-scope matrix added above |
+| SKP-003 (audit partial failures, 900) | **Accepted** | Additional ACs added to T-1.5 |
+| SKP-004 (admin JWT replay, 880) | **Override** | SDD §8.1.1 already specifies WAF + VPN CIDR + per-subject rate limit + short exp (5min). jti tracking adds Redis overhead for a VPN-only, rate-limited endpoint with 5-minute token lifetime — replay window is negligible. |
+| SKP-002 (Redis multi-instance, 760) | **Override** | Direct Redis GET per request = no caching layer = instant consistency across all ECS tasks. The concern assumes a stale cache that doesn't exist. All instances read the same Redis key on every request — propagation is inherent. |
+| SKP-005 (JWKS atomic swap, 720) | **Deferred** | SDD §3.3 rotation procedure specifies overlap period (add new key → start using → remove old after expiry). Cross-instance stale windows are handled by the overlap. Atomic swap is a future improvement for high-concurrency scenarios; admin endpoint is VPN-only, low-traffic. |
 
-Sprint 4 (parallel tracks, depends on Sprint 3 completion):
-  Track I: T-4.1 → T-4.2 → T-4.3  (FormatRegistry: centralize → store fix → entry point)
-  Track J: T-4.4  (Documentation: KnownFoo pattern)
-  Track K: T-4.5  (Documentation: autopoietic loop sketch)
-  Track L: T-4.6  (after all above — final merge gate)
-```
+---
 
-## Updated Acceptance Criteria Cross-Reference
+## Issue Closure Map
 
-| AC | Sprint | Tasks |
-|----|--------|-------|
-| AC1-AC17 | S1-S3 | (see above — all completed) |
-| AC18: centralized assertFormatsRegistered() | S4 | T-4.1 |
-| AC19: store.ts FormatRegistry guard | S4 | T-4.2 |
-| AC20: app-level format init (src/index.ts) | S4 | T-4.3 |
-| AC21: KnownFoo pattern documentation | S4 | T-4.4 |
-| AC22: autopoietic loop design sketch | S4 | T-4.5 |
-| AC23: merge readiness gate | S4 | T-4.6 |
-
-## Sprint 4 Risk Assessment
-
-Sprint 4 risk is minimal — all code changes are additive guards and refactors to existing patterns:
-7. **T-4.1** (centralize assertion) — adds `assertFormatsRegistered()` export to existing `typebox-formats.ts` and refactors the normalizer's inline check. Risk: changing the assertion could break normalizer tests. Mitigation: function is additive — existing side-effect registration is untouched, assertion is belt-and-suspenders.
-8. **T-4.2** (store.ts guard) — applies the centralized assertion to store.ts. Main risk: store.ts may not use format-dependent schemas in practice, making the guard a no-op safety net. This is acceptable — defense-in-depth. Test isolation via `vi.isolateModules` may require vitest config adjustment.
-9. **T-4.3** (entry point init) — adding side-effect import as first line of `src/index.ts` (sole entry point per SDD §10.2). Risk: import order could affect startup timing. Mitigation: formats are cheap to register (two regex patterns), placed before any module that calls `Value.Check`.
+| Issue | Sprint(s) | AC Coverage |
+|-------|-----------|-------------|
+| [#84](https://github.com/0xHoneyJar/loa-finn/issues/84) Dockerize + E2E | Sprint 3 (T-3.1–T-3.7) | AC21–AC27 |
+| [#85](https://github.com/0xHoneyJar/loa-finn/issues/85) x402 Payments | Sprint 4 (T-4.1, T-4.3) | AC31–AC37a |
+| [#66](https://github.com/0xHoneyJar/loa-finn/issues/66) Launch Readiness | All sprints | Phase 2+4 complete |

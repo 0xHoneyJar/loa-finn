@@ -63,6 +63,24 @@ export interface AppOptions {
   x402Deps?: X402RouteDeps
   /** Identity route dependencies — when provided, /api/identity routes are mounted (Sprint 3 T3.2) */
   identityDeps?: IdentityRouteDeps
+  /** Goodhart engine health (Sprint 5 T-5.6) */
+  goodhartHealth?: () => { status: string; killSwitch: string; explorationEnabled: boolean }
+  /** Audit chain health (Sprint 5 T-5.6) */
+  auditHealth?: () => { state: string; partitionId: string; sequenceNumber: number; fallbackCount: number }
+  /** Relayer health (Sprint 5 T-5.6) */
+  relayerHealth?: () => { canSettle: boolean; balanceWei?: string; alertLevel: string }
+  /** Redis health for /health/deps (cycle-035 T-1.3) */
+  redisHealth?: () => Promise<{ connected: boolean; latencyMs: number }>
+  /** DynamoDB health for /health/deps (cycle-035 T-1.3) */
+  dynamoHealth?: () => Promise<{ reachable: boolean; latencyMs: number }>
+  /** Admin JWKS key resolver for JWT auth (cycle-035 T-2.1) */
+  adminJwksResolver?: (protectedHeader: { kid?: string; alg?: string }, token: { payload: unknown }) => Promise<import("jose").KeyLike | Uint8Array>
+  /** RuntimeConfig for admin mode changes (cycle-035 T-2.1) */
+  runtimeConfig?: import("../hounfour/runtime-config.js").RuntimeConfig
+  /** Audit append function for admin audit-first semantics (cycle-035 T-2.1) */
+  auditAppend?: (action: string, payload: Record<string, unknown>) => Promise<string | null>
+  /** Graduation metrics for /metrics endpoint (cycle-035 T-2.5) */
+  graduationMetrics?: import("../hounfour/graduation-metrics.js").GraduationMetrics
 }
 
 export function createApp(config: FinnConfig, options: AppOptions) {
@@ -82,9 +100,48 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     }
   })
 
-  // Health endpoint (no auth required)
-  // NOTE: dlq_store_type exposed intentionally for ops monitoring (Datadog, Grafana).
-  // This is not sensitive — it reveals "redis" vs "in-memory", not connection strings.
+  // --- Two-tier health endpoints (cycle-035 T-1.3) ---
+
+  // /healthz — ALB liveness probe. No dependency checks. Always 200 if process is alive.
+  app.get("/healthz", (c) => {
+    return c.json({ status: "ok", uptime: process.uptime() }, 200)
+  })
+
+  // /health/deps — Readiness probe. Checks Redis + DynamoDB data-plane.
+  // Returns 503 if any critical dependency is unreachable.
+  app.get("/health/deps", async (c) => {
+    const checks: Record<string, { status: string; latencyMs?: number; error?: string }> = {}
+    let allHealthy = true
+
+    // Redis health
+    if (options?.redisHealth) {
+      try {
+        const rh = await options.redisHealth()
+        checks.redis = { status: rh.connected ? "ok" : "degraded", latencyMs: rh.latencyMs }
+        if (!rh.connected) allHealthy = false
+      } catch (err) {
+        checks.redis = { status: "error", error: (err as Error).message }
+        allHealthy = false
+      }
+    }
+
+    // DynamoDB health (data-plane GetItem, not DescribeTable)
+    if (options?.dynamoHealth) {
+      try {
+        const dh = await options.dynamoHealth()
+        checks.dynamodb = { status: dh.reachable ? "ok" : "degraded", latencyMs: dh.latencyMs }
+        if (!dh.reachable) allHealthy = false
+      } catch (err) {
+        checks.dynamodb = { status: "error", error: (err as Error).message }
+        allHealthy = false
+      }
+    }
+
+    const status = allHealthy ? 200 : 503
+    return c.json({ status: allHealthy ? "ready" : "not_ready", checks }, status)
+  })
+
+  // Legacy /health → 301 → /healthz (backward compat)
   app.get("/health", async (c) => {
     // Billing DLQ metrics — never throws
     let billing: Record<string, unknown> = {
@@ -116,13 +173,18 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       ? billingEvaluator.billing === "ready"
       : true
 
+    // Goodhart, audit, relayer health (Sprint 5 T-5.6, AC20)
+    const goodhart = options?.goodhartHealth?.() ?? null
+    const audit = options?.auditHealth?.() ?? null
+    const relayer = options?.relayerHealth?.() ?? null
+
     if (options?.healthAggregator) {
       let health = options.healthAggregator.check()
       // Oracle Phase 1 async enrichment (rate limiter health, daily usage)
       if (health.checks.oracle && options.oracleRateLimiter) {
         health = await options.healthAggregator.enrichOracleHealth(health)
       }
-      return c.json({ ...health, billing, protocol })
+      return c.json({ ...health, billing, protocol, goodhart, audit, relayer })
     }
     return c.json({
       status: "healthy",
@@ -135,6 +197,9 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       billing,
       protocol,
       ready_for_billing: readyForBilling,
+      goodhart,
+      audit,
+      relayer,
     })
   })
 
@@ -443,17 +508,26 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     app.route("/api/identity", createIdentityRoutes(options.identityDeps))
   }
 
-  // Admin seed endpoint — FINN_AUTH_TOKEN auth, for E2E/CI only (T3.9)
+  // Admin endpoints — JWKS JWT auth for mode changes, FINN_AUTH_TOKEN for seed-credits (cycle-035 T-2.1/T-2.2)
   {
     const adminDeps: AdminRouteDeps = {
       setCreditBalance: async (_wallet: string, _credits: number) => {
         // TODO: Wire to real credit store when billing is fully integrated.
-        // For now, this is a no-op stub that satisfies E2E smoke tests.
-        // The route itself validates inputs and handles auth — the stub
-        // only needs to not throw.
       },
+      runtimeConfig: options.runtimeConfig,
+      auditAppend: options.auditAppend,
+      jwksKeyResolver: options.adminJwksResolver,
     }
     app.route("/api/v1/admin", createAdminRoutes(adminDeps))
+  }
+
+  // Prometheus metrics endpoint (cycle-035 T-2.5)
+  if (options.graduationMetrics) {
+    const metrics = options.graduationMetrics
+    app.get("/metrics", (c) => {
+      c.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+      return c.text(metrics.toPrometheus())
+    })
   }
 
   return { app, router }

@@ -63,12 +63,13 @@ describe("Autopoietic path integration (T-6.5)", () => {
     }
 
     // --- Stage 4: Tier resolution with reputation query ---
-    const reputationQuery: ReputationQueryFn = async (poolId) => {
+    const reputationQuery: ReputationQueryFn = async ({ poolId }) => {
       return mockReputationStore[poolId] ?? null
     }
 
     const selectedPool = await resolvePoolWithReputation(
       "enterprise",
+      "nft-autopoietic-test",
       "analysis",
       undefined,
       reputationQuery,
@@ -93,6 +94,7 @@ describe("Autopoietic path integration (T-6.5)", () => {
 
     const selectedPool = await resolvePoolWithReputation(
       "pro",
+      "nft-autopoietic-test",
       "code_review",
       undefined,
       reputationQuery,
@@ -104,7 +106,7 @@ describe("Autopoietic path integration (T-6.5)", () => {
 
   it("degraded path: no reputation query → existing resolution order", async () => {
     // No reputation query at all — pure tier-based resolution
-    const selectedPool = await resolvePoolWithReputation("enterprise", "analysis")
+    const selectedPool = await resolvePoolWithReputation("enterprise", "nft-autopoietic-test", "analysis")
     // Enterprise default pool (no NFT preferences, no reputation)
     expect(selectedPool).toBe("reviewer")
   })

@@ -112,21 +112,21 @@ Directory structure:
 <!-- provenance: DERIVED -->
 ### HTTP Routes
 
-- **DELETE** `/:key_id` (`src/gateway/routes/keys.ts:59`)
-- **GET** `/:key_id/balance` (`src/gateway/routes/keys.ts:73`)
+- **GET** `/:collection/:tokenId` (`src/gateway/routes/agent-homepage.ts:31`)
+- **GET** `/:id/messages` (`src/gateway/routes/conversations.ts:105`)
 - **GET** `/` (`src/gateway/jwks.ts:76`)
-- **GET** `/` (`src/gateway/metrics-endpoint.ts:233`)
-- **GET** `/` (`src/gateway/server.ts:58`)
+- **GET** `/` (`src/gateway/metrics-endpoint.ts:254`)
+- **GET** `/` (`src/gateway/routes/conversations.ts:74`)
 - **GET** `/agent/:tokenId` (`src/gateway/routes/discovery.ts:58`)
 - **GET** `/agents.md` (`src/gateway/routes/discovery.ts:50`)
 - **GET** `/balance` (`src/credits/routes.ts:46`)
-- **GET** `/dashboard` (`src/gateway/server.ts:124`)
 - **GET** `/feature-flags` (`src/gateway/feature-flags.ts:144`)
-- **GET** `/health` (`src/gateway/server.ts:70`)
 - **GET** `/history` (`src/credits/routes.ts:78`)
 - **GET** `/llms.txt` (`src/gateway/routes/discovery.ts:42`)
 - **GET** `/openapi.json` (`src/gateway/routes/discovery.ts:37`)
-- **POST** `/` (`src/gateway/routes/agent-chat.ts:50`)
+- **GET** `/public` (`src/gateway/routes/agent-public-api.ts:49`)
+- **POST** `/` (`src/gateway/routes/agent-chat.ts:53`)
+- **POST** `/` (`src/gateway/routes/conversations.ts:45`)
 
 ### Skill Commands
 
@@ -176,20 +176,20 @@ Directory structure:
 | `docs/` | 34 | Documentation | \u2014 |
 | `drizzle/` | 4 | Drizzle | \u2014 |
 | `evals/` | 122 | Benchmarking and regression framework for the Loa agent development system. Ensures framework changes don't degrade agent behavior through | [evals/README.md](evals/README.md) |
-| `grimoires/` | 1057 | Home to all grimoire directories for the Loa | [grimoires/README.md](grimoires/README.md) |
+| `grimoires/` | 1074 | Home to all grimoire directories for the Loa | [grimoires/README.md](grimoires/README.md) |
 | `infrastructure/` | 5 | Infrastructure | \u2014 |
 | `packages/` | 5 | Packages | \u2014 |
-| `public/` | 5 | Static assets | \u2014 |
+| `public/` | 16 | Static assets | \u2014 |
 | `schemas/` | 3 | Schemas | \u2014 |
-| `scripts/` | 7 | Utility scripts | \u2014 |
-| `src/` | 313 | Source code | \u2014 |
-| `tests/` | 504 | Test suites | \u2014 |
+| `scripts/` | 8 | Utility scripts | \u2014 |
+| `src/` | 326 | Source code | \u2014 |
+| `tests/` | 536 | Test suites | \u2014 |
 
 ## Verification
 <!-- provenance: CODE-FACTUAL -->
 - Trust Level: **L3 — Property-Based**
-- 519 test files across 1 suite
-- CI/CD: GitHub Actions (11 workflows)
+- 551 test files across 1 suite
+- CI/CD: GitHub Actions (12 workflows)
 - Type safety: TypeScript
 - Security: SECURITY.md present
 
@@ -216,14 +216,14 @@ The project defines 1 specialized agent persona.
 - `@types/node`
 - `@types/ws`
 - `bcrypt`
+- `canonicalize`
 - `croner`
 - `drizzle-kit`
 - `drizzle-orm`
 - `eslint`
 - `fast-check`
 - `hono`
-- `jose`
-- `json-stable-stringify`
+- `ioredis`
 
 ## Known Limitations
 <!-- provenance: DERIVED -->
@@ -259,18 +259,18 @@ export ANTHROPIC_API_KEY=sk-ant-...
 npm run dev
 ```
 <!-- ground-truth-meta
-head_sha: 625cbf80ca0e251fa5845e015e0f43394ec20a58
-generated_at: 2026-02-25T09:00:22Z
+head_sha: c1aeadb951b6a16e8fa2be7b82cf0cbdd800ebf3
+generated_at: 2026-02-26T01:03:01Z
 generator: butterfreezone-gen v1.0.0
 sections:
   agent_context: 43a9d63f81ca89ef52118bff77b9ed9506b3ec5fe8960e307b8707a5129abf8b
   capabilities: ab2576b1f2e7e8141f0e93e807d26ed2b7b155e21c96d787507a3ba933bb9795
   architecture: 228039a98daa4141d7298f982aedbfd0088c1328a6eecfc9060247dfb2c5a195
-  interfaces: 2a5bd37c15009e367a5c0a0eaa88bafa0553900a919b5cd632f3a0728e80b2e3
-  module_map: 6e1f23094b0d9a33897a4a6b0afbcd29304eefc51da3cd4c7e2f48d44f6bfd61
-  verification: dbdefd50452697d88f70ce879d58dbc5f4570fd55d0468ab216cbe97d191ea4e
+  interfaces: ee958816c9a4a9151de255e147d02a9cc410e2794126611deebfd0585a8b818f
+  module_map: 93d4ee1beff316b87f6c063fe385a249c6436bc6619632bd01c8aded4e8ea08e
+  verification: 0d5df7bb2c772f84afa56c7c15b4c5b75ceb9a9261dfe3277ce2631d63020672
   agents: ca263d1e05fd123434a21ef574fc8d76b559d22060719640a1f060527ef6a0b6
-  ecosystem: 4874e32c0011304eaaf21db5a578ff094727c85104b8272897edbeda0498bb64
+  ecosystem: ae6ad39b70804a4994eaa44dd48c13e8782a09cd85f77e949f7acda264c5a17d
   limitations: 5dbb86bb1798604cdafad4930eb8e2265e99837ad33674f99e66de49dad71bfd
   quick_start: d1b43139021ae877a9f5d45f030c06b6eb84d4f84bebcf89343117dd668a4b53
 -->

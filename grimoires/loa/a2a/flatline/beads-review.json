@@ -1,96 +1,185 @@
 {
   "consensus_summary": {
-    "high_consensus_count": 2,
-    "disputed_count": 1,
+    "high_consensus_count": 5,
+    "disputed_count": 0,
     "low_value_count": 0,
-    "blocker_count": 5,
-    "model_agreement_percent": 90,
+    "blocker_count": 12,
+    "model_agreement_percent": 100,
     "confidence": "full"
   },
   "high_consensus": [
     {
+      "id": "IMP-001",
+      "description": "Real planning gap: the backlog encodes dependency_count/dependent_count but leaves them mostly zero despite obvious sequencing (foundations -> features -> tests). Adding explicit dependencies is actionable and low effort, improves critical-path visibility, and prevents invalid parallelization assumptions in execution tooling.",
+      "gpt_score": 820,
+      "opus_score": 720,
+      "delta": 100,
+      "average_score": 770,
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-002",
+      "description": "Critical omission: tasks have empty bodies, so there is no definition of done/acceptance criteria. This blocks implementation, review, and testing alignment (e.g., buffer semantics, crash-resume guarantees). High ROI and foundational for all downstream work.",
+      "gpt_score": 930,
+      "opus_score": 890,
+      "delta": 40,
+      "average_score": 910,
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
       "id": "IMP-003",
-      "description": "Strong domain-appropriate concern: API key handling and on-disk limiter state are common security footguns. Actionable (key sourcing, rotation expectations, redaction rules, file perms/umask, secure directories). Moderate effort, high risk reduction.",
-      "gpt_score": 860,
-      "opus_score": 810,
-      "delta": 50,
-      "average_score": 835,
+      "description": "Valuable for context and traceability: tasks reference epics by id but the epic content is absent, making scope/success criteria unverifiable. Actionable (include/link epic beads). Slight trade-off if epics live elsewhere and the doc is intentionally task-only, but reviewers still need accessible context.",
+      "gpt_score": 780,
+      "opus_score": 870,
+      "delta": 90,
+      "average_score": 825,
       "would_integrate": true,
       "agreement": "HIGH"
     },
     {
       "id": "IMP-004",
-      "description": "Production reliability gap: flock-based primitives need defined crash recovery, timeouts, stale lock handling, and filesystem constraints. Actionable via documented semantics + test scenarios. Some complexity (platform/NFS nuances), but high ROI because these primitives underpin metering/budget safety.",
-      "gpt_score": 880,
-      "opus_score": 890,
+      "description": "High-impact hygiene issue: inconsistent labels across sprints will break queries, dashboards, and rollups, and the unexplained 'G147' identifier creates ambiguity. Straightforward to fix and improves automation and comprehension.",
+      "gpt_score": 810,
+      "opus_score": 810,
+      "delta": 0,
+      "average_score": 810,
+      "would_integrate": true,
+      "agreement": "HIGH"
+    },
+    {
+      "id": "IMP-006",
+      "description": "Security is clearly in scope (JWKS auth, secrets caching, admin routes, blockchain integration). A dedicated threat model/security review task is domain-appropriate and often required for production readiness. Cost is moderate but ROI is high given risk profile.",
+      "gpt_score": 860,
+      "opus_score": 850,
       "delta": 10,
-      "average_score": 885,
+      "average_score": 855,
       "would_integrate": true,
       "agreement": "HIGH"
     }
   ],
-  "disputed": [
-    {
-      "id": "IMP-001",
-      "description": "Real gap: one-line beads without acceptance criteria/DoD are not verifiable and invite scope drift. Highly actionable (per-bead AC bullets + DoD checklist) and low cost with high ROI, especially for concurrency/metering tasks where edge cases matter.",
-      "gpt_score": 900,
-      "opus_score": 520,
-      "delta": 380,
-      "average_score": 710,
-      "would_integrate": true,
-      "agreement": "DISPUTED"
-    }
-  ],
+  "disputed": [],
   "low_value": [],
   "blockers": [
     {
-      "id": "SKP-002",
-      "concern": "Budget enforcement correctness is underspecified for async/non-blocking flows and multi-step Deep Research interactions (reservation/reconciliation edge cases)",
+      "id": "SKP-004",
+      "concern": "Admin API security model is incomplete (JWKS usage, authorization, replay protection, audit-first coupling)",
       "severity": "CRITICAL",
-      "severity_score": 900,
-      "why_matters": "Deep Research introduces create/poll/cancel and long-running interactions. If budget is reserved at create time but final cost differs, or if polling retries duplicate reconciliation, you can double-charge, undercharge, or allow budget bypass. Idempotency boundaries are not clearly defined across retries and process restarts.",
-      "location": "Task 2.5: Non-blocking mode (--async, --poll, --cancel); Task 2.1: _complete_deep_research() blocking-poll; Task 3.3: Atomic budget check; Task 3.2: Wire BudgetEnforcer in cheval.py",
-      "recommendation": "Specify an idempotency model (interaction_id as the ledger key); define state machine for reservation/commit/release; ensure reconciliation is exactly-once (or effectively-once) with dedupe; add tests for retry storms, restart mid-poll, cancel-after-complete, and partial failures.",
+      "severity_score": 950,
+      "why_matters": "Admin endpoints that change routing modes are high-impact. 'JWKS + audit-first handler' hints at authn but not authz, token audience/issuer validation, key compromise response, rate limiting, or replay protection. A misstep here can lead to full system takeover.",
+      "location": "T-2.1: Implement Admin API routes (JWKS + audit-first handler); T-2.2: Wire admin JWKS into SecretsLoader + boot + rotation test; T-3.6/T-4.5 mode change tests",
+      "recommendation": "Document and implement: RBAC/claims model, issuer/audience constraints, token TTL, nonce/jti replay detection, mTLS or network allowlisting, rate limits, and break-glass procedures. Ensure audit-first cannot be used as a DoS vector against admin operations.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-002",
+      "concern": "Async KillSwitch introduces race conditions and undefined safety guarantees",
+      "severity": "CRITICAL",
+      "severity_score": 880,
+      "why_matters": "A KillSwitch must be deterministic under load. Async evaluation can allow requests to proceed while the switch is 'in transit' (stale reads), or fail open if the async path errors. This is especially risky if KillSwitch gates billing, auth, or unsafe routing modes.",
+      "location": "T-1.2: Upgrade KillSwitch to async (RuntimeConfig integration)",
+      "recommendation": "Specify strict behavior: fail-closed vs fail-open per endpoint, maximum staleness, refresh cadence, and concurrency model. Use atomic in-memory state with monotonic version updates; add integration tests for Redis latency, timeouts, and rapid toggling.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-010",
+      "concern": "Blockchain/x402 configurability and Sepolia tests hide operational and security requirements (nonce, deadline, chain forks, RPC dependency)",
+      "severity": "HIGH",
+      "severity_score": 720,
+      "why_matters": "Chain config via env/lookup and USDC overrides can lead to misrouting funds or signing wrong transactions if misconfigured. Sepolia/RPC providers are flaky; nonce/replay/expiry handling is notoriously error-prone. A small bug can cause payment failures or vulnerabilities.",
+      "location": "T-4.1: Make x402 chain/contract configurable; T-4.3: x402 Sepolia integration test (full flow, nonce replay, expired deadline)",
+      "recommendation": "Add strict validation of chain IDs/contracts at boot, allowlist supported chains, and safe defaults. Define RPC failover, rate limits, and idempotency strategy. Expand tests for reorgs, RPC timeouts, duplicate submissions, and clock skew on deadlines.",
       "source": "tertiary_skeptic"
     },
     {
       "id": "SKP-003",
-      "concern": "Feature flags default to true, increasing blast radius and making safe rollout/rollback difficult",
-      "severity": "HIGH",
-      "severity_score": 760,
-      "why_matters": "Per-subsystem flags that default to enabled can unintentionally activate incomplete paths (routing via Hounfour, metering, new pricing modes) in environments that haven’t been validated. This is a common cause of production regressions and hard-to-debug behavior differences.",
-      "location": "Task 3.6: Granular feature flags (Defaults to true); Task 3.7: Wire Flatline routing through Hounfour (Flag-gated); Task 3.2: Wire BudgetEnforcer (Gated by hounfour.metering flag)",
-      "recommendation": "Invert defaults to false for new behavior; require explicit enablement per environment; add a single global kill-switch; document flag precedence and rollout plan; add startup logging of effective flag values.",
+      "concern": "BufferedAuditChain 'bounded buffer, fail-closed, crash-resume' is a hidden complexity trap",
+      "severity": "CRITICAL",
+      "severity_score": 920,
+      "why_matters": "Fail-closed auditing can halt the entire system during downstream outages or disk pressure. Crash-resume implies durable storage, ordering, deduplication, and replay correctness. If implemented incorrectly, you either lose audit events (compliance risk) or deadlock production (availability risk).",
+      "location": "T-1.5: Implement BufferedAuditChain (bounded buffer, fail-closed, crash-resume); T-2.1: Admin API routes (JWKS + audit-first handler)",
+      "recommendation": "Define durability mechanism (WAL/file/queue), backpressure policy, max outage tolerance, and exactly-once vs at-least-once semantics. Add chaos tests: disk full, process crash mid-write, downstream audit sink unavailable, and high-throughput bursts.",
       "source": "tertiary_skeptic"
     },
     {
-      "id": "SKP-001",
-      "concern": "File-lock (flock) based concurrency, rate limiting, and budget enforcement may break in real deployments (NFS/containers/Windows) and can deadlock or miscount under failure",
+      "id": "SKP-002",
+      "concern": "BufferedAuditChain crash-resume is deceptively complex and underspecified",
       "severity": "CRITICAL",
-      "severity_score": 920,
-      "why_matters": "Multiple tasks rely on flock-protected state (FLockSemaphore, TokenBucketLimiter, atomic budget check). If the lock semantics differ (e.g., NFS advisory locks, container overlay FS quirks) or a process dies mid-critical-section, you can get stuck locks, stale PID false-positives, or corrupted limiter/budget state—leading to outages or uncontrolled spend.",
-      "location": "Task 2.3: Create FLockSemaphore concurrency control; Task 3.3: Atomic budget check; Task 3.4: TokenBucketLimiter",
-      "recommendation": "Define supported runtime environments and filesystems; add robust stale-lock recovery with monotonic timestamps; add crash-consistency tests (kill -9 during critical section); consider moving shared state to a real coordination primitive (Redis/SQLite with WAL) if multi-host is possible.",
+      "severity_score": 850,
+      "why_matters": "T-1.5 packs three hard problems into one task: bounded buffer (back-pressure strategy?), fail-closed semantics (what exactly fails? all requests?), and crash-resume (requires durable storage, write-ahead log, or similar). Crash-resume alone requires deciding on persistence layer, handling partial writes, deduplication on recovery, and corruption detection. This is a distributed systems problem disguised as a single sprint-1 task.",
+      "location": "bd-ewch: T-1.5 BufferedAuditChain",
+      "recommendation": "Break into sub-tasks. Define persistence mechanism for crash-resume. Specify what 'fail-closed' means for request flow. Add spike/prototype task to validate crash-resume approach before committing to implementation.",
       "source": "tertiary_skeptic"
     },
     {
       "id": "SKP-004",
-      "concern": "Pricing model complexity (token/task/hybrid + per-task micro-usd) risks inconsistent billing and hard-to-validate correctness across providers and modes",
+      "concern": "Graduation evaluation with 8 thresholds via PromQL is a scope bomb",
       "severity": "HIGH",
-      "severity_score": 740,
-      "why_matters": "Introducing multiple pricing modes plus per-task pricing invites edge cases: missing token counts, provider-specific tokenization differences, Deep Research multi-step costs, and rounding/precision issues (micro-usd). Without a canonical cost computation spec, tests may pass but real billing will drift.",
-      "location": "Task 3.1: Extend PricingEntry for per-task pricing; Task 3.5: Extend cost ledger for Deep Research",
-      "recommendation": "Write a normative cost-calculation spec with examples; define rounding rules and currency precision; require provider adapters to emit standardized usage metrics; add golden tests for representative scenarios (standard, thinking, safety-block, deep research).",
+      "severity_score": 750,
+      "why_matters": "T-4.2 casually describes implementing a graduation evaluation script with 8 thresholds querying both Prometheus and Redis. Each threshold needs definition, tuning, alerting on edge cases, and handling of partial data. PromQL queries for complex multi-dimensional thresholds are notoriously difficult to get right. The 'graduation' concept implies a state machine with irreversible transitions that need extensive testing. Labeled size:L but likely 2-3x that.",
+      "location": "bd-2c4o: T-4.2 graduation evaluation script",
+      "recommendation": "Define all 8 thresholds in a separate specification document before implementation. Add a spike task to validate PromQL query feasibility. Consider whether graduation should be reversible (rollback path).",
       "source": "tertiary_skeptic"
     },
     {
-      "id": "SKP-007",
-      "concern": "Security posture around secrets and diagnostics is incomplete (keys, logs, fixtures, and thinking traces can leak sensitive data)",
+      "id": "SKP-005",
+      "concern": "JWKS rotation and SecretsLoader TTL cache can cause auth outages or acceptance of revoked keys",
+      "severity": "HIGH",
+      "severity_score": 760,
+      "why_matters": "Caching JWKS with TTL can reject valid tokens during rotation (if cache stale) or accept tokens signed by compromised keys (if cache too long). Boot-time dependency on Secrets Manager can also prevent service start during AWS incidents.",
+      "location": "T-3.6: Implement SecretsLoader (Secrets Manager + TTL cache); T-2.2: Wire admin JWKS into SecretsLoader + boot + rotation test",
+      "recommendation": "Implement dual-key overlap strategy, background refresh with jitter, immediate refresh on signature failure (bounded), and explicit max-stale policy. Add startup fallback (last-known-good persisted) and metrics/alerts for refresh failures.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-003",
+      "concern": "No security review or threat modeling tasks for JWKS, JWT exchange, or x402 payment flows",
       "severity": "CRITICAL",
-      "severity_score": 880,
-      "why_matters": "The plan mentions 'never log content' for thinking traces and 'secure error diagnostics' as a separate task, but there’s no end-to-end requirement ensuring API keys, prompts, responses, citations, and interaction payloads are redacted across structured logs, error mapping, and test fixtures. Live smoke tests also risk accidental key usage in CI.",
-      "location": "Task 2.6: --include-thinking flag policy; Task 1.4: structured logging; Task 1.5: error mapping; Task 3.11: Live API smoke tests; Task 3.3 (cycle-013): Implement Secure Error Diagnostics",
-      "recommendation": "Define a redaction policy and implement centralized log filtering; ensure exceptions never include raw request/response bodies; gate live tests behind explicit opt-in and CI-safe secret handling; add tests that assert redaction on known sensitive fields.",
+      "severity_score": 840,
+      "why_matters": "The system handles JWT authentication (JWKS), secret management, admin API authorization, and blockchain payment verification (x402/USDC). There are zero tasks for threat modeling, security review, or penetration testing. JWT key confusion attacks, JWKS endpoint spoofing, admin API privilege escalation, x402 nonce replay (mentioned in test but not in implementation), and secret cache poisoning are all unaddressed attack vectors.",
+      "location": "Sprint 2 (Admin API + JWKS) and Sprint 4 (x402 chain integration)",
+      "recommendation": "Add explicit threat modeling task before Sprint 2. Add security review gate before Sprint 4 deployment. Ensure x402 replay protection is an implementation task, not just a test scenario.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-009",
+      "concern": "Prometheus 'graduation metrics' + shadow comparisons + PromQL-based evaluation script is brittle and prone to false decisions",
+      "severity": "HIGH",
+      "severity_score": 740,
+      "why_matters": "Promotion/graduation logic based on PromQL and Redis state can fail due to scrape gaps, label cardinality explosions, clock skew, or query changes. False positives can promote a bad routing mode; false negatives can block rollout indefinitely.",
+      "location": "T-2.5: Implement Prometheus graduation metrics; T-2.6: Wire metrics into routing engine + shadow comparisons; T-4.2: Implement graduation evaluation script (Prometheus + Redis + PromQL, 8 thresholds)",
+      "recommendation": "Define SLO windows, missing-data handling, and minimum sample sizes. Version metric names/labels. Add a dry-run mode and human approval gate. Include safeguards against cardinality blowups and query timeouts.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-005",
+      "concern": "Redis as runtime config source with env fallback creates subtle consistency bugs",
+      "severity": "HIGH",
+      "severity_score": 720,
+      "why_matters": "T-1.1 implements RuntimeConfig with Redis GET + env fallback. When Redis is down, the system falls back to env vars which are static from deployment time. This creates split-brain scenarios where some instances read updated Redis values while others fall back to stale env vars. Config changes made via Redis won't propagate to degraded instances. There's no mention of cache invalidation, TTL, or consistency guarantees between instances.",
+      "location": "bd-1n5w: T-1.1 RuntimeConfig module",
+      "recommendation": "Define explicit consistency model (eventual? strong?). Specify cache TTL for Redis values. Add health check that flags when an instance is running on fallback config. Consider whether env fallback should be read-only/immutable baseline vs. full fallback.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "RuntimeConfig via Redis GET + env fallback is underspecified (consistency, caching, failure modes)",
+      "severity": "CRITICAL",
+      "severity_score": 900,
+      "why_matters": "If Redis is slow/unavailable or values change frequently, services may flap between configs, apply partial updates, or silently fall back to env defaults. This can cause production incidents that are hard to diagnose (e.g., KillSwitch not engaging, wrong routing mode, wrong chain config).",
+      "location": "T-1.1: Implement RuntimeConfig module (Redis GET + env fallback); T-1.2: Upgrade KillSwitch to async (RuntimeConfig integration)",
+      "recommendation": "Define config semantics: precedence rules, TTL/local caching strategy, atomic snapshot/versioning (e.g., config version key), startup behavior when Redis unavailable, and explicit 'required keys' that must not fall back. Add circuit breaker/timeouts and metrics for fallback usage.",
+      "source": "tertiary_skeptic"
+    },
+    {
+      "id": "SKP-001",
+      "concern": "Zero explicit dependencies between tasks despite clear sequential coupling",
+      "severity": "CRITICAL",
+      "severity_score": 900,
+      "why_matters": "Every task shows dependency_count: 0 and dependent_count: 0, yet T-1.2 (KillSwitch async) clearly depends on T-1.1 (RuntimeConfig), T-2.1 (Admin API with JWKS) depends on T-1.6 (SecretsLoader), and Sprint 3 E2E tests depend on all of Sprint 1-2. Without modeled dependencies, parallel work will cause integration failures, blocked developers, and rework. Sprint 4 tasks show dependency_count: 1 but no indication of what they depend on.",
+      "location": "All tasks across all sprints - dependency_count and dependent_count fields",
+      "recommendation": "Model all inter-task dependencies explicitly before sprint planning begins. At minimum: T-1.2→T-1.1, T-2.1→T-1.6, T-2.4→T-1.4, all Sprint 3 E2E tests→Sprint 1+2 implementation tasks, Sprint 4→Sprint 3.",
       "source": "tertiary_skeptic"
     }
   ],
@@ -98,16 +187,16 @@
   "degraded_model": null,
   "confidence": "full",
   "phase": "beads",
-  "document": "grimoires/loa/a2a/flatline/beads-export-c026.json",
-  "domain": "task 3 9 unit tests",
+  "document": "grimoires/loa/a2a/flatline/beads-export.json",
+  "domain": "t 1 1 implement runtimeconfig",
   "execution": {
     "mode": "hitl",
     "mode_reason": "Simstim workflow active (.run/simstim-state.json state=RUNNING)",
     "run_id": null
   },
-  "timestamp": "2026-02-18T00:03:11Z",
+  "timestamp": "2026-02-26T05:05:14Z",
   "metrics": {
-    "total_latency_ms": 223000,
+    "total_latency_ms": 152000,
     "cost_cents": 0,
     "cost_usd": 0
   }

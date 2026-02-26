@@ -76,6 +76,8 @@ const CONSTRAINT_EXPRESSIONS = {
   entitlement_valid: null,
   // Sprint 3: Rate consistency — ad-hoc only (floating-point comparison not in constraint language)
   rate_consistency: null,
+  // Sprint 3 T-3.6: x402 payment conservation — payment must cover cost
+  x402_payment_conservation: "bigint_gte(payment, cost)",
 } as const
 
 type InvariantId = keyof typeof CONSTRAINT_EXPRESSIONS
@@ -365,6 +367,19 @@ export class BillingConservationGuard {
     return this.runCheck("rate_consistency", {
       commit_rate: String(commitRate),
       reserve_rate: String(reserveRate),
+    }, adhoc)
+  }
+
+  /**
+   * Check x402 payment conservation: payment >= cost (SDD §4.4.3, AC29, AC30a).
+   * Ensures on-chain payment covers inference cost before invocation.
+   */
+  checkX402Conservation(paymentMicro: bigint, costMicro: bigint): InvariantResult {
+    const adhoc = paymentMicro >= costMicro ? "pass" : "fail" as const
+    return this.runCheck("x402_payment_conservation", {
+      payment: String(paymentMicro),
+      cost: String(costMicro),
+      zero: "0",
     }, adhoc)
   }
 

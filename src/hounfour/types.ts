@@ -283,13 +283,28 @@ export interface BudgetSnapshot {
 }
 
 /**
- * Query function for pool-level reputation scoring (Sprint 6, T-6.2).
+ * Reputation query parameters (SDD §4.2.1, cycle-034 T-2.2).
+ * Carries nftId for per-NFT scoring differentiation.
+ */
+export interface ReputationQuery {
+  nftId: string
+  poolId: import("@0xhoneyjar/loa-hounfour").PoolId
+  routingKey: import("../hounfour/nft-routing-config.js").NFTRoutingKey
+}
+
+/** Options for reputation queries, including AbortSignal for timeout composition. */
+export interface ReputationQueryOptions {
+  signal?: AbortSignal
+}
+
+/**
+ * Query function for pool-level reputation scoring (SDD §4.2.1, cycle-034).
  * Returns a reputation score clamped to [0,1], or null if no signal available.
  * Used by resolvePoolWithReputation to rank candidate pools.
  */
 export type ReputationQueryFn = (
-  poolId: import("@0xhoneyjar/loa-hounfour").PoolId,
-  routingKey: import("../hounfour/nft-routing-config.js").NFTRoutingKey,
+  query: ReputationQuery,
+  options?: ReputationQueryOptions,
 ) => Promise<number | null>
 
 /** Provider for dynamic reputation scoring (Sprint 5, Task 5.3). */
