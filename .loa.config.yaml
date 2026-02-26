@@ -818,8 +818,7 @@ gpt_review:
     # Model for document reviews (PRD, SDD, Sprint)
     documents: "gpt-5.2"
     # Model for code reviews (uses Responses API)
-    # gpt-5.3-codex registered in model-adapter but not yet available via API
-    code: "gpt-5.2-codex"
+    code: "gpt-5.3-codex"
   # Per-phase toggles (only used when enabled: true)
   phases:
     prd: true
@@ -1535,8 +1534,15 @@ prompt_enhancement:
 # =============================================================================
 # Flatline Protocol (v1.17.0 - Issue #29)
 # =============================================================================
+# Model Routing (v1.42.0)
+# =============================================================================
+# Route Flatline calls through cheval.py adapter (supports Gemini + all providers)
+hounfour:
+  flatline_routing: true
+
+# =============================================================================
 # Multi-model adversarial review for planning documents
-# Uses Claude Opus 4.6 + GPT-5.2 for cross-validation with consensus extraction
+# Uses Claude Opus 4.6 + GPT-5.3-Codex + Gemini for 3-model cross-validation
 flatline_protocol:
   # Master toggle - set to false to disable Flatline Protocol
   enabled: true
@@ -1607,13 +1613,13 @@ flatline_protocol:
   # Adversarial cross-model dissent for quality gates (code review + security audit)
   # Uses adversarial-review.sh to invoke a second model as dissenter
   code_review:
-    enabled: false                # Enable for review-sprint (opt-in)
-    model: "gpt-5.2-codex"       # Dissenter model
+    enabled: true                 # Enable for review-sprint
+    model: "gpt-5.3-codex"       # Dissenter model
     timeout_seconds: 60           # Per-call timeout
     budget_cents: 150             # Max cost per review dissent
   security_audit:
-    enabled: false                # Enable for audit-sprint (opt-in)
-    model: "gpt-5.2-codex"       # Dissenter model
+    enabled: true                 # Enable for audit-sprint
+    model: "gpt-5.3-codex"       # Dissenter model
     timeout_seconds: 60           # Per-call timeout
     budget_cents: 150             # Max cost per audit dissent
   stable_anchors:
@@ -1650,6 +1656,21 @@ flatline_protocol:
       - "sha256:[a-f0-9]{64}"
       - "sha1:[a-f0-9]{40}"
       - "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+# =============================================================================
+# Vision Registry (v1.42.0)
+# =============================================================================
+# Vision-aware planning with active presentation and requirement generation
+vision_registry:
+  enabled: true
+  auto_capture: true
+  shadow_mode: false
+  propose_requirements: true
+  status_filter:
+    - Captured
+    - Exploring
+  min_tag_overlap: 2
+  max_visions_per_session: 3
 
 # =============================================================================
 # Behavior Preferences
@@ -1740,12 +1761,12 @@ run_bridge:
     post_comments: true
     update_pr_body: true
   ground_truth:
-    enabled: false
+    enabled: true
   vision_registry:
     enabled: true
     auto_capture: true
   rtfm:
-    enabled: false
+    enabled: true
     max_fix_iterations: 1
   lore:
     enabled: true

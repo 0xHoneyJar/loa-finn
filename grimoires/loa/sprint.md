@@ -1,232 +1,374 @@
-# Sprint Plan: Production Activation & Loop Go-Live — Deploy, Wire, Graduate, Verify
+# Sprint Plan: Staging Readiness — Goodhart Wiring, ECS Staging, Fly.io Cleanup
 
-> **Version**: 1.2.0
-> **Date**: 2026-02-26
-> **Cycle**: cycle-035
-> **PRD**: v1.1.0 (GPT-5.2 APPROVED iter 2)
-> **SDD**: v1.2.0 (GPT-5.2 APPROVED iter 2, Flatline: 5 HIGH integrated, 2 BLOCKERS deferred)
-> **Global Sprint IDs**: 144-147
-> **Total Tasks**: 30
-> **Team**: Solo (@janitooor + Claude Opus 4.6)
+**Cycle:** 036
+**PRD:** `grimoires/loa/prd.md`
+**SDD:** `grimoires/loa/sdd.md`
+**Date:** 2026-02-26
+**Team:** 1 AI developer + 1 human reviewer
+**Sprint duration:** ~2-4 hours each (AI-paced)
 
 ---
 
-## Sprint Overview
+## Sprint 1: Goodhart Stack Wiring + Router Integration
 
-This is an **activation sprint plan**. No new mechanisms — all work is configuring, wiring, deploying, and verifying cycle-034 components in production.
+**Goal:** Wire the 7 existing Goodhart components into the live routing path with full state machine support.
 
-**4 sprints following PRD phasing:**
+**Risk:** Highest — touches core routing logic. Must not break deterministic path.
 
-| Sprint | Phase | Goal | Tasks |
-|--------|-------|------|-------|
-| 1 | A (Foundation) | Runtime infrastructure + health + shutdown | 9 |
-| 2 | A (Foundation) | Admin API + dixie transport + metrics | 8 |
-| 3 | B/C (Verification) | Three-leg E2E compose + autopoietic loop tests | 7 |
-| 4 | D (Settlement) | x402 chain config + graduation script + Sepolia test | 6 |
+### Tasks
 
-**Critical path**: Sprint 1 → Sprint 2 → Sprint 3 (E2E needs all services). Sprint 4 is mostly independent (can partially overlap with Sprint 3).
+#### T-1.1: Transport Factory
+- **Description:** Create `src/hounfour/goodhart/transport-factory.ts` with `createDixieTransport()` function. Re-export from `src/hounfour/goodhart/index.ts`.
+- **Acceptance Criteria:**
+  - `createDixieTransport()` returns `DixieStubTransport` when `baseUrl` is undefined, empty, or `"stub"`
+  - `createDixieTransport(url)` returns `DixieHttpTransport` with given URL
+  - Exported from goodhart barrel file
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `tests/finn/goodhart/transport-factory.test.ts` — stub selection, HTTP selection, empty string, `"stub"` string
+
+#### T-1.2: ReadOnlyRedisClient Wrapper
+- **Description:** Create `src/hounfour/goodhart/read-only-redis.ts` implementing the Proxy-based read-only wrapper per SDD §3.3. Only exposes `get`, `mget`, `hget`, `hgetall`, `exists`, `ttl`, `type`. All mutating methods throw. Explicitly handles bypass vectors (`multi`, `pipeline`, `sendCommand`, `eval`/`evalsha`).
+- **Acceptance Criteria:**
+  - Read methods (`get`, `mget`, `hget`, `hgetall`, `exists`) pass through to underlying client
+  - Mutating methods (`set`, `incr`, `hset`, `del`, `lpush`, etc.) throw `Error("Redis writes blocked in shadow mode (attempted: <method>)")`
+  - Bypass vectors blocked: `multi()`, `pipeline()`, `sendCommand()`, `eval()`, `evalsha()` all throw
+  - Non-function properties pass through unchanged
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `tests/finn/goodhart/read-only-redis.test.ts` — read pass-through, write blocking, error message format, multi/pipeline/sendCommand/eval blocked
+
+#### T-1.3: PrefixedRedisClient Wrapper
+- **Description:** Create `src/hounfour/infra/prefixed-redis.ts` implementing runtime key prefix enforcement per SDD §4.1.2. All key-bearing commands prepend the configured prefix. Startup assertion rejects empty/short prefix.
+- **Acceptance Criteria:**
+  - `get("foo")` becomes `get("armitage:foo")` when prefix is `armitage:`
+  - `mget(["a", "b"])` becomes `mget(["armitage:a", "armitage:b"])`
+  - Prefix < 2 chars throws at construction time
+  - `select(dbIndex)` called on construction
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `tests/finn/infra/prefixed-redis.test.ts` — prefix prepending, mget array handling, short prefix rejection, DB selection
+
+#### T-1.4: resolveWithGoodhart Function
+- **Description:** Create `src/hounfour/goodhart/resolve.ts` implementing the typed contract from SDD §3.3.1. Core integration function connecting router to all Goodhart components. Uses seeded PRNG in shadow, has 200ms hard timeout ceiling with AbortController propagation. Catches operational errors but allows programmer errors to surface.
+- **Acceptance Criteria:**
+  - Exports `GoodhartOptions`, `GoodhartResult` interfaces exactly as defined in SDD §3.3.1
+  - Accepts `MechanismConfig` + routing params + `GoodhartOptions`
+  - Returns `GoodhartResult | null` (null = fallback to deterministic)
+  - Uses seeded PRNG (deterministic for fixed seed) when `options.mode === "shadow"` — same seed produces same exploration decision
+  - Has 200ms overall timeout via `AbortController.timeout(200)` propagated to Redis calls
+  - On all-pools-failed, returns `null` and increments counter
+  - On timeout, returns `null` and increments `finn_goodhart_timeout_total`
+  - On operational error (timeout, Redis failure, etc.): catches, logs structured warning with error type/count, returns null
+  - On programmer error (TypeError, ReferenceError): allows to propagate (fail-fast for bugs)
+  - Emits `finn_goodhart_unavailable` gauge (1 when returning null due to error, 0 on success)
+  - In `enabled` mode: if error rate exceeds 10% over 1-minute window, logs critical warning (auto-downgrade is future work)
+- **Effort:** Medium
+- **Dependencies:** T-1.1, T-1.2
+- **Tests:** `tests/finn/goodhart/resolve.test.ts` — happy path, shadow mode deterministic PRNG (same seed = same result), timeout with AbortController, all-failed fallback, operational-error catch, programmer-error propagation, unavailable gauge behavior
+
+#### T-1.5: Goodhart Initialization Block
+- **Description:** Add Goodhart init block to `src/index.ts` per SDD §3.2. Construct all 7 components inside try/catch, set `routingState`, gate CalibrationEngine behind env vars.
+- **Acceptance Criteria:**
+  - `FINN_REPUTATION_ROUTING=disabled` → no Goodhart construction, routingState="disabled"
+  - `FINN_REPUTATION_ROUTING=shadow` (default) → full construction, routingState="shadow"
+  - `FINN_REPUTATION_ROUTING=enabled` → full construction, routingState="enabled"
+  - Redis unavailable → routingState="disabled" with warning log
+  - Init exception → routingState="init_failed" + `finn_goodhart_init_failed` counter
+  - CalibrationEngine only constructed when both `FINN_CALIBRATION_BUCKET_NAME` AND `FINN_CALIBRATION_HMAC_KEY` are set; otherwise NoopCalibrationEngine
+  - Startup log: `[finn] routing state resolved: <state> (requested: <mode>)`
+  - `FINN_REDIS_PREFIX` validated and used via PrefixedRedisClient
+- **Effort:** Medium
+- **Dependencies:** T-1.1, T-1.2, T-1.3, T-1.4
+- **Tests:** Integration tests in `tests/finn/goodhart/init.test.ts` — all 4 states, CalibrationEngine gating, prefix validation
+
+#### T-1.6: Router State Machine + KillSwitch Integration
+- **Description:** Extend `HounfourRouterOptions` with `goodhartConfig?` and `routingState?`. Implement `resolvePoolForRequest()` with 4-state machine per SDD §3.3. Wire KillSwitch as highest-precedence override with concrete key/value semantics.
+- **Acceptance Criteria:**
+  - `RoutingState` type exported: `"disabled" | "shadow" | "enabled" | "init_failed"`
+  - `routingState="disabled"` → deterministic only, no Goodhart invocation
+  - `routingState="init_failed"` → deterministic + `finn_goodhart_init_failed_requests` counter
+  - `routingState="shadow"` → invoke `resolveWithGoodhart()`, increment `finn_shadow_total`, compare results, return deterministic
+  - `routingState="enabled"` → invoke `resolveWithGoodhart()`, return reputation result
+  - KillSwitch "kill" → deterministic fallback regardless of routingState
+  - KillSwitch checked BEFORE shadow/enabled evaluation
+  - Shadow divergence: increment `finn_shadow_diverged` when results differ
+  - `resolveWithGoodhart` returns null → fall back to deterministic
+  - **KillSwitch contract:**
+    - Redis key: `finn:killswitch:mode` (prefixed via PrefixedRedisClient)
+    - Values: `"normal"` (default/missing) | `"kill"` (force-disable)
+    - Check frequency: every request (single Redis GET, <50ms timeout)
+    - Missing key = `"normal"` (safe default: Goodhart stays active)
+    - Redis unavailable during check = treat as `"normal"` (fail-open for the switch, not for routing)
+  - **Layered rollback plan documented in code comments:**
+    1. KillSwitch Redis SET (instant, <1s)
+    2. `FINN_REPUTATION_ROUTING=disabled` env override (requires redeploy, ~5min)
+    3. If both Redis AND SSM unavailable: boot defaults to `"disabled"` when Redis is unreachable (existing T-1.5 behavior)
+- **Effort:** Medium-Large
+- **Dependencies:** T-1.4, T-1.5
+- **Tests:** `tests/finn/goodhart/routing-state.test.ts` — all 4 states, KillSwitch override, KillSwitch key missing = normal, KillSwitch Redis timeout = normal, shadow divergence counting, null-result fallback
+
+#### T-1.7: Parallel Scoring with Concurrency Limit
+- **Description:** Replace sequential `for...of` pool scoring in `resolvePoolWithReputation()` with `Promise.allSettled` + `p-limit(5)` + per-pool 50ms timeout per SDD §3.4.
+- **Acceptance Criteria:**
+  - Uses `p-limit` for concurrency control (max 5 concurrent)
+  - Each pool scoring has 50ms `Promise.race` timeout
+  - Individual failures don't block other pools
+  - All failures → empty array + `finn_reputation_scoring_failed_total` counter
+  - `p-limit` added as dependency in `package.json`
+- **Effort:** Small
+- **Dependencies:** None (can be done in parallel with T-1.4)
+- **Tests:** `tests/finn/hounfour/parallel-scoring.test.ts` — concurrency limit, timeout behavior, partial failure, total failure
+
+#### T-1.8: Prometheus Metrics
+- **Description:** Add all 9 new metrics from SDD §3.5 + Flatline additions to the existing metrics file. Includes counters, gauge, and histogram.
+- **Acceptance Criteria:**
+  - 9 metrics registered with correct types:
+    - Counter: `finn_shadow_total`, `finn_shadow_diverged`, `finn_goodhart_init_failed`, `finn_goodhart_init_failed_requests`, `finn_reputation_scoring_failed_total`, `finn_goodhart_timeout_total`, `finn_killswitch_activated_total`
+    - Gauge: `finn_goodhart_routing_mode` (label: `mode`)
+    - Histogram: `finn_routing_duration_seconds` (label: `path` with values: shadow/enabled/deterministic)
+  - Routing mode gauge set to 1 for current state on startup
+  - Each metric has correct name, type, and label set (assert in tests)
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `tests/finn/goodhart/metrics.test.ts` — assert each metric name exists with correct type (counter/gauge/histogram), assert histogram has `path` label, assert routing mode gauge is set to expected value after init
 
 ---
 
-## Sprint 1: Runtime Infrastructure (Global ID: 144)
+## Sprint 2: Fly.io/Railway Cleanup + CI E2E Fixes
 
-**Goal**: Build the foundational runtime modules that all other sprints depend on: Redis-backed config, async kill switch, two-tier health endpoints, graceful shutdown, secrets management, and audit buffer.
+**Goal:** Remove stale deployment references and fix CI workflows. Low-risk, high-confidence.
 
-| Task | Title | Files | AC |
-|------|-------|-------|-----|
-| T-1.1 | Implement RuntimeConfig module (Redis GET + env fallback) | `src/hounfour/runtime-config.ts` (new) | AC20: Mode change effective <1s without restart. Redis GET returns valid mode. Redis down → env var fallback. Invalid/missing key → `"shadow"` default. |
-| T-1.2 | Upgrade KillSwitch to async (RuntimeConfig integration) | `src/hounfour/goodhart/kill-switch.ts` (modified) | `isDisabled()` and `isShadow()` become async. All callers in `mechanism-interaction.ts` updated to `await`. Existing tests pass with async signatures. |
-| T-1.3 | Implement two-tier health endpoints | `src/gateway/server.ts` (modified) | AC6: `/healthz` returns 200 even when Redis is unreachable. AC6a: `/health/deps` returns 503 when Redis down. DynamoDB health uses data-plane `GetItemCommand` (not DescribeTable). Legacy `/health` → 301 → `/healthz`. |
-| T-1.4 | Implement GracefulShutdown handler | `src/boot/shutdown.ts` (new) | AC: SIGTERM triggers ordered shutdown. 25s deadline within ECS 30s stopTimeout. All registered targets receive shutdown call. Process exits 0 on clean shutdown, 1 on deadline. |
-| T-1.5 | Implement BufferedAuditChain (bounded buffer, fail-closed, hash-chain preserved, crash-resume) | `src/hounfour/audit/buffered-audit-chain.ts` (new) | Critical actions (`routing_mode_change`, `settlement`) throw when buffer full + DynamoDB down. Non-critical actions drop with warning. Buffer flushes in-order on DynamoDB recovery. Expired entries (>5min) discarded. **Tamper-evidence AC**: BufferedAuditChain wraps cycle-034's `DynamoAuditChain` (which provides `prev_hash`/`hash` continuity + KMS signing). Flush path delegates to `inner.append()` preserving hash chain and KMS signatures. Unit test verifies: (1) buffered entries maintain hash-chain continuity after flush, (2) KMS signature present on each flushed record (mock KMS), (3) fail-closed triggers for critical actions when both buffer full AND DynamoDB+KMS unavailable. **Crash resume** (Flatline IMP-002): On startup, `DynamoAuditChain.initialize()` reads the last committed record from DynamoDB (query by partition, descending sequence number, limit 1) to recover `prev_hash`. If no records exist, chain starts fresh. If in-memory buffer was lost (unclean shutdown), the gap is detectable: next appended record's `prev_hash` matches DynamoDB's last `hash`, but missing sequence numbers create a verifiable discontinuity. AC: crash simulation test — append 5 entries, flush 3, simulate process kill, restart, verify chain resumes from DynamoDB's last committed hash and new entries link correctly. Alert on detected gap (structured log `audit_chain_gap_detected`). **Partial failure resilience** (Flatline SKP-003): Additional ACs for edge cases: (4) DynamoDB partial write failure (ConditionalCheckFailed on sequence conflict) → retry with re-read of last hash, no duplicate entries (idempotency via sequence number), (5) KMS transient error during flush → entry stays in buffer, retry on next flush cycle, does not break chain (KMS signing happens inside `inner.append()`), (6) concurrent appenders — BufferedAuditChain is single-writer per process (one instance per ECS task); if multiple async callers attempt concurrent appends, internal mutex/queue ensures sequential ordering. |
-| T-1.6 | Implement SecretsLoader (Secrets Manager + TTL cache) | `src/boot/secrets.ts` (new) | All secrets fetched from Secrets Manager at startup. Fail-fast if required secret missing. Cache with 1h TTL for rotation. Parallel fetch via `Promise.all`. |
-| T-1.7 | Unit tests: RuntimeConfig + KillSwitch async | `tests/finn/hounfour/runtime-config.test.ts` (new) | Redis mock: mode read, fallback chain, invalid values. KillSwitch: async mode checks, transitions. |
-| T-1.8 | Unit tests: health endpoints + audit buffer | `tests/finn/gateway/health.test.ts` (new), `tests/finn/hounfour/audit/buffered-audit-chain.test.ts` (new) | `/healthz` always 200. `/health/deps` reflects dependency states. Buffer: fill, flush, expire, fail-closed for critical actions. |
-| T-1.9 | Unit tests: GracefulShutdown + SecretsLoader | `tests/finn/boot/shutdown.test.ts` (new), `tests/finn/boot/secrets.test.ts` (new) | Shutdown: targets called in parallel, deadline enforced. SecretsLoader: cache TTL, refresh, missing secret throws. |
+### Tasks
 
-**Task sizing**: T-1.1 (M), T-1.2 (S), T-1.3 (M), T-1.4 (M), T-1.5 (M), T-1.6 (M), T-1.7 (M), T-1.8 (M), T-1.9 (M).
-**Critical path**: T-1.1 → T-1.2 (RuntimeConfig before KillSwitch). T-1.5 blocks Sprint 2 admin endpoint. T-1.4 blocks Sprint 2 transport shutdown registration.
+#### T-2.1: Delete Stale Files
+- **Description:** Delete 4 files per SDD §5.1: `railway.toml`, `deploy/railway.toml`, `deploy/wrangler.jsonc`, `grimoires/loa/context/bridgebuilder-minimal-railway.md`.
+- **Acceptance Criteria:**
+  - All 4 files deleted
+  - No broken imports or references to deleted files
+- **Effort:** Tiny
+- **Dependencies:** None
+- **Tests:** Verify files don't exist post-deletion
 
-**Rollback/recovery**: All modules have safe defaults — Redis down → env var fallback → shadow mode. Audit buffer fail-closed prevents unauditable admin actions. GracefulShutdown has hard deadline preventing process hangs.
+#### T-2.2: Edit Files to Remove Fly.io/Railway References
+- **Description:** Edit 9 files per SDD §5.2 to remove Fly.io and Railway references. Preserve CHANGELOG.md historical entries.
+- **Acceptance Criteria:**
+  - All 9 files edited per SDD table
+  - `grep -r "fly.io\|flyctl\|railway.toml\|railway.app" src/ deploy/ .github/ docs/` returns 0 matches
+  - CHANGELOG.md unchanged
+  - `.claude/settings.json` has no `fly:*` or `railway:*` entries
+- **Effort:** Medium (many files, but straightforward edits)
+- **Dependencies:** T-2.1
+- **Tests:** Grep verification (AC9, AC10, AC11)
 
-**Sprint 1 acceptance**: All foundational runtime modules pass unit tests. Health endpoints correctly separate liveness from readiness. Shutdown handler wires SIGTERM. Audit buffer correctly fail-closes for critical actions. 9 tasks.
+#### T-2.3: CI Fix — e2e-smoke.yml Conditional Checkout
+- **Description:** Wrap cross-repo checkout in `e2e-smoke.yml` behind token availability check per SDD §6.1.
+- **Acceptance Criteria:**
+  - Job checks for `ARRAKIS_CHECKOUT_TOKEN` availability
+  - If unavailable: skip with `::warning::` message (not failure)
+  - If available: proceed normally
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Manual: push PR without token, verify skip message
 
----
+#### T-2.4: CI Fix — e2e.yml Oracle Directory Fixtures
+- **Description:** Commit `.gitkeep` files per SDD §6.2 so Docker COPY succeeds with empty oracle directories.
+- **Acceptance Criteria:**
+  - `deploy/build-context/oracle-knowledge/.gitkeep` exists
+  - `deploy/build-context/oracle-persona/.gitkeep` exists
+  - Docker build succeeds with empty oracle directories
+  - Oracle init degrades gracefully (existing behavior at `src/index.ts:289-301`)
+- **Effort:** Tiny
+- **Dependencies:** None
+- **Tests:** Docker build verification
 
-## Sprint 2: Admin API + Dixie Transport + Graduation Metrics (Global ID: 145)
+#### T-2.5: CI Fix — e2e-v2.yml GHCR Login
+- **Description:** Add GHCR login step to `e2e-v2.yml` per SDD §6.3. Skip job when token unavailable.
+- **Acceptance Criteria:**
+  - GHCR login step added with `docker/login-action@v3`
+  - Token availability check gates GHCR-dependent steps
+  - Missing token → skip with warning (not failure)
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Manual: push PR, verify graceful skip or successful login
 
-**Goal**: Build the operator-facing admin API with JWKS auth, the optimized dixie HTTP transport with connection pooling, and Prometheus graduation metrics. These complete the "foundation code" needed before E2E.
-
-| Task | Title | Files | AC |
-|------|-------|-------|-----|
-| T-2.1 | Implement Admin API routes (JWKS + audit-first handler) | `src/gateway/routes/admin.ts` (new) | AC: Valid admin JWT (ES256, kid selection via `createLocalJWKSet`) → mode change succeeds. Bad JWT → 401. Wrong role → 403. Audit intent written BEFORE Redis set. Audit failure → 503 (fail closed). GET returns current mode. **JWKS mechanism**: `finn/admin-jwks` is a JWK Set JSON blob in Secrets Manager (not a URL). SecretsLoader fetches JSON → `JSON.parse` → `createLocalJWKSet(parsed)` which returns a local key resolver that selects by `kid`. On TTL refresh, SecretsLoader re-fetches JSON and reconstructs the key set — no restart needed. **Redis write failure after audit intent** (Flatline IMP-001): If `runtimeConfig.setRoutingMode()` throws after audit intent is recorded, the handler must: (1) log a `routing_mode_change_failed` audit entry (best-effort), (2) return 503 with `{ error: "Mode change failed — audit intent exists, Redis write failed" }`, (3) NOT retry automatically (operator retries via admin endpoint). The audit trail will show an intent without confirmation — this is a detectable state. AC: unit test simulates Redis write failure after audit intent succeeds; verifies 503 response, no mode change applied, and audit trail contains intent-only record. |
-| T-2.2 | Wire admin JWKS into SecretsLoader + boot + rotation test | `src/boot/secrets.ts` (modified), `src/gateway/server.ts` (modified) | `finn/admin-jwks` loaded from Secrets Manager as JWK Set JSON. `createLocalJWKSet(JSON.parse(jwksJson))` constructed at boot. SecretsLoader `refresh()` re-fetches and reconstructs on TTL expiry. Admin routes mounted at `/admin` on gateway. **Rotation AC**: Unit test simulates key rotation — old kid removed, new kid added to JWKS JSON — and verifies: (1) new kid validates immediately after refresh, (2) old kid rejects after removal, (3) refresh happens without restart. |
-| T-2.3 | Implement DixieHttpTransport (undici Agent + DNS warming) | `src/hounfour/goodhart/dixie-transport.ts` (modified) | AC8: Reputation queries return non-null for known NFTs (dixie up). AC9: Dixie down → null (deterministic routing). AC10: Circuit breaker opens after 3 failures. Keep-alive pool (10 connections). DNS pre-resolve via `dns.promises.lookup()` (no hostname rewrite). 300ms timeout. |
-| T-2.4 | Register DixieHttpTransport + pollers in GracefulShutdown | `src/boot/index.ts` (modified) | Transport `shutdown()` clears DNS timer + closes undici Agent. Calibration poller, reconciler, audit buffer flush registered. Verify: SIGTERM → all targets shut down cleanly. |
-| T-2.5 | Implement Prometheus graduation metrics | `src/hounfour/graduation-metrics.ts` (new) | AC7: `/metrics` returns Prometheus-format counters. Counters: `finn_shadow_total`, `finn_shadow_diverged`, `finn_reputation_query_duration_seconds` (histogram), `finn_reputation_query_total`, `finn_exploration_total`, `finn_ema_updates_total`, `finn_routing_mode_transitions_total`. Fixed label sets (tier, status — no nftId/poolId). |
-| T-2.6 | Wire metrics into routing engine + shadow comparisons | `src/hounfour/tier-bridge.ts` (modified), `src/hounfour/goodhart/mechanism-interaction.ts` (modified) | AC15: `finn_shadow_total` increments on every shadow routing decision. `finn_shadow_diverged` increments when shadow disagrees with deterministic. Reputation query histogram records latency per query. |
-| T-2.7 | Unit tests: Admin API (auth, mode change, audit-first) | `tests/finn/gateway/admin-routes.test.ts` (new) | JWT validation: valid → 200, expired → 401, wrong issuer → 401, wrong role → 403, missing kid → 401. Mode change: writes audit before Redis. Audit failure → 503. Per-subject rate limit (5/hour). |
-| T-2.8 | Unit tests: DixieHttpTransport + Prometheus metrics | `tests/finn/hounfour/dixie-transport.test.ts` (new), `tests/finn/hounfour/graduation-metrics.test.ts` (new) | Transport: keep-alive reuse, circuit breaker open/close/half-open, DNS refresh timer, 300ms timeout. Metrics: counter increments, histogram observations, label cardinality bounded. |
-
-**Task sizing**: T-2.1 (L), T-2.2 (M), T-2.3 (L), T-2.4 (S), T-2.5 (M), T-2.6 (M), T-2.7 (M), T-2.8 (M).
-**Critical path**: T-2.1 → T-2.2 (admin routes before wiring). T-2.3 → T-2.4 (transport before shutdown registration). T-2.5 → T-2.6 (metrics before wiring into engine).
-
-**Rollback/recovery**: Admin endpoint behind network controls (ALB VPN-only rule — §8.1.1 SDD). Dixie transport degrades to null (deterministic routing). Prometheus metrics are read-only counters — no rollback needed. If admin JWKS is misconfigured, all admin requests fail-closed (401) until corrected.
-
-**Sprint 2 acceptance**: Admin API with JWKS auth and audit-first semantics. Dixie transport with connection pooling and circuit breaker. Prometheus metrics wired into routing engine. All unit tests pass. 8 tasks.
-
----
-
-## Sprint 3: Three-Leg E2E Compose + Integration Tests (Global ID: 146)
-
-**Goal**: Build the three-leg docker-compose (finn + freeside + dixie) and verify the complete autopoietic loop, JWT exchange, and shadow metrics in an integrated environment. Closes PRD FR4.
-
-| Task | Title | Files | AC |
-|------|-------|-------|-----|
-| T-3.1 | Generate deterministic ES256 test keypairs | `tests/e2e/keys/generate-keys.sh` (new), `tests/e2e/keys/*.pem` (generated) | 4 keypair sets: finn, freeside, dixie, admin. `openssl ecparam -genkey` with prime256v1. Keys checked into repo (test-only). These are seed material for LocalStack — services do NOT mount PEM files directly. |
-| T-3.2 | Create three-leg docker-compose v3 | `tests/e2e/docker-compose.e2e-v3.yml` (new), `tests/e2e/init-db.sql` (new) | AC21: `docker compose up` starts all 5 services (redis, postgres, localstack, finn, freeside, dixie). Health checks with `start_period` + `retries`. **Auth contract**: All services use SecretsLoader against LocalStack Secrets Manager (matching prod path). No direct PEM volume mounts on application services. LocalStack init (T-3.3) seeds secrets before services boot (`depends_on` + healthcheck gating). |
-| T-3.3 | Create localstack init script (DynamoDB + S3 + KMS + Secrets Manager + key seeding) | `tests/e2e/localstack-init.sh` (new) | Creates audit table, calibration bucket, KMS key. **Seeds all secrets into LocalStack Secrets Manager**: reads PEM files from `tests/e2e/keys/`, creates `finn/s2s-private-key`, `finn/admin-jwks` (constructed from admin-public.pem as JWK Set JSON), `finn/calibration-hmac`, and equivalent secrets for freeside/dixie. AC: Finn boots with `AWS_ENDPOINT_URL=http://localstack-e2e:4566` using only SecretsLoader — no env var key fallbacks. |
-| T-3.4 | E2E: JWT exchange test (finn ↔ freeside ↔ dixie) | `tests/e2e/jwt-exchange.test.ts` (new) | AC22: Finn validates JWT issued by freeside (real ES256 sig verification). AC11: Dixie validates finn-issued JWT for reputation queries. Service-to-service auth works across all three legs. |
-| T-3.5 | E2E: Autopoietic loop test (6-stage feedback loop) | `tests/e2e/autopoietic-loop.test.ts` (new) | AC25: After 10+ requests, dixie contains reputation data. AC26: Routing decisions shift based on reputation. AC27: ScoringPathLog progresses from `"stub"` to `"reputation"`. Full 6-stage loop verified. |
-| T-3.6 | E2E: Shadow metrics + admin routing mode test | `tests/e2e/shadow-metrics.test.ts` (new) | AC15: `finn_shadow_total` increments in shadow mode. Admin JWT flips mode, next request uses new mode. `/metrics` endpoint returns valid Prometheus format. |
-| T-3.7 | E2E: Full flow integration test (inference → billing → reputation → response) | `tests/e2e/full-flow.test.ts` (new) | AC24: Request → JWT validation → reputation query → model routing → billing debit → response. All three legs participate. Circuit breaker tested (dixie stopped → deterministic routing continues). |
-
-**Task sizing**: T-3.1 (S), T-3.2 (L), T-3.3 (M), T-3.4 (M), T-3.5 (L), T-3.6 (M), T-3.7 (L).
-**Critical path**: T-3.1 → T-3.2 → T-3.3 (keys → compose → localstack init). Then T-3.4, T-3.5, T-3.6, T-3.7 can run sequentially (all need compose up).
-
-**Rollback/recovery**: E2E tests run in isolated Docker environment. No production impact. If compose fails to start, check service health logs and dependency ordering. If freeside/dixie images unavailable, fall back to stubs (reduced coverage, logged as degraded).
-
-**E2E CI contract** (Flatline IMP-005):
-- **Suite timeout**: 10 minutes total (`docker compose up --wait --timeout 120` for startup + test execution). Individual test timeout: 60s per test case (configurable via test runner).
-- **CI job sizing**: Requires `large` runner (4 CPU, 16GB RAM) for 5+ concurrent containers. Docker layer caching enabled for faster builds.
-- **Parallelism**: E2E tests run sequentially within the suite (shared compose state). Sprint 3 E2E job runs in parallel with Sprint 1-2 unit test jobs (no dependency).
-- **Merge gating**: E2E tests are **advisory, not blocking** for feature branch merges. They gate the release branch → main merge only. Rationale: E2E depends on external images (freeside, dixie) which may not be updated; blocking feature merges on external repos is unreasonable. Unit tests remain hard gates on all merges.
-- **Flake policy**: If E2E fails, CI retries once automatically. Second failure → manual investigation required.
-
-**Sprint 3 acceptance**: Three-leg compose starts reliably. JWT exchange verified across all services. Autopoietic loop closes in E2E. Shadow metrics and admin mode changes work. Full flow integration passes. 7 tasks.
+#### T-2.6: staging.env.example
+- **Description:** Create `deploy/staging.env.example` per SDD §4.4 documenting all staging environment variables. Add `FINN_REDIS_PREFIX` and `FINN_REDIS_DB` variables from §4.1.2.
+- **Acceptance Criteria:**
+  - File exists at `deploy/staging.env.example`
+  - Contains all env vars from SDD §4.4 + `FINN_REDIS_PREFIX=armitage:` + `FINN_REDIS_DB=1`
+  - Comments explain which vars are set via SSM
+  - `DIXIE_BASE_URL` intentionally absent (stub by default)
+  - `FINN_CALIBRATION_BUCKET_NAME` intentionally absent (noop by default)
+- **Effort:** Tiny
+- **Dependencies:** None
+- **Tests:** File exists, contains expected keys
 
 ---
 
-## Sprint 4: x402 Chain Config + Graduation Script + Sepolia Test (Global ID: 147)
+## Sprint 3: Terraform + ECS Staging + Deploy Workflow
 
-**Goal**: Make x402 chain/contract configurable for testnet→mainnet migration, build the graduation evaluation script, and verify settlement on Base Sepolia. Closes PRD FR3 and FR5.
+**Goal:** Stand up the staging environment on ECS with Terraform workspace isolation.
 
-| Task | Title | Files | AC |
-|------|-------|-------|-----|
-| T-4.1 | Make x402 chain/contract configurable | `src/x402/verify.ts` (modified), `src/x402/settlement.ts` (modified) | AC37a: Chain ID and USDC address configurable via env vars. Same code runs on Sepolia (84532) and mainnet (8453). `CHAIN_CONFIGS` lookup table with known chains. `X402_USDC_ADDRESS` override for custom deployments. Settlement timeout increased to 60s (from 30s). |
-| T-4.2 | Implement graduation evaluation script | `scripts/evaluate-graduation.ts` (new), `scripts/graduation-config.example.json` (new) | AC16: Reads 72h of metrics from Prometheus API. AC17: All 8 thresholds evaluated (T1-T8). Outputs `GRADUATE`, `NOT_READY`, or `INSUFFICIENT_DATA`. Uses PromQL `increase()` for counter resets. **T5 Redis contract**: Reads EMA coefficient of variation from Redis keys `ema:{poolId}:{routingKey}` (written by TemporalDecayEngine in cycle-034). Fields: `value` (float), `count` (int), `lastEventTimestamp` (ISO). Script computes CV across all active EMA keys over last 24h. **T7/T8 spot checks**: T7 calls `POST /admin/routing-mode` round-trip. T8 checks S3 calibration ETag polling timestamp from Redis `calibration:last_refresh_ts`. **Config file**: `graduation-config.example.json` specifies `prometheusUrl`, `prometheusJobName` (default: `finn`), `redisUrl`, `adminEndpoint`, `adminJwtPath`. Idempotent. **Prometheus contract**: Script assumes scrape job name `finn`, path `/metrics`, port 3000, labels `tier`/`status` on counters. Smoke query `up{job="finn"}` validates connectivity before evaluation. |
-| T-4.3 | x402 Sepolia integration test | `tests/x402/sepolia-settlement.test.ts` (new) | AC35: Full x402 flow on Base Sepolia (chainId 84532) with faucet USDC. AC36: Nonce replay rejected by contract. AC37: Expired deadline returns 402 before chain submission. Real RPC call to Base Sepolia. |
-| T-4.4 | Unit tests: chain config + graduation | `tests/finn/x402/chain-config.test.ts` (new), `tests/finn/hounfour/graduation-evaluation.test.ts` (new) | Chain config: default mainnet, env override to Sepolia, invalid chain throws, USDC address override. Graduation: mock Prometheus responses, all 8 thresholds tested individually, insufficient data handling. |
-| T-4.5 | E2E: Admin mode change + shadow metrics accumulation | `tests/e2e/graduation-readiness.test.ts` (new) | Compose starts in shadow mode. Admin sets mode via JWT. Shadow metrics accumulate. Graduation script reads metrics and evaluates (INSUFFICIENT_DATA for short window is acceptable). Mode flip to `enabled` → routing uses reputation. Mode flip to `disabled` → immediate deterministic. |
-| T-4.6 | Deployment runbook + ECS/ALB preflight checklist | `grimoires/loa/a2a/deployment-runbook.md` (new) | Documents the 10-step deployment order from SDD §6.2. Includes coordinated ALB/code deploy sequence (deploy code first, then ALB path). **ECS task definition requirements**: container port 3000, `stopTimeout >= 30` (aligns with 25s shutdown deadline), health check grace period, `essential: true`, log driver `awslogs`. **ALB target group requirements**: health check path `/healthz`, success codes `200`, interval 30s, timeout 5s, healthy threshold 2, unhealthy threshold 3, deregistration delay 30s. **IAM preflight**: Task role must have `secretsmanager:GetSecretValue` for `finn/*` secrets, `kms:Sign`/`kms:Verify` for audit KMS key, `dynamodb:PutItem`/`GetItem` on audit table, `s3:GetObject` on calibration bucket. **Preflight verification script**: `scripts/preflight-check.sh` runs `aws secretsmanager get-secret-value` for each required secret, `aws kms describe-key` for audit key, `aws dynamodb describe-table` for audit table — validates permissions before deploy. Rollback procedures for each step. |
+**Risk:** Medium — IaC changes. Must not touch production state.
 
-**Task sizing**: T-4.1 (M), T-4.2 (L), T-4.3 (L), T-4.4 (M), T-4.5 (M), T-4.6 (M).
-**Critical path**: T-4.1 → T-4.3 (chain config before Sepolia test). T-4.2 → T-4.5 (graduation script before readiness E2E). T-4.6 is independent.
+### Tasks
 
-**Rollback/recovery**: x402 behind `X402_SETTLEMENT_MODE=verify_only` — on-chain settlement disabled until explicitly flipped. Graduation script is read-only (evaluates metrics, doesn't change state). Sepolia tests use faucet USDC (no real money). Deployment runbook includes per-step rollback.
+#### T-3.1: Terraform Environment Variable + Workspace + Safety Runbook
+- **Description:** Add `environment` variable to `infrastructure/terraform/variables.tf`. Create new Terraform workspace `armitage` per SDD §4.1.3. Conditional naming: production keeps legacy names, staging uses suffixed names. Document step-by-step safety runbook.
+- **Acceptance Criteria:**
+  - `variable "environment"` with default `"production"` exists
+  - `locals.service_name` uses conditional: production → `"loa-finn"`, staging → `"loa-finn-${var.environment}"`
+  - `terraform workspace new armitage` documented in runbook
+  - Production Terraform state UNTOUCHED
+  - Safety runbook at `infrastructure/terraform/STAGING-RUNBOOK.md` includes:
+    1. `terraform workspace list` — confirm current workspace before any operation
+    2. `terraform workspace select armitage` — explicit select before plan/apply
+    3. Pre-apply check: script or manual step that verifies `terraform.workspace == var.environment`
+    4. Exact commands for `terraform plan -var-file=environments/armitage.tfvars`
+    5. Exact commands for `terraform apply -var-file=environments/armitage.tfvars`
+    6. Backend configuration confirmation (same state backend, different workspace key)
+    7. Warning: NEVER run `terraform apply` without `-var-file` in the armitage workspace
+  - CI deploy workflow (T-3.4) enforces workspace/environment match via env var
+  - **Hard guard in Terraform:** validation rule requiring `var.environment == terraform.workspace` — plan/apply fails if mismatch:
+    ```hcl
+    variable "environment" {
+      validation {
+        condition     = var.environment == terraform.workspace || terraform.workspace == "default"
+        error_message = "Environment must match workspace. Use: terraform workspace select ${var.environment}"
+      }
+    }
+    ```
+- **Effort:** Medium
+- **Dependencies:** None
+- **Tests:** `terraform plan -var-file=environments/armitage.tfvars` shows staging resources only; runbook review; validation rule rejects mismatched workspace
 
-**Sprint 4 acceptance**: x402 chain/contract configurable. Graduation script evaluates all 8 thresholds. Sepolia settlement verified end-to-end. Deployment runbook ready for production go-live. 6 tasks.
+#### T-3.2: Terraform Staging Resources (ECS + ALB + Route53)
+- **Description:** Parameterize ECS service, ALB target group, Route53 record for environment. Create `environments/armitage.tfvars`. Add Redis validation rule.
+- **Acceptance Criteria:**
+  - `armitage.tfvars` exists with `environment = "armitage"`, CPU/memory overrides
+  - ECS service name parameterized: `loa-finn-armitage`
+  - ALB listener rule with host header `finn-armitage.arrakis.community`
+  - Route53 ALIAS record for `finn-armitage.arrakis.community`
+  - Redis URL validation rejects production URLs in non-production workspaces
+  - SSM paths scoped: `/loa-finn/armitage/*`
+- **Effort:** Large
+- **Dependencies:** T-3.1
+- **Tests:** `terraform plan` shows expected resources, no production changes
 
----
+#### T-3.3: IAM Scoping for Staging
+- **Description:** Scope staging task role IAM policy to armitage-specific resources per SDD §4.1.1. Apply least-privilege with explicit resource ARN constraints — no wildcard resources unless justified and documented.
+- **Acceptance Criteria:**
+  - SSM access limited to `/loa-finn/armitage/*` (explicit ARN, no `*` resource)
+  - S3 access limited to `finn-calibration-*/armitage/*` (bucket + prefix scoped)
+  - DynamoDB access limited to `finn-*-armitage*` tables (explicit table ARNs)
+  - No wildcard `Resource: "*"` statements — every action scoped to specific ARNs
+  - IAM policy uses `aws:RequestedRegion` condition to restrict to deployment region
+  - Session duration limited: staging task role max 1 hour
+  - Policy reviewed: `terraform plan` output shows no production ARNs in staging policies
+- **Effort:** Medium
+- **Dependencies:** T-3.1
+- **Tests:** IAM policy review, `terraform plan` shows scoped policies, IAM Policy Simulator validation (or manual equivalent)
 
-## Dependency Graph
+#### T-3.4: Staging Deploy Workflow
+- **Description:** Create `.github/workflows/deploy-staging.yml` per SDD §4.5. Manual dispatch trigger, builds same as production, deploys to `loa-finn-armitage` ECS service. Includes rollback, health gating, and immutable image tags.
+- **Acceptance Criteria:**
+  - `workflow_dispatch` trigger with `environment` input
+  - Build + test + Docker build + ECR push with immutable image tag (git SHA, not `latest`)
+  - Deploy to `loa-finn-armitage` service
+  - ALB target group health check gating: deployment waits for healthy targets before completing
+  - Post-deploy smoke test: curl `/health` endpoint, verify 200 + expected version
+  - Automatic rollback on failed health check: ECS circuit breaker enabled (`deployment_circuit_breaker { enable = true, rollback = true }`)
+  - Uses existing ECR repository
+- **Effort:** Medium
+- **Dependencies:** T-3.2
+- **Tests:** Workflow syntax validation (`act` or manual test)
 
-```
-Sprint 1: Runtime Infrastructure
-  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-  │ T-1.1 Runtime    │  │ T-1.3 Health     │  │ T-1.4 Shutdown   │
-  │ Config           │  │ Endpoints        │  │ Handler          │
-  └────────┬─────────┘  └──────────────────┘  └────────┬─────────┘
-           │                                           │
-           ▼                                           │
-  ┌──────────────────┐  ┌──────────────────┐           │
-  │ T-1.2 KillSwitch │  │ T-1.5 Audit      │           │
-  │ async            │  │ Buffer           │           │
-  └──────────────────┘  └────────┬─────────┘           │
-                                 │                     │
-Sprint 2: Admin + Transport      ▼                     ▼
-  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-  │ T-2.1 Admin API  │──│ T-2.2 Wire JWKS  │  │ T-2.3 Dixie      │
-  │ (needs T-1.5)    │  │ into boot        │  │ Transport        │
-  └──────────────────┘  └──────────────────┘  └────────┬─────────┘
-                                                       │
-  ┌──────────────────┐  ┌──────────────────┐           ▼
-  │ T-2.5 Prometheus │──│ T-2.6 Wire into  │  ┌──────────────────┐
-  │ Metrics          │  │ routing engine   │  │ T-2.4 Register   │
-  └──────────────────┘  └──────────────────┘  │ in Shutdown      │
-                                               └──────────────────┘
-Sprint 3: E2E Compose
-  ┌──────────────────┐
-  │ T-3.1 Keypairs   │
-  └────────┬─────────┘
-           ▼
-  ┌──────────────────┐  ┌──────────────────┐
-  │ T-3.2 Compose v3 │──│ T-3.3 Localstack │
-  └────────┬─────────┘  └──────────────────┘
-           │
-           ├──► T-3.4 JWT exchange
-           ├──► T-3.5 Autopoietic loop
-           ├──► T-3.6 Shadow metrics
-           └──► T-3.7 Full flow
+#### T-3.5: Environment Isolation Verification
+- **Description:** End-to-end verification that staging cannot access production resources. Validate all isolation mechanisms from SDD §4.1.1, §4.1.2, §4.1.3. Produce a concrete checklist with pass/fail evidence.
+- **Acceptance Criteria:**
+  - Redis prefix isolation: staging `GET armitage:*` succeeds, `GET` without prefix returns different keyspace (or empty). Verified via Redis CLI or integration test.
+  - SSM path isolation: staging IAM role `GetParameter` for `/loa-finn/production/*` returns AccessDenied. Verified via `aws ssm get-parameter` with staging role.
+  - Terraform workspace separation: `terraform workspace select default && terraform plan` shows zero staging resources. Verified via plan output.
+  - DynamoDB table isolation: staging code references `finn-*-armitage` tables only. Verified via grep of task definition env vars.
+  - Network isolation: staging ECS tasks resolve to staging ALB only (Route53 record check).
+  - Secrets isolation: staging SSM parameters at `/loa-finn/armitage/*` contain staging-only values (not production secrets).
+- **Effort:** Small-Medium
+- **Dependencies:** T-3.2, T-3.3
+- **Tests:** Verification script (`scripts/verify-staging-isolation.sh`) or documented manual checklist with pass/fail evidence
 
-Sprint 4: x402 + Graduation (partially independent)
-  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-  │ T-4.1 Chain      │  │ T-4.2 Graduation │  │ T-4.6 Deployment │
-  │ Config           │  │ Script           │  │ Runbook          │
-  └────────┬─────────┘  └────────┬─────────┘  └──────────────────┘
-           │                     │
-           ▼                     ▼
-  ┌──────────────────┐  ┌──────────────────┐
-  │ T-4.3 Sepolia    │  │ T-4.5 Graduation │
-  │ Test             │  │ E2E Readiness    │
-  └──────────────────┘  └──────────────────┘
-```
+#### T-3.6: Staging Auth + x402 + Audit Verification
+- **Description:** Verify that existing security features (ES256 JWT S2S auth, audit chain hash integrity, x402 settlement) are correctly wired on staging. These features already exist in code — this task verifies they work end-to-end in the staging environment.
+- **Acceptance Criteria:**
+  - ES256 JWT auth enforced on staging: unauthenticated request to a protected endpoint returns 401/403
+  - ES256 JWT auth accepted: valid JWT returns 200
+  - x402 settlement runs in `verify_only` mode: env var `X402_SETTLEMENT_MODE=verify_only` confirmed in staging task definition
+  - Audit chain hash integrity: staging produces audit log entries with valid hash chain (verify via log inspection or integration test)
+- **Effort:** Small
+- **Dependencies:** T-3.4 (staging must be deployed)
+- **Tests:** Scripted smoke tests against staging endpoint: 1) auth reject, 2) auth accept, 3) verify_only confirmation, 4) audit hash chain validation
+
+#### T-3.7: Shadow→Enabled Graduation Protocol Implementation
+- **Description:** Implement the graduation protocol from SDD §11: define exit criteria evaluation, create promotion runbook, configure metrics-based gates, document rollback procedures.
+- **Acceptance Criteria:**
+  - Exit criteria from SDD §11.1 encoded as queryable Prometheus expressions (e.g., Grafana alert rules or scripted checks)
+  - Graduation runbook at `docs/graduation-runbook.md` with:
+    1. Pre-graduation checklist (48-hour criteria window)
+    2. Step-by-step promotion procedure (SSM parameter update, redeploy)
+    3. Post-promotion monitoring checklist (1-hour watch)
+    4. Three-tier rollback paths (P0: KillSwitch, P1: SSM+redeploy, P2: next deploy)
+  - KillSwitch "kill" command documented with exact Redis key and value
+  - Metric queries for each exit criterion documented (copy-paste into Prometheus/Grafana)
+- **Effort:** Medium
+- **Dependencies:** T-1.6 (KillSwitch integration), T-1.8 (metrics)
+- **Tests:** Runbook review; verify documented Prometheus queries return valid results against staging metrics endpoint
+
+#### T-3.8: Staging Readiness Gate
+- **Description:** Terminal acceptance gate that aggregates all staging readiness checks into a single pass/fail verdict. Ensures "all tasks done" equals "staging actually works." Added per Flatline Beads IMP-011.
+- **Acceptance Criteria:**
+  - Staging health endpoint returns 200 with expected version (`/health` response includes git SHA)
+  - `finn_shadow_total` counter increments on staging (route a test request, verify counter > 0)
+  - KillSwitch toggle works: set `finn:killswitch:mode` to `"kill"`, verify deterministic-only routing, reset to `"normal"`
+  - ES256 JWT auth rejects unauthenticated requests (401/403) and accepts valid JWT (200)
+  - Zero Fly.io/Railway references: `grep -r "fly.io\|flyctl\|railway" src/ deploy/` returns 0
+  - CI workflows pass or gracefully skip on PR
+  - All Sprint 1-3 tasks marked complete in beads
+- **Effort:** Small
+- **Dependencies:** T-3.5, T-3.6, T-3.7
+- **Tests:** Readiness checklist script or manual verification with documented evidence
 
 ---
 
 ## Risk Assessment
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Freeside/dixie Docker images not available | Medium | High | Fall back to stub images in compose; log degraded coverage |
-| Base Sepolia faucet USDC depleted | Low | Low | Small test amounts (0.01 USDC); reusable wallet |
-| Prometheus not available in CI | Medium | Medium | Graduation script falls back to mock Prometheus in tests |
-| AdminJWKS key format inconsistency | Low | Medium | Validated by unit tests (T-2.7) + SecretsLoader fail-fast |
-| Three-leg compose startup ordering flaky | Medium | Medium | Health checks with `start_period: 30s` + `retries: 10` |
+| Risk | Sprint | Mitigation |
+|------|--------|------------|
+| Routing regression | Sprint 1 | Existing deterministic tests must pass; shadow returns deterministic result |
+| Redis connection issues | Sprint 1 | Graceful degradation already coded (routingState="disabled") |
+| Production Terraform impact | Sprint 3 | Separate workspace, conditional naming, no state modifications |
+| CI token availability | Sprint 2 | Conditional steps skip gracefully |
 
----
+## Dependencies & Blocking Order
 
-## De-Scope Matrix (Flatline SKP-001)
+```
+Sprint 1 (Goodhart wiring) → Sprint 2 (cleanup) → Sprint 3 (staging infra)
+         ↓
+T-1.1 ─→ T-1.4 ─→ T-1.5 ─→ T-1.6
+T-1.2 ─↗         ↗
+T-1.3 ──────────↗
+T-1.7 (parallel)
+T-1.8 (parallel)
 
-If timeline pressure requires cutting scope, use this prioritization:
+Sprint 2: All tasks can run in parallel (no interdependencies except T-2.2 after T-2.1)
+Sprint 3: T-3.1 → T-3.2 → T-3.4, T-3.3 parallel with T-3.2
+```
 
-| Priority | Tasks | Rationale |
-|----------|-------|-----------|
-| **Must ship** (blocks go-live) | T-1.1, T-1.2, T-1.3, T-1.4, T-1.5, T-1.6, T-2.1, T-2.2, T-2.3, T-2.5, T-2.6 | Runtime config, health, shutdown, audit, admin, transport, metrics — these are the production activation path |
-| **Should ship** (high value) | T-2.4, T-3.2, T-3.3, T-3.4, T-4.1, T-4.6 | Shutdown registration, E2E compose infra, JWT exchange test, chain config, deployment runbook |
-| **Could ship** (nice-to-have) | T-3.5, T-3.6, T-3.7, T-4.2, T-4.3, T-4.5 | Autopoietic loop E2E, shadow metrics E2E, full flow E2E, graduation script, Sepolia test, graduation readiness E2E |
-| **Test tasks** (follow code) | T-1.7, T-1.8, T-1.9, T-2.7, T-2.8, T-4.4 | Unit tests follow their code tasks — cut only if parent is cut |
+## Success Criteria (End of Cycle)
 
-**Buffer**: Sprint 4 is the most de-scopable — graduation script (T-4.2) and Sepolia test (T-4.3) can ship in a follow-up cycle since production starts in shadow mode (graduation is a later operational step). This gives ~1 sprint of buffer.
-
----
-
-## Flatline Blocker Resolutions
-
-| Blocker | Decision | Rationale |
-|---------|----------|-----------|
-| SKP-001 (solo team, 930) | **Accepted** | De-scope matrix added above |
-| SKP-003 (audit partial failures, 900) | **Accepted** | Additional ACs added to T-1.5 |
-| SKP-004 (admin JWT replay, 880) | **Override** | SDD §8.1.1 already specifies WAF + VPN CIDR + per-subject rate limit + short exp (5min). jti tracking adds Redis overhead for a VPN-only, rate-limited endpoint with 5-minute token lifetime — replay window is negligible. |
-| SKP-002 (Redis multi-instance, 760) | **Override** | Direct Redis GET per request = no caching layer = instant consistency across all ECS tasks. The concern assumes a stale cache that doesn't exist. All instances read the same Redis key on every request — propagation is inherent. |
-| SKP-005 (JWKS atomic swap, 720) | **Deferred** | SDD §3.3 rotation procedure specifies overlap period (add new key → start using → remove old after expiry). Cross-instance stale windows are handled by the overlap. Atomic swap is a future improvement for high-concurrency scenarios; admin endpoint is VPN-only, low-traffic. |
-
----
-
-## Issue Closure Map
-
-| Issue | Sprint(s) | AC Coverage |
-|-------|-----------|-------------|
-| [#84](https://github.com/0xHoneyJar/loa-finn/issues/84) Dockerize + E2E | Sprint 3 (T-3.1–T-3.7) | AC21–AC27 |
-| [#85](https://github.com/0xHoneyJar/loa-finn/issues/85) x402 Payments | Sprint 4 (T-4.1, T-4.3) | AC31–AC37a |
-| [#66](https://github.com/0xHoneyJar/loa-finn/issues/66) Launch Readiness | All sprints | Phase 2+4 complete |
+1. All existing tests pass (no regression)
+2. New unit + integration tests for Goodhart wiring
+3. `finn-armitage.arrakis.community/health` returns 200
+4. `finn_shadow_total` counter increments on staging
+5. Zero Fly.io/Railway references in source
+6. CI E2E workflows pass or gracefully skip
+7. Production untouched throughout

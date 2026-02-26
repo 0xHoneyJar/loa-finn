@@ -13,11 +13,11 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_CIL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source bootstrap for PROJECT_ROOT if available
-if [[ -f "$SCRIPT_DIR/../bootstrap.sh" ]]; then
-    source "$SCRIPT_DIR/../bootstrap.sh"
+if [[ -f "$_CIL_DIR/../bootstrap.sh" ]]; then
+    source "$_CIL_DIR/../bootstrap.sh"
 fi
 
 PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
