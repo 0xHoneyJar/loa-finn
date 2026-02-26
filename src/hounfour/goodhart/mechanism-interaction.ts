@@ -104,8 +104,7 @@ export async function resolveWithGoodhart(
     const shadowPool = shadowResult.bestPool ?? deterministicPool
     const diverged = shadowPool !== deterministicPool
 
-    // Metrics: shadow decision + divergence (T-2.6)
-    config.metrics?.recordShadowDecision(tier, diverged)
+    // Shadow metrics recorded at router level (T-5.5: removed here to prevent double-count)
 
     // Emit shadow comparison log (structured JSON for dashboards)
     console.log(JSON.stringify({

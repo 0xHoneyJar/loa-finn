@@ -126,35 +126,40 @@ Emergency revert to deterministic routing. Takes effect within **1 second** (no 
 ### Activate KillSwitch (force deterministic routing)
 
 ```bash
-# Via Redis CLI
-redis-cli -u "$REDIS_URL" SET "finn:killswitch:mode" "kill"
+# Via Redis CLI (uses the same key as RuntimeConfig)
+redis-cli -u "$REDIS_URL" SET "finn:config:reputation_routing" "disabled"
 
 # Via AWS Systems Manager (if Redis not directly accessible)
 aws ssm send-command \
   --document-name "AWS-RunShellScript" \
   --targets "Key=tag:Service,Values=loa-finn" \
-  --parameters 'commands=["redis-cli -u $REDIS_URL SET finn:killswitch:mode kill"]' \
+  --parameters 'commands=["redis-cli -u $REDIS_URL SET finn:config:reputation_routing disabled"]' \
   --region us-east-1
 ```
 
-**Redis key:** `finn:killswitch:mode`
-**Kill value:** `"kill"`
-**Normal value:** `"normal"`
+**Redis key:** `finn:config:reputation_routing` (same key used by RuntimeConfig)
+**Kill value:** `"disabled"` (forces deterministic routing)
+**Shadow value:** `"shadow"` (shadow mode — logs but doesn't route)
+**Enabled value:** `"enabled"` (full reputation routing active)
 
 ### Deactivate KillSwitch (resume configured mode)
 
 ```bash
-redis-cli -u "$REDIS_URL" SET "finn:killswitch:mode" "normal"
+# Resume shadow mode (recommended first step)
+redis-cli -u "$REDIS_URL" SET "finn:config:reputation_routing" "shadow"
+
+# Or resume full reputation routing
+redis-cli -u "$REDIS_URL" SET "finn:config:reputation_routing" "enabled"
 ```
 
 ### Verify KillSwitch state
 
 ```bash
-redis-cli -u "$REDIS_URL" GET "finn:killswitch:mode"
-# Expected: "kill" or "normal"
+redis-cli -u "$REDIS_URL" GET "finn:config:reputation_routing"
+# Expected: "disabled", "shadow", or "enabled"
 
 # Confirm via health endpoint
-curl -sf https://finn-armitage.arrakis.community/health | jq '.killSwitchState'
+curl -sf https://finn-armitage.arrakis.community/health | jq '.routingState'
 ```
 
 ---

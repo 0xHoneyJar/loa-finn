@@ -134,6 +134,89 @@ resource "aws_ssm_parameter" "finn_reputation_routing" {
   }
 }
 
+resource "aws_ssm_parameter" "dixie_base_url" {
+  count = var.environment != "production" ? 1 : 0
+
+  name  = "${local.ssm_prefix}/DIXIE_BASE_URL"
+  type  = "SecureString"
+  value = "PLACEHOLDER" # Dixie reputation API endpoint
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+
+  tags = {
+    Environment = var.environment
+    Service     = "loa-finn"
+  }
+}
+
+resource "aws_ssm_parameter" "cheval_hmac_secret" {
+  name  = "${local.ssm_prefix}/CHEVAL_HMAC_SECRET"
+  type  = "SecureString"
+  value = "PLACEHOLDER" # HMAC secret for Cheval model invocations
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+
+  tags = {
+    Environment = var.environment
+    Service     = "loa-finn"
+  }
+}
+
+resource "aws_ssm_parameter" "finn_calibration_bucket" {
+  count = var.environment != "production" ? 1 : 0
+
+  name  = "${local.ssm_prefix}/FINN_CALIBRATION_BUCKET_NAME"
+  type  = "String"
+  value = "PLACEHOLDER" # S3 bucket for calibration data
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+
+  tags = {
+    Environment = var.environment
+    Service     = "loa-finn"
+  }
+}
+
+resource "aws_ssm_parameter" "finn_calibration_hmac" {
+  count = var.environment != "production" ? 1 : 0
+
+  name  = "${local.ssm_prefix}/FINN_CALIBRATION_HMAC_KEY"
+  type  = "SecureString"
+  value = "PLACEHOLDER" # HMAC key for calibration data integrity
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+
+  tags = {
+    Environment = var.environment
+    Service     = "loa-finn"
+  }
+}
+
+resource "aws_ssm_parameter" "finn_metrics_bearer_token" {
+  count = var.environment != "production" ? 1 : 0
+
+  name  = "${local.ssm_prefix}/FINN_METRICS_BEARER_TOKEN"
+  type  = "SecureString"
+  value = "PLACEHOLDER" # Bearer token for /metrics endpoint auth
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+
+  tags = {
+    Environment = var.environment
+    Service     = "loa-finn"
+  }
+}
+
 resource "aws_ssm_parameter" "x402_settlement_mode" {
   count = var.environment != "production" ? 1 : 0
 

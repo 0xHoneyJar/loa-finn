@@ -6,7 +6,7 @@
 **Date:** 2026-02-26
 **Team:** 1 AI developer + 1 human reviewer
 **Sprint duration:** ~2-4 hours each (AI-paced)
-**Status:** ALL SPRINTS COMPLETE (4/4)
+**Status:** SPRINTS 1-4 COMPLETE, SPRINTS 5-7 PENDING (7 total)
 
 ---
 
@@ -481,6 +481,466 @@ T-4.6 (depends on T-4.2, T-4.3 for KillSwitch/recovery transition events)
 
 ---
 
+## Sprint 5: Staging-Blocking Fixes (Before Activation)
+
+**Goal:** Fix all issues that would prevent staging from functioning correctly. These are blocking bugs — staging cannot safely accept traffic until resolved.
+
+**Source:** [Unbounded Depth Review PR #109](https://github.com/0xHoneyJar/loa-finn/pull/109)
+
+**Risk:** Medium — core metrics and recovery fixes touch critical code paths. All changes are surgical with focused test coverage.
+
+### Tasks
+
+#### T-5.1: Fix Histogram Double-Accumulation (C-1)
+- **Description:** `graduation-metrics.ts:112-119` — the `observe()` method increments the +Inf bucket unconditionally (line 118) and `toPrometheus()` at line 138 re-accumulates cumulatively. This produces inflated histogram values in Prometheus output. Fix by making `observe()` only increment the first matching bucket and +Inf, then computing cumulative sums only in `toPrometheus()`.
+- **Acceptance Criteria:**
+  - AC1: `observe(0.5)` with boundaries `[0.1, 0.5, 1.0]` increments bucket `le=0.5` count by 1 and `+Inf` by 1 — not `le=0.1`
+  - AC2: `toPrometheus()` output shows correct cumulative counts matching Prometheus histogram spec
+  - AC3: Existing metrics tests updated to assert exact bucket values after multiple observations
+  - AC4: No double-counting: N observations = N total count in `+Inf` bucket
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Update `tests/finn/goodhart/graduation-metrics.test.ts` with multi-observation histogram assertions
+
+#### T-5.2: Fix Recovery Scheduler → Router Disconnect (C-2)
+- **Description:** `index.ts:355-363` — recovery callback updates local closure variables (`goodhartConfig`, `routingState`, `goodhartMetrics`) but HounfourRouter was initialized with the *old* values and never receives updates. Fix by having the recovery callback update the `GoodhartRuntime` mutable holder (from T-4.3) which the router already reads from.
+- **Acceptance Criteria:**
+  - AC1: Recovery callback writes to the shared `GoodhartRuntime` holder, not local variables
+  - AC2: Router reads `routingState` and `goodhartConfig` from the holder on each request (not cached at construction)
+  - AC3: Integration test: init fails → `init_failed` state → Redis becomes available → recovery fires → next request uses recovered config
+  - AC4: No stale references — `grep` for direct assignment to module-level `goodhartConfig =` or `routingState =` in the recovery path returns 0 matches (only holder updates)
+- **Effort:** Medium
+- **Dependencies:** T-4.3 (GoodhartRuntime holder pattern)
+- **Tests:** `tests/finn/goodhart/init-recovery.test.ts` — add test asserting router behavior changes after recovery
+
+#### T-5.3: Fix ECS Health Check (C-5)
+- **Description:** `loa-finn-ecs.tf:215` — ECS container health check uses `curl -f` but `curl` is not installed in the production Docker image (multi-stage build strips it). Replace with `wget` (available in Alpine/Debian slim) or Node.js HTTP check.
+- **Acceptance Criteria:**
+  - AC1: Health check command uses tool available in the Docker image (verify via `docker run --rm <image> which wget` or equivalent)
+  - AC2: Health check correctly detects unhealthy state (non-200 response → exit 1)
+  - AC3: `startPeriod` remains ≥60s to allow for cold start
+  - AC4: Terraform plan shows only health check change, no resource recreation
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `terraform plan` shows health check update only; manual Docker verification
+
+#### T-5.4: Align KillSwitch Key Between Code, Runbook, and Sprint 1 Contract (H-1)
+- **Description:** There is a three-way mismatch: Sprint 1 T-1.6 defines the KillSwitch contract as `finn:killswitch:mode` with `"kill"/"normal"` values. The runbook at `docs/graduation-runbook.md:126-131` documents `finn:killswitch:mode`. But the current router implementation may use a different key. This task first verifies the actual implementation, then aligns all three (code, runbook, contract) to a single source of truth.
+- **Pre-step:** `grep -rn "killswitch\|kill_switch\|killSwitch" src/hounfour/` to identify the exact key, value, and Redis command used in the implementation. Document findings before making changes.
+- **Acceptance Criteria:**
+  - AC1: Single source of truth established — code uses `finn:killswitch:mode` with values `"kill"` (force-disable) and `"normal"` (default), matching the T-1.6 contract
+  - AC2: If code uses a different key (e.g., `finn:config:reputation_routing`), update the implementation to match the T-1.6 contract. The KillSwitch is a separate mechanism from the routing mode env var — they must be independent controls.
+  - AC3: Runbook updated to match the verified implementation: correct key, correct values, correct Redis command
+  - AC4: Tests updated to verify the canonical key name and both values
+  - AC5: All three rollback tiers documented: (1) Redis KillSwitch `SET finn:killswitch:mode kill` — instant, (2) SSM `FINN_REPUTATION_ROUTING=disabled` — ~5min redeploy, (3) Revert deploy
+- **Effort:** Small-Medium
+- **Dependencies:** None
+- **Tests:** Integration test: set killswitch key → routing uses deterministic; clear key → routing resumes state machine
+
+#### T-5.5: Fix Shadow Metrics Double-Count (H-6)
+- **Description:** `router.ts:364` calls `recordShadowDecision()` and the same metric is also incremented inside `mechanism-interaction.ts:108` during the Goodhart resolve path. This double-counts every shadow decision.
+- **Acceptance Criteria:**
+  - AC1: Shadow decision metric is incremented exactly once per routing request in shadow mode
+  - AC2: Choose canonical location: either router (after the full shadow comparison) or mechanism-interaction (during resolution) — not both
+  - AC3: Test asserts `finn_shadow_total` counter == request count after N shadow requests
+  - AC4: `finn_shadow_diverged` counter is only incremented in the comparison site (router), not in mechanism-interaction
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Update routing-state and mechanism-interaction tests to verify single-increment
+
+#### T-5.6: Add Missing Goodhart SSM Parameters (M-5)
+- **Description:** ECS task definition in Terraform is missing SSM parameter references for `FINN_REPUTATION_ROUTING`, `FINN_REDIS_PREFIX`, `FINN_REDIS_DB`, `FINN_GOODHART_EPSILON`, and `FINN_CALIBRATION_HMAC_KEY`. Without these, staging uses env defaults instead of SSM-managed values.
+- **Acceptance Criteria:**
+  - AC1: ECS task definition includes `valueFrom` SSM references for all Goodhart env vars
+  - AC2: SSM paths scoped to `/loa-finn/${var.environment}/*`
+  - AC3: `terraform plan` shows container definition update with new environment entries
+  - AC4: `deploy/staging.env.example` updated with comments explaining SSM source
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `terraform plan` output review; staging env var verification post-deploy
+
+#### T-5.7: Fix armitage.tfvars Missing Variables (M-12)
+- **Description:** `infrastructure/terraform/environments/armitage.tfvars` is missing several variables that have been added since Sprint 3: Goodhart-specific settings, S3 bucket environment scoping, Redis prefix config.
+- **Acceptance Criteria:**
+  - AC1: `armitage.tfvars` includes `reputation_routing = "shadow"` (explicit, not default)
+  - AC2: `armitage.tfvars` includes `redis_prefix = "armitage:"` and `redis_db = 1`
+  - AC3: `armitage.tfvars` includes environment-scoped S3 bucket names (linking to T-6.4)
+  - AC4: `terraform plan -var-file=environments/armitage.tfvars` succeeds with no variable warnings
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `terraform validate` and `terraform plan` pass
+
+### Sprint 5 Task Dependencies
+
+```
+T-5.1 (parallel — no deps)
+T-5.2 (depends on T-4.3 from Sprint 4)
+T-5.3 (parallel — no deps)
+T-5.4 (parallel — no deps)
+T-5.5 (parallel — no deps)
+T-5.6 (parallel — no deps)
+T-5.7 (parallel — no deps)
+```
+
+### Sprint 5 Success Criteria
+
+1. Histogram `+Inf` count equals total observations (no inflation)
+2. Recovery scheduler updates propagate to router (integration test passes)
+3. ECS health check works in Docker image without `curl`
+4. Runbook emergency commands match actual implementation
+5. Shadow metrics increment exactly once per request
+6. All Goodhart SSM parameters present in Terraform
+7. `terraform plan -var-file=environments/armitage.tfvars` clean
+
+---
+
+## Sprint 6: Shadow Traffic Safety (Before First Shadow Traffic)
+
+**Goal:** Fix data isolation, timer leaks, security issues, and supply chain risks that must be resolved before shadow traffic flows through the Goodhart stack.
+
+**Source:** [Unbounded Depth Review PR #109](https://github.com/0xHoneyJar/loa-finn/pull/109)
+
+**Risk:** Medium-High — the `eval` bypass (T-6.1) is a data isolation bug that could corrupt production Redis if staging shares the same instance.
+
+### Tasks
+
+#### T-6.1: Fix eval/evalsha Prefix Bypass (C-3)
+- **Description:** `prefixed-redis.ts` — Lua scripts via `eval`/`evalsha` fall through to the pass-through branch of the Proxy, bypassing the prefix enforcement entirely. Any Goodhart component that uses Lua scripting (e.g., `temporal-decay.ts:55`) writes unprefixed keys to Redis, violating staging/production isolation on shared Redis instances.
+- **Acceptance Criteria:**
+  - AC1: `eval` and `evalsha` are explicitly handled in the Proxy: either blocked with descriptive error, or key arguments are prefixed (KEYS array at positions defined by `numkeys`)
+  - AC2: Test verifies that `client.eval("return 1", 1, "foo")` either throws or produces `eval("return 1", 1, "armitage:foo")`
+  - AC3: `temporal-decay.ts` Lua scripts use prefixed keys (verify with grep for raw key access patterns)
+  - AC4: No unprefixed Redis writes possible through any PrefixedRedisClient method
+- **Effort:** Medium
+- **Dependencies:** None
+- **Tests:** `tests/finn/infra/prefixed-redis.test.ts` — add eval/evalsha test cases
+
+#### T-6.2: Fix Per-Pool Timeout Timer Leak (C-4)
+- **Description:** `mechanism-interaction.ts:269-273` — `Promise.race` between pool scoring and a `setTimeout` timer. When scoring completes first, the timer is never cleared. At 5 concurrent pools per request × request rate, this leaks timers.
+- **Acceptance Criteria:**
+  - AC1: `setTimeout` timer is cleared via `clearTimeout()` when the scoring promise resolves first
+  - AC2: Pattern uses AbortController or explicit cleanup wrapper (not bare `setTimeout`)
+  - AC3: Test with fake timers verifies no pending timers after successful scoring
+  - AC4: `Promise.race` cleanup pattern applied consistently (verify no other instances in codebase via grep)
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `tests/finn/goodhart/mechanism-interaction.test.ts` — fake timer test for cleanup
+
+#### T-6.3: Pin GitHub Actions to SHA (H-2)
+- **Description:** `deploy-staging.yml` uses unpinned `@v4`, `@v2`, `@v1` action tags at lines 43, 46, 73, 76, 83, 134, 141. Pin all actions to exact commit SHAs per supply chain security best practice.
+- **Acceptance Criteria:**
+  - AC1: All `uses:` entries in `deploy-staging.yml` reference exact commit SHA (e.g., `actions/checkout@a81bbbf8298c...`)
+  - AC2: Comment after SHA identifies the version tag for readability (e.g., `# v4.1.7`)
+  - AC3: Check other workflow files (`deploy.yml`, `e2e*.yml`) and pin those too if unpinned
+  - AC4: `actionlint` or manual review passes
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Grep for `@v[0-9]` in `.github/workflows/` returns 0 matches
+
+#### T-6.4: Scope S3 Buckets by Environment (H-4)
+- **Description:** `loa-finn-s3.tf:10,56` — S3 bucket names don't include environment. Staging and production would use the same buckets.
+- **Design Decision:** Use conditional bucket naming: production (default workspace) keeps existing bucket names exactly unchanged; non-default workspaces append `-${var.environment}`. This avoids forced replacement of production buckets.
+- **Acceptance Criteria:**
+  - AC1: Bucket name uses conditional: `terraform.workspace == "default" ? "finn-audit-anchors-${data.aws_caller_identity.current.account_id}" : "finn-audit-anchors-${var.environment}-${data.aws_caller_identity.current.account_id}"`
+  - AC2: Same conditional pattern for calibration bucket
+  - AC3: `terraform plan` in **default workspace** shows **zero changes** (production buckets untouched, names unchanged)
+  - AC4: `terraform plan` in **armitage workspace** shows new staging buckets with `-armitage` suffix
+  - AC5: IAM policies use conditional ARNs matching the bucket name pattern
+  - AC6: No `moved` or `import` blocks needed — production resources are not renamed
+- **Effort:** Medium
+- **Dependencies:** T-5.7 (armitage.tfvars)
+- **Tests:** `terraform plan` in default workspace = 0 changes; `terraform plan -var-file=environments/armitage.tfvars` in armitage workspace shows correctly named staging buckets
+
+#### T-6.5: Await Redis select() (H-5)
+- **Description:** `prefixed-redis.ts:40-41` — `select(dbIndex)` is called without `await`. The returned Promise is discarded, so DB selection may not complete before subsequent commands, causing them to run on the wrong DB.
+- **Design Decision:** Introduce `createPrefixedRedisClient(redis, prefix, dbIndex)` async factory function. Keep the Proxy construction synchronous internally, but gate it behind the async factory that awaits `select()` before returning the client.
+- **Acceptance Criteria:**
+  - AC1: New `createPrefixedRedisClient()` async factory exported; constructor marked private/internal
+  - AC2: Factory awaits `select(dbIndex)` before returning the proxied client
+  - AC3: All instantiation call sites updated: `index.ts` and `init.ts` Goodhart init blocks `await createPrefixedRedisClient(...)` instead of `new PrefixedRedisClient(...)`
+  - AC4: All test files updated to use async factory
+  - AC5: Test verifies `select()` is called and awaited before first command (spy on select, assert call order)
+- **Effort:** Small-Medium
+- **Dependencies:** None
+- **Tests:** Update `tests/finn/infra/prefixed-redis.test.ts` and all instantiation sites
+
+#### T-6.6: Add Metrics Endpoint Authentication (H-3)
+- **Description:** The Prometheus `/metrics` endpoint is unauthenticated, exposing internal system state. Implement app-level bearer token authentication using `FINN_METRICS_BEARER_TOKEN` from SSM.
+- **Acceptance Criteria:**
+  - AC1: `/metrics` requires `Authorization: Bearer <token>` header; token sourced from `FINN_METRICS_BEARER_TOKEN` env var (SSM-managed)
+  - AC2: Missing or invalid token returns HTTP 401 with `{"error": "unauthorized"}`
+  - AC3: Valid token returns Prometheus metrics output (200)
+  - AC4: Health endpoint (`/health`) remains unauthenticated (ALB needs it)
+  - AC5: Prometheus scrape config documented: `authorization: { credentials: <token> }` in `prometheus.yml`
+  - AC6: SSM parameter `/loa-finn/${var.environment}/FINN_METRICS_BEARER_TOKEN` added to Terraform ECS task definition
+- **Effort:** Small-Medium
+- **Dependencies:** None
+- **Tests:** Supertest integration tests: unauthenticated → 401, valid bearer → 200, invalid bearer → 401, `/health` → 200 without auth
+
+#### T-6.7: Fix Package Manager Mismatch (H-7)
+- **Description:** `deploy-staging.yml` uses `npm ci` but Dockerfile and `pnpm-lock.yaml` use `pnpm`. This installs different dependency versions in CI vs Docker, potentially masking bugs.
+- **Acceptance Criteria:**
+  - AC1: CI workflow uses `pnpm install --frozen-lockfile` instead of `npm ci`
+  - AC2: pnpm setup step added to workflow (e.g., `pnpm/action-setup@v4`)
+  - AC3: Verify `package-lock.json` doesn't exist (or remove it) — single lock file
+  - AC4: All workflow files use consistent package manager
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** CI workflow passes with pnpm; no `package-lock.json` in repo
+
+#### T-6.8: Fix DEL Command Duplication (M-8)
+- **Description:** `prefixed-redis.ts` — `del` appears in both `SINGLE_KEY_COMMANDS` (line 11) and `MULTI_KEY_COMMANDS` (line 21). The Proxy checks single-key first, so multi-key `del("a", "b", "c")` only prefixes the first argument.
+- **Acceptance Criteria:**
+  - AC1: `del` removed from `SINGLE_KEY_COMMANDS` (it's a multi-key command: `DEL key [key ...]`)
+  - AC2: Multi-key `del("a", "b")` correctly prefixes all arguments
+  - AC3: Test verifies `del("a", "b")` becomes `del("prefix:a", "prefix:b")`
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Update `tests/finn/infra/prefixed-redis.test.ts` with multi-key DEL test
+
+#### T-6.9: Terraform Backend Workspace Isolation (M-11)
+- **Description:** Terraform backend configuration should use workspace-keyed state to prevent accidental state collision between production and staging.
+- **Acceptance Criteria:**
+  - AC1: Backend config uses workspace-prefixed key (e.g., `key = "loa-finn/${terraform.workspace}/terraform.tfstate"` or equivalent)
+  - AC2: Production state untouched (verify via `terraform state list` in default workspace)
+  - AC3: Staging state is isolated — `terraform destroy` in armitage workspace cannot affect production
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `terraform workspace select armitage && terraform state list` shows only staging resources
+
+### Sprint 6 Task Dependencies
+
+```
+T-6.1 (parallel — no deps)
+T-6.2 (parallel — no deps)
+T-6.3 (parallel — no deps)
+T-6.4 (depends on T-5.7 for armitage.tfvars)
+T-6.5 (parallel — no deps)
+T-6.6 (parallel — no deps)
+T-6.7 (parallel — no deps)
+T-6.8 (parallel — no deps)
+T-6.9 (parallel — no deps)
+```
+
+### Sprint 6 Success Criteria
+
+1. No unprefixed Redis writes possible through PrefixedRedisClient (including eval/evalsha)
+2. Zero timer leaks in pool scoring (fake timer test passes)
+3. All GitHub Actions pinned to exact SHA
+4. S3 buckets environment-scoped; production unchanged
+5. Redis DB selection completes before first command
+6. `/metrics` endpoint authenticated
+7. CI uses pnpm consistently
+8. Multi-key `del` prefixes all arguments
+9. Terraform state workspace-isolated
+
+---
+
+## Sprint 7: Excellence & Test Coverage (Before Graduation)
+
+**Goal:** Address all remaining MEDIUM and LOW findings. Fill critical test coverage gaps across 13 source files. Achieve graduation-ready code quality.
+
+**Source:** [Unbounded Depth Review PR #109](https://github.com/0xHoneyJar/loa-finn/pull/109)
+
+**Risk:** Low — all changes are additive (tests, type safety, cleanup). No architectural changes.
+
+### Tasks
+
+#### T-7.1: Fix ReadOnlyRedis Blocked Method Return Type (M-1)
+- **Description:** `read-only-redis.ts` — blocked methods (set, del, etc.) throw synchronously, but Redis client methods return Promises. Callers using `.catch()` or `await` won't catch synchronous throws properly. Change to return rejected Promises.
+- **Acceptance Criteria:**
+  - AC1: All blocked methods return `Promise.reject(new Error(...))` instead of `throw`
+  - AC2: `await client.set("key", "val")` catches with standard async error handling
+  - AC3: Error messages unchanged: `"Redis writes blocked in shadow mode (attempted: <method>)"`
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Update `tests/finn/goodhart/read-only-redis.test.ts` — test both `await` and `.catch()` patterns
+
+#### T-7.2: Fix Mutable let Exports in routing-events.ts (M-2)
+- **Description:** `routing-events.ts:29-30,50-51` — `export let` functions break when re-assigned because ES module imports cache the original binding. Refactor to use a setter/getter pattern or injectable dependency.
+- **Acceptance Criteria:**
+  - AC1: Event emitters are no longer mutable `let` exports
+  - AC2: Test injection still works (via `setRoutingStateTransitionEmitter()` or equivalent)
+  - AC3: Runtime reassignment in one module propagates to all importers
+  - AC4: TypeScript build passes; no `any` escapes
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Update `tests/finn/goodhart/routing-events.test.ts`
+
+#### T-7.3: Consolidate Duplicate RoutingState Type (M-3)
+- **Description:** `RoutingState` type is defined in `routing-events.ts:6`, `init.ts`, `router.ts`, and `index.ts` without coordination. Consolidate to a single canonical export.
+- **Acceptance Criteria:**
+  - AC1: Single `RoutingState` type definition in `src/hounfour/goodhart/types.ts` (or appropriate shared module)
+  - AC2: All files import from the canonical source — `grep 'type RoutingState' src/` returns exactly 1 definition
+  - AC3: TypeScript build passes with no type errors
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** TypeScript compilation; grep verification
+
+#### T-7.4: Fix computeEventHash Collision (M-4)
+- **Description:** `mechanism-interaction.ts` — event hash computed by concatenating fields without delimiters. `hash("ab" + "c")` === `hash("a" + "bc")`. Add delimiters between fields.
+- **Acceptance Criteria:**
+  - AC1: Hash computation includes a delimiter character (e.g., `\0` or `|`) between concatenated fields
+  - AC2: `computeEventHash("ab", "c") !== computeEventHash("a", "bc")`
+  - AC3: Existing hash-dependent tests updated if hash values change
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `tests/finn/goodhart/mechanism-interaction.test.ts` — collision resistance test
+
+#### T-7.5: Remove Unused options.seed / options.allowWrites (M-6)
+- **Description:** `resolve.ts` accepts `options.seed` and `options.allowWrites` in the function signature but never passes them to internal components. Either wire them through or remove from the interface.
+- **Acceptance Criteria:**
+  - AC1: `seed` is passed to PRNG for deterministic shadow mode (if useful) OR removed from `GoodhartOptions`
+  - AC2: `allowWrites` gates Redis writes in enabled mode OR removed from `GoodhartOptions`
+  - AC3: No dead parameters in the public API
+  - AC4: TypeScript build passes
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Update resolve.test.ts to test wired-through options or verify removal
+
+#### T-7.6: Remove Unsafe `as any` Casts (M-7)
+- **Description:** `init.ts:56` and `init.ts:107` use `as any` casts for Redis client and routing state. Replace with proper type narrowing or generic constraints.
+- **Acceptance Criteria:**
+  - AC1: Zero `as any` in `init.ts`
+  - AC2: Redis client typed as `RedisCommandClient` or appropriate interface
+  - AC3: Routing state typed as `RoutingState` (from T-7.3 canonical source)
+  - AC4: TypeScript build passes in strict mode
+- **Effort:** Small
+- **Dependencies:** T-7.3 (consolidated RoutingState)
+- **Tests:** TypeScript compilation with `--strict`
+
+#### T-7.7: Unref CalibrationEngine pollTimer (M-9)
+- **Description:** `CalibrationEngine` creates a recurring `setInterval` for calibration data refresh. This timer prevents Node.js from exiting cleanly. Add `.unref()`.
+- **Acceptance Criteria:**
+  - AC1: `setInterval` timer has `.unref()` called
+  - AC2: Process exits cleanly when all other work is complete (timer doesn't keep it alive)
+  - AC3: `stop()` method clears the timer
+- **Effort:** Tiny
+- **Dependencies:** None
+- **Tests:** Verify with fake timers
+
+#### T-7.8: Deduplicate init.ts / index.ts Goodhart Init (M-10)
+- **Description:** `index.ts:200-370` contains a 160+ line Goodhart init block that substantially duplicates `init.ts:43-116`. Refactor so `index.ts` calls `initGoodhartStack()` from `init.ts` and the duplicated inline code is removed.
+- **Acceptance Criteria:**
+  - AC1: `src/index.ts` Goodhart section reduced to <20 lines calling `initGoodhartStack()`
+  - AC2: All Goodhart init logic lives in `src/hounfour/goodhart/init.ts`
+  - AC3: Existing behavior unchanged (all routing states still work)
+  - AC4: No duplicate variable declarations for Goodhart components
+- **Effort:** Medium
+- **Dependencies:** T-5.2 (recovery-router fix already touches this area)
+- **Tests:** Existing init tests pass; integration test covers the deduplication
+
+#### T-7.9: Router Integration Test Suite (78 test gaps — highest priority)
+- **Description:** `router.ts` has ZERO direct test coverage for `resolvePoolForRequest()` — the most critical function in the codebase. Create a comprehensive integration test suite covering the 4-state routing machine, KillSwitch override, shadow divergence logging, and fallback behavior.
+- **Acceptance Criteria:**
+  - AC1: `tests/finn/hounfour/router.test.ts` exists with ≥20 test cases
+  - AC2: All 4 routing states tested: `disabled`, `shadow`, `enabled`, `init_failed`
+  - AC3: KillSwitch override tested: `"kill"` → deterministic, `"normal"` → state machine, missing key → default
+  - AC4: Shadow path tested: divergence detection, metrics increment, deterministic result returned
+  - AC5: Enabled path tested: reputation result used, fallback on null
+  - AC6: Edge cases: concurrent requests, Redis timeout during KillSwitch check, all pools failed
+  - AC7: Coverage for `resolvePoolForRequest()` ≥80%
+- **Effort:** Large
+- **Dependencies:** T-5.5 (shadow metrics deduplication — affects assertion values)
+- **Tests:** Self-contained test file
+
+#### T-7.10: Mechanism-Interaction Test Suite Expansion
+- **Description:** `mechanism-interaction.ts` has 354 lines with partial test coverage. Expand tests to cover the precedence chain (Kill switch → Exploration → Reputation → Deterministic fallback), partial failures, and concurrent scoring edge cases.
+- **Acceptance Criteria:**
+  - AC1: Precedence chain tested: KillSwitch active → skip all; Exploration fires → use exploration; Reputation scores → use reputation; All fail → deterministic
+  - AC2: Partial scoring failure: 3 of 5 pools score, 2 timeout → result uses 3 scored pools
+  - AC3: Event hash uniqueness test (after T-7.4 delimiter fix)
+  - AC4: Coverage ≥80% for mechanism-interaction.ts
+- **Effort:** Medium
+- **Dependencies:** T-6.2 (timer leak fix), T-7.4 (hash collision fix)
+- **Tests:** Expand `tests/finn/goodhart/mechanism-interaction.test.ts`
+
+#### T-7.11: PrefixedRedis + ReadOnlyRedis Full Test Coverage
+- **Description:** `read-only-redis.ts` tests only 3 of 7 read methods and 1 of 5 bypass vectors. `prefixed-redis.ts` lacks eval/evalsha and multi-key DEL tests (added in Sprint 6 but need comprehensive suite).
+- **Acceptance Criteria:**
+  - AC1: All 7 read methods tested: `get`, `mget`, `hget`, `hgetall`, `exists`, `ttl`, `type`
+  - AC2: All 5 bypass vectors tested: `multi`, `pipeline`, `sendCommand`, `eval`, `evalsha`
+  - AC3: All mutating methods tested: `set`, `del`, `incr`, `hset`, `lpush`, `rpush`, `sadd`, etc.
+  - AC4: Symbol property pass-through tested (from T-4.5)
+  - AC5: Coverage ≥90% for both files
+- **Effort:** Medium
+- **Dependencies:** T-6.1 (eval fix), T-6.5 (select fix), T-6.8 (DEL fix)
+- **Tests:** Expand both test files
+
+#### T-7.12: Add Container Vulnerability Scanning to CI
+- **Description:** `deploy-staging.yml` builds and pushes Docker images without vulnerability scanning. Add a scan step between build and push.
+- **Acceptance Criteria:**
+  - AC1: `docker scout` or `trivy` scan step added after Docker build, before ECR push
+  - AC2: HIGH/CRITICAL CVEs fail the workflow (configurable threshold)
+  - AC3: Scan results uploaded as workflow artifact for review
+  - AC4: Existing deploy.yml also updated with scan step
+- **Effort:** Small
+- **Dependencies:** T-6.3 (pinned actions — scan action should also be pinned)
+- **Tests:** CI workflow passes with scan step
+
+### Sprint 7 Task Dependencies
+
+```
+T-7.1 (parallel — no deps)
+T-7.2 (parallel — no deps)
+T-7.3 (parallel — no deps)
+T-7.4 (parallel — no deps)
+T-7.5 (parallel — no deps)
+T-7.6 (depends on T-7.3 for RoutingState type)
+T-7.7 (parallel — no deps)
+T-7.8 (depends on T-5.2 for recovery fix area)
+T-7.9 (depends on T-5.5 for metrics dedup)
+T-7.10 (depends on T-6.2 timer fix, T-7.4 hash fix)
+T-7.11 (depends on T-6.1, T-6.5, T-6.8 from Sprint 6)
+T-7.12 (depends on T-6.3 for pinned actions)
+```
+
+### Sprint 7 Success Criteria
+
+1. Zero `as any` casts in Goodhart stack
+2. Single canonical `RoutingState` type definition
+3. No timer leaks, no memory leaks, no event hash collisions
+4. `router.ts:resolvePoolForRequest()` coverage ≥80%
+5. `mechanism-interaction.ts` coverage ≥80%
+6. `read-only-redis.ts` and `prefixed-redis.ts` coverage ≥90%
+7. All blocked Redis methods return rejected Promises
+8. Container vulnerability scanning in CI
+9. Zero duplicate code between index.ts and init.ts for Goodhart initialization
+10. All existing tests pass (zero regression)
+
+---
+
+## Updated Risk Assessment
+
+| Risk | Sprint | Mitigation |
+|------|--------|------------|
+| Routing regression | Sprint 1 | Existing deterministic tests must pass; shadow returns deterministic result |
+| Redis connection issues | Sprint 1 | Graceful degradation already coded (routingState="disabled") |
+| Production Terraform impact | Sprint 3, 5, 6 | Separate workspace, conditional naming, no state modifications |
+| CI token availability | Sprint 2 | Conditional steps skip gracefully |
+| Data isolation breach | Sprint 6 | eval/evalsha blocked or prefixed; S3 scoped; Redis DB isolated |
+| Timer/memory pressure | Sprint 6 | clearTimeout on Promise.race; unref on intervals |
+| Test false confidence | Sprint 7 | Integration tests verify real behavior, not just unit stubs |
+
+## Updated Dependencies & Blocking Order
+
+```
+Sprint 1 → Sprint 2 → Sprint 3 → Sprint 4 → Sprint 5 → Sprint 6 → Sprint 7
+                                               ↓
+                                   T-5.2 depends on T-4.3 (Sprint 4)
+                                               ↓
+                                   T-6.4 depends on T-5.7 (Sprint 5)
+                                               ↓
+                                   T-7.6 depends on T-7.3
+                                   T-7.8 depends on T-5.2
+                                   T-7.9 depends on T-5.5
+                                   T-7.10 depends on T-6.2, T-7.4
+                                   T-7.11 depends on T-6.1, T-6.5, T-6.8
+                                   T-7.12 depends on T-6.3
+```
+
+---
+
 ## Success Criteria (End of Cycle)
 
 1. All existing tests pass (no regression)
@@ -491,3 +951,9 @@ T-4.6 (depends on T-4.2, T-4.3 for KillSwitch/recovery transition events)
 6. CI E2E workflows pass or gracefully skip
 7. Production untouched throughout
 8. All Bridgebuilder review findings addressed (Sprint 4)
+9. All unbounded depth review CRITICAL/HIGH findings fixed (Sprints 5-6)
+10. Router integration test coverage ≥80% (Sprint 7)
+11. Zero unprefixed Redis writes possible (Sprint 6)
+12. All GitHub Actions pinned to SHA (Sprint 6)
+13. Container vulnerability scanning active in CI (Sprint 7)
+14. Graduation runbook matches actual implementation (Sprint 5)

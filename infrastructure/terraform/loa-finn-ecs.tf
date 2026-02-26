@@ -200,6 +200,12 @@ resource "aws_ecs_task_definition" "loa_finn" {
       { name = "REDIS_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/REDIS_URL" },
       { name = "R2_BUCKET", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/R2_BUCKET" },
       { name = "JWT_KMS_KEY_ID", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/JWT_KMS_KEY_ID" },
+      { name = "CHEVAL_HMAC_SECRET", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/CHEVAL_HMAC_SECRET" },
+      { name = "FINN_REPUTATION_ROUTING", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_REPUTATION_ROUTING" },
+      { name = "DIXIE_BASE_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/DIXIE_BASE_URL" },
+      { name = "FINN_CALIBRATION_BUCKET_NAME", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_BUCKET_NAME" },
+      { name = "FINN_CALIBRATION_HMAC_KEY", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_HMAC_KEY" },
+      { name = "FINN_METRICS_BEARER_TOKEN", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_METRICS_BEARER_TOKEN" },
     ]
 
     logConfiguration = {
@@ -212,7 +218,7 @@ resource "aws_ecs_task_definition" "loa_finn" {
     }
 
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      command     = ["CMD-SHELL", "node -e \"const h=require('http');const r=h.get('http://127.0.0.1:3000/health',res=>{process.exit(res.statusCode===200?0:1)});r.on('error',()=>process.exit(1))\""]
       interval    = 30
       timeout     = 5
       retries     = 3

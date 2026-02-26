@@ -227,6 +227,13 @@ async function main() {
   let routingState: RoutingState = "disabled"
   let goodhartMetrics: import("./hounfour/graduation-metrics.js").GraduationMetrics | undefined
   let goodhartRecoveryScheduler: import("./hounfour/goodhart/init.js").GoodhartRecoveryScheduler | undefined
+  // Shared mutable holder — router reads from this on every request (T-5.2).
+  // Recovery scheduler updates this holder atomically; router picks up changes.
+  const goodhartRuntime: import("./hounfour/goodhart/init.js").GoodhartRuntime = {
+    goodhartConfig: undefined,
+    routingState: "disabled",
+    goodhartMetrics: undefined,
+  }
   const requestedMode = process.env.FINN_REPUTATION_ROUTING ?? "disabled"
 
   if (requestedMode !== "disabled" && requestedMode !== "shadow" && requestedMode !== "enabled") {
@@ -312,12 +319,18 @@ async function main() {
         const prevState = routingState
         routingState = requestedMode as "shadow" | "enabled"
         goodhartMetrics.setRoutingMode(routingState)
+        // Sync shared holder so router reads live values (T-5.2)
+        goodhartRuntime.goodhartConfig = goodhartConfig
+        goodhartRuntime.routingState = routingState
+        goodhartRuntime.goodhartMetrics = goodhartMetrics
         // Emit state transition event (T-4.6)
         const { emitRoutingStateTransition } = await import("./hounfour/goodhart/routing-events.js")
         emitRoutingStateTransition(prevState, routingState, "goodhart_init_success")
       } else {
         console.warn("[finn] goodhart: redis unavailable, degrading to deterministic")
         goodhartMetrics.setRoutingMode("disabled")
+        // Sync holder — disabled state (T-5.2)
+        goodhartRuntime.goodhartMetrics = goodhartMetrics
         // routingState stays "disabled" — not init_failed (known condition)
       }
     } catch (err) {
@@ -328,6 +341,9 @@ async function main() {
         goodhartMetrics.goodhartInitFailed.inc()
         goodhartMetrics.setRoutingMode("init_failed")
       }
+      // Sync holder — init_failed state (T-5.2)
+      goodhartRuntime.routingState = "init_failed"
+      goodhartRuntime.goodhartMetrics = goodhartMetrics
       // Emit state transition event (T-4.6)
       try {
         const { emitRoutingStateTransition } = await import("./hounfour/goodhart/routing-events.js")
@@ -338,14 +354,10 @@ async function main() {
       // Start recovery scheduler with exponential backoff (T-4.3)
       try {
         const { GoodhartRecoveryScheduler } = await import("./hounfour/goodhart/init.js")
-        const recoveryRuntime = {
-          goodhartConfig,
-          routingState,
-          goodhartMetrics,
-        }
+        // Pass the shared holder so recovery writes propagate to router (T-5.2)
         const redisClient = redis?.isConnected() ? redis.getClient() : null
         goodhartRecoveryScheduler = new GoodhartRecoveryScheduler(
-          recoveryRuntime,
+          goodhartRuntime,
           {
             redisClient,
             redisPrefix: process.env.FINN_REDIS_PREFIX ?? "armitage:",
@@ -353,7 +365,11 @@ async function main() {
             requestedMode,
           },
           (recovered) => {
-            // On successful recovery, update local references for the router
+            // Recovery updates the shared holder — router picks up changes automatically (T-5.2)
+            goodhartRuntime.goodhartConfig = recovered.goodhartConfig
+            goodhartRuntime.routingState = recovered.routingState as RoutingState
+            goodhartRuntime.goodhartMetrics = recovered.goodhartMetrics
+            // Also update local vars for any other index.ts code that reads them
             goodhartConfig = recovered.goodhartConfig
             routingState = recovered.routingState as RoutingState
             goodhartMetrics = recovered.goodhartMetrics
@@ -464,9 +480,7 @@ async function main() {
             scopeMeta, rateLimiter,
             projectRoot: process.cwd(),
             knowledgeRegistry,
-            goodhartConfig,
-            routingState,
-            goodhartMetrics,
+            goodhartRuntime,
           })
 
           // Validate all bindings at startup

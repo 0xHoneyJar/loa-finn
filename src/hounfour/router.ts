@@ -43,6 +43,7 @@ import type { MechanismConfig } from "./goodhart/mechanism-interaction.js"
 import { resolveWithGoodhart as resolveWithGoodhartTyped } from "./goodhart/resolve.js"
 import type { GoodhartOptions, GoodhartResult } from "./goodhart/resolve.js"
 import type { GraduationMetrics } from "./graduation-metrics.js"
+import type { GoodhartRuntime } from "./goodhart/init.js"
 import { emitRoutingOverride } from "./goodhart/routing-events.js"
 import { resolvePool } from "./tier-bridge.js"
 
@@ -63,9 +64,10 @@ export interface HounfourRouterOptions {
   byokProxy?: BYOKProxyClient           // Optional: BYOK proxy adapter (T-C.2)
   billingFinalize?: BillingFinalizeClient // Optional: S2S billing finalize (Phase 5 T5)
   knowledgeRegistry?: KnowledgeRegistry  // Optional: Oracle knowledge sources (Cycle 025)
-  goodhartConfig?: MechanismConfig       // Optional: Goodhart protection stack (cycle-036)
-  routingState?: RoutingState            // Optional: Goodhart routing state (cycle-036)
-  goodhartMetrics?: GraduationMetrics    // Optional: Goodhart Prometheus metrics (cycle-036)
+  goodhartConfig?: MechanismConfig       // Optional: Goodhart protection stack (cycle-036) — legacy, prefer goodhartRuntime
+  routingState?: RoutingState            // Optional: Goodhart routing state (cycle-036) — legacy, prefer goodhartRuntime
+  goodhartMetrics?: GraduationMetrics    // Optional: Goodhart Prometheus metrics (cycle-036) — legacy, prefer goodhartRuntime
+  goodhartRuntime?: GoodhartRuntime      // Optional: shared mutable holder — recovery updates propagate automatically (T-5.2)
   projectRoot?: string                  // For persona path resolution
   routingConfig?: Partial<RoutingConfig>
   toolCallConfig?: Partial<ToolCallLoopConfig>
@@ -188,9 +190,7 @@ export class HounfourRouter {
   private byokProxy?: BYOKProxyClient
   private billingFinalize?: BillingFinalizeClient
   private knowledgeRegistry?: KnowledgeRegistry
-  private goodhartConfig?: MechanismConfig
-  private _routingState: RoutingState
-  private goodhartMetrics?: GraduationMetrics
+  private _goodhartRuntime: GoodhartRuntime
   private _lastKillSwitchActive = false
   private projectRoot: string
   private routingConfig: RoutingConfig
@@ -207,9 +207,13 @@ export class HounfourRouter {
     this.byokProxy = options.byokProxy
     this.billingFinalize = options.billingFinalize
     this.knowledgeRegistry = options.knowledgeRegistry
-    this.goodhartConfig = options.goodhartConfig
-    this._routingState = options.routingState ?? "disabled"
-    this.goodhartMetrics = options.goodhartMetrics
+    // Use shared GoodhartRuntime holder if provided (T-5.2: recovery updates propagate).
+    // Falls back to copying legacy fields for backward compatibility.
+    this._goodhartRuntime = options.goodhartRuntime ?? {
+      goodhartConfig: options.goodhartConfig,
+      routingState: options.routingState ?? "disabled",
+      goodhartMetrics: options.goodhartMetrics,
+    }
     this.projectRoot = options.projectRoot ?? process.cwd()
     this.routingConfig = {
       default_model: options.routingConfig?.default_model ?? "",
@@ -232,9 +236,17 @@ export class HounfourRouter {
     this.billingFinalize = client
   }
 
-  /** Current routing state for health reporting */
+  /** Current routing state for health reporting — reads from shared holder */
   get routingState(): RoutingState {
-    return this._routingState
+    return this._goodhartRuntime.routingState
+  }
+
+  /** Convenience accessors for Goodhart fields from the shared runtime holder */
+  private get goodhartConfig(): MechanismConfig | undefined {
+    return this._goodhartRuntime.goodhartConfig
+  }
+  private get goodhartMetrics(): GraduationMetrics | undefined {
+    return this._goodhartRuntime.goodhartMetrics
   }
 
   /**
@@ -267,7 +279,7 @@ export class HounfourRouter {
     const startMs = Date.now()
 
     // 1. KillSwitch — highest precedence override (SDD §3.3)
-    //    Redis key: finn:killswitch:mode (prefixed via PrefixedRedisClient)
+    //    Redis key: finn:config:reputation_routing → "disabled" forces deterministic
     //    Values: "normal" (default/missing) | "kill" (force-disable)
     //    Missing key = "normal" (safe default)
     //    Redis unavailable = "normal" (fail-open for the switch)
@@ -304,14 +316,14 @@ export class HounfourRouter {
     }
 
     // 2. Disabled — no Goodhart invocation
-    if (this._routingState === "disabled") {
+    if (this.routingState === "disabled") {
       this.goodhartMetrics?.recordRoutingDuration("disabled", Date.now() - startMs)
       const pool = resolvePool(tier, taskType, nftPreferences)
       return { pool, source: "deterministic" }
     }
 
     // 3. Init failed — deterministic + counter
-    if (this._routingState === "init_failed") {
+    if (this.routingState === "init_failed") {
       this.goodhartMetrics?.goodhartInitFailedRequests.inc()
       this.goodhartMetrics?.recordRoutingDuration("init_failed", Date.now() - startMs)
       const pool = resolvePool(tier, taskType, nftPreferences)
@@ -328,9 +340,9 @@ export class HounfourRouter {
     }
 
     const options: GoodhartOptions = {
-      mode: this._routingState as "shadow" | "enabled",
+      mode: this.routingState as "shadow" | "enabled",
       seed: requestId,
-      allowWrites: this._routingState === "enabled",
+      allowWrites: this.routingState === "enabled",
     }
 
     const reputationResult = await resolveWithGoodhartTyped(
@@ -348,7 +360,7 @@ export class HounfourRouter {
       this.goodhartMetrics,
     )
 
-    if (this._routingState === "shadow") {
+    if (this.routingState === "shadow") {
       // Shadow: log divergence with per-pool scores, return deterministic
       const diverged = reputationResult?.pool !== deterministicPool
       if (diverged && reputationResult?.scoredPools?.length) {

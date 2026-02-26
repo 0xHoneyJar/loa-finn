@@ -79,6 +79,48 @@ describe("GraduationMetrics", () => {
       expect(timeoutBuckets).toBeDefined()
       expect(timeoutBuckets!.count).toBe(1)
     })
+
+    it("histogram buckets are not double-accumulated (C-1 fix)", () => {
+      // Boundaries for routing duration: [0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.5]
+      // Observe 3 values: 0.003s, 0.008s, 0.15s
+      metrics.recordRoutingDuration("shadow", 3)    // 0.003s → le=0.005 bucket
+      metrics.recordRoutingDuration("shadow", 8)    // 0.008s → le=0.01 bucket
+      metrics.recordRoutingDuration("shadow", 150)  // 0.15s  → le=0.2 bucket
+
+      const buckets = metrics.routingDuration.getBuckets({ path: "shadow" })
+      expect(buckets).toBeDefined()
+      expect(buckets!.count).toBe(3)
+
+      // Verify per-bucket (non-cumulative) counts:
+      // le=0.001: 0 (nothing <= 0.001)
+      // le=0.005: 1 (0.003)
+      // le=0.01:  1 (0.008)
+      // le=0.05:  0
+      // le=0.1:   0
+      // le=0.2:   1 (0.15)
+      // le=0.5:   0
+      // +Inf:     3
+      expect(buckets!.counts[0]).toBe(0)  // le=0.001
+      expect(buckets!.counts[1]).toBe(1)  // le=0.005 (0.003 placed here)
+      expect(buckets!.counts[2]).toBe(1)  // le=0.01 (0.008 placed here)
+      expect(buckets!.counts[3]).toBe(0)  // le=0.05
+      expect(buckets!.counts[4]).toBe(0)  // le=0.1
+      expect(buckets!.counts[5]).toBe(1)  // le=0.2 (0.15 placed here)
+      expect(buckets!.counts[6]).toBe(0)  // le=0.5
+      expect(buckets!.counts[7]).toBe(3)  // +Inf (always == count)
+
+      // Verify Prometheus output has correct cumulative values
+      const output = metrics.toPrometheus()
+      // Cumulative: le=0.001→0, le=0.005→1, le=0.01→2, le=0.05→2, le=0.1→2, le=0.2→3, le=0.5→3, +Inf→3
+      expect(output).toContain('finn_routing_duration_seconds_bucket{path="shadow",le="0.001"} 0')
+      expect(output).toContain('finn_routing_duration_seconds_bucket{path="shadow",le="0.005"} 1')
+      expect(output).toContain('finn_routing_duration_seconds_bucket{path="shadow",le="0.01"} 2')
+      expect(output).toContain('finn_routing_duration_seconds_bucket{path="shadow",le="0.05"} 2')
+      expect(output).toContain('finn_routing_duration_seconds_bucket{path="shadow",le="0.1"} 2')
+      expect(output).toContain('finn_routing_duration_seconds_bucket{path="shadow",le="0.2"} 3')
+      expect(output).toContain('finn_routing_duration_seconds_bucket{path="shadow",le="0.5"} 3')
+      expect(output).toContain('finn_routing_duration_seconds_bucket{path="shadow",le="+Inf"} 3')
+    })
   })
 
   describe("Prometheus export", () => {

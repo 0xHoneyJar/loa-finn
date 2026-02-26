@@ -1505,9 +1505,30 @@
           "label": "Bridgebuilder Excellence Fixes",
           "status": "completed",
           "tasks": 6
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 149,
+          "label": "Staging-Blocking Fixes (Before Activation)",
+          "status": "pending",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-6",
+          "global_id": 150,
+          "label": "Shadow Traffic Safety (Before First Shadow Traffic)",
+          "status": "pending",
+          "tasks": 9
+        },
+        {
+          "local_id": "sprint-7",
+          "global_id": 151,
+          "label": "Excellence & Test Coverage (Before Graduation)",
+          "status": "pending",
+          "tasks": 12
         }
       ]
     }
   ],
-  "next_global_sprint_id": 147
+  "next_global_sprint_id": 152
 }

@@ -109,12 +109,16 @@ class Histogram {
     bucket.sum += value
     bucket.count++
 
+    // Place value in the first (smallest) matching bucket only.
+    // toPrometheus() computes cumulative sums for Prometheus output.
     for (let i = 0; i < this.boundaries.length; i++) {
       if (value <= this.boundaries[i]) {
         bucket.counts[i]++
+        break
       }
     }
-    // +Inf bucket
+    // +Inf bucket: always incremented (every observation counts toward +Inf).
+    // For values exceeding all boundaries, this is the only bucket incremented.
     bucket.counts[this.boundaries.length]++
   }
 
