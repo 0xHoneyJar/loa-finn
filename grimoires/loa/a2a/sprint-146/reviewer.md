@@ -32,7 +32,7 @@ Shell script using `openssl genpkey` with `prime256v1` curve. Generates 4 keypai
 - **dixie**: S2S signing for dixie → finn
 - **admin**: Admin JWT signing for `/admin/mode` endpoint
 
-Keys are PKCS8 PEM format (compatible with jose `importPKCS8`). Private keys chmod 600. These are seed material for LocalStack Secrets Manager — application services use SecretsLoader, not direct PEM mounts.
+Keys are PKCS8 PEM format (compatible with jose `importPKCS8`). Private keys chmod 600 locally. All keys committed to repo (test-only, per sprint plan spec). These are seed material for LocalStack Secrets Manager — application services use SecretsLoader, not direct PEM mounts.
 
 ### T-3.2: docker-compose.e2e-v3.yml
 
@@ -129,6 +129,6 @@ Extends v1 init script with Secrets Manager seeding:
 
 - E2E tests require the docker-compose v3 stack running — they cannot be verified in isolation
 - Tests use defensive assertions (`expect([200, 503]).toContain(...)`) to handle cold-start timing
-- Private PEM keys are generated per-environment (not committed), seeded into LocalStack Secrets Manager
+- PEM keys (test-only) are committed to repo per sprint plan spec ("Keys checked into repo (test-only)") for deterministic CI. They are seed material for LocalStack Secrets Manager — never used in production.
 - Admin JWKS is constructed from EC public key coordinates (x, y extracted via openssl)
 - All tests use `AbortSignal.timeout(5000)` to prevent hangs
