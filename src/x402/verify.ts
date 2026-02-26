@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto"
 import type { RedisCommandClient } from "../hounfour/redis/client.js"
 import type { X402Quote, PaymentProof, EIP3009Authorization } from "./types.js"
-import { X402Error } from "./types.js"
+import { X402Error, BASE_CHAIN_ID, USDC_BASE_ADDRESS } from "./types.js"
 import { getTracer } from "../tracing/otlp.js"
 
 // ---------------------------------------------------------------------------
@@ -76,10 +76,28 @@ export class PaymentVerifier {
       span?.setAttribute("wallet_address", auth.from)
       span?.setAttribute("is_replay", false)
 
-      // Verify recipient is treasury
+      // Chain binding (SDD §4.4.2, AC28b)
+      if (proof.chain_id !== BASE_CHAIN_ID) {
+        throw new X402Error(
+          `Expected Base (${BASE_CHAIN_ID}), got ${proof.chain_id}`,
+          "INVALID_CHAIN",
+          402,
+        )
+      }
+
+      // Token contract binding (SDD §4.4.2, AC28c)
+      if (quote.token_address.toLowerCase() !== USDC_BASE_ADDRESS.toLowerCase()) {
+        throw new X402Error(
+          "Only USDC on Base accepted",
+          "INVALID_TOKEN",
+          402,
+        )
+      }
+
+      // Recipient binding (SDD §4.4.2, AC28a)
       if (auth.to.toLowerCase() !== this.treasuryAddress.toLowerCase()) {
         throw new X402Error(
-          "Payment recipient must be treasury address",
+          "Payment directed to wrong recipient",
           "INVALID_RECIPIENT",
           402,
         )
