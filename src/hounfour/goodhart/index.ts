@@ -16,3 +16,15 @@ export { resolveWithGoodhart } from "./mechanism-interaction.js"
 export type { MechanismConfig, ReputationScoringResult } from "./mechanism-interaction.js"
 
 export { KillSwitch } from "./kill-switch.js"
+
+export { ReputationAdapter } from "./reputation-adapter.js"
+export type { ReputationAdapterConfig } from "./reputation-adapter.js"
+
+export { DixieStubTransport, DixieHttpTransport, DixieDirectTransport } from "./dixie-transport.js"
+export type { DixieTransport, DixieHttpConfig, DixieReputationStore } from "./dixie-transport.js"
+
+export { ReputationResponseSchema, normalizeResponse, wrapBareNumber } from "./reputation-response.js"
+export type { ReputationResponse } from "./reputation-response.js"
+
+export { scoreObservation, computeEventHash, normalizeToEvent, feedQualitySignal } from "./quality-signal.js"
+export type { QualityObservation, QualitySignalConfig, ReputationEvent } from "./quality-signal.js"

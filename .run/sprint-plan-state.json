@@ -4,15 +4,15 @@
   "state": "RUNNING",
   "timestamps": {
     "started": "2026-02-26T17:10:00Z",
-    "last_activity": "2026-02-26T17:10:00Z"
+    "last_activity": "2026-02-26T19:51:00Z"
   },
   "sprints": {
     "total": 6,
-    "completed": 0,
-    "current": "sprint-1",
+    "completed": 2,
+    "current": "sprint-3",
     "list": [
-      {"id": "sprint-1", "global_id": 138, "status": "pending", "cycles": 0, "label": "Goodhart Protection Engine"},
-      {"id": "sprint-2", "global_id": 139, "status": "pending", "cycles": 0, "label": "Reputation Query Bridge + Quality Signal"},
+      {"id": "sprint-1", "global_id": 138, "status": "completed", "cycles": 1, "label": "Goodhart Protection Engine", "files_changed": 10},
+      {"id": "sprint-2", "global_id": 139, "status": "completed", "cycles": 1, "label": "Reputation Query Bridge + Quality Signal", "files_changed": 11},
       {"id": "sprint-3", "global_id": 140, "status": "pending", "cycles": 0, "label": "x402 Settlement System"},
       {"id": "sprint-4", "global_id": 141, "status": "pending", "cycles": 0, "label": "Tamper-Evident Audit Trail"},
       {"id": "sprint-5", "global_id": 142, "status": "pending", "cycles": 0, "label": "AWS Deployment Pipeline"},
@@ -26,9 +26,9 @@
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 0,
-    "total_files_changed": 0,
-    "total_findings_fixed": 0
+    "total_cycles": 2,
+    "total_files_changed": 21,
+    "total_findings_fixed": 4
   },
   "cycle": "cycle-034"
 }
