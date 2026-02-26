@@ -10,6 +10,7 @@ import type { TemporalDecayEngine, EMAKey } from "./temporal-decay.js"
 import type { ExplorationEngine } from "./exploration.js"
 import type { CalibrationEngine } from "./calibration.js"
 import type { KillSwitch } from "./kill-switch.js"
+import type { ResilientAuditLogger } from "../audit/audit-fallback.js"
 
 // --- Types ---
 
@@ -20,6 +21,8 @@ export interface MechanismConfig {
   killSwitch: KillSwitch
   /** Weight applied to exploration feedback EMA updates (default: 0.5) */
   explorationFeedbackWeight: number
+  /** Optional audit logger for tamper-evident scoring path log (T-4.7). */
+  auditLogger?: ResilientAuditLogger
 }
 
 export interface ReputationScoringResult {
@@ -64,8 +67,13 @@ export async function resolveWithGoodhart(
 
   // 1. Kill switch — deterministic routing, zero reputation queries
   if (config.killSwitch.isDisabled()) {
+    const pool = resolvePool(tier, taskType, nftPreferences)
+    // Audit: kill switch path (best-effort, never blocks routing)
+    void config.auditLogger?.log("scoring_path", {
+      path: "kill_switch", tier, nftId, pool, routingKey,
+    })
     return {
-      pool: resolvePool(tier, taskType, nftPreferences),
+      pool,
       score: null,
       path: "kill_switch",
       metadata: {},
@@ -86,6 +94,11 @@ export async function resolveWithGoodhart(
   if (explorationDecision.explore && explorationDecision.selectedPool) {
     // Record exploration for observability (best-effort)
     void config.exploration.recordExploration(tier)
+    // Audit: exploration path
+    void config.auditLogger?.log("scoring_path", {
+      path: "exploration", tier, nftId, pool: explorationDecision.selectedPool,
+      routingKey, candidateSetSize: explorationDecision.candidateSetSize,
+    })
 
     return {
       pool: explorationDecision.selectedPool,
@@ -151,6 +164,11 @@ export async function resolveWithGoodhart(
 
   // If reputation scoring produced a winner
   if (bestPool !== null) {
+    // Audit: reputation path
+    void config.auditLogger?.log("scoring_path", {
+      path: "reputation", tier, nftId, pool: bestPool, score: bestScore,
+      routingKey, decayApplied: anyDecayApplied, calibrationApplied: anyCalibrationApplied,
+    })
     return {
       pool: bestPool,
       score: bestScore,
@@ -163,10 +181,16 @@ export async function resolveWithGoodhart(
   }
 
   // 4. Deterministic fallback — all reputation queries returned null
+  const fallbackPool = resolvePool(tier, taskType, nftPreferences)
+  const fallbackPath = explorationDecision.explore ? "exploration_skipped" : "deterministic"
+  // Audit: fallback path
+  void config.auditLogger?.log("scoring_path", {
+    path: fallbackPath, tier, nftId, pool: fallbackPool, routingKey,
+  })
   return {
-    pool: resolvePool(tier, taskType, nftPreferences),
+    pool: fallbackPool,
     score: null,
-    path: explorationDecision.explore ? "exploration_skipped" : "deterministic",
+    path: fallbackPath,
     metadata: {},
   }
 }

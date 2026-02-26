@@ -10,6 +10,7 @@ import { getTracer } from "../tracing/otlp.js"
 import type { SettlementStore } from "./settlement-store.js"
 import { buildIdempotencyKey } from "./settlement-store.js"
 import { USDC_BASE_ADDRESS, BASE_CHAIN_ID } from "./types.js"
+import type { ResilientAuditLogger } from "../hounfour/audit/audit-fallback.js"
 
 // ---------------------------------------------------------------------------
 // Circuit Breaker
@@ -245,6 +246,8 @@ export interface MerchantRelayerDeps {
   waitForConfirmation?: (txHash: string, timeoutMs: number) => Promise<SettlementResult>
   confirmationTimeoutMs?: number
   maxConcurrentSettlements?: number
+  /** Optional audit logger for tamper-evident settlement log (T-4.7). */
+  auditLogger?: ResilientAuditLogger
 }
 
 export interface MerchantRelayerResult {
@@ -262,6 +265,7 @@ export class MerchantRelayer {
   private readonly confirmationTimeoutMs: number
   private readonly maxConcurrent: number
   private activeConcurrent = 0
+  private readonly auditLogger?: ResilientAuditLogger
 
   constructor(deps: MerchantRelayerDeps) {
     this.store = deps.store
@@ -269,6 +273,7 @@ export class MerchantRelayer {
     this.waitForConfirmation = deps.waitForConfirmation
     this.confirmationTimeoutMs = deps.confirmationTimeoutMs ?? DEFAULT_CONFIRMATION_TIMEOUT_MS
     this.maxConcurrent = deps.maxConcurrentSettlements ?? DEFAULT_MAX_CONCURRENT_SETTLEMENTS
+    this.auditLogger = deps.auditLogger
   }
 
   /**
@@ -362,6 +367,10 @@ export class MerchantRelayer {
       }
 
       this.activeConcurrent++
+      // Audit: settlement claimed (best-effort, never blocks settlement)
+      void this.auditLogger?.log("settlement_claimed", {
+        idempotencyKey, quoteId, from: auth.from, nonce: auth.nonce, chainId,
+      })
       try {
         // 4. Submit on-chain
         const result = await this.service.settle(auth, quoteId)
@@ -412,6 +421,10 @@ export class MerchantRelayer {
           await this.store.update(idempotencyKey, { status: "confirmed" })
         }
 
+        // Audit: settlement confirmed
+        void this.auditLogger?.log("settlement_confirmed", {
+          idempotencyKey, txHash: result.tx_hash, quoteId, chainId,
+        })
         return {
           idempotencyKey,
           txHash: result.tx_hash,
