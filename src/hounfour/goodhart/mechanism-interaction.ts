@@ -11,6 +11,7 @@ import type { ExplorationEngine } from "./exploration.js"
 import type { CalibrationEngine } from "./calibration.js"
 import type { KillSwitch } from "./kill-switch.js"
 import type { ResilientAuditLogger } from "../audit/audit-fallback.js"
+import type { GraduationMetrics } from "../graduation-metrics.js"
 
 // --- Types ---
 
@@ -23,6 +24,8 @@ export interface MechanismConfig {
   explorationFeedbackWeight: number
   /** Optional audit logger for tamper-evident scoring path log (T-4.7). */
   auditLogger?: ResilientAuditLogger
+  /** Optional graduation metrics for Prometheus export (T-2.6). */
+  metrics?: GraduationMetrics
 }
 
 export interface ReputationScoringResult {
@@ -97,6 +100,9 @@ export async function resolveWithGoodhart(
     const shadowPool = shadowResult.bestPool ?? deterministicPool
     const diverged = shadowPool !== deterministicPool
 
+    // Metrics: shadow decision + divergence (T-2.6)
+    config.metrics?.recordShadowDecision(tier, diverged)
+
     // Emit shadow comparison log (structured JSON for dashboards)
     console.log(JSON.stringify({
       component: "mechanism-interaction",
@@ -148,6 +154,8 @@ export async function resolveWithGoodhart(
   if (explorationDecision.explore && explorationDecision.selectedPool) {
     // Record exploration for observability (best-effort)
     void config.exploration.recordExploration(tier)
+    // Metrics: exploration event (T-2.6)
+    config.metrics?.recordExploration(tier)
     // Audit: exploration path
     void config.auditLogger?.log("scoring_path", {
       path: "exploration", tier, nftId, pool: explorationDecision.selectedPool,

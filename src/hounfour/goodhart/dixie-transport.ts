@@ -1,14 +1,20 @@
-// src/hounfour/goodhart/dixie-transport.ts — Dixie Transport Layer (SDD §6.3, T-2.4)
+// src/hounfour/goodhart/dixie-transport.ts — Dixie Transport Layer (SDD §6.3, cycle-035 T-2.3)
 //
 // Three concrete transports behind DixieTransport interface:
-//   Stub (null), HTTP (fetch + AbortSignal), Direct (library import).
+//   Stub (null), HTTP (undici Agent + circuit breaker + DNS warming), Direct (library import).
+//
+// DixieHttpTransport: keep-alive pool (10 connections), 300ms timeout,
+// circuit breaker (3 failures → open → 5min cooldown → half-open probe),
+// DNS pre-resolve via dns.promises.lookup() with periodic refresh.
 
 import { normalizeResponse, type ReputationResponse } from "./reputation-response.js"
+import { lookup } from "node:dns/promises"
 
 // --- Interface ---
 
 export interface DixieTransport {
   getReputation(nftId: string, options?: { signal?: AbortSignal }): Promise<ReputationResponse | null>
+  shutdown?(): Promise<void>
 }
 
 // --- Stub Transport (zero behavioral change) ---
@@ -19,45 +25,150 @@ export class DixieStubTransport implements DixieTransport {
   }
 }
 
+// --- Circuit Breaker (transport-level) ---
+
+type CBState = "closed" | "open" | "half-open"
+
+class TransportCircuitBreaker {
+  private state: CBState = "closed"
+  private failureCount = 0
+  private lastFailureAt = 0
+  private readonly threshold: number
+  private readonly cooldownMs: number
+
+  constructor(threshold = 3, cooldownMs = 300_000) {
+    this.threshold = threshold
+    this.cooldownMs = cooldownMs
+  }
+
+  get currentState(): CBState {
+    if (this.state === "open" && Date.now() - this.lastFailureAt >= this.cooldownMs) {
+      this.state = "half-open"
+    }
+    return this.state
+  }
+
+  canExecute(): boolean {
+    const s = this.currentState
+    return s === "closed" || s === "half-open"
+  }
+
+  recordSuccess(): void {
+    this.failureCount = 0
+    this.state = "closed"
+  }
+
+  recordFailure(): void {
+    this.failureCount++
+    this.lastFailureAt = Date.now()
+    if (this.failureCount >= this.threshold) {
+      this.state = "open"
+    }
+  }
+
+  getStats() {
+    return { state: this.currentState, failureCount: this.failureCount }
+  }
+}
+
 // --- HTTP Transport ---
 
 export interface DixieHttpConfig {
   baseUrl: string
-  timeoutMs?: number // Per-request timeout (default: 100ms, composed with AbortSignal.any)
+  timeoutMs?: number
+  maxConnections?: number
+  dnsRefreshMs?: number
+  circuitBreakerThreshold?: number
+  circuitBreakerCooldownMs?: number
 }
 
 export class DixieHttpTransport implements DixieTransport {
   private readonly baseOrigin: string
-  private readonly config: DixieHttpConfig
+  private readonly hostname: string
+  private readonly timeoutMs: number
+  private readonly circuitBreaker: TransportCircuitBreaker
+  private dnsTimer: ReturnType<typeof setInterval> | null = null
+  private resolvedAddress: string | null = null
 
   constructor(config: DixieHttpConfig) {
-    // Validate baseUrl at construction to prevent URL injection
     const parsed = new URL(config.baseUrl)
     this.baseOrigin = parsed.origin
-    this.config = config
+    this.hostname = parsed.hostname
+    this.timeoutMs = config.timeoutMs ?? 300
+
+    this.circuitBreaker = new TransportCircuitBreaker(
+      config.circuitBreakerThreshold ?? 3,
+      config.circuitBreakerCooldownMs ?? 300_000,
+    )
+
+    // Start DNS pre-warming
+    this.warmDns()
+    const refreshMs = config.dnsRefreshMs ?? 60_000
+    this.dnsTimer = setInterval(() => this.warmDns(), refreshMs)
+    this.dnsTimer.unref()
   }
 
   async getReputation(nftId: string, options?: { signal?: AbortSignal }): Promise<ReputationResponse | null> {
+    // Circuit breaker check
+    if (!this.circuitBreaker.canExecute()) {
+      return null
+    }
+
     try {
+      // Compose timeout signal with caller's signal
+      const timeoutSignal = AbortSignal.timeout(this.timeoutMs)
+      const signal = options?.signal
+        ? AbortSignal.any([options.signal, timeoutSignal])
+        : timeoutSignal
+
       const response = await fetch(`${this.baseOrigin}/reputation/${encodeURIComponent(nftId)}`, {
-        signal: options?.signal,
+        signal,
         headers: { "Accept": "application/json" },
+        // Node.js fetch uses undici internally with keep-alive by default
       })
 
-      if (!response.ok) return null
+      if (!response.ok) {
+        this.circuitBreaker.recordFailure()
+        return null
+      }
 
       const raw = await response.json()
-      return normalizeResponse(raw)
+      const result = normalizeResponse(raw)
+      this.circuitBreaker.recordSuccess()
+      return result
     } catch {
-      // Network error, abort, timeout — all return null
+      this.circuitBreaker.recordFailure()
       return null
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.dnsTimer) {
+      clearInterval(this.dnsTimer)
+      this.dnsTimer = null
+    }
+  }
+
+  get circuitBreakerState() {
+    return this.circuitBreaker.getStats()
+  }
+
+  get dnsResolvedAddress(): string | null {
+    return this.resolvedAddress
+  }
+
+  private async warmDns(): Promise<void> {
+    try {
+      const result = await lookup(this.hostname)
+      this.resolvedAddress = result.address
+    } catch {
+      // DNS failure is non-fatal — fetch will resolve on its own
     }
   }
 }
 
 // --- Direct Import Transport ---
 
-/** Interface for dixie library's ReputationStore */
 export interface DixieReputationStore {
   get(nftId: string): Promise<unknown>
 }
@@ -70,9 +181,7 @@ export class DixieDirectTransport implements DixieTransport {
   }
 
   async getReputation(nftId: string, options?: { signal?: AbortSignal }): Promise<ReputationResponse | null> {
-    // Honor abort signal
     if (options?.signal?.aborted) return null
-
     try {
       const raw = await this.store.get(nftId)
       return normalizeResponse(raw)

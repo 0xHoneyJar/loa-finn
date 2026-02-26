@@ -73,6 +73,14 @@ export interface AppOptions {
   redisHealth?: () => Promise<{ connected: boolean; latencyMs: number }>
   /** DynamoDB health for /health/deps (cycle-035 T-1.3) */
   dynamoHealth?: () => Promise<{ reachable: boolean; latencyMs: number }>
+  /** Admin JWKS key resolver for JWT auth (cycle-035 T-2.1) */
+  adminJwksResolver?: (protectedHeader: { kid?: string; alg?: string }, token: { payload: unknown }) => Promise<import("jose").KeyLike | Uint8Array>
+  /** RuntimeConfig for admin mode changes (cycle-035 T-2.1) */
+  runtimeConfig?: import("../hounfour/runtime-config.js").RuntimeConfig
+  /** Audit append function for admin audit-first semantics (cycle-035 T-2.1) */
+  auditAppend?: (action: string, payload: Record<string, unknown>) => Promise<string | null>
+  /** Graduation metrics for /metrics endpoint (cycle-035 T-2.5) */
+  graduationMetrics?: import("../hounfour/graduation-metrics.js").GraduationMetrics
 }
 
 export function createApp(config: FinnConfig, options: AppOptions) {
@@ -500,17 +508,26 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     app.route("/api/identity", createIdentityRoutes(options.identityDeps))
   }
 
-  // Admin seed endpoint — FINN_AUTH_TOKEN auth, for E2E/CI only (T3.9)
+  // Admin endpoints — JWKS JWT auth for mode changes, FINN_AUTH_TOKEN for seed-credits (cycle-035 T-2.1/T-2.2)
   {
     const adminDeps: AdminRouteDeps = {
       setCreditBalance: async (_wallet: string, _credits: number) => {
         // TODO: Wire to real credit store when billing is fully integrated.
-        // For now, this is a no-op stub that satisfies E2E smoke tests.
-        // The route itself validates inputs and handles auth — the stub
-        // only needs to not throw.
       },
+      runtimeConfig: options.runtimeConfig,
+      auditAppend: options.auditAppend,
+      jwksKeyResolver: options.adminJwksResolver,
     }
     app.route("/api/v1/admin", createAdminRoutes(adminDeps))
+  }
+
+  // Prometheus metrics endpoint (cycle-035 T-2.5)
+  if (options.graduationMetrics) {
+    const metrics = options.graduationMetrics
+    app.get("/metrics", (c) => {
+      c.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+      return c.text(metrics.toPrometheus())
+    })
   }
 
   return { app, router }
