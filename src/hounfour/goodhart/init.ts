@@ -7,10 +7,12 @@
 
 import type { MechanismConfig } from "./mechanism-interaction.js"
 import type { GraduationMetrics } from "../graduation-metrics.js"
+import type { RedisCommandClient } from "../redis/client.js"
+// T-7.3: Import canonical RoutingState from router.ts
+import type { RoutingState } from "../router.js"
+export type { RoutingState }
 
 // --- GoodhartRuntime (mutable holder) ---
-
-export type RoutingState = "disabled" | "shadow" | "enabled" | "init_failed"
 
 /**
  * Mutable runtime holder shared between index.ts and the router.
@@ -26,7 +28,7 @@ export interface GoodhartRuntime {
 
 export interface GoodhartInitDeps {
   /** Redis client (from main boot), or null if unavailable */
-  redisClient: unknown | null
+  redisClient: RedisCommandClient | null
   /** Redis prefix for key isolation */
   redisPrefix: string
   /** Redis logical DB index */
@@ -53,7 +55,7 @@ export async function initGoodhartStack(deps: GoodhartInitDeps): Promise<Goodhar
   const transport = createDixieTransport(process.env.DIXIE_BASE_URL)
 
   const prefixedRedis = deps.redisClient
-    ? await createPrefixedRedisClient(deps.redisClient as any, deps.redisPrefix, deps.redisDb)
+    ? await createPrefixedRedisClient(deps.redisClient, deps.redisPrefix, deps.redisDb)
     : null
 
   const decay = prefixedRedis ? new TemporalDecayEngine({
@@ -104,7 +106,7 @@ export async function initGoodhartStack(deps: GoodhartInitDeps): Promise<Goodhar
       explorationFeedbackWeight: 0.5,
       metrics: goodhartMetrics,
     }
-    const routingState = deps.requestedMode as "shadow" | "enabled"
+    const routingState: RoutingState = deps.requestedMode as RoutingState
     goodhartMetrics.setRoutingMode(routingState)
     return { goodhartConfig, routingState, goodhartMetrics }
   }

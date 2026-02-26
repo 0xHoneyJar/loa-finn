@@ -222,9 +222,9 @@ async function main() {
   //   1. KillSwitch Redis SET (instant, <1s)
   //   2. FINN_REPUTATION_ROUTING=disabled env override (requires redeploy, ~5min)
   //   3. Redis unreachable at boot → defaults to "disabled" (existing behavior)
-  type RoutingState = "disabled" | "shadow" | "enabled" | "init_failed"
+  // T-7.3: RoutingState imported from canonical source (router.ts via init.ts re-export)
   let goodhartConfig: import("./hounfour/goodhart/mechanism-interaction.js").MechanismConfig | undefined
-  let routingState: RoutingState = "disabled"
+  let routingState: import("./hounfour/router.js").RoutingState = "disabled"
   let goodhartMetrics: import("./hounfour/graduation-metrics.js").GraduationMetrics | undefined
   let goodhartRecoveryScheduler: import("./hounfour/goodhart/init.js").GoodhartRecoveryScheduler | undefined
   // Shared mutable holder — router reads from this on every request (T-5.2).
@@ -244,94 +244,35 @@ async function main() {
     console.warn("[finn] FINN_REPUTATION_ROUTING not set — defaulting to disabled. Set explicitly in deploy config.")
   }
 
+  // T-7.8: Deduplicated — all Goodhart init logic lives in init.ts
   if (requestedMode !== "disabled") {
+    const redisClient = redis?.isConnected() ? redis.getClient() : null
+    const initDeps = {
+      redisClient: redisClient ?? null,
+      redisPrefix: process.env.FINN_REDIS_PREFIX ?? "armitage:",
+      redisDb: parseInt(process.env.FINN_REDIS_DB ?? "0", 10),
+      requestedMode,
+    }
+
     try {
-      const { createDixieTransport } = await import("./hounfour/goodhart/transport-factory.js")
-      const { TemporalDecayEngine } = await import("./hounfour/goodhart/temporal-decay.js")
-      const { ExplorationEngine } = await import("./hounfour/goodhart/exploration.js")
-      const { CalibrationEngine } = await import("./hounfour/goodhart/calibration.js")
-      const { KillSwitch } = await import("./hounfour/goodhart/kill-switch.js")
-      const { RuntimeConfig } = await import("./hounfour/runtime-config.js")
-      const { GraduationMetrics } = await import("./hounfour/graduation-metrics.js")
-      const { createPrefixedRedisClient } = await import("./hounfour/infra/prefixed-redis.js")
+      const { initGoodhartStack } = await import("./hounfour/goodhart/init.js")
+      const result = await initGoodhartStack(initDeps)
+      const prevState = routingState
 
-      const transport = createDixieTransport(process.env.DIXIE_BASE_URL)
+      // Sync local vars
+      goodhartConfig = result.goodhartConfig
+      routingState = result.routingState
+      goodhartMetrics = result.goodhartMetrics
 
-      // Prefixed Redis client for Goodhart key isolation
-      const redisPrefix = process.env.FINN_REDIS_PREFIX ?? "armitage:"
-      const redisDb = parseInt(process.env.FINN_REDIS_DB ?? "0", 10)
-      const redisClient = redis?.isConnected() ? redis.getClient() : null
-      const prefixedRedis = redisClient
-        ? await createPrefixedRedisClient(redisClient, redisPrefix, redisDb)
-        : null
+      // Sync shared holder for router (T-5.2)
+      goodhartRuntime.goodhartConfig = result.goodhartConfig
+      goodhartRuntime.routingState = result.routingState
+      goodhartRuntime.goodhartMetrics = result.goodhartMetrics
 
-      const decay = prefixedRedis ? new TemporalDecayEngine({
-        redis: prefixedRedis,
-        halfLifeMs: 7 * 24 * 60 * 60 * 1000,          // 7 days
-        aggregateHalfLifeMs: 30 * 24 * 60 * 60 * 1000, // 30 days
-      }) : undefined
-
-      const exploration = prefixedRedis ? new ExplorationEngine({
-        redis: prefixedRedis,
-        defaultEpsilon: parseFloat(process.env.FINN_EXPLORATION_EPSILON ?? "0.05"),
-        epsilonByTier: {},
-        blocklist: new Set(),
-        costCeiling: 2.0,
-      }) : undefined
-
-      // CalibrationEngine: only construct when explicitly configured (SDD §3.2)
-      const calibBucket = process.env.FINN_CALIBRATION_BUCKET_NAME
-      const calibHmac = process.env.FINN_CALIBRATION_HMAC_KEY
-      let calibration: import("./hounfour/goodhart/calibration.js").CalibrationEngine
-      if (calibBucket && calibHmac) {
-        calibration = new CalibrationEngine({
-          s3Bucket: calibBucket,
-          s3Key: "finn/calibration.jsonl",
-          pollIntervalMs: 60_000,
-          calibrationWeight: 3.0,
-          hmacSecret: calibHmac,
-        })
-      } else {
-        // NoopCalibrationEngine: returns neutral scores, no polling, no S3
-        calibration = new CalibrationEngine({
-          s3Bucket: "",
-          s3Key: "",
-          pollIntervalMs: Number.MAX_SAFE_INTEGER,
-          calibrationWeight: 0,
-          hmacSecret: "",
-        })
-      }
-
-      const runtimeConfig = new RuntimeConfig(prefixedRedis)
-      const killSwitch = new KillSwitch(runtimeConfig)
-
-      goodhartMetrics = new GraduationMetrics()
-
-      if (decay && exploration) {
-        goodhartConfig = {
-          decay,
-          exploration,
-          calibration,
-          killSwitch,
-          explorationFeedbackWeight: 0.5,
-          metrics: goodhartMetrics,
-        }
-        const prevState = routingState
-        routingState = requestedMode as "shadow" | "enabled"
-        goodhartMetrics.setRoutingMode(routingState)
-        // Sync shared holder so router reads live values (T-5.2)
-        goodhartRuntime.goodhartConfig = goodhartConfig
-        goodhartRuntime.routingState = routingState
-        goodhartRuntime.goodhartMetrics = goodhartMetrics
-        // Emit state transition event (T-4.6)
+      // Emit state transition event (T-4.6)
+      if (result.routingState !== "disabled") {
         const { emitRoutingStateTransition } = await import("./hounfour/goodhart/routing-events.js")
-        emitRoutingStateTransition(prevState, routingState, "goodhart_init_success")
-      } else {
-        console.warn("[finn] goodhart: redis unavailable, degrading to deterministic")
-        goodhartMetrics.setRoutingMode("disabled")
-        // Sync holder — disabled state (T-5.2)
-        goodhartRuntime.goodhartMetrics = goodhartMetrics
-        // routingState stays "disabled" — not init_failed (known condition)
+        emitRoutingStateTransition(prevState, result.routingState, "goodhart_init_success")
       }
     } catch (err) {
       console.warn(`[finn] goodhart: init failed (non-fatal): ${(err as Error).message}`)
@@ -349,27 +290,17 @@ async function main() {
         const { emitRoutingStateTransition } = await import("./hounfour/goodhart/routing-events.js")
         emitRoutingStateTransition(prevState, "init_failed", "goodhart_init_error")
       } catch { /* routing-events import failure is non-fatal */ }
-      // goodhartConfig remains undefined → deterministic routing
 
       // Start recovery scheduler with exponential backoff (T-4.3)
       try {
         const { GoodhartRecoveryScheduler } = await import("./hounfour/goodhart/init.js")
-        // Pass the shared holder so recovery writes propagate to router (T-5.2)
-        const redisClient = redis?.isConnected() ? redis.getClient() : null
         goodhartRecoveryScheduler = new GoodhartRecoveryScheduler(
           goodhartRuntime,
-          {
-            redisClient,
-            redisPrefix: process.env.FINN_REDIS_PREFIX ?? "armitage:",
-            redisDb: parseInt(process.env.FINN_REDIS_DB ?? "0", 10),
-            requestedMode,
-          },
+          initDeps,
           (recovered) => {
-            // Recovery updates the shared holder — router picks up changes automatically (T-5.2)
             goodhartRuntime.goodhartConfig = recovered.goodhartConfig
             goodhartRuntime.routingState = recovered.routingState as RoutingState
             goodhartRuntime.goodhartMetrics = recovered.goodhartMetrics
-            // Also update local vars for any other index.ts code that reads them
             goodhartConfig = recovered.goodhartConfig
             routingState = recovered.routingState as RoutingState
             goodhartMetrics = recovered.goodhartMetrics

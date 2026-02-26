@@ -341,8 +341,6 @@ export class HounfourRouter {
 
     const options: GoodhartOptions = {
       mode: this.routingState as "shadow" | "enabled",
-      seed: requestId,
-      allowWrites: this.routingState === "enabled",
     }
 
     const reputationResult = await resolveWithGoodhartTyped(

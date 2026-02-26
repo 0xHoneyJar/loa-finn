@@ -32,19 +32,15 @@ export function createReadOnlyRedisClient(redis: RedisCommandClient): RedisComma
         return method
       }
 
-      // Block bypass vectors with specific error
+      // Block bypass vectors with rejected Promise (T-7.1: async-compatible)
       if (BYPASS_VECTORS.has(prop)) {
-        return () => {
-          throw new Error(`Redis bypass vector blocked in shadow mode (attempted: ${prop})`)
-        }
+        return () => Promise.reject(new Error(`Redis bypass vector blocked in shadow mode (attempted: ${prop})`))
       }
 
-      // Block all other functions (mutating methods)
+      // Block all other functions (mutating methods) with rejected Promise (T-7.1)
       const value = (target as Record<string, unknown>)[prop]
       if (typeof value === "function") {
-        return () => {
-          throw new Error(`Redis writes blocked in shadow mode (attempted: ${prop})`)
-        }
+        return () => Promise.reject(new Error(`Redis writes blocked in shadow mode (attempted: ${prop})`))
       }
 
       // Non-function properties pass through unchanged

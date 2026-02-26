@@ -15,10 +15,6 @@ import type { GraduationMetrics } from "../graduation-metrics.js"
 export interface GoodhartOptions {
   /** Current routing mode: "shadow" runs read-only, "enabled" allows writes */
   mode: "shadow" | "enabled"
-  /** Deterministic seed for PRNG (requestId in shadow, Math.random in enabled) */
-  seed: string
-  /** Whether exploration counters, EMA feedback, etc. may write to Redis */
-  allowWrites: boolean
 }
 
 export interface ScoredPool {
