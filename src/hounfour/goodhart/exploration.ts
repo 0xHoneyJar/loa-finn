@@ -21,6 +21,8 @@ export interface ExplorationConfig {
   costCeiling: number
   /** Redis for observability counters (best-effort) */
   redis: RedisCommandClient
+  /** Injectable random function for testing (defaults to Math.random) */
+  randomFn?: () => number
 }
 
 export interface ExplorationDecision {
@@ -58,17 +60,27 @@ export class ExplorationEngine {
     routingKey: NFTRoutingKey,
     poolCapabilities: Map<PoolId, Set<NFTRoutingKey>>,
   ): ExplorationDecision {
+    const random = this.config.randomFn ?? Math.random
     const epsilon = this.config.epsilonByTier[tier] ?? this.config.defaultEpsilon
-    const randomValue = Math.random()
+    const randomValue = random()
+
+    // Guard: invalid epsilon or randomValue → skip exploration safely
+    if (!Number.isFinite(epsilon) || !Number.isFinite(randomValue)) {
+      return { explore: false, candidateSetSize: 0, randomValue: Number.isFinite(randomValue) ? randomValue : 0 }
+    }
 
     // Bernoulli coin flip
     if (randomValue >= epsilon) {
       return { explore: false, candidateSetSize: 0, randomValue }
     }
 
+    // Guard: invalid defaultPoolCost → skip cost ceiling filtering (allow all)
+    const maxCost = Number.isFinite(defaultPoolCost) && Number.isFinite(this.config.costCeiling)
+      ? this.config.costCeiling * defaultPoolCost
+      : Infinity
+
     // Build candidate set with filtering
     const candidates: PoolId[] = []
-    const maxCost = this.config.costCeiling * defaultPoolCost
 
     for (const poolId of accessiblePools) {
       // 1. Circuit breaker check
@@ -79,9 +91,12 @@ export class ExplorationEngine {
       const capabilities = poolCapabilities.get(poolId)
       if (capabilities && !capabilities.has(routingKey)) continue
 
-      // 3. Cost ceiling check
+      // 3. Cost ceiling check — reject non-finite costs entirely
       const cost = poolCosts.get(poolId)
-      if (cost !== undefined && cost > maxCost) continue
+      if (cost !== undefined) {
+        if (!Number.isFinite(cost)) continue
+        if (cost > maxCost) continue
+      }
 
       // 4. Blocklist check
       if (this.config.blocklist.has(poolId)) continue
@@ -99,7 +114,16 @@ export class ExplorationEngine {
     }
 
     // Uniform random selection from candidates
-    const selectedIdx = Math.floor(Math.random() * candidates.length)
+    const selectionRandom = random()
+    if (!Number.isFinite(selectionRandom)) {
+      return {
+        explore: true,
+        candidateSetSize: candidates.length,
+        randomValue,
+        reason: "exploration_skipped",
+      }
+    }
+    const selectedIdx = Math.floor(selectionRandom * candidates.length)
     const selectedPool = candidates[selectedIdx]
 
     return {

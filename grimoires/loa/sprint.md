@@ -6,7 +6,7 @@
 **Date:** 2026-02-26
 **Team:** 1 AI developer + 1 human reviewer
 **Sprint duration:** ~2-4 hours each (AI-paced)
-**Status:** SPRINTS 1-4 COMPLETE, SPRINTS 5-7 PENDING (7 total)
+**Status:** SPRINTS 1-7 COMPLETE, SPRINT 8 PENDING (8 total)
 
 ---
 
@@ -907,6 +907,183 @@ T-7.12 (depends on T-6.3 for pinned actions)
 8. Container vulnerability scanning in CI
 9. Zero duplicate code between index.ts and init.ts for Goodhart initialization
 10. All existing tests pass (zero regression)
+
+---
+
+## Sprint 8: Pre-Merge Polish & CI Fixes
+
+**Goal:** Address all remaining MEDIUM and LOW findings from the Unbounded Depth Review. Fix failing CI checks. Prepare PR #109 for merge.
+
+**Source:** [Unbounded Depth Review PR #109](https://github.com/0xHoneyJar/loa-finn/pull/109), [Sprint Response](https://github.com/0xHoneyJar/loa-finn/pull/109#issuecomment-3968754028)
+
+**Risk:** Low — all changes are small, surgical, non-architectural. No new patterns introduced.
+
+**Note:** Verification confirmed M-6, M-10, L-10, L-11 are already fixed. This sprint addresses the 10 remaining items plus the misleading comment.
+
+### Tasks
+
+#### T-8.1: Validate Epsilon Against NaN/Infinity (M-4)
+- **Description:** `exploration.ts:61` — `const epsilon = this.config.epsilonByTier[tier] ?? this.config.defaultEpsilon` does not validate epsilon is a finite number. NaN or Infinity epsilon silently disables or corrupts the Bernoulli coin flip at line 65.
+- **Acceptance Criteria:**
+  - AC1: After epsilon lookup, validate with `Number.isFinite(epsilon)` — if invalid, log warning and fall through to reputation scoring (safe default: don't explore with broken config)
+  - AC2: Same validation for cost comparison at lines 83-84 (L-5): `if (!Number.isFinite(cost)) continue` before the cost ceiling check
+  - AC3: Test with NaN epsilon → no exploration, falls through to reputation
+  - AC4: Test with Infinity cost → candidate filtered out
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `tests/finn/goodhart/exploration.test.ts` — NaN epsilon, Infinity epsilon, NaN cost, Infinity cost
+
+#### T-8.2: Remove DynamoDB DeleteItem from Audit Trail IAM (M-9)
+- **Description:** `infrastructure/terraform/loa-finn-kms.tf:70-76` — IAM policy includes `dynamodb:DeleteItem` on the audit trail table (`finn_scoring_path_log`, `finn_x402_settlements`). Audit trails must be append-only; the application should never delete records.
+- **Acceptance Criteria:**
+  - AC1: `dynamodb:DeleteItem` removed from the DynamoDBAccess IAM statement for audit tables
+  - AC2: If `DeleteItem` is needed for non-audit tables (e.g., session data), create a separate IAM statement scoped only to those tables
+  - AC3: `terraform plan` shows only IAM policy change, no resource recreation
+  - AC4: Application code has no `DeleteItem` calls on audit tables (verify with grep)
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `terraform plan` review; grep verification
+
+#### T-8.3: Replace readFileSync with Embedded Lua String (L-2)
+- **Description:** `temporal-decay.ts:50` — `readFileSync(join(dir, "lua", "ema-update.lua"), "utf-8")` blocks the event loop during construction. The Lua script is static and small — embed it as a template literal instead of reading from disk.
+- **Pre-step:** Run `grep -rn "ema-update.lua" .` to verify no other consumers (build scripts, tests, Docker COPY, docs, or runtime packaging) reference the file before deletion. If references exist, update or remove them in the same task.
+- **Acceptance Criteria:**
+  - AC1: Lua script content inlined as a `const EMA_UPDATE_LUA = \`...\`` string in temporal-decay.ts
+  - AC2: No `readFileSync` calls in any Goodhart component
+  - AC3: Existing EMA tests pass unchanged (the Lua content is identical)
+  - AC4: `grep -rn "ema-update.lua" .` returns 0 matches (all references removed/updated)
+  - AC5: Remove the `lua/ema-update.lua` file only after AC4 is confirmed; if references cannot be safely removed, keep the file but still inline the content
+  - AC6: CI build and all tests pass after deletion
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Existing temporal-decay tests pass; grep for `readFileSync` in `src/hounfour/` returns 0 matches; grep for `ema-update.lua` returns 0 matches
+
+#### T-8.4: Make Exploration Randomness Observable (L-3)
+- **Description:** `exploration.ts:102` — `Math.floor(Math.random() * candidates.length)` is unobservable. Make the random index selection injectable (via optional config callback) for testing and debugging.
+- **Acceptance Criteria:**
+  - AC1: `ExplorationConfig` accepts optional `randomFn?: () => number` (defaults to `Math.random`)
+  - AC2: Both random calls (line 62 Bernoulli flip, line 102 candidate selection) use the injected function
+  - AC3: Tests can inject deterministic random for reproducibility
+  - AC4: No behavior change when `randomFn` is not provided
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `tests/finn/goodhart/exploration.test.ts` — inject deterministic random, verify exact candidate selection
+
+#### T-8.5: Strict ISO 8601 Date-Time Validation (L-4)
+- **Description:** `reputation-response.ts:59` — `!isNaN(Date.parse(obj.asOfTimestamp))` accepts nonsensical inputs like `Date.parse("1")`. Replace with strict RFC 3339 / ISO 8601 date-time regex validation.
+- **Pre-step:** Grep all callers of the validation function to enumerate which timestamp formats are actually used in tests and production. Expected: all timestamps are full RFC 3339 (`YYYY-MM-DDTHH:mm:ss.sssZ` or `YYYY-MM-DDTHH:mm:ss±HH:MM`).
+- **Acceptance Criteria:**
+  - AC1: Timestamp validation uses fully-anchored RFC 3339 regex: `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/`
+  - AC2: Explicit test vectors — **accepted**: `"2026-02-27T12:00:00Z"`, `"2026-02-27T12:00:00.123Z"`, `"2026-02-27T12:00:00+05:30"` — **rejected**: `"1"`, `"abc"`, `"2026"`, `"2026-02-27"`, `"12:00:00Z"`
+  - AC3: Existing valid timestamps in tests still pass (verify no false rejections before deploying the stricter check)
+  - AC4: If any existing test uses a non-RFC3339 format, update the test data (not the validation)
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** `tests/finn/goodhart/reputation-response.test.ts` (or add new test file) — comprehensive date validation vectors
+
+#### T-8.6: Remove Unnecessary Async from loadFromLocal (L-7)
+- **Description:** `calibration.ts:87-92` — `async loadFromLocal(content: string): Promise<void>` contains no `await`. Remove `async` keyword to clarify the synchronous nature of the method.
+- **Acceptance Criteria:**
+  - AC1: Method signature changed to `loadFromLocal(content: string): void`
+  - AC2: All call sites updated if they `await` the result (should be fine — awaiting a non-Promise is a no-op, but verify)
+  - AC3: TypeScript build passes
+- **Effort:** Tiny
+- **Dependencies:** None
+- **Tests:** Existing calibration tests pass
+
+#### T-8.7: Remove Dead DNS Pre-Warming (L-8)
+- **Description:** `dixie-transport.ts:160-167` — `warmDns()` caches the resolved address in `this.resolvedAddress` but `fetch()` at line 124 never uses it. Remove the dead code path.
+- **Acceptance Criteria:**
+  - AC1: `warmDns()` method removed
+  - AC2: `this.resolvedAddress` property removed
+  - AC3: Constructor no longer calls `warmDns()` on init
+  - AC4: If DNS pre-warming is actually desired, file a follow-up issue for proper implementation (use resolved IP in fetch URL)
+- **Effort:** Tiny
+- **Dependencies:** None
+- **Tests:** Existing transport tests pass; no behavior change since the feature was non-functional
+
+#### T-8.8: Fix staging.env.example Legacy Alias Reference (L-9)
+- **Description:** `deploy/staging.env.example:18` mentions `ROUTING_MODE` as a "legacy alias" but no code handles that alias. Remove the misleading reference.
+- **Acceptance Criteria:**
+  - AC1: Comment on line 18 removed or rewritten to reference only `FINN_REPUTATION_ROUTING`
+  - AC2: Grep for `ROUTING_MODE` in `src/` returns 0 matches (confirm no alias handling exists)
+- **Effort:** Tiny
+- **Dependencies:** None
+- **Tests:** Grep verification
+
+#### T-8.9: Fix resolve.ts Header Comment (L-10)
+- **Description:** `resolve.ts:5` says "AbortController.timeout()" but the implementation uses `setTimeout` with manual `controller.abort()`. The implementation is correct (broader Node.js version compatibility); the comment is misleading.
+- **Acceptance Criteria:**
+  - AC1: Header comment updated to accurately describe the timeout mechanism: "200ms hard ceiling via setTimeout + AbortController.abort()"
+- **Effort:** Tiny
+- **Dependencies:** None
+- **Tests:** None needed (comment-only change)
+
+#### T-8.10: Add Checksum Verification for beads_rust Binary (L-12)
+- **Description:** `deploy/Dockerfile:30` downloads beads_rust binary via `curl -sSL https://github.com/Dicklesworthstone/beads_rust/releases/latest/download/br-linux-amd64` without checksum verification. A supply chain attack could inject a malicious binary. Build targets **linux/amd64 only** (single-arch). The base image `node:22-slim` (Debian bookworm) has `coreutils` with `sha256sum` available by default.
+- **Pre-step:** Visit the beads_rust GitHub releases page to identify the current latest version tag and compute `sha256sum` of the downloaded binary locally: `curl -sSL <pinned-url> | sha256sum`
+- **Acceptance Criteria:**
+  - AC1: Pin download URL to a specific release version (e.g., `https://github.com/Dicklesworthstone/beads_rust/releases/download/v0.1.7/br-linux-amd64`) — no `latest` tag
+  - AC2: Store checksum as `ARG BR_SHA256=<hash>` in Dockerfile with inline comment referencing the release version and upstream artifact page
+  - AC3: Verification step: `echo "${BR_SHA256}  /usr/local/bin/br" | sha256sum --check --strict` immediately after download
+  - AC4: If checksum fails, Docker build fails (not silent degradation — `set -e` in the RUN chain ensures this)
+  - AC5: Confirm `sha256sum` exists in build stage: `node:22-slim` (Debian bookworm) ships `coreutils` — verify with `docker run --rm node:22-slim which sha256sum`
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Docker build succeeds with correct binary; tamper test (wrong checksum → build fails)
+
+#### T-8.11: Investigate and Fix CI Secret Scanning Failure
+- **Description:** PR #109 has a failing "Scan for Secrets" check. The scanner workflow is `.github/workflows/secret-scanning.yml` which runs **TruffleHog v3.93.0** (primary, always active, uses `--only-verified` flag) and **GitLeaks v2.3.9** (secondary, only runs if `GITLEAKS_LICENSE` secret is configured). TruffleHog scans the diff between default branch and HEAD with `fetch-depth: 0` (full history).
+- **Pre-step:** Reproduce locally: `docker run --rm -v "$(pwd):/repo" trufflesecurity/trufflehog:v3.93.0 filesystem /repo --only-verified` to identify exactly what was flagged. Also check the GitHub Actions run logs for the specific failing step output.
+- **Acceptance Criteria:**
+  - AC1: Identify the exact failing step (TruffleHog or GitLeaks) from the CI run logs and what string/pattern was flagged
+  - AC2: **If true positive** (real secret in code or git history):
+    - Remove the secret from code and replace with env var reference
+    - Rotate the exposed credential immediately
+    - If secret is in git history: determine if history rewrite is acceptable for this PR (rebase to squash the offending commit, or use `git filter-repo` — confirm with reviewer before history rewrite)
+  - AC3: **If false positive** (e.g., test fixtures, example tokens, hash strings):
+    - For TruffleHog: add exclusion in `.trufflehog.yaml` (TruffleHog's native config) with `allow.paths` or `allow.regexes` and a justification comment explaining why the match is a false positive
+    - For GitLeaks: add entry in `.gitleaksignore` (one rule per line, format: `<commit>:<file>:<secret>` or regex pattern)
+  - AC4: Re-run locally to confirm fix: `docker run --rm -v "$(pwd):/repo" trufflesecurity/trufflehog:v3.93.0 filesystem /repo --only-verified` returns 0 findings
+  - AC5: "Scan for Secrets" CI check passes on push
+- **Effort:** Small-Medium (depends on findings)
+- **Dependencies:** None
+- **Tests:** Local reproduction passes clean; CI check passes
+
+### Sprint 8 Task Dependencies
+
+```
+T-8.1 (parallel — no deps)
+T-8.2 (parallel — no deps)
+T-8.3 (parallel — no deps)
+T-8.4 (parallel — no deps)
+T-8.5 (parallel — no deps)
+T-8.6 (parallel — no deps)
+T-8.7 (parallel — no deps)
+T-8.8 (parallel — no deps)
+T-8.9 (parallel — no deps)
+T-8.10 (parallel — no deps)
+T-8.11 (parallel — no deps)
+```
+
+All tasks are independent and can be executed in any order.
+
+### Sprint 8 Success Criteria
+
+1. All `Number.isFinite()` guards in exploration engine (NaN/Infinity safe)
+2. Audit trail IAM is append-only (no DeleteItem)
+3. Zero `readFileSync` calls in Goodhart stack
+4. Exploration randomness injectable for testing
+5. Strict RFC 3339 date validation (rejects "1", "abc", "2026-02-27")
+6. No unnecessary `async` on synchronous methods
+7. No dead code (DNS pre-warming removed)
+8. No misleading comments (staging.env, resolve.ts header)
+9. beads_rust binary downloaded with pinned version + SHA256 checksum verification
+10. CI "Scan for Secrets" check passes (TruffleHog/GitLeaks clean)
+11. All CI checks green — PR #109 merge-ready
+9. beads_rust binary checksum-verified in Docker build
+10. All CI checks pass (including secret scanning)
+11. All existing tests pass (zero regression)
 
 ---
 

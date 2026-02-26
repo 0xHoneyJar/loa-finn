@@ -84,7 +84,7 @@ export class CalibrationEngine {
   }
 
   /** Load entries from local JSONL file (fallback when S3 unavailable) */
-  async loadFromLocal(content: string): Promise<void> {
+  loadFromLocal(content: string): void {
     const parsed = this.parseJSONL(content)
     if (parsed) {
       this.rebuildLookup(parsed)

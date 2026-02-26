@@ -1,14 +1,12 @@
 // src/hounfour/goodhart/dixie-transport.ts — Dixie Transport Layer (SDD §6.3, cycle-035 T-2.3)
 //
 // Three concrete transports behind DixieTransport interface:
-//   Stub (null), HTTP (undici Agent + circuit breaker + DNS warming), Direct (library import).
+//   Stub (null), HTTP (fetch + circuit breaker), Direct (library import).
 //
-// DixieHttpTransport: keep-alive pool (10 connections), 300ms timeout,
-// circuit breaker (3 failures → open → 5min cooldown → half-open probe),
-// DNS pre-resolve via dns.promises.lookup() with periodic refresh.
+// DixieHttpTransport: Node.js fetch (undici keep-alive), 300ms timeout,
+// circuit breaker (3 failures → open → 5min cooldown → half-open probe).
 
 import { normalizeResponse, type ReputationResponse } from "./reputation-response.js"
-import { lookup } from "node:dns/promises"
 
 // --- Interface ---
 
@@ -77,35 +75,23 @@ export interface DixieHttpConfig {
   baseUrl: string
   timeoutMs?: number
   maxConnections?: number
-  dnsRefreshMs?: number
   circuitBreakerThreshold?: number
   circuitBreakerCooldownMs?: number
 }
 
 export class DixieHttpTransport implements DixieTransport {
   private readonly baseOrigin: string
-  private readonly hostname: string
   private readonly timeoutMs: number
   private readonly circuitBreaker: TransportCircuitBreaker
-  private dnsTimer: ReturnType<typeof setInterval> | null = null
-  private resolvedAddress: string | null = null
-
   constructor(config: DixieHttpConfig) {
     const parsed = new URL(config.baseUrl)
     this.baseOrigin = parsed.origin
-    this.hostname = parsed.hostname
     this.timeoutMs = config.timeoutMs ?? 300
 
     this.circuitBreaker = new TransportCircuitBreaker(
       config.circuitBreakerThreshold ?? 3,
       config.circuitBreakerCooldownMs ?? 300_000,
     )
-
-    // Start DNS pre-warming
-    this.warmDns()
-    const refreshMs = config.dnsRefreshMs ?? 60_000
-    this.dnsTimer = setInterval(() => this.warmDns(), refreshMs)
-    this.dnsTimer.unref()
   }
 
   async getReputation(nftId: string, options?: { signal?: AbortSignal }): Promise<ReputationResponse | null> {
@@ -143,27 +129,11 @@ export class DixieHttpTransport implements DixieTransport {
   }
 
   async shutdown(): Promise<void> {
-    if (this.dnsTimer) {
-      clearInterval(this.dnsTimer)
-      this.dnsTimer = null
-    }
+    // No-op; reserved for future connection pool cleanup
   }
 
   get circuitBreakerState() {
     return this.circuitBreaker.getStats()
-  }
-
-  get dnsResolvedAddress(): string | null {
-    return this.resolvedAddress
-  }
-
-  private async warmDns(): Promise<void> {
-    try {
-      const result = await lookup(this.hostname)
-      this.resolvedAddress = result.address
-    } catch {
-      // DNS failure is non-fatal — fetch will resolve on its own
-    }
   }
 }
 

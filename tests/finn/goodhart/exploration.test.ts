@@ -286,6 +286,184 @@ describe("ExplorationEngine", () => {
     })
   })
 
+  describe("injectable randomness (T-8.4)", () => {
+    it("uses injected randomFn for both Bernoulli flip and selection", () => {
+      let callCount = 0
+      const deterministicRandom = () => {
+        callCount++
+        return callCount === 1 ? 0.0 : 0.5 // First call: explore, second: pick middle
+      }
+
+      const config = makeConfig({ defaultEpsilon: 1.0, randomFn: deterministicRandom })
+      const engine = new ExplorationEngine(config)
+
+      const decision = engine.decide(
+        "standard",
+        [POOL_A, POOL_B, POOL_C],
+        allClosed(),
+        defaultCosts(),
+        1.0,
+        "chat",
+        allCapable(),
+      )
+
+      expect(callCount).toBe(2) // randomFn called exactly twice
+      expect(decision.explore).toBe(true)
+      expect(decision.selectedPool).toBe(POOL_B) // floor(0.5 * 3) = 1 → POOL_B
+    })
+
+    it("defaults to Math.random when randomFn not provided", () => {
+      const config = makeConfig({ defaultEpsilon: 1.0, epsilonByTier: {} })
+      // No randomFn — should not throw, and with epsilon 1.0 always explores
+      const engine = new ExplorationEngine(config)
+      const decision = engine.decide(
+        "standard",
+        [POOL_A],
+        allClosed(),
+        defaultCosts(),
+        1.0,
+        "chat",
+        allCapable(),
+      )
+      expect(decision.explore).toBe(true)
+    })
+  })
+
+  describe("NaN/Infinity guards (T-8.1)", () => {
+    it("skips exploration when epsilon is NaN", () => {
+      const config = makeConfig({ defaultEpsilon: NaN })
+      const engine = new ExplorationEngine(config)
+
+      const decision = engine.decide(
+        "unknown-tier", // Falls through to defaultEpsilon which is NaN
+        [POOL_A, POOL_B],
+        allClosed(),
+        defaultCosts(),
+        1.0,
+        "chat",
+        allCapable(),
+      )
+
+      expect(decision.explore).toBe(false)
+    })
+
+    it("skips exploration when randomFn returns NaN", () => {
+      const config = makeConfig({ defaultEpsilon: 1.0, randomFn: () => NaN })
+      const engine = new ExplorationEngine(config)
+
+      const decision = engine.decide(
+        "standard",
+        [POOL_A],
+        allClosed(),
+        defaultCosts(),
+        1.0,
+        "chat",
+        allCapable(),
+      )
+
+      expect(decision.explore).toBe(false)
+      expect(decision.randomValue).toBe(0) // NaN replaced with 0
+    })
+
+    it("excludes pools with NaN cost", () => {
+      const config = makeConfig({ defaultEpsilon: 1.0, randomFn: () => 0.0 })
+      const engine = new ExplorationEngine(config)
+
+      const costs = new Map<PoolId, number>([
+        [POOL_A, 1.0],
+        [POOL_B, NaN],
+        [POOL_C, 1.0],
+      ])
+
+      const decision = engine.decide(
+        "standard",
+        [POOL_A, POOL_B, POOL_C],
+        allClosed(),
+        costs,
+        1.0,
+        "chat",
+        allCapable(),
+      )
+
+      expect(decision.explore).toBe(true)
+      expect(decision.candidateSetSize).toBe(2) // POOL_B excluded
+    })
+
+    it("excludes pools with Infinity cost", () => {
+      const config = makeConfig({ defaultEpsilon: 1.0, randomFn: () => 0.0 })
+      const engine = new ExplorationEngine(config)
+
+      const costs = new Map<PoolId, number>([
+        [POOL_A, 1.0],
+        [POOL_B, Infinity],
+      ])
+
+      const decision = engine.decide(
+        "standard",
+        [POOL_A, POOL_B],
+        allClosed(),
+        costs,
+        1.0,
+        "chat",
+        allCapable(),
+      )
+
+      expect(decision.explore).toBe(true)
+      expect(decision.candidateSetSize).toBe(1) // POOL_B excluded
+      expect(decision.selectedPool).toBe(POOL_A)
+    })
+
+    it("handles Infinity defaultPoolCost gracefully", () => {
+      const config = makeConfig({ defaultEpsilon: 1.0, randomFn: () => 0.0 })
+      const engine = new ExplorationEngine(config)
+
+      const costs = new Map<PoolId, number>([
+        [POOL_A, 1.0],
+        [POOL_B, 999.0],
+      ])
+
+      const decision = engine.decide(
+        "standard",
+        [POOL_A, POOL_B],
+        allClosed(),
+        costs,
+        Infinity, // Invalid defaultPoolCost
+        "chat",
+        allCapable(),
+      )
+
+      // maxCost becomes Infinity → no cost filtering → both pools accepted
+      expect(decision.explore).toBe(true)
+      expect(decision.candidateSetSize).toBe(2)
+    })
+
+    it("skips pool selection when second randomFn returns NaN", () => {
+      let callCount = 0
+      const config = makeConfig({
+        defaultEpsilon: 1.0,
+        randomFn: () => {
+          callCount++
+          return callCount === 1 ? 0.0 : NaN // First: explore, second: NaN
+        },
+      })
+      const engine = new ExplorationEngine(config)
+
+      const decision = engine.decide(
+        "standard",
+        [POOL_A, POOL_B],
+        allClosed(),
+        defaultCosts(),
+        1.0,
+        "chat",
+        allCapable(),
+      )
+
+      expect(decision.explore).toBe(true)
+      expect(decision.reason).toBe("exploration_skipped")
+      expect(decision.selectedPool).toBeUndefined()
+    })
+  })
+
   describe("recordExploration", () => {
     it("does not throw on Redis error", async () => {
       const failingRedis = createMockRedis()

@@ -2,7 +2,7 @@
 //
 // Core integration function connecting router to all Goodhart components.
 // Error contract: operational errors caught + logged → null; programmer errors propagate.
-// Timeout contract: 200ms hard ceiling via AbortController.timeout().
+// Timeout contract: 200ms hard ceiling via setTimeout + AbortController.abort().
 
 import type { PoolId, Tier } from "@0xhoneyjar/loa-hounfour"
 import type { NFTRoutingKey } from "../nft-routing-config.js"

@@ -73,7 +73,6 @@ resource "aws_iam_role_policy" "finn_task_audit_access" {
           "dynamodb:Query",
           "dynamodb:Scan",
           "dynamodb:UpdateItem",
-          "dynamodb:DeleteItem",
         ]
         Resource = [
           aws_dynamodb_table.finn_scoring_path_log.arn,

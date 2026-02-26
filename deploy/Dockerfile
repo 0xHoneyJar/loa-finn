@@ -22,12 +22,18 @@ RUN pnpm build
 FROM node:22-slim
 WORKDIR /app
 
+# beads_rust CLI: pinned version + SHA256 checksum (T-8.10 supply chain security)
+# Source: https://github.com/Dicklesworthstone/beads_rust/releases/tag/v0.1.20
+ARG BR_VERSION=v0.1.20
+ARG BR_SHA256=0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5
+
 # Install Python 3, sidecar deps, beads_rust CLI + gh CLI (upstream GitHubCLIAdapter requires gh)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates gpg python3 python3-pip \
     && pip3 install --no-cache-dir --break-system-packages httpx pyyaml \
        fastapi 'uvicorn[standard]' sse-starlette \
-    && curl -sSL https://github.com/Dicklesworthstone/beads_rust/releases/latest/download/br-linux-amd64 -o /usr/local/bin/br \
+    && curl -sSL "https://github.com/Dicklesworthstone/beads_rust/releases/download/${BR_VERSION}/br-linux-amd64" -o /usr/local/bin/br \
+    && echo "${BR_SHA256}  /usr/local/bin/br" | sha256sum --check --strict \
     && chmod +x /usr/local/bin/br \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
