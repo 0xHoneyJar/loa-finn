@@ -124,8 +124,13 @@ variable "ecr_repository_url" {
 
 variable "image_tag" {
   type        = string
-  default     = "latest"
-  description = "Docker image tag (use git SHA for immutable deploys)"
+  default     = "DEPLOY_SHA_REQUIRED"
+  description = "Docker image tag — must be a git SHA for immutable ECR deploys"
+
+  validation {
+    condition     = var.image_tag != "latest"
+    error_message = "image_tag must not be 'latest'. ECR uses IMMUTABLE tags — pass a git SHA."
+  }
 }
 
 variable "finn_cpu" {
