@@ -95,7 +95,7 @@ function loadAndValidate(configPath: string): Map<string, PersonalityConfig> {
 
   const map = new Map<string, PersonalityConfig>()
 
-  for (const entry of data.personalities) {
+  for (const entry of (data.personalities as unknown as Record<string, unknown>[])) {
     // Required field validation
     validateRequiredString(entry, "token_id")
     validateRequiredString(entry, "archetype")
@@ -130,7 +130,7 @@ function loadAndValidate(configPath: string): Map<string, PersonalityConfig> {
       )
     }
 
-    map.set(entry.token_id, entry)
+    map.set(entry.token_id as string, entry as unknown as PersonalityConfig)
   }
 
   return map

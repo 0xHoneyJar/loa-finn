@@ -198,5 +198,5 @@ export function parseDerivedVoiceProfile(raw: unknown): DerivedVoiceProfile {
     primary_voice,
     confidence,
     reasoning,
-  } as DerivedVoiceProfile
+  } as unknown as DerivedVoiceProfile
 }
