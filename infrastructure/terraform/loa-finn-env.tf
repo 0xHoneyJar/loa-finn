@@ -8,6 +8,21 @@
 # SSM Parameters — Application Config
 # ---------------------------------------------------------------------------
 
+resource "aws_ssm_parameter" "anthropic_api_key" {
+  name  = "${local.ssm_prefix}/ANTHROPIC_API_KEY"
+  type  = "SecureString"
+  value = "PLACEHOLDER" # Required: Anthropic API key for Claude model access
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+
+  tags = {
+    Environment = var.environment
+    Service     = "loa-finn"
+  }
+}
+
 resource "aws_ssm_parameter" "arrakis_url" {
   name  = "${local.ssm_prefix}/ARRAKIS_URL"
   type  = "SecureString"

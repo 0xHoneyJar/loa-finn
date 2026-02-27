@@ -221,6 +221,7 @@ resource "aws_ecs_task_definition" "loa_finn" {
     ]
 
     secrets = [
+      { name = "ANTHROPIC_API_KEY", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/ANTHROPIC_API_KEY" },
       { name = "ARRAKIS_URL", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/ARRAKIS_URL" },
       { name = "FINN_S2S_SECRET", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_S2S_SECRET" },
       { name = "BASE_RPC_URL", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/BASE_RPC_URL" },
