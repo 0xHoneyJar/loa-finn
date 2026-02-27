@@ -43,7 +43,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   dimensions = {
-    ClusterName = "honeyjar-${var.environment}"
+    ClusterName = local.ecs_cluster
     ServiceName = local.service_name
   }
 
@@ -66,7 +66,7 @@ resource "aws_cloudwatch_metric_alarm" "memory_high" {
   alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   dimensions = {
-    ClusterName = "honeyjar-${var.environment}"
+    ClusterName = local.ecs_cluster
     ServiceName = local.service_name
   }
 

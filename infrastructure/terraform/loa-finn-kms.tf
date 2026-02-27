@@ -27,7 +27,7 @@ resource "aws_kms_key" "finn_audit_signing" {
         Sid    = "AllowFinnTaskRoleSignVerify"
         Effect = "Allow"
         Principal = {
-          AWS = var.finn_task_role_arn
+          AWS = aws_iam_role.ecs_task.arn
         }
         Action = [
           "kms:Sign",
@@ -59,7 +59,7 @@ resource "aws_kms_alias" "finn_audit_signing" {
 
 resource "aws_iam_role_policy" "finn_task_audit_access" {
   name = "${local.service_name}-audit-trail-access"
-  role = var.finn_task_role_name
+  role = aws_iam_role.ecs_task.name
 
   policy = jsonencode({
     Version = "2012-10-17"

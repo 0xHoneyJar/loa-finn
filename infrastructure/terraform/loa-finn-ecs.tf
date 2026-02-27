@@ -30,6 +30,27 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# ECS execution role needs SSM read access to inject secrets into containers.
+# AmazonECSTaskExecutionRolePolicy does NOT include ssm:GetParameters.
+# Without this, tasks fail with "ResourceInitializationError: unable to pull secrets".
+resource "aws_iam_role_policy" "ecs_task_execution_ssm" {
+  name = "${local.service_name}-execution-ssm"
+  role = aws_iam_role.ecs_task_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "SSMGetParameters"
+      Effect = "Allow"
+      Action = [
+        "ssm:GetParameters",
+        "ssm:GetParameter"
+      ]
+      Resource = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/*"
+    }]
+  })
+}
+
 # ---------------------------------------------------------------------------
 # IAM — Task Role (application permissions)
 # ---------------------------------------------------------------------------
@@ -64,7 +85,7 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
           "ssm:GetParameters",
           "ssm:GetParametersByPath"
         ]
-        Resource = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/*"
+        Resource = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/*"
         Condition = {
           StringEquals = {
             "aws:RequestedRegion" = "us-east-1"
@@ -124,14 +145,8 @@ resource "aws_security_group" "ecs_tasks" {
     description     = "HTTP from ALB"
   }
 
-  # Outbound to ElastiCache
-  egress {
-    from_port       = 6379
-    to_port         = 6379
-    protocol        = "tcp"
-    security_groups = [var.elasticache_security_group_id]
-    description     = "Redis to ElastiCache"
-  }
+  # NOTE: Redis egress moved to standalone aws_security_group_rule below
+  # to break cycle with aws_security_group.elasticache (which has ingress from this SG).
 
   # Outbound to internet (RPC calls, R2, arrakis)
   egress {
@@ -147,6 +162,18 @@ resource "aws_security_group" "ecs_tasks" {
     Environment = var.environment
     Service     = "loa-finn"
   }
+}
+
+# Standalone rule breaks the SG cycle: ecs_tasks ↔ elasticache.
+# Inline rules on both SGs would create a Terraform dependency loop.
+resource "aws_security_group_rule" "ecs_to_redis" {
+  type                     = "egress"
+  from_port                = 6379
+  to_port                  = 6379
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.ecs_tasks.id
+  source_security_group_id = aws_security_group.elasticache.id
+  description              = "Redis to finn dedicated ElastiCache"
 }
 
 # ---------------------------------------------------------------------------
@@ -238,7 +265,7 @@ resource "aws_ecs_task_definition" "loa_finn" {
 
 resource "aws_ecs_service" "loa_finn" {
   name            = local.service_name
-  cluster         = "honeyjar-${var.environment}"
+  cluster         = local.ecs_cluster
   task_definition = aws_ecs_task_definition.loa_finn.arn
   desired_count   = 1 # WAL single-writer invariant — DO NOT change
   launch_type     = "FARGATE"
@@ -259,10 +286,8 @@ resource "aws_ecs_service" "loa_finn" {
 
   # Stop-before-start: prevent dual-writer window during rolling updates.
   # Old task stops before new task starts (brief downtime during deploys).
-  deployment_configuration {
-    maximum_percent         = 100
-    minimum_healthy_percent = 0
-  }
+  deployment_maximum_percent         = 100
+  deployment_minimum_healthy_percent = 0
 
   deployment_circuit_breaker {
     enable   = true
@@ -298,7 +323,7 @@ resource "aws_cloudwatch_metric_alarm" "ecs_desired_count_drift" {
   alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   dimensions = {
-    ClusterName = "honeyjar-${var.environment}"
+    ClusterName = local.ecs_cluster
     ServiceName = aws_ecs_service.loa_finn.name
   }
 

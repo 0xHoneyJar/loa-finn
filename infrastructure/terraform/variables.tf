@@ -74,6 +74,9 @@ locals {
   # DynamoDB table name suffix
   dynamodb_suffix = var.environment == "production" ? "" : "-${var.environment}"
 
+  # ECS cluster: override via var.ecs_cluster_name or fallback to legacy naming
+  ecs_cluster = var.ecs_cluster_name != "" ? var.ecs_cluster_name : "honeyjar-${var.environment}"
+
   # Common tags applied to all resources
   common_tags = {
     Environment = var.environment
@@ -198,15 +201,16 @@ variable "kms_key_arn" {
 # KMS (audit signing)
 # ---------------------------------------------------------------------------
 
-variable "finn_task_role_arn" {
-  description = "ARN of the ECS task role for loa-finn"
+variable "ecs_cluster_name" {
   type        = string
+  default     = ""
+  description = "ECS cluster name override. If empty, defaults to 'honeyjar-{environment}'."
 }
 
-variable "finn_task_role_name" {
-  description = "Name of the ECS task role for loa-finn"
-  type        = string
-}
+# NOTE: finn_task_role_arn and finn_task_role_name removed — the task role is
+# created by loa-finn-ecs.tf and referenced directly via aws_iam_role.ecs_task.
+# Passing the ARN as a variable created a circular dependency on first apply
+# (KMS policy needed the ARN before the role existed).
 
 # ---------------------------------------------------------------------------
 # Monitoring

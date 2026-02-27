@@ -93,3 +93,4 @@ resource "aws_s3_bucket_public_access_block" "finn_calibration" {
 # ---------------------------------------------------------------------------
 
 data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
