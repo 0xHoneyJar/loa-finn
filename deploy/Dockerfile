@@ -4,14 +4,19 @@
 FROM node:22-slim AS builder
 WORKDIR /app
 
-# Enable corepack for pnpm; install git for hounfour postinstall rebuild
-RUN corepack enable && apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+# Enable corepack for pnpm
+RUN corepack enable
 
 # Install dependencies first (cache layer)
 # Copy build-hounfour-dist.sh before install — pnpm postinstall hook needs it
 COPY package.json pnpm-lock.yaml ./
 COPY scripts/build-hounfour-dist.sh ./scripts/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts
+
+# Copy pre-built hounfour dist (git clone fails in Docker buildkit network).
+# The postinstall script cannot clone the repo during docker build, so we
+# overlay the locally-built subpackage directories (economy/, governance/, etc.).
+COPY node_modules/@0xhoneyjar/loa-hounfour/dist/ ./node_modules/@0xhoneyjar/loa-hounfour/dist/
 
 # Copy source, framework lib, and upstream bridgebuilder skill
 COPY tsconfig.json ./
