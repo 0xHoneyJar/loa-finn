@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Check GHCR token
         id: check-token
@@ -30,7 +30,7 @@ jobs:
 
       - name: Login to GHCR
         if: steps.check-token.outputs.available == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -38,7 +38,7 @@ jobs:
 
       - name: Setup Node.js
         if: steps.check-token.outputs.available == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload test results
         if: always() && steps.check-token.outputs.available == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: e2e-v2-test-results
           path: test-results/e2e-v2-results.xml
@@ -80,7 +80,7 @@ jobs:
 
       - name: Upload logs artifact
         if: failure() && steps.check-token.outputs.available == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: e2e-v2-logs
           path: e2e-v2-logs.txt

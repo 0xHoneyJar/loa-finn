@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout loa-finn
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Check cross-repo token
         id: check-token
@@ -30,7 +30,7 @@ jobs:
 
       - name: Checkout arrakis
         if: steps.check-token.outputs.available == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: 0xHoneyJar/arrakis
           path: arrakis
@@ -67,7 +67,7 @@ jobs:
 
       - name: Upload logs artifact
         if: failure() && steps.check-token.outputs.available == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: e2e-logs
           path: e2e-logs.txt

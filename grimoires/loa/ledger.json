@@ -1534,11 +1534,12 @@
           "local_id": "sprint-8",
           "global_id": 152,
           "label": "Pre-Merge Polish & CI Fixes",
-          "status": "pending",
-          "tasks": 11
+          "status": "completed",
+          "tasks": 15,
+          "notes": "15/15 tasks closed. T-8.1-T-8.10 pre-existing (code quality + supply chain). T-8.11 billing lock (external). T-8.12-T-8.15 CI fixes: pnpm migration, SHA pins, path fixes, melange removal."
         }
       ]
     }
   ],
-  "next_global_sprint_id": 152
+  "next_global_sprint_id": 153
 }
