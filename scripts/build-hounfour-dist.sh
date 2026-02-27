@@ -37,7 +37,13 @@ echo "[build-hounfour] Building from commit: ${COMMIT_SHA}"
 TMPDIR=$(mktemp -d)
 trap "rm -rf ${TMPDIR}" EXIT
 
-git clone --depth 1 "https://github.com/0xHoneyJar/loa-hounfour.git" "${TMPDIR}/repo" 2>/dev/null
+# Clone and build — may fail in Docker/CI without git auth for private repos
+if ! git clone --depth 1 "https://github.com/0xHoneyJar/loa-hounfour.git" "${TMPDIR}/repo" 2>/dev/null; then
+  echo "[build-hounfour] WARNING: git clone failed (no auth or no git). Skipping rebuild."
+  echo "[build-hounfour] The build step (tsc) will fail if hounfour subpackages are needed."
+  exit 0
+fi
+
 cd "${TMPDIR}/repo"
 git fetch --depth 1 origin "${COMMIT_SHA}" 2>/dev/null
 git checkout "${COMMIT_SHA}" 2>/dev/null
