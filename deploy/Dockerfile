@@ -8,7 +8,9 @@ WORKDIR /app
 RUN corepack enable
 
 # Install dependencies first (cache layer)
+# Copy build-hounfour-dist.sh before install — pnpm postinstall hook needs it
 COPY package.json pnpm-lock.yaml ./
+COPY scripts/build-hounfour-dist.sh ./scripts/
 RUN pnpm install --frozen-lockfile
 
 # Copy source, framework lib, and upstream bridgebuilder skill

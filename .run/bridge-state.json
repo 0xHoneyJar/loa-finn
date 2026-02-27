@@ -1,34 +1,65 @@
 {
   "schema_version": 1,
-  "bridge_id": "bridge-20260226-7f9b73",
-  "state": "ITERATING",
+  "bridge_id": "bridge-20260227-38f010",
+  "state": "JACKED_OUT",
   "config": {
     "depth": 3,
     "mode": "full",
     "flatline_threshold": 0.05,
     "per_sprint": false,
-    "branch": "feature/cycle-036-staging-readiness",
+    "branch": "feature/staging-deployment-fixes",
     "repo": "0xHoneyJar/loa-finn"
   },
   "timestamps": {
-    "started": "2026-02-27T00:00:00Z",
-    "last_activity": "2026-02-27T00:00:00Z"
+    "started": "2026-02-27T00:37:33Z",
+    "last_activity": "2026-02-27T02:10:00Z"
   },
-  "iterations": [],
+  "iterations": [
+    {
+      "iteration": 1,
+      "findings": {
+        "total": 14,
+        "high": 1,
+        "medium": 4,
+        "low": 3,
+        "praise": 6,
+        "actionable": 5
+      },
+      "fixes_applied": 5,
+      "commit": "7a26836",
+      "timestamp": "2026-02-27T01:15:00Z"
+    },
+    {
+      "iteration": 2,
+      "findings": {
+        "total": 8,
+        "high": 0,
+        "medium": 0,
+        "low": 2,
+        "praise": 6,
+        "actionable": 1
+      },
+      "fixes_applied": 1,
+      "commit": "7bb6a4f",
+      "timestamp": "2026-02-27T02:05:00Z"
+    }
+  ],
   "flatline": {
-    "initial_score": null,
-    "last_score": null,
-    "consecutive_below_threshold": 0
+    "initial_score": 0.357,
+    "last_score": 0.125,
+    "consecutive_below_threshold": 1,
+    "flatlined": true,
+    "flatline_reason": "Severity dropped from HIGH/MEDIUM to LOW-only. Score Δ = -65%. No new actionable findings above LOW."
   },
   "metrics": {
-    "total_sprints_executed": 0,
-    "total_files_changed": 0,
-    "total_findings_addressed": 0,
+    "total_sprints_executed": 2,
+    "total_files_changed": 6,
+    "total_findings_addressed": 6,
     "total_visions_captured": 0
   },
   "finalization": {
     "ground_truth_updated": false,
     "rtfm_passed": false,
-    "pr_url": "https://github.com/0xHoneyJar/loa-finn/pull/109"
+    "pr_url": "https://github.com/0xHoneyJar/loa-finn/pull/110"
   }
 }
