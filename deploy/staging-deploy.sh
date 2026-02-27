@@ -172,23 +172,22 @@ phase_ecr() {
     docker login --username AWS --password-stdin "$AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
   ok "Docker authenticated to ECR"
 
-  # Build image
+  # Build image (SHA-only: ECR uses IMMUTABLE tags, no :latest)
   local git_sha
   git_sha=$(git -C "$REPO_ROOT" rev-parse --short HEAD)
   log "Building Docker image (tag: $git_sha)..."
-  docker build -t "$ECR_REPO_NAME:$git_sha" -t "$ECR_REPO_NAME:latest" \
+  docker build -t "$ECR_REPO_NAME:$git_sha" \
     -f "$REPO_ROOT/deploy/Dockerfile" "$REPO_ROOT"
   ok "Docker image built: $ECR_REPO_NAME:$git_sha"
 
-  # Tag and push
+  # Tag and push (SHA only — IMMUTABLE ECR rejects duplicate tags)
   docker tag "$ECR_REPO_NAME:$git_sha" "$ECR_URL:$git_sha"
-  docker tag "$ECR_REPO_NAME:latest" "$ECR_URL:latest"
 
   log "Pushing to ECR..."
   docker push "$ECR_URL:$git_sha"
   ok "Pushed $ECR_URL:$git_sha"
 
-  note "Update armitage.tfvars image_tag to '$git_sha' for immutable deploys"
+  note "Update armitage.tfvars image_tag to '$git_sha' before terraform apply"
   echo ""
   ok "Phase 1 complete — image available at $ECR_URL:$git_sha"
 }

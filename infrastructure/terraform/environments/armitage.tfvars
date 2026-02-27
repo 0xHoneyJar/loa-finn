@@ -15,9 +15,11 @@ ecs_cluster_name = "arrakis-staging-cluster"
 finn_cpu    = 256
 finn_memory = 512
 
-# ECR — Docker image source (created by deploy-staging.sh phase 0)
+# ECR — Docker image source (created by deploy-staging.sh phase 1)
 ecr_repository_url = "891376933289.dkr.ecr.us-east-1.amazonaws.com/loa-finn-armitage"
-image_tag          = "latest"
+# image_tag must be set to the git SHA at deploy time (ECR uses IMMUTABLE tags).
+# Example: terraform plan -var-file=environments/armitage.tfvars -var='image_tag=abc1234'
+image_tag          = "DEPLOY_SHA_REQUIRED"
 
 # Network — arrakis staging VPC (10.1.0.0/16)
 vpc_id             = "vpc-0d08ce69dba7485da"
@@ -33,17 +35,12 @@ alb_zone_id           = "Z35SXDOTRQ7X7K"
 # Route53 — arrakis.community public zone
 route53_zone_id = "Z01194812Z6NUWBWMFB7T"
 
-# NOTE: elasticache_security_group_id no longer used — ECS SG now references
+# DEPRECATED: elasticache_security_group_id no longer used — ECS SG now references
 # finn's dedicated Redis SG (aws_security_group.elasticache) directly.
-# Kept for variable declaration compatibility; value is unused.
-elasticache_security_group_id = "sg-0d8e3f396915c479d"
+# Variable has default="" in variables.tf; this line can be removed.
 
 # KMS — terraform creates the audit signing key (loa-finn-kms.tf).
-# This variable is used for the IAM policy on the task role (loa-finn-ecs.tf).
-# On first apply, use a dummy ARN — terraform creates the real key and the
-# task role policy references it via aws_kms_key.finn_audit_signing.arn.
-# After first apply, update this with the real KMS key ARN from terraform output.
-kms_key_arn = "arn:aws:kms:us-east-1:891376933289:key/placeholder-will-be-created"
+# kms_key_arn removed: task role policy now references aws_kms_key.finn_audit_signing.arn directly.
 
 # finn_task_role_arn and finn_task_role_name removed — now resolved from
 # aws_iam_role.ecs_task created by loa-finn-ecs.tf (eliminates circular dependency)

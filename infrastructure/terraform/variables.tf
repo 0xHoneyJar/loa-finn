@@ -182,19 +182,21 @@ variable "route53_zone_id" {
 # Security
 # ---------------------------------------------------------------------------
 
+# DEPRECATED: No longer used after SG egress fix (ecs_to_redis rule references
+# aws_security_group.elasticache directly). Kept for tfvars compatibility.
 variable "elasticache_security_group_id" {
   type        = string
-  description = "ElastiCache security group ID for outbound rules"
+  default     = ""
+  description = "DEPRECATED — unused. ECS→Redis egress now references aws_security_group.elasticache directly."
 }
 
+# DEPRECATED: kms_key_arn is no longer used — the task role policy now references
+# aws_kms_key.finn_audit_signing.arn directly (F-004 fix). Kept with default
+# to avoid breaking existing tfvars files.
 variable "kms_key_arn" {
   type        = string
-  description = "KMS key ARN for JWT signing. Must be scoped to the specific key — Resource:* is prohibited."
-
-  validation {
-    condition     = can(regex("^arn:aws:kms:", var.kms_key_arn))
-    error_message = "kms_key_arn must be a valid KMS key ARN (arn:aws:kms:...)."
-  }
+  default     = ""
+  description = "DEPRECATED — unused. Task role policy now references aws_kms_key.finn_audit_signing.arn directly."
 }
 
 # ---------------------------------------------------------------------------

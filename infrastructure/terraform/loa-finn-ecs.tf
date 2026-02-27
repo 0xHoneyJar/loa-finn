@@ -93,8 +93,9 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
         }
       },
       {
-        # Scoped to specific JWT signing key — Resource:* removed per Bridgebuilder
-        # finding medium-7 (Gate 0 blocker). See PR #82 Deep Review §VIII.1.
+        # Scoped to specific audit signing key created by loa-finn-kms.tf.
+        # Previously used var.kms_key_arn (placeholder) — now references the
+        # actual resource to eliminate circular dependency on first apply.
         Sid    = "KMSDecrypt"
         Effect = "Allow"
         Action = [
@@ -102,7 +103,7 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
           "kms:Sign",
           "kms:GetPublicKey"
         ]
-        Resource = var.kms_key_arn
+        Resource = aws_kms_key.finn_audit_signing.arn
         Condition = {
           StringEquals = {
             "aws:RequestedRegion" = "us-east-1"
@@ -220,26 +221,26 @@ resource "aws_ecs_task_definition" "loa_finn" {
     ]
 
     secrets = [
-      { name = "ARRAKIS_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/ARRAKIS_URL" },
-      { name = "FINN_S2S_SECRET", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_S2S_SECRET" },
-      { name = "BASE_RPC_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/BASE_RPC_URL" },
-      { name = "TREASURY_ADDRESS", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/TREASURY_ADDRESS" },
-      { name = "REDIS_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/REDIS_URL" },
-      { name = "R2_BUCKET", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/R2_BUCKET" },
-      { name = "JWT_KMS_KEY_ID", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/JWT_KMS_KEY_ID" },
-      { name = "CHEVAL_HMAC_SECRET", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/CHEVAL_HMAC_SECRET" },
-      { name = "FINN_REPUTATION_ROUTING", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_REPUTATION_ROUTING" },
-      { name = "DIXIE_BASE_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/DIXIE_BASE_URL" },
-      { name = "FINN_CALIBRATION_BUCKET_NAME", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_BUCKET_NAME" },
-      { name = "FINN_CALIBRATION_HMAC_KEY", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_HMAC_KEY" },
-      { name = "FINN_METRICS_BEARER_TOKEN", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_METRICS_BEARER_TOKEN" },
+      { name = "ARRAKIS_URL", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/ARRAKIS_URL" },
+      { name = "FINN_S2S_SECRET", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_S2S_SECRET" },
+      { name = "BASE_RPC_URL", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/BASE_RPC_URL" },
+      { name = "TREASURY_ADDRESS", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/TREASURY_ADDRESS" },
+      { name = "REDIS_URL", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/REDIS_URL" },
+      { name = "R2_BUCKET", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/R2_BUCKET" },
+      { name = "JWT_KMS_KEY_ID", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/JWT_KMS_KEY_ID" },
+      { name = "CHEVAL_HMAC_SECRET", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/CHEVAL_HMAC_SECRET" },
+      { name = "FINN_REPUTATION_ROUTING", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_REPUTATION_ROUTING" },
+      { name = "DIXIE_BASE_URL", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/DIXIE_BASE_URL" },
+      { name = "FINN_CALIBRATION_BUCKET_NAME", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_BUCKET_NAME" },
+      { name = "FINN_CALIBRATION_HMAC_KEY", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_HMAC_KEY" },
+      { name = "FINN_METRICS_BEARER_TOKEN", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_METRICS_BEARER_TOKEN" },
     ]
 
     logConfiguration = {
       logDriver = "awslogs"
       options = {
         "awslogs-group"         = aws_cloudwatch_log_group.loa_finn.name
-        "awslogs-region"        = "us-east-1"
+        "awslogs-region"        = data.aws_region.current.name
         "awslogs-stream-prefix" = "ecs"
       }
     }
