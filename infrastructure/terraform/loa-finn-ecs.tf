@@ -30,6 +30,27 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# ECS execution role needs SSM read access to inject secrets into containers.
+# AmazonECSTaskExecutionRolePolicy does NOT include ssm:GetParameters.
+# Without this, tasks fail with "ResourceInitializationError: unable to pull secrets".
+resource "aws_iam_role_policy" "ecs_task_execution_ssm" {
+  name = "${local.service_name}-execution-ssm"
+  role = aws_iam_role.ecs_task_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "SSMGetParameters"
+      Effect = "Allow"
+      Action = [
+        "ssm:GetParameters",
+        "ssm:GetParameter"
+      ]
+      Resource = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/*"
+    }]
+  })
+}
+
 # ---------------------------------------------------------------------------
 # IAM — Task Role (application permissions)
 # ---------------------------------------------------------------------------
@@ -64,7 +85,7 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
           "ssm:GetParameters",
           "ssm:GetParametersByPath"
         ]
-        Resource = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/*"
+        Resource = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/*"
         Condition = {
           StringEquals = {
             "aws:RequestedRegion" = "us-east-1"
@@ -72,8 +93,9 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
         }
       },
       {
-        # Scoped to specific JWT signing key — Resource:* removed per Bridgebuilder
-        # finding medium-7 (Gate 0 blocker). See PR #82 Deep Review §VIII.1.
+        # Scoped to specific audit signing key created by loa-finn-kms.tf.
+        # Previously used var.kms_key_arn (placeholder) — now references the
+        # actual resource to eliminate circular dependency on first apply.
         Sid    = "KMSDecrypt"
         Effect = "Allow"
         Action = [
@@ -81,7 +103,7 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
           "kms:Sign",
           "kms:GetPublicKey"
         ]
-        Resource = var.kms_key_arn
+        Resource = aws_kms_key.finn_audit_signing.arn
         Condition = {
           StringEquals = {
             "aws:RequestedRegion" = "us-east-1"
@@ -124,14 +146,8 @@ resource "aws_security_group" "ecs_tasks" {
     description     = "HTTP from ALB"
   }
 
-  # Outbound to ElastiCache
-  egress {
-    from_port       = 6379
-    to_port         = 6379
-    protocol        = "tcp"
-    security_groups = [var.elasticache_security_group_id]
-    description     = "Redis to ElastiCache"
-  }
+  # NOTE: Redis egress moved to standalone aws_security_group_rule below
+  # to break cycle with aws_security_group.elasticache (which has ingress from this SG).
 
   # Outbound to internet (RPC calls, R2, arrakis)
   egress {
@@ -147,6 +163,18 @@ resource "aws_security_group" "ecs_tasks" {
     Environment = var.environment
     Service     = "loa-finn"
   }
+}
+
+# Standalone rule breaks the SG cycle: ecs_tasks ↔ elasticache.
+# Inline rules on both SGs would create a Terraform dependency loop.
+resource "aws_security_group_rule" "ecs_to_redis" {
+  type                     = "egress"
+  from_port                = 6379
+  to_port                  = 6379
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.ecs_tasks.id
+  source_security_group_id = aws_security_group.elasticache.id
+  description              = "Redis to finn dedicated ElastiCache"
 }
 
 # ---------------------------------------------------------------------------
@@ -193,26 +221,26 @@ resource "aws_ecs_task_definition" "loa_finn" {
     ]
 
     secrets = [
-      { name = "ARRAKIS_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/ARRAKIS_URL" },
-      { name = "FINN_S2S_SECRET", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_S2S_SECRET" },
-      { name = "BASE_RPC_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/BASE_RPC_URL" },
-      { name = "TREASURY_ADDRESS", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/TREASURY_ADDRESS" },
-      { name = "REDIS_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/REDIS_URL" },
-      { name = "R2_BUCKET", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/R2_BUCKET" },
-      { name = "JWT_KMS_KEY_ID", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/JWT_KMS_KEY_ID" },
-      { name = "CHEVAL_HMAC_SECRET", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/CHEVAL_HMAC_SECRET" },
-      { name = "FINN_REPUTATION_ROUTING", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_REPUTATION_ROUTING" },
-      { name = "DIXIE_BASE_URL", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/DIXIE_BASE_URL" },
-      { name = "FINN_CALIBRATION_BUCKET_NAME", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_BUCKET_NAME" },
-      { name = "FINN_CALIBRATION_HMAC_KEY", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_HMAC_KEY" },
-      { name = "FINN_METRICS_BEARER_TOKEN", valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_METRICS_BEARER_TOKEN" },
+      { name = "ARRAKIS_URL", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/ARRAKIS_URL" },
+      { name = "FINN_S2S_SECRET", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_S2S_SECRET" },
+      { name = "BASE_RPC_URL", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/BASE_RPC_URL" },
+      { name = "TREASURY_ADDRESS", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/TREASURY_ADDRESS" },
+      { name = "REDIS_URL", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/REDIS_URL" },
+      { name = "R2_BUCKET", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/R2_BUCKET" },
+      { name = "JWT_KMS_KEY_ID", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/JWT_KMS_KEY_ID" },
+      { name = "CHEVAL_HMAC_SECRET", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/CHEVAL_HMAC_SECRET" },
+      { name = "FINN_REPUTATION_ROUTING", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_REPUTATION_ROUTING" },
+      { name = "DIXIE_BASE_URL", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/DIXIE_BASE_URL" },
+      { name = "FINN_CALIBRATION_BUCKET_NAME", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_BUCKET_NAME" },
+      { name = "FINN_CALIBRATION_HMAC_KEY", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_CALIBRATION_HMAC_KEY" },
+      { name = "FINN_METRICS_BEARER_TOKEN", valueFrom = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/FINN_METRICS_BEARER_TOKEN" },
     ]
 
     logConfiguration = {
       logDriver = "awslogs"
       options = {
         "awslogs-group"         = aws_cloudwatch_log_group.loa_finn.name
-        "awslogs-region"        = "us-east-1"
+        "awslogs-region"        = data.aws_region.current.name
         "awslogs-stream-prefix" = "ecs"
       }
     }
@@ -238,7 +266,7 @@ resource "aws_ecs_task_definition" "loa_finn" {
 
 resource "aws_ecs_service" "loa_finn" {
   name            = local.service_name
-  cluster         = "honeyjar-${var.environment}"
+  cluster         = local.ecs_cluster
   task_definition = aws_ecs_task_definition.loa_finn.arn
   desired_count   = 1 # WAL single-writer invariant — DO NOT change
   launch_type     = "FARGATE"
@@ -259,10 +287,8 @@ resource "aws_ecs_service" "loa_finn" {
 
   # Stop-before-start: prevent dual-writer window during rolling updates.
   # Old task stops before new task starts (brief downtime during deploys).
-  deployment_configuration {
-    maximum_percent         = 100
-    minimum_healthy_percent = 0
-  }
+  deployment_maximum_percent         = 100
+  deployment_minimum_healthy_percent = 0
 
   deployment_circuit_breaker {
     enable   = true
@@ -298,7 +324,7 @@ resource "aws_cloudwatch_metric_alarm" "ecs_desired_count_drift" {
   alarm_actions       = [aws_sns_topic.loa_finn_alarms.arn]
 
   dimensions = {
-    ClusterName = "honeyjar-${var.environment}"
+    ClusterName = local.ecs_cluster
     ServiceName = aws_ecs_service.loa_finn.name
   }
 

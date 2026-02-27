@@ -4,11 +4,13 @@
 FROM node:22-slim AS builder
 WORKDIR /app
 
-# Enable corepack for pnpm
-RUN corepack enable
+# Enable corepack for pnpm; install git for hounfour postinstall rebuild
+RUN corepack enable && apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies first (cache layer)
+# Copy build-hounfour-dist.sh before install — pnpm postinstall hook needs it
 COPY package.json pnpm-lock.yaml ./
+COPY scripts/build-hounfour-dist.sh ./scripts/
 RUN pnpm install --frozen-lockfile
 
 # Copy source, framework lib, and upstream bridgebuilder skill

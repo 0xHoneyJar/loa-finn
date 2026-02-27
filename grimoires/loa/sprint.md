@@ -6,7 +6,7 @@
 **Date:** 2026-02-26
 **Team:** 1 AI developer + 1 human reviewer
 **Sprint duration:** ~2-4 hours each (AI-paced)
-**Status:** SPRINTS 1-7 COMPLETE, SPRINT 8 PENDING (8 total)
+**Status:** SPRINTS 1-7 COMPLETE, SPRINT 8 IN PROGRESS (8 total)
 
 ---
 
@@ -1050,20 +1050,54 @@ T-7.12 (depends on T-6.3 for pinned actions)
 - **Dependencies:** None
 - **Tests:** Local reproduction passes clean; CI check passes
 
+#### T-8.12: Fix CI Package Manager Inconsistency (npm → pnpm)
+- **Description:** `deploy.yml` and `e2e.yml` use `npm ci` / bare `npm` while the project uses pnpm (pnpm-lock.yaml). `deploy-staging.yml` already uses correct pnpm setup. Align all workflows to pnpm.
+- **Acceptance Criteria:**
+  - AC1: `deploy.yml` uses `pnpm/action-setup` + `pnpm install --frozen-lockfile` (match deploy-staging.yml pattern)
+  - AC2: `e2e.yml` uses `pnpm/action-setup` + `pnpm install --frozen-lockfile`
+  - AC3: Node.js cache strategy updated from `cache: npm` to `cache: pnpm` in affected workflows
+  - AC4: No `npm ci` or `npm install` in `deploy.yml` or `e2e.yml` after changes (lib-tests.yml is out of scope — it tests library compatibility with npm consumers)
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** CI workflows pass with pnpm
+
+#### T-8.13: Pin GitHub Action Versions to Commit SHAs
+- **Description:** `e2e.yml`, `e2e-v2.yml`, `e2e-smoke.yml`, and `deploy.yml` use loose `@v4` tags instead of commit SHA pins. Other workflows (ci.yml, deploy-staging.yml) already use SHA pins. Align all workflows for supply chain security.
+- **Acceptance Criteria:**
+  - AC1: All `actions/checkout`, `actions/setup-node`, `actions/upload-artifact` references in `e2e.yml`, `e2e-v2.yml`, `e2e-smoke.yml`, and `deploy.yml` use commit SHA pins
+  - AC2: SHA pins match the same versions used in ci.yml and deploy-staging.yml for consistency
+  - AC3: Comment after each SHA pin with the version tag for readability (e.g., `# v4.2.2`)
+  - AC4: `grep -E 'uses: actions/.*@v[0-9]' .github/workflows/` returns 0 matches (verify no loose pins remain)
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** CI workflows run successfully with pinned SHAs
+
+#### T-8.14: Fix security-audit.yml Package Path
+- **Description:** `security-audit.yml` checks for `app/package.json` which doesn't exist — the project's package.json is at root. This means npm audit, dependency-review, and CodeQL all silently skip.
+- **Acceptance Criteria:**
+  - AC1: Path check updated from `app/package.json` to `package.json` (root)
+  - AC2: `pnpm audit` runs against root lockfile (pnpm is the project's package manager; npm audit would misrepresent the dependency graph)
+  - AC3: dependency-review action scans root manifest
+  - AC4: CodeQL initializes correctly for TypeScript at root
+  - AC5: Workflow passes (or surfaces real vulnerabilities to fix)
+- **Effort:** Small
+- **Dependencies:** None
+- **Tests:** Security audit CI check runs to completion (not silently skipping)
+
+#### T-8.15: Remove Orphaned Melange Workflows
+- **Description:** `melange-notify.yml` and `melange-resolve.yml` are scheduled workflows for a "melange" system that is not used in loa-finn. These run on cron and waste CI minutes. Only `.github/` references are in scope; historical references in CHANGELOG/docs outside `.github/` are out of scope.
+- **Acceptance Criteria:**
+  - AC1: Both `melange-notify.yml` and `melange-resolve.yml` deleted
+  - AC2: No references to "melange" remain in `.github/` directory
+  - AC3: `grep -R "melange" .github/` returns 0 matches after deletion; other references (CHANGELOG, git history) are historical and ignored
+- **Effort:** Tiny
+- **Dependencies:** None
+- **Tests:** CI runs without melange workflows; no scheduled workflow failures
+
 ### Sprint 8 Task Dependencies
 
 ```
-T-8.1 (parallel — no deps)
-T-8.2 (parallel — no deps)
-T-8.3 (parallel — no deps)
-T-8.4 (parallel — no deps)
-T-8.5 (parallel — no deps)
-T-8.6 (parallel — no deps)
-T-8.7 (parallel — no deps)
-T-8.8 (parallel — no deps)
-T-8.9 (parallel — no deps)
-T-8.10 (parallel — no deps)
-T-8.11 (parallel — no deps)
+T-8.1 through T-8.15 (all parallel — no deps)
 ```
 
 All tasks are independent and can be executed in any order.
@@ -1078,12 +1112,13 @@ All tasks are independent and can be executed in any order.
 6. No unnecessary `async` on synchronous methods
 7. No dead code (DNS pre-warming removed)
 8. No misleading comments (staging.env, resolve.ts header)
-9. beads_rust binary downloaded with pinned version + SHA256 checksum verification
-10. CI "Scan for Secrets" check passes (TruffleHog/GitLeaks clean)
-11. All CI checks green — PR #109 merge-ready
 9. beads_rust binary checksum-verified in Docker build
-10. All CI checks pass (including secret scanning)
-11. All existing tests pass (zero regression)
+10. CI "Scan for Secrets" check passes (TruffleHog/GitLeaks clean)
+11. All CI workflows use pnpm consistently (no npm)
+12. All GitHub Actions pinned to commit SHAs
+13. Security audit scans root package.json (not silently skipping)
+14. Orphaned melange workflows removed
+15. All existing tests pass (zero regression)
 
 ---
 
