@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-036",
+  "current_cycle": null,
   "cycles": [
     {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -1473,7 +1473,7 @@
     {
       "id": "cycle-036",
       "label": "Staging Readiness \u2014 Goodhart Wiring, ECS Staging, Fly.io Cleanup",
-      "status": "active",
+      "status": "archived",
       "started": "2026-02-26T12:00:00Z",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
@@ -1538,7 +1538,20 @@
           "tasks": 15,
           "notes": "15/15 tasks closed. T-8.1-T-8.10 pre-existing (code quality + supply chain). T-8.11 billing lock (external). T-8.12-T-8.15 CI fixes: pnpm migration, SHA pins, path fixes, melange removal."
         }
-      ]
+      ],
+      "archived": "2026-02-27T06:29:40Z",
+      "archive_path": "grimoires/loa/archive/2026-02-27-staging-deployment-complete"
+    },
+    {
+      "id": "cycle-037",
+      "label": "Hounfour v9 Contribution + CI Modernization",
+      "status": "archived",
+      "started": "2026-02-27T06:35:22Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprints": [],
+      "archived": "2026-02-27T07:00:00Z",
+      "notes": "PRD posted to hounfour PR #39 as [finn] feedback; implementation owned by hounfour"
     }
   ],
   "next_global_sprint_id": 153

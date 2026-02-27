@@ -1,26 +1,22 @@
-# PRD: Staging Readiness — Goodhart Wiring, ECS Staging, Fly.io Cleanup
+# PRD: Hounfour v9 Cross-Repo Extraction + CI Modernization
 
 **Status:** Draft
 **Author:** Jani + Claude
-**Date:** 2026-02-26
-**Cycle:** 036
-**References:** [Launch Readiness #66](https://github.com/0xHoneyJar/loa-finn/issues/66) · [Bridgebuilder Review PR #108](https://github.com/0xHoneyJar/loa-finn/pull/108#issuecomment-3964422678) · [Dixie Loop Closure #66 Round 12](https://github.com/0xHoneyJar/loa-finn/issues/66#issuecomment-3959406797)
+**Date:** 2026-02-27
+**Cycle:** 037
+**References:** [Hounfour PR #39](https://github.com/0xHoneyJar/loa-hounfour/pull/39) · [Hounfour Issue #38](https://github.com/0xHoneyJar/loa-hounfour/issues/38) · [Launch Readiness #66](https://github.com/0xHoneyJar/loa-finn/issues/66) · [Staging Deployment PR #110](https://github.com/0xHoneyJar/loa-finn/pull/110)
 
 ---
 
 ## 1. Problem Statement
 
-Cycle-035 shipped the complete Goodhart protection stack — reputation adapter, dixie transport, temporal decay, exploration, calibration, kill switch, mechanism interaction — but **none of it is instantiated at runtime**. `src/index.ts:304` creates a `HounfourRouter` with deterministic routing only. The entire reputation-aware routing path (`resolvePoolWithReputation()`) is never called.
+Hounfour PR #39 proposes 21 extraction candidates discovered during cross-repo staging deployment. Six are P0 — protocol hardening that must land before the ecosystem can graduate from staging to production. loa-finn is uniquely positioned to contribute to several of these because it is the *only* repo that exercises the full routing → reputation → audit path at runtime.
 
-Meanwhile, the codebase contains stale deployment references to Fly.io and Railway that contradict the actual infrastructure (ECS Fargate via `deploy.yml`). No staging environment exists — the only deployment target is `honeyjar-production`.
+Separately, loa-finn's CI pipeline has accumulated technical debt: silent E2E test skips on main, inconsistent GitHub Action versions across workflows, a fragile hounfour dist overlay in Docker, and no lint enforcement despite eslint being installed. The staging deployment (cycle-036) exposed these gaps — PR #109 had all checks failing, and the "green" main branch was green only because cross-repo E2E tests silently skipped.
 
-The goal of this cycle is to:
-1. Connect the built-but-disconnected Goodhart stack to the live routing path
-2. Remove all Fly.io/Railway references (ECS-only deployment)
-3. Stand up a staging ECS service with Gibson-named environments
-4. Fix CI E2E workflows so they pass
+This cycle addresses both: contribute finn's operational findings back to hounfour v9, and modernize the CI pipeline so that "green means green."
 
-> Source: Issue #66 Round 12 critical path: `Wire ReputationQueryFn → Goodhart protection → E2E test → Loop is live`
+> Source: Hounfour PR #39 §P0 items 1-6, Issue #66 Round 11 Command Deck CI status, PR #110 Bridgebuilder review
 
 ---
 
@@ -28,11 +24,14 @@ The goal of this cycle is to:
 
 | Goal | Metric | Target |
 |------|--------|--------|
-| Goodhart stack wired | `resolveWithGoodhart()` called on every routing decision | 100% of requests in shadow+ modes |
-| Staging deployed | `finn.armitage.arrakis.community/health` returns 200 | Accessible |
-| Shadow mode functional | `finn_shadow_total` counter increments on staging | >0 after 10 requests |
-| Fly.io/Railway removed | `grep -r "fly.io\|railway\|flyctl" src/ deploy/ .github/` | 0 matches |
-| CI E2E green | E2E workflow passes on PR | All jobs pass or gracefully skip |
+| Hounfour v9 P0 contributions from finn | PR comments with `[finn]` prefix on hounfour PR #39 | All 6 P0 items addressed |
+| model_performance emission | Finn emits `ReputationEvent.model_performance` after routing decisions | Verified in shadow mode on staging |
+| GovernedResource<T> verification | Conformance test validates finn's governance types against hounfour schemas | All pass |
+| Audit trail genesis hash verification | Finn's audit chain verified against hounfour's `computeAuditEntryHash` | Chain valid |
+| CI green-means-green | All 11 workflows pass or fail explicitly (no silent skips on main) | 0 silent skips |
+| Action version consistency | Single SHA per action across all workflows | 0 version inconsistencies |
+| Lint enforcement | eslint runs in CI, fails on error | Enabled |
+| Hounfour dist validation | Docker build validates dist freshness | Commit hash check |
 
 ---
 
@@ -40,172 +39,252 @@ The goal of this cycle is to:
 
 | Persona | Need |
 |---------|------|
-| **Operator (Jani)** | Deploy finn to staging, observe shadow metrics, validate graduation path |
-| **Finn (the service)** | Route requests through reputation-aware path with Goodhart protection |
-| **Dixie (future)** | Receive reputation queries from finn (stubbed for now, real wiring in next cycle) |
-| **CI** | E2E tests pass without missing secrets or Docker image access errors |
+| **Hounfour maintainers** | Receive finn's P0 contributions as structured feedback on PR #39 |
+| **Operator (Jani)** | CI that accurately reflects codebase health; staging emits reputation events |
+| **Finn (the service)** | Emit model_performance events for the autopoietic loop |
+| **Dixie (future consumer)** | Receives well-formed ReputationEvents from finn via the event bus |
+| **CI** | All workflows deterministic — pass, fail, or explicitly skip with reason |
 
 ---
 
 ## 4. Functional Requirements
 
-### FR-1: Goodhart Stack Wiring
+### FR-1: model_performance Event Emission
 
-Connect all Goodhart components in `src/index.ts` initialization:
+Close the autopoietic feedback loop by emitting `ReputationEvent.model_performance` after each routing decision.
 
-| Component | Class | Config Source |
-|-----------|-------|---------------|
-| Kill Switch | `KillSwitch` | `RuntimeConfig` (Redis) + `FINN_REPUTATION_ROUTING` env |
-| Dixie Transport | Transport factory | `DIXIE_BASE_URL` env: unset/`"stub"` → `DixieStubTransport`; URL → `DixieHttpTransport` |
-| Temporal Decay | `TemporalDecayEngine` | Redis client, default half-life (7d task, 30d aggregate) |
-| Exploration | `ExplorationEngine` | Redis client, epsilon from env or default 0.05 |
-| Calibration | `CalibrationEngine` | S3 bucket + HMAC key (optional, degrades gracefully) |
-| Reputation Adapter | `ReputationAdapter` | Composes transport + decay + calibration |
-| Mechanism Interaction | `resolveWithGoodhart()` | Composes all above |
-
-**Routing State Machine:**
-
-| State | Trigger | Goodhart Invoked? | Result Used? | Side Effects |
-|-------|---------|-------------------|--------------|-------------|
-| `disabled` | `FINN_REPUTATION_ROUTING=disabled` | No — skip entirely | N/A | None |
-| `shadow` | `FINN_REPUTATION_ROUTING=shadow` (default) | Yes — full pipeline | No — deterministic result returned | Redis reads (EMA, exploration counters), metrics incremented |
-| `enabled` | `FINN_REPUTATION_ROUTING=enabled` | Yes — full pipeline | Yes — reputation-aware result | Redis reads/writes, metrics, audit log |
-| `init_failed` | Goodhart init throws | No — components not available | N/A | `finn_goodhart_init_failed` counter incremented |
-
-**Transport Factory:**
-Transport selection via `DIXIE_BASE_URL` env var:
-- Unset or `"stub"` → `DixieStubTransport` (returns `null`, zero behavioral change)
-- Any URL → `DixieHttpTransport` (real HTTP, for future cycles)
-
-**Acceptance Criteria:**
-- AC1: `HounfourRouter` receives a `reputationQueryFn` backed by `ReputationAdapter`
-- AC2: In `shadow` mode, `resolveWithGoodhart()` is invoked but deterministic result is returned; shadow metrics (`finn_shadow_total`, `finn_shadow_diverged`) are incremented
-- AC3: In `enabled` mode, reputation-aware routing result is used
-- AC4: In `disabled` mode, Goodhart components are not constructed or invoked
-- AC5: If Goodhart init fails (Redis down, import error), routing falls back to deterministic with `finn_goodhart_init_failed` counter; no request-path retries
-- AC6: Transport factory: `DIXIE_BASE_URL` unset/`"stub"` → `DixieStubTransport`; URL value → `DixieHttpTransport`
-
-### FR-2: Parallel Reputation Scoring
-
-- AC7: `resolvePoolWithReputation()` scores pools via `Promise.allSettled` instead of sequential `for...of + await`
-- AC8: Individual pool scoring failures don't block other pools
-
-> Source: Bridgebuilder MEDIUM-1 from PR #107
-
-### FR-3: Fly.io / Railway Removal
-
-Remove all references to Fly.io and Railway from the codebase:
-
-| File | Action |
-|------|--------|
-| `railway.toml` (root) | Delete |
-| `deploy/railway.toml` | Delete |
-| `deploy/BRIDGEBUILDER.md` | Remove Railway sections, update for ECS |
-| `deploy/vllm/README.md` | Remove Fly.io GPU section |
-| `deploy/wrangler.jsonc` | Delete (Cloudflare Workers — not used) |
-| `README.md` | Remove Railway/Fly.io references |
-| `CHANGELOG.md` | Leave historical entries (they're factual history) |
-| `.claude/settings.json` | Remove `fly:*`, `railway:*` permission entries |
-| `docs/operations.md` | Remove Railway section |
-| `docs/modules/bridgebuilder.md` | Update deployment references |
-| `grimoires/loa/context/bridgebuilder-minimal-railway.md` | Delete |
-| `grimoires/loa/context/research-minimal-pi.md` | Remove Fly.io fallback references |
-| `grimoires/loa/sdd-bridgebuilder-refactor.md` | Remove Railway references |
-| `grimoires/loa/sdd-product-launch.md` | Remove Fly.io references |
-
-**Acceptance Criteria:**
-- AC9: Zero matches for `fly.io`, `flyctl`, `railway.toml`, `railway.app` in `src/`, `deploy/`, `.github/`, `docs/`
-- AC10: `deploy/fly.toml` and `deploy/wrangler.jsonc` do not exist
-- AC11: CHANGELOG.md historical entries preserved (don't rewrite history)
-
-### FR-4: ECS Staging Environment
-
-Stand up a staging ECS service using existing freeside/arrakis AWS infrastructure.
-
-**Gibson Naming Convention:**
-Staging environments use alphabetical names from Gibson's Neuromancer trilogy:
-- `finn.armitage.arrakis.community` — first staging environment
-- `finn.chiba.arrakis.community` — second (if needed)
-- `finn.dixieflat.arrakis.community` — third
-- `finn.freeside.arrakis.community` — fourth
-- Pattern: `finn.<gibson-name>.arrakis.community`
-
-**Infrastructure (additive to existing):**
-- New ECS service: `loa-finn-armitage` in existing cluster
-- New ALB target group: `finn-armitage-tg` on existing ALB
-- New HTTPS listener rule (port 443): Host header `finn.armitage.arrakis.community` → target group
-- ACM certificate: wildcard `*.arrakis.community` (or explicit SAN) attached to ALB HTTPS listener — **verify existing cert covers subdomain pattern `finn.*.arrakis.community`; if not, request new cert**
-- Route53 ALIAS record (not CNAME) pointing `finn.armitage.arrakis.community` → ALB DNS name
-- Task definition: same as production but with staging env vars
-
-**Staging-specific configuration:**
+**The Loop (from hounfour #38):**
 ```
-ROUTING_MODE=shadow
-X402_SETTLEMENT_MODE=verify_only
-FINN_REPUTATION_ROUTING=shadow
-NODE_ENV=production
-# DIXIE_BASE_URL intentionally unset → DixieStubTransport
+Request → Finn routes to model/pool → Model responds → Finn observes quality →
+Finn emits model_performance ReputationEvent → (Future: Dixie aggregates) →
+(Future: Routing weights updated) → Loop closed
 ```
 
+**Schema Strategy:**
+
+Hounfour v8.2.0 already exports `ModelPerformanceEvent` and `QualityObservation` types from the governance entrypoint (confirmed in `grimoires/loa/context/hounfour-v8.2.0-exports.md`). The `model_performance` variant is the 4th discriminated union member of `ReputationEvent`. Finn implements against the **installed v8.2.0 schema** — no local schema fork needed.
+
+If the installed version's exports change or Issue #38 lands a breaking revision, finn updates its hounfour pin and adapts. The conformance test (AC6) is the contract enforcement mechanism.
+
+**What finn emits (conforming to hounfour `ModelPerformanceEvent`):**
+```typescript
+{
+  event_id: ulid(),
+  agent_id: string,         // NFT token ID (from request.token_id)
+  collection_id: string,    // Collection address (from NFT resolution)
+  timestamp: ISO8601,
+  type: "model_performance",
+  model_id: string,         // e.g. "claude-sonnet-4-20250514" (from StreamStart.model)
+  provider: string,         // e.g. "anthropic" (from pool config)
+  pool_id: string,          // Pool selected by routing (from routingResult.poolId)
+  task_type: TaskType,      // From hounfour governance exports (TASK_TYPES enum)
+  quality_observation: {    // Conforms to hounfour QualityObservation schema
+    score: number,          // [0, 1] — required by hounfour schema
+    dimensions: {           // Optional per hounfour schema (pattern: ^[a-z][a-z0-9_]{0,31}$)
+      latency: number,      // Normalized: 1 - min(latency_ms / 10000, 1)
+      token_efficiency: number // completion_tokens / max(prompt_tokens, 1), capped at 1
+    },
+    latency_ms: number      // Raw latency (>=0, required by hounfour schema)
+  },
+  // finn-internal metadata (not part of hounfour canonical schema)
+  metadata: {
+    trace_id: string,
+    contract_version: string,
+    was_fallback: boolean,
+    shadow: boolean,         // true when FINN_REPUTATION_ROUTING=shadow
+    finn_version: string     // finn build version for provenance
+  }
+}
+```
+
+**Identity field semantics:** `agent_id` and `collection_id` follow hounfour's ReputationEvent identity model: `agent_id` is the NFT token ID sourced from the request's `token_id` field (same value passed to `/api/v1/agent/chat`); `collection_id` is the NFT collection contract address from NFT resolution. For non-NFT requests (x402/oracle), `agent_id` is set to `"anonymous"` and `collection_id` to the treasury address.
+
+**`metadata` wrapper:** The `shadow`, `trace_id`, `was_fallback`, and `finn_version` fields are finn-internal context not defined in hounfour's canonical schema. They are placed in a `metadata` object to keep the canonical event body clean. If hounfour v9 adds a standard metadata extension point, finn migrates to it. The `metadata` field is stripped before forwarding events to Dixie (future cycle).
+
+**Where it happens:** After `resolveWithGoodhart()` completes (or deterministic fallback completes), before the response is returned. The event is fire-and-forget (non-blocking on the request path).
+
+**Storage:** Initially stored in Redis as a capped list (`finn:reputation:events:{pool_id}`, max 1000 entries). Future: forwarded to Dixie via HTTP transport when `DIXIE_BASE_URL` is set.
+
 **Acceptance Criteria:**
-- AC12: `https://finn.armitage.arrakis.community/health` returns 200 with valid TLS
-- AC13: Staging task definition uses shadow mode defaults
-- AC14: Staging deploy workflow triggered by manual dispatch or tag
-- AC15: Terraform module parameterized for environment name (armitage, chiba, etc.)
-- AC16: `deploy/staging.env.example` documents all staging env vars
+- AC1: After every routing decision, a `model_performance` event is constructed with all required fields from hounfour's `ModelPerformanceEvent` type
+- AC2: Event emission does not add >1ms p99 to request latency (fire-and-forget)
+- AC3: Events are stored in Redis with TTL (7 days default)
+- AC4: In `disabled` routing mode, no events are emitted
+- AC5: In `shadow` mode, `metadata.shadow` is `true`; in `enabled` mode it is `false`
+- AC6: Event body (excluding `metadata`) validates against hounfour v8.2.0's `ReputationEventSchema` imported from `@0xhoneyjar/loa-hounfour/governance`
 
-### FR-5: CI E2E Fix
+### FR-2: GovernedResource<T> Protocol Verification
 
-Fix the 3 failing E2E CI workflows:
+Verify that finn's usage of governance types is isomorphic with hounfour's protocol definition.
 
-| Workflow | Current Failure | Fix |
-|----------|----------------|-----|
-| `e2e-smoke.yml` | `ARRAKIS_CHECKOUT_TOKEN` missing | Make cross-repo checkout conditional, skip entire job gracefully if secret missing |
-| `e2e.yml` | `deploy/build-context/oracle-*` directories missing | Oracle knowledge/persona directories are optional for core finn functionality. Make Dockerfile COPY conditional (`COPY --from=... || true` pattern or multi-stage with optional layer). Commit minimal test fixtures (`deploy/build-context/oracle-knowledge/.gitkeep`, `deploy/build-context/oracle-persona/.gitkeep`) so Docker build succeeds. Oracle features degrade gracefully when corpus is empty. |
-| `e2e-v2.yml` | GHCR `loa-freeside:v7.11.0` access denied | Add GHCR login step using `ARRAKIS_CHECKOUT_TOKEN`. If token unavailable, skip job with clear message. |
+**Context:** Three repos (finn, dixie, freeside) all import governance types from hounfour. PR #39 P0-2 asks each repo to verify they're using `GovernedResource<T>` correctly — not just importing it, but satisfying the protocol's invariants.
+
+**Two verification mechanisms:**
+
+1. **Static analysis (CI guard):** A grep/tsquery-based check that scans for direct mutations to governed state (bypassing `evaluateGovernanceMutation()`). Runs in CI to catch regressions. Patterns to flag:
+   - Direct property assignment on types that extend `GovernedResource<T>`
+   - `Object.assign` or spread operators on governed state
+   - Missing invariant checks where governed state is created
+
+2. **Runtime conformance tests:** Targeted tests for specific governed state transitions that finn performs (e.g., reputation score updates, pool weight changes). These validate that the transition produces valid output per hounfour's invariant definitions.
+
+**What to verify:**
+1. Every type finn imports from `@0xhoneyjar/loa-hounfour/governance` is used correctly
+2. Governance mutations go through `evaluateGovernanceMutation()` (not ad-hoc state changes)
+3. Invariant checks (`buildBoundedInvariant`, `buildNonNegativeInvariant`, `buildSumInvariant`) are applied where finn manages governed state
 
 **Acceptance Criteria:**
-- AC17: E2E workflows pass or gracefully skip when secrets are unavailable (skip message includes which secret is missing)
-- AC18: Docker build succeeds with empty oracle directories; minimal `.gitkeep` fixtures committed to repo
-- AC19: When oracle corpus is absent, finn starts successfully with oracle features disabled (existing graceful degradation at `src/index.ts:289-301`)
+- AC7: Static CI guard that flags direct mutations to governed state types (grep-based, runs in ci.yml)
+- AC8: Runtime conformance tests for each governed state transition finn performs (list extracted from `grep -r "from.*loa-hounfour/governance"`)
+- AC9: Any violations documented with fix or justification in a `GOVERNANCE-CONFORMANCE.md` report
+
+### FR-3: Audit Trail Genesis Hash Verification
+
+Verify the integrity of finn's audit trail against hounfour's hash chain specification.
+
+**Context:** Finn already uses `computeAuditEntryHash` from hounfour's commons module. PR #39 P0-3 asks each repo to verify their genesis hash and domain separation are correct.
+
+**Genesis seed determinism:** The genesis seed is a compile-time constant defined in code: `FINN_AUDIT_GENESIS_SEED = "finn:audit:genesis:v1"`. This constant is the same across all environments (staging, production). The domain separation prefix `finn:audit:` is prepended to all hash inputs. The resulting genesis hash is deterministic: `SHA-256(finn:audit: + finn:audit:genesis:v1)`. This value is documented in the conformance report and can be independently verified by any repo.
+
+**What to verify:**
+1. Finn's audit trail starts with a proper genesis entry (hash of the constant seed, not empty string)
+2. Domain separation prefix `finn:audit:` is prepended to all hash inputs
+3. Hash chain is contiguous — `verifyAuditTrailIntegrity()` passes on a sample trail
+4. Genesis hash is reproducible across environments (same constant → same hash)
+
+**Acceptance Criteria:**
+- AC10: Integration test that creates a small audit trail and verifies with `verifyAuditTrailIntegrity()`
+- AC11: Genesis hash uses `FINN_AUDIT_GENESIS_SEED` constant with `finn:audit:` domain separation
+- AC12: Conformance report documents: (a) the seed constant, (b) the domain prefix, (c) the resulting genesis hash hex value, for cross-repo verification
+
+### FR-4: x402 Schema Verification
+
+Verify that finn's x402 payment schemas conform to hounfour's canonical definitions.
+
+**Context:** PR #39 P0-4 identifies 5 schemas in the payment flow. Finn owns the payment endpoint (`/api/v1/x402/invoke`) and quote generation. The schemas must match across finn (producer) and freeside (consumer).
+
+**Schema availability decision:** Hounfour v8.2.0 does NOT export x402 payment schemas (they are not in the economy or core entrypoints). Therefore this cycle's scope is: (a) document finn's current x402 schemas as the proposed canonical source, (b) open or attach to a hounfour PR adding them, and (c) validate finn's schemas against freeside's consumption patterns (from `grimoires/loa/context/dixie-contract.md`).
+
+**What to verify:**
+1. Quote schema (`quote_id`, `model`, `max_cost`, `payment_address`, `chain_id`, `token_address`, `valid_until`)
+2. Payment proof schema (`X-Payment` header structure)
+3. Settlement record schema (`payment_id`, `quote_id`)
+4. Error codes (`PAYMENT_REQUIRED`, `NOT_ALLOWLISTED`, `INFERENCE_FAILED`, `FEATURE_DISABLED`)
+
+**Acceptance Criteria:**
+- AC13: Finn's x402 schemas documented as JSON Schema files in `src/x402/schemas/` (quote, payment-proof, settlement, error-codes)
+- AC14: Schemas proposed as upstream contribution to hounfour (PR comment on #39 or separate hounfour PR)
+- AC15: Error code enum documented; cross-repo match deferred to hounfour adoption (not blockable in this cycle since hounfour doesn't define them yet)
+
+### FR-5: Hounfour v9 PR Feedback
+
+Post structured `[finn]` feedback on hounfour PR #39 covering all P0 items from finn's perspective.
+
+**Acceptance Criteria:**
+- AC16: Comment posted on PR #39 with `[finn]` prefix addressing all 6 P0 items
+- AC17: Each P0 item classified as additive vs breaking from finn's perspective
+- AC18: Include finn-specific evidence (code references, staging observations, test results)
+
+### FR-6: CI Modernization — Green Means Green
+
+Fix silent E2E test skips and standardize the CI pipeline.
+
+**6a: E2E Test Gating**
+
+| Workflow | Current | Fix |
+|----------|---------|-----|
+| `e2e-v2.yml` | Warns and skips if `ARRAKIS_CHECKOUT_TOKEN` missing | Fail on `main` branch, skip on feature branches with clear annotation |
+| `e2e-smoke.yml` | Warns and skips | Same: fail on `main`, skip on feature with annotation |
+
+**6b: Action Version Standardization**
+
+Pin each action to the SHA corresponding to a specific released version (not "latest commit on default branch"). Update only via a deliberate dependency bump PR.
+
+| Action | Current State | Target (release SHA) |
+|--------|---------------|--------|
+| `actions/checkout` | v4.2.2 and v4.3.1 mixed | Single SHA for v4.3.1 across all workflows |
+| `amazon-ecs-render-task-definition` | v1.7.1 and v1.7.2 mixed | Single SHA for v1.7.2 across all workflows |
+| All other actions | Already consistent | Verify and document in `ACTION-PINS.md` |
+
+**Source of truth:** A manifest comment block at the top of each workflow file maps action name → release version → SHA. Updates to this manifest are a dedicated PR reviewed for supply chain risk.
+
+**6c: Lint Enforcement**
+
+eslint v9.39.2 is installed but no `lint` script exists and CI doesn't run it.
+
+- Add `"lint": "eslint src/"` to package.json scripts
+- Add lint step to ci.yml
+- Fix any existing lint errors (expect a batch of fixable issues)
+
+**6d: Hounfour Dist Validation**
+
+The Docker build copies pre-built hounfour dist from local node_modules (workaround for Docker buildkit network isolation). No validation that the dist is fresh.
+
+- Add a commit hash file (`node_modules/@0xhoneyjar/loa-hounfour/.dist-commit`) during `build-hounfour-dist.sh`
+- Docker build stage validates the hash file exists and is non-empty
+- CI logs the hounfour commit hash for audit trail
+
+**6e: Node.js Version Standardization**
+
+package.json declares `engines.node: ">=22"`. Standardize CI to match.
+
+**Compatibility check (prerequisite):** Before changing matrices, verify:
+1. All GitHub-hosted runner images support Node 22 (ubuntu-latest ships Node 20 by default; `actions/setup-node` handles this)
+2. pnpm@10.28.0 supports Node 22 (confirmed: pnpm 10.x requires Node >=18)
+3. eslint v9.39.2 supports Node 22 (confirmed: eslint 9.x requires Node >=18.18)
+4. Composite actions used in workflows don't hard-depend on Node 20 runtime (GitHub Actions node20 runtime is separate from repo code; action runtime version is determined by action.yml, not our matrix)
+
+**Scope:** Only change the Node version for repo code steps (`actions/setup-node`). Action runtime versions (node20 in action.yml) are outside our control.
+
+- Remove Node 18 from `lib-tests.yml` matrix
+- Set `actions/setup-node` to Node 22 in all workflows
+- Keep `node-version: 22` explicit (not `lts/*` which resolves to 20)
+
+**Acceptance Criteria:**
+- AC19: `e2e-v2.yml` and `e2e-smoke.yml` fail (not skip) on main when token is missing
+- AC20: All 11 workflows use exactly one release-pinned SHA per GitHub Action (no version drift)
+- AC21: `pnpm lint` runs in CI and passes
+- AC22: Docker build logs hounfour dist commit hash
+- AC23: All `actions/setup-node` steps use `node-version: "22"` (action runtimes excluded — outside our control)
+- AC24: `lib-tests.yml` matrix reduced to `[22]` only
 
 ---
 
 ## 5. Technical & Non-Functional Requirements
 
-**Request-path constraints:**
-- No synchronous S3 calls on the request path. Calibration data is loaded async at startup and refreshed on a polling interval (default 60s). Request-path reads only hit in-memory cache.
-- Redis reads on request path: kill switch mode check (~0.1ms LAN), EMA lookup (~0.1ms LAN), exploration counter increment (best-effort, non-blocking). All Redis calls have 50ms timeouts; failures degrade to deterministic.
-- `DixieStubTransport` is synchronous in-memory (`return null`) — zero network overhead.
+**Request-path constraints (for FR-1):**
+- model_performance event construction: <0.5ms (in-memory, no network)
+- Redis LPUSH for event storage: <1ms p99 (same Redis instance as routing)
+- Event emission is fire-and-forget — Redis failure does not affect response
+- Events use existing Redis connection (no new connections)
 
 | Requirement | Target | Measurement |
 |-------------|--------|-------------|
-| Startup time with Goodhart | <5s additional | `console.time` around Goodhart init block |
-| Shadow mode p95 overhead | <5ms per request | Histogram delta: `finn_routing_duration_seconds` with/without Goodhart (staging) |
-| Reputation stub latency | <0.1ms | In-memory, no network — verified by unit test |
-| Staging monthly cost | <$50 | Fargate spot pricing, min capacity 0, desired 1 |
+| Event emission p99 overhead | <1ms per request | Histogram: `finn_reputation_event_duration_seconds` |
+| CI pipeline total time | <10 minutes for full suite | GitHub Actions timing |
+| Lint step duration | <30 seconds | CI timing |
+| Hounfour conformance tests | <5 seconds | vitest timing |
 
 ---
 
 ## 6. Scope
 
 ### In Scope
-- Wire Goodhart stack to routing path (all components exist, just disconnected)
-- Transport factory implemented (stub + HTTP); staging uses stub only (`DIXIE_BASE_URL` unset)
-- Parallel reputation scoring
-- Remove Fly.io/Railway references
-- ECS staging with Gibson naming
-- CI E2E workflow fixes
-- Terraform for staging service
+- Emit model_performance ReputationEvents (stored locally in Redis)
+- GovernedResource<T> conformance verification tests
+- Audit trail genesis hash + domain separation verification
+- x402 schema verification (document current, prepare for upstream)
+- Post `[finn]` feedback on hounfour PR #39
+- CI: E2E gating, action standardization, lint enforcement, dist validation, Node version standardization
 
 ### Out of Scope (Future Cycles)
-- Exercising DixieHttpTransport in staging (requires staging dixie service; transport factory implemented but `DIXIE_BASE_URL` left unset)
-- x402 settlement mode `live` (stays `verify_only`)
-- Graduation ceremony (requires 72h of staging data)
-- Per-NFT personality (BEAUVOIR.md)
-- JWKS key rotation
-- Multi-tenant trust boundary
-- Production deployment
+- Forwarding events to Dixie via HTTP (requires `DIXIE_BASE_URL` wiring, separate cycle)
+- Cross-model scoring aggregation (lives in Dixie, consumes finn's events)
+- Routing weight updates from reputation signals (requires full loop closure with Dixie)
+- Proper hounfour git tag/release (PR #39 P0-6 — owned by hounfour maintainers)
+- Economic boundary evaluation (PR #39 P0-5 — primarily freeside concern)
+- SLSA provenance, SBOM generation, keyless signing (P1 security, future cycle)
+- Production deployment (requires graduation from staging)
 
 ---
 
@@ -213,63 +292,97 @@ Fix the 3 failing E2E CI workflows:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Redis unavailable on staging | Medium | Low | Goodhart stack degrades to deterministic — tested |
-| S3 calibration bucket missing | Medium | Low | CalibrationEngine returns empty — no behavioral change |
-| Existing ALB listener rules conflict | Low | Medium | Use unique priority number, validate with Terraform plan |
-| Terraform state drift | Low | High | Import existing resources before applying |
+| Hounfour v8.2.0 model_performance export API changes before v9 release | Low | Medium | Conformance test (AC6) catches drift; finn pins to v8.2.0 until v9 is tagged |
+| eslint initial run finds hundreds of errors | Medium | Low | Fix auto-fixable, triage rest into separate batch; use `--max-warnings` for gradual adoption |
+| E2E gating on main breaks CI until token is configured | Low | High | Verify `ARRAKIS_CHECKOUT_TOKEN` is configured before merging the gating change; add to STAGING-RUNBOOK |
+| Conformance tests reveal governance type misuse | Medium | Medium | Document violations in GOVERNANCE-CONFORMANCE.md; fix or justify each |
+| Node 22 incompatible with some composite action | Low | Low | Compatibility check task (FR-6e prerequisite) catches this before matrix change |
+| x402 schemas proposed upstream get rejected/modified by hounfour maintainers | Medium | Low | Schemas live in finn first; upstream adoption is additive, not blocking |
 
 ### Dependencies
-- Existing ECS cluster in freeside AWS account
-- Route53 zone for `arrakis.community`
-- ALB with available listener rule slots
-- Redis instance (ElastiCache or equivalent)
+- `@0xhoneyjar/loa-hounfour@8.2.0` (already installed; exports `ModelPerformanceEvent`, `QualityObservation`, `ReputationEventSchema`)
+- Hounfour PR #39 open for comments
+- `ARRAKIS_CHECKOUT_TOKEN` confirmed configured as GitHub repo secret before E2E gating merge
+- Staging (finn.armitage.arrakis.community) healthy for shadow-mode event verification
 
 ---
 
 ## 8. Implementation Notes
 
-### Goodhart Wiring Pattern
+### model_performance Event Architecture
 
-The wiring in `src/index.ts` should follow the existing initialization pattern (lazy, non-fatal):
+The event should be constructed in the routing hot path but emitted asynchronously:
 
 ```typescript
-// After hounfour initialization (~line 313)
-let goodhartConfig: MechanismConfig | undefined
-try {
-  const killSwitch = new KillSwitch(runtimeConfig)
-  const transport = createDixieTransport(process.env.DIXIE_BASE_URL)
-  const decay = redis ? new TemporalDecayEngine(redis) : undefined
-  const exploration = redis ? new ExplorationEngine(redis) : undefined
-  // ... compose into MechanismConfig
-} catch (err) {
-  console.warn("[finn] goodhart: initialization failed (non-fatal)")
-}
+// After routing decision (in HounfourRouter or resolveWithGoodhart)
+const event: ModelPerformanceEvent = {
+  event_id: ulid(),
+  agent_id: request.token_id ?? 'anonymous',
+  collection_id: request.collectionAddress ?? TREASURY_ADDRESS,
+  timestamp: new Date().toISOString(),
+  type: 'model_performance',
+  model_id: routingResult.selectedModel,  // from StreamStart.model
+  provider: routingResult.provider,
+  pool_id: routingResult.poolId,
+  task_type: inferTaskType(request),      // maps to TASK_TYPES enum
+  quality_observation: {
+    score: computeNormalizedScore(routingResult),
+    dimensions: {
+      latency: 1 - Math.min(routingResult.durationMs / 10000, 1),
+      token_efficiency: Math.min(
+        response.usage.completion_tokens / Math.max(response.usage.prompt_tokens, 1),
+        1
+      )
+    },
+    latency_ms: routingResult.durationMs
+  },
+  metadata: {
+    trace_id: request.traceId,
+    contract_version: HOUNFOUR_VERSION,
+    was_fallback: routingResult.wasFallback,
+    shadow: routingMode === 'shadow',
+    finn_version: FINN_VERSION
+  }
+};
+
+// Fire-and-forget — don't await
+emitReputationEvent(redis, event).catch(err =>
+  console.warn('[finn] reputation event emission failed (non-fatal)', err.message)
+);
 ```
 
-### Gibson Environment Names (Reference)
+### Redis Storage Pattern
 
-| Letter | Name | Source |
-|--------|------|--------|
-| A | armitage | Neuromancer — Colonel Willis Armitage |
-| B | bobby | Count Zero — Bobby Newmark |
-| C | chiba | Neuromancer — Chiba City |
-| D | dixieflat | Neuromancer — Dixie Flatline (McCoy Pauley) |
-| E | edge | — |
-| F | freeside | Neuromancer — Freeside orbital |
-| G | gothick | Mona Lisa Overdrive |
-| H | hosaka | Neuromancer — Hosaka corporation |
-| I | ice | Neuromancer — Intrusion Countermeasures Electronics |
-| J | julius | Neuromancer — Julius Deane |
-| K | kumiko | Mona Lisa Overdrive — Kumiko Yanaka |
-| L | linda | Neuromancer — Linda Lee |
-| M | molly | Neuromancer — Molly Millions |
-| N | neuromancer | Neuromancer — the AI |
-| O | ono-sendai | Neuromancer — Ono-Sendai cyberspace deck |
-| P | panther | Neuromancer — Panther Moderns |
-| R | riviera | Neuromancer — Peter Riviera |
-| S | straylight | Neuromancer — Villa Straylight |
-| T | tessier | Neuromancer — Tessier-Ashpool S.A. |
-| W | wintermute | Neuromancer — Wintermute AI |
-| Z | zion | Neuromancer — Zion cluster |
+```
+Key:    finn:reputation:events:{pool_id}
+Type:   List (LPUSH, JSON-serialized event)
+TTL:    7 days (configurable via FINN_REPUTATION_EVENT_TTL)
+Cap:    1000 entries per pool (LTRIM after LPUSH)
+```
 
-First staging: `finn.armitage.arrakis.community`
+### Conformance Test Pattern
+
+```typescript
+// tests/conformance/governance.test.ts
+import { ReputationEventSchema } from '@0xhoneyjar/loa-hounfour/governance';
+
+test('model_performance event conforms to hounfour schema', () => {
+  const event = buildModelPerformanceEvent({ /* test data */ });
+  // Validate canonical fields (excluding finn-internal metadata)
+  const { metadata, ...canonical } = event;
+  expect(validateAgainstSchema(ReputationEventSchema, canonical)).toBe(true);
+});
+```
+
+### CI Action Version Manifest
+
+Each workflow includes a manifest comment mapping action name → release version → SHA. The actual SHAs used in `uses:` lines must match this manifest. Example format:
+
+```yaml
+# Action pins (release-version pinned, update via dedicated PR only):
+# actions/checkout      v4.3.1  → 34e1148...
+# actions/setup-node    v4.3.0  → cdca736...
+# pnpm/action-setup     v4.1.0  → a7487c7...
+```
+
+**Note:** The exact SHAs above are illustrative. The implementation task will look up the actual current release SHAs from each action's GitHub releases page and standardize across all 11 workflows.
