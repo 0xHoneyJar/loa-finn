@@ -49,7 +49,7 @@ resource "aws_security_group" "elasticache" {
 
 resource "aws_elasticache_replication_group" "loa_finn" {
   replication_group_id = local.service_name
-  description          = "${local.service_name} dedicated Redis — billing, conversations, x402, sessions"
+  description          = "${local.service_name} dedicated Redis - billing, conversations, x402, sessions"
 
   engine               = "redis"
   engine_version       = "7.1"
@@ -95,16 +95,8 @@ resource "aws_elasticache_parameter_group" "loa_finn" {
     value = "noeviction"
   }
 
-  # AOF persistence with everysec fsync (Flatline SKP-004)
-  parameter {
-    name  = "appendonly"
-    value = "yes"
-  }
-
-  parameter {
-    name  = "appendfsync"
-    value = "everysec"
-  }
+  # AOF persistence: appendonly and appendfsync are auto-managed by
+  # ElastiCache for Redis 7 replication groups and cannot be modified.
 
   tags = {
     Environment = var.environment

@@ -82,7 +82,7 @@ resource "aws_cloudwatch_metric_alarm" "memory_high" {
 
 resource "aws_cloudwatch_log_metric_filter" "error_5xx" {
   name           = "${local.service_name}-5xx"
-  pattern        = "\"status\":5"
+  pattern        = "{ $.status = 5* }"
   log_group_name = aws_cloudwatch_log_group.loa_finn.name
 
   metric_transformation {
