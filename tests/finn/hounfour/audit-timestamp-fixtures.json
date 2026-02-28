@@ -1,0 +1,40 @@
+{
+  "_comment": "Audit timestamp validation fixtures — valid and invalid cases for hounfour v8.3.0 validateAuditTimestamp()",
+  "valid": [
+    { "input": "2026-02-28T15:04:00.000Z", "note": "Current session timestamp" },
+    { "input": "2026-01-01T00:00:00Z", "note": "Midnight UTC, no fractional" },
+    { "input": "2025-12-31T23:59:59.999Z", "note": "End of 2025" },
+    { "input": "2024-06-15T12:30:45Z", "note": "Mid-2024" },
+    { "input": "2020-01-01T00:00:00.000Z", "note": "Start of 2020" },
+    { "input": "1970-01-01T00:00:00Z", "note": "Unix epoch (boundary)" },
+    { "input": "1970-01-01T00:00:00.000Z", "note": "Unix epoch with millis" },
+    { "input": "2000-02-29T12:00:00Z", "note": "Leap day 2000 (valid leap year)" },
+    { "input": "2024-02-29T12:00:00Z", "note": "Leap day 2024 (valid leap year)" },
+    { "input": "2026-02-28T00:00:00.123456Z", "note": "Sub-millisecond fractional" },
+    { "input": "2026-02-28T23:59:59Z", "note": "End of day" },
+    { "input": "2010-06-15T08:30:00Z", "note": "Historical past date" },
+    { "input": "2023-03-14T15:09:26Z", "note": "Pi day timestamp" },
+    { "input": "2026-02-28T15:04:00.1Z", "note": "Single fractional digit" },
+    { "input": "2026-02-28T15:04:00.12Z", "note": "Two fractional digits" },
+    { "input": "2025-07-04T00:00:00.000Z", "note": "Independence day 2025" },
+    { "input": "2026-02-01T12:00:00Z", "note": "February 1st" },
+    { "input": "2015-03-25T09:45:00.000Z", "note": "Deep past but post-epoch" },
+    { "input": "1999-12-31T23:59:59Z", "note": "Y2K eve" },
+    { "input": "2026-02-28T15:00:00.000Z", "note": "Round hour, current date" }
+  ],
+  "invalid": [
+    { "input": "", "note": "Empty string" },
+    { "input": "not-a-date", "note": "Garbage" },
+    { "input": "Tuesday", "note": "Day name (Date.parse accepts on some engines)" },
+    { "input": "2026-02-28", "note": "Date-only (no time component)" },
+    { "input": "2026-02-28T15:04:00", "note": "Missing timezone designator" },
+    { "input": "2026-13-01T00:00:00Z", "note": "Month 13 (out of range)" },
+    { "input": "2026-02-30T00:00:00Z", "note": "Feb 30 (impossible date)" },
+    { "input": "2026-02-28T25:00:00Z", "note": "Hour 25 (out of range)" },
+    { "input": "2026-02-28T15:61:00Z", "note": "Minute 61 (out of range)" },
+    { "input": "1969-12-31T23:59:59Z", "note": "Pre-epoch (before 1970-01-01)" },
+    { "input": "null", "note": "String 'null'" },
+    { "input": "2026-02-28 15:04:00Z", "note": "Space separator instead of T" },
+    { "input": "28/02/2026T15:04:00Z", "note": "DD/MM/YYYY format" }
+  ]
+}

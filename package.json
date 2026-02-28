@@ -25,6 +25,7 @@
     "test:microbench": "vitest run tests/finn/billing-microbench.test.ts",
     "test:e2e": "vitest run --config vitest.config.e2e.ts",
     "test:x402": "vitest run tests/x402/",
+    "test:audit-fixtures": "vitest run tests/finn/hounfour/audit-timestamp-fixtures.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/drizzle/migrate.ts",
     "postinstall": "bash scripts/build-hounfour-dist.sh"
