@@ -202,9 +202,10 @@ describe("GovernedBilling shadow mode — flag ON", () => {
     expect(invariantLog).toBeDefined()
     const parsed = JSON.parse(invariantLog!)
 
-    // Required fields per T-5.2 AC
+    // Required fields per T-5.2 AC (event_type added per bridge-iter1-002)
     expect(parsed).toHaveProperty("event", "governed_billing_invariants")
     expect(parsed).toHaveProperty("entryId")
+    expect(parsed).toHaveProperty("event_type")
     expect(parsed).toHaveProperty("invariants")
     expect(parsed).toHaveProperty("all_hold")
     expect(parsed.invariants).toHaveProperty("cost_non_negative")

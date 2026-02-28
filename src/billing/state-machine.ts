@@ -231,6 +231,8 @@ export class BillingStateMachine {
    * 3. Enqueue finalize (async)
    */
   async commit(entry: BillingEntry, actualCost: MicroUSD): Promise<BillingEntry> {
+    // Validates RESERVE_HELD→COMMITTED, but sets FINALIZE_PENDING (collapsed step).
+    // GovernedBilling.applyEvent mirrors this via validationTarget override.
     this.validateTransition(entry.state, BillingState.COMMITTED)
 
     const payload: BillingCommitPayload = {
@@ -442,6 +444,7 @@ export class BillingStateMachine {
     console.log(JSON.stringify({
       event: "governed_billing_invariants",
       entryId: postState.billing_entry_id,
+      event_type: eventType,
       invariants: result.invariants,
       all_hold: result.allHold,
     }))
