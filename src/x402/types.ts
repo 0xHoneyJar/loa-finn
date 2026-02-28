@@ -2,6 +2,12 @@
 //
 // EIP-3009 transferWithAuthorization types.
 // Quote, PaymentProof, Settlement result types.
+//
+// NOTE (cycle-038): Finn-local wire types below diverge from canonical hounfour
+// X402 schemas (X402QuoteSchema, X402PaymentProofSchema, X402SettlementSchema).
+// Canonical schemas use different field names (max_cost_micro, payment_header, etc.)
+// and are re-exported from protocol-types.ts for protocol-level contract validation.
+// Local types remain authoritative for finn's x402 HTTP wire format.
 
 // ---------------------------------------------------------------------------
 // Quote
