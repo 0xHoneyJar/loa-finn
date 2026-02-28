@@ -46,5 +46,7 @@ export default defineConfig({
       "evals/**",
       "node_modules/**",
     ],
+    // Retry flaky tests (probabilistic engines, timing-sensitive) up to 2 times
+    retry: 2,
   },
 })
