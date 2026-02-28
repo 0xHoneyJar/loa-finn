@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
 import {
   FINN_CONTRACT,
+  NON_CONTRACT_EXPORTS,
   buildExportMap,
   runConsumerContractCheck,
 } from "../../../src/boot/consumer-contract-check.js"
@@ -52,6 +53,65 @@ describe("consumer contract — export map", () => {
     for (const sym of v830Symbols) {
       expect(symbols.has(sym), `Missing v8.3.0 symbol: ${sym}`).toBe(true)
     }
+  })
+})
+
+// ── Contract scope policy (T-4.1, GPT-review IMP-001) ──────────────────
+
+describe("consumer contract — scope policy", () => {
+  const exportMap = buildExportMap()
+  const allBarrelExports = new Set(exportMap["protocol-types"])
+  const contractSymbols = FINN_CONTRACT.entrypoints["protocol-types"].symbols
+
+  it("(a) every symbol finn imports at runtime is in FINN_CONTRACT", () => {
+    // These are the symbols finn actually imports at runtime (from src/ analysis)
+    const runtimeImports = [
+      "microUSDC", "readMicroUSDC", "protocolSerializeMicroUSDC",
+      "isValidNftId", "parseNftId",
+      "protocolComputeCostMicro", "verifyPricingConservation",
+      "evaluateEconomicBoundary", "evaluateAccessPolicy",
+      "PROTOCOL_JTI_POLICY",
+      "computeAuditEntryHash", "computeChainBoundHash",
+      "validateDomainTag", "buildDomainTag", "AUDIT_TRAIL_GENESIS_HASH",
+      "verifyAuditTrailIntegrity", "AuditEntrySchema", "QuarantineRecordSchema",
+      "validateAuditTimestamp",
+      "computeAdvisoryLockKey",
+      "computeDampenedScore", "FeedbackDampeningConfigSchema",
+      "GovernedResourceBase", "GovernanceMutationSchema", "InvariantSchema",
+      "ConservationLawSchema", "buildNonNegativeInvariant",
+      "buildBoundedInvariant", "createBalanceConservation",
+      "validateConsumerContract", "computeContractChecksum",
+      "REPUTATION_STATES", "isKnownReputationState",
+    ]
+
+    const contractSet = new Set(contractSymbols)
+    const missing = runtimeImports.filter((sym) => !contractSet.has(sym))
+    expect(missing, `Runtime imports missing from FINN_CONTRACT: ${missing.join(", ")}`).toHaveLength(0)
+  })
+
+  it("(b) FINN_CONTRACT symbols are a subset of actual barrel exports", () => {
+    const stale = contractSymbols.filter((sym) => !allBarrelExports.has(sym))
+    expect(stale, `Stale contract symbols not in barrel: ${stale.join(", ")}`).toHaveLength(0)
+  })
+
+  it("(c) adding a new barrel export does NOT fail (contract stable across unrelated additions)", () => {
+    // Simulate: barrel has extra symbols not in contract and not in NON_CONTRACT
+    // The contract validation only checks that contract symbols exist in the export map,
+    // NOT that every export is in the contract. So extra exports are fine.
+    const result = validateConsumerContract(FINN_CONTRACT, exportMap)
+    expect(result.valid).toBe(true)
+
+    // Also verify that barrel exports NOT in contract are covered by NON_CONTRACT_EXPORTS
+    const contractSet = new Set(contractSymbols)
+    const uncovered = Array.from(allBarrelExports).filter(
+      (sym) => !contractSet.has(sym) && !NON_CONTRACT_EXPORTS.has(sym),
+    )
+    // Allow type-only exports (they appear as undefined in Object.keys at runtime)
+    // Any truly uncovered runtime export should be added to either contract or NON_CONTRACT
+    expect(
+      uncovered.length,
+      `Uncategorized barrel exports (add to FINN_CONTRACT or NON_CONTRACT_EXPORTS): ${uncovered.join(", ")}`,
+    ).toBe(0)
   })
 })
 

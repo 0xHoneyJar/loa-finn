@@ -193,10 +193,15 @@ export async function feedQualitySignal(
     const dampened = applyDampening(oldScore, score, sampleCount)
     const delta = Math.abs(dampened - score)
     if (delta > 0.001) {
-      console.log(
-        `[quality-signal] dampening delta: local=${score.toFixed(6)} canonical=${dampened.toFixed(6)} ` +
-        `delta=${delta.toFixed(6)} nftId=${obs.nftId} sampleCount=${sampleCount}`,
-      )
+      // Structured JSON telemetry (T-4.2, Finding #9 — enables log aggregation/alerting)
+      console.log(JSON.stringify({
+        event: "dampening_delta",
+        local: Number(score.toFixed(6)),
+        canonical: Number(dampened.toFixed(6)),
+        delta: Number(delta.toFixed(6)),
+        nftId: obs.nftId,
+        sampleCount,
+      }))
     }
     score = dampened
   }

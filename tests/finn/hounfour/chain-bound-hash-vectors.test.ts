@@ -44,7 +44,22 @@ const ENTRY_C: AuditEntryHashInput = {
   payload: { payload_hash: "sha256:cccc" },
 }
 
-// ── Expected hash values (computed from hounfour v8.3.0) ────────────────
+// ── Expected hash values (Golden File Pattern — computed from hounfour v8.3.0) ──
+//
+// These hex values are hardcoded golden outputs computed from hounfour commit c29337e
+// (v8.3.0 pre-launch hardening). They serve as regression detectors: if hounfour
+// changes its internal hash serialization, these tests will fail, signaling that
+// finn's stored audit trails need migration consideration.
+//
+// This coupling is INTENTIONAL — it's the golden file pattern. The values are NOT
+// derived at test time; they are static fixtures that prove algorithm stability.
+//
+// To regenerate after hounfour upgrade:
+//   npx tsx scripts/regenerate-hash-vectors.ts
+//
+// If regenerated values differ from below, it means hounfour changed hash internals.
+// Review the changelog and assess impact on existing stored audit trails before
+// updating these fixtures.
 
 const EXPECTED = {
   legacyA: "sha256:17f61b10466b6db654fa71eef67856192145c5ac0b56a43597eaf8a4ad698122",

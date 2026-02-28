@@ -22,6 +22,78 @@ import type { ConsumerContract } from "../hounfour/protocol-types.js"
  * The single "protocol-types" entrypoint reflects finn's barrel re-export
  * pattern — all hounfour symbols are consumed through src/hounfour/protocol-types.ts.
  */
+/**
+ * Symbols re-exported from protocol-types barrel that finn does NOT consume at runtime.
+ * These are re-exported for future use or are type-only at the JS level.
+ * Adding a new barrel export here prevents CI noise from the contract tests.
+ * (T-4.1 contract scope policy — GPT-review IMP-001)
+ */
+export const NON_CONTRACT_EXPORTS = new Set([
+  // Forward-looking governance types (re-exported but not consumed at runtime)
+  "mapTierToReputationState",
+  "resolveConditionalExpression",
+  // Schemas re-exported but not directly imported by finn runtime code
+  "ConsumerContractSchema",
+  "ConsumerContractEntrypointSchema",
+  "X402QuoteSchema",
+  "X402PaymentProofSchema",
+  "X402SettlementSchema",
+  "X402SettlementStatusSchema",
+  "X402ErrorCodeSchema",
+  "EconomicBoundarySchema",
+  "QualificationCriteriaSchema",
+  "DenialCodeSchema",
+  "EvaluationGapSchema",
+  "ModelEconomicProfileSchema",
+  "JwtBoundarySpecSchema",
+  "ProtocolBillingEntrySchema",
+  "JwtClaimsSchema",
+  "S2SJwtClaimsSchema",
+  "ReputationEventSchema",
+  "ModelPerformanceEventSchema",
+  "QualityObservationSchema",
+  "TaskTypeSchema",
+  "TASK_TYPES",
+  "InvariantViolationSchema",
+  "ProtocolCapabilitySchema",
+  "ProtocolSurfaceSchema",
+  "QuarantineStatusSchema",
+  "AuditTrailSchema",
+  "TrustLayerSnapshotSchema",
+  "CapitalLayerSnapshotSchema",
+  "AccessDecisionSchema",
+  "TrustEvaluationSchema",
+  "CapitalEvaluationSchema",
+  "EconomicBoundaryEvaluationResultSchema",
+  "TaskTypeCohortSchema",
+  "ScoringPathSchema",
+  "ScoringPathLogSchema",
+  // Utility functions re-exported but not imported by finn runtime code
+  "deserializeMicroUSDC",
+  "microUSDToUSDC",
+  "microUSDCToUSD",
+  "formatNftId",
+  "checksumAddress",
+  "protocolComputeCostMicroSafe",
+  "protocolValidateBillingEntry",
+  "protocolValidateBillingRecipients",
+  "protocolValidateCreditNote",
+  "protocolAllocateRecipients",
+  "evaluateFromBoundary",
+  "evaluateGovernanceMutation",
+  "buildSumInvariant",
+  // Constants re-exported but not directly consumed
+  "TRANSFER_CHOREOGRAPHY",
+  "TRANSFER_INVARIANTS",
+  "ECONOMIC_CHOREOGRAPHY",
+  "REPUTATION_STATE_ORDER",
+  "FEEDBACK_DAMPENING_ALPHA_MIN",
+  "FEEDBACK_DAMPENING_ALPHA_MAX",
+  "DAMPENING_RAMP_SAMPLES",
+  "DEFAULT_PSEUDO_COUNT",
+  "ChainBoundHashError",
+])
+
 export const FINN_CONTRACT: ConsumerContract = {
   consumer: "loa-finn",
   provider: "@0xhoneyjar/loa-hounfour",
@@ -38,12 +110,23 @@ export const FINN_CONTRACT: ConsumerContract = {
         // Economy — pricing
         "protocolComputeCostMicro",
         "verifyPricingConservation",
+        // Economy — boundary evaluation
+        "evaluateEconomicBoundary",
+        // Economy — JWT
+        "PROTOCOL_JTI_POLICY",
+        // Access policy
+        "evaluateAccessPolicy",
         // Commons — audit trail
         "computeAuditEntryHash",
         "computeChainBoundHash",
         "validateDomainTag",
         "buildDomainTag",
         "AUDIT_TRAIL_GENESIS_HASH",
+        "verifyAuditTrailIntegrity",
+        "AuditEntrySchema",
+        "QuarantineRecordSchema",
+        // Commons — audit timestamp
+        "validateAuditTimestamp",
         // Commons — advisory lock
         "computeAdvisoryLockKey",
         // Commons — dampening
@@ -52,6 +135,12 @@ export const FINN_CONTRACT: ConsumerContract = {
         // Commons — governance
         "GovernedResourceBase",
         "GovernanceMutationSchema",
+        "InvariantSchema",
+        // Commons — conservation laws
+        "ConservationLawSchema",
+        "buildNonNegativeInvariant",
+        "buildBoundedInvariant",
+        "createBalanceConservation",
         // Integrity — consumer contracts
         "validateConsumerContract",
         "computeContractChecksum",

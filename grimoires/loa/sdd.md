@@ -21,6 +21,8 @@ No new modules, services, or infrastructure. All changes are within existing fil
 
 **Export verification:** All hounfour v8.3.0 export names and module paths were verified against commit `c29337e` during PRD creation (see PRD §2 "Source of Truth — Verified v8.3.0 Exports"). The PRD passed GPT review iteration 2 with explicit confirmation that export verification resolved the fabrication concern. Sprint 1's first task after pin bump is `pnpm tsc --noEmit` which provides compile-time proof that all import paths resolve.
 
+**Decision Context:** Strategic choices (consumer contract scope, dampening default-off, GovernedBilling as conformance proof) are documented in [`grimoires/loa/a2a/cycle-038-decisions.md`](grimoires/loa/a2a/cycle-038-decisions.md).
+
 ---
 
 ## 2. System Architecture Overview

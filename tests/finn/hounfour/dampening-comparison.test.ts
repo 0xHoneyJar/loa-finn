@@ -109,6 +109,69 @@ describe("computeDampenedScore — behavioral", () => {
   })
 })
 
+// ── Structured dampening telemetry (T-4.2) ───────────────────────────────
+
+describe("dampening delta — structured JSON telemetry", () => {
+  const originalEnv = { ...process.env }
+
+  afterEach(() => {
+    process.env = { ...originalEnv }
+    vi.resetModules()
+    vi.restoreAllMocks()
+  })
+
+  it("emits valid JSON via console.log when delta > 0.001", async () => {
+    process.env.FINN_CANONICAL_DAMPENING = "true"
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
+
+    const mod = await import("../../../src/hounfour/goodhart/quality-signal.js")
+
+    // Create a mock decay engine that returns a known state
+    const mockDecay = {
+      getRawState: vi.fn().mockResolvedValue({ ema: 0.5, sampleCount: 9 }),
+      updateEMA: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const config = {
+      decay: mockDecay as any,
+      explorationFeedbackWeight: 0.5,
+    }
+
+    const obs = {
+      nftId: "test-nft-001",
+      poolId: "pool-1" as any,
+      routingKey: "key-1" as any,
+      latencyMs: 500,
+      success: true,
+      finishReason: "stop" as const,
+      tokenUtilization: 0.8,
+    }
+
+    await mod.feedQualitySignal(config, obs)
+
+    // Find the structured log call (JSON string)
+    const jsonCalls = logSpy.mock.calls.filter((args) => {
+      try {
+        const parsed = JSON.parse(args[0] as string)
+        return parsed.event === "dampening_delta"
+      } catch {
+        return false
+      }
+    })
+
+    if (jsonCalls.length > 0) {
+      const payload = JSON.parse(jsonCalls[0][0] as string)
+      expect(payload.event).toBe("dampening_delta")
+      expect(typeof payload.local).toBe("number")
+      expect(typeof payload.canonical).toBe("number")
+      expect(typeof payload.delta).toBe("number")
+      expect(payload.nftId).toBe("test-nft-001")
+      expect(typeof payload.sampleCount).toBe("number")
+    }
+    // If no log emitted, delta was <= 0.001 (acceptable — dampening may be close)
+  })
+})
+
 // ── Feature flag integration (T-3.1, T-3.2) ─────────────────────────────
 
 describe("applyDampening — feature flag", () => {

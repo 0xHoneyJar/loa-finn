@@ -6,7 +6,7 @@
 **Date:** 2026-02-28
 **Team:** 1 AI developer + 1 human reviewer
 **Sprint duration:** ~2-4 hours each (AI-paced)
-**Status:** COMPLETED
+**Status:** IN_PROGRESS (Sprints 1-3 COMPLETED, Sprints 4-5 added from Bridgebuilder review)
 
 ---
 
@@ -209,6 +209,154 @@
 - Type check: `pnpm tsc --noEmit`
 - Verify `FINN_CANONICAL_DAMPENING=false` produces identical behavior to pre-upgrade
 - **AC:** All tests pass, 0 regressions, dampening flag=false is behavioral no-op
+
+---
+
+## Sprint 4: Protocol Excellence (Bridgebuilder Review Findings)
+
+**Goal:** Address HIGH and MEDIUM findings from the [Bridgebuilder review of PR #115](https://github.com/0xHoneyJar/loa-finn/pull/115#issuecomment-3976376955): auto-generate consumer contract symbols, structured dampening telemetry, golden file documentation, and upstream impedance issue.
+
+**Risk:** Low — all changes are additive improvements to existing code. No behavioral changes, no new runtime dependencies.
+
+**Dependency:** Sprint 3 must be complete (consumer contract and dampening infrastructure must exist).
+
+**Source:** [Bridgebuilder Review — PR #115](https://github.com/0xHoneyJar/loa-finn/pull/115#issuecomment-3976376955), Findings #5, #7, #8, #9.
+
+### Tasks
+
+#### T-4.1: Auto-generate consumer contract symbol list (Finding #7)
+- Create `scripts/generate-consumer-contract.ts` that introspects `src/hounfour/protocol-types.ts` actual exports and generates the `FINN_CONTRACT.entrypoints["protocol-types"].symbols` array
+- The script imports `protocol-types.ts`, calls `Object.keys()`, and outputs the current symbol list as a TypeScript constant
+- **Contract scope policy:** The consumer contract declares the *minimum required surface* — symbols finn actively depends on at runtime. Not every barrel export is contractual. The generation script filters using a `NON_CONTRACT_EXPORTS` allowlist of symbols that are re-exported for future use but not currently consumed (e.g., type-only re-exports, forward-looking governance types). The contract grows only when finn adds an actual runtime dependency on a new symbol.
+- Add a test in `tests/finn/hounfour/consumer-contract.test.ts` that:
+  - (a) asserts every symbol finn imports at runtime is present in `FINN_CONTRACT` (detects missing contract entries)
+  - (b) asserts `FINN_CONTRACT` symbols are a subset of actual barrel exports (detects stale contract entries)
+  - (c) does NOT fail when a new barrel export is added that finn doesn't consume yet (contract is stable across unrelated barrel additions)
+- **Why:** The Bridgebuilder review (Finding #7) identified that `FINN_CONTRACT` declares 24 symbols statically, but finn already imports additional symbols (`validateAuditTimestamp`, `AuditEntrySchema`, `QuarantineRecordSchema`, etc.) not in the contract. The contract should be derived from truth, not maintained in parallel.
+- **AC:** New test detects when protocol-types exports symbols not listed in `FINN_CONTRACT`; generation script produces a filtered symbol list; adding a new barrel export that finn doesn't use does NOT fail CI; contract list is stable across unrelated barrel additions
+
+> GPT-review IMP-001: Added contract scope policy and 3-part test assertion to prevent CI noise from non-contractual exports (severity: blocking).
+
+#### T-4.2: Structured dampening telemetry (Finding #9)
+- Convert the string-interpolated dampening delta log in `src/hounfour/goodhart/quality-signal.ts` to structured JSON format
+- Replace `console.log(\`[quality-signal] dampening delta: local=...\`)` with `console.log(JSON.stringify({ event: "dampening_delta", local: number, canonical: number, delta: number, nftId: string, sampleCount: number }))`
+- Logging sink is `console.log` (finn's existing pattern for structured telemetry — CloudWatch Logs agent captures stdout)
+- Update dampening comparison test (`dampening-comparison.test.ts`) to spy on `console.log`, capture the emitted string, and assert `JSON.parse()` succeeds with required keys
+- **Why:** The Bridgebuilder review (Finding #9) noted that string-interpolated logs are opaque to log aggregation. Structured logs enable dashboards and alerting.
+- **AC:** Dampening delta log emits valid JSON via `console.log`; test captures emitted string and `JSON.parse()` succeeds; parsed payload contains keys `event`, `local`, `canonical`, `delta`, `nftId`, `sampleCount`
+
+> GPT-review IMP-005: Standardized logging sink (console.log) and test capture strategy (severity: blocking).
+
+#### T-4.3: Golden file test documentation (Finding #8)
+- Add header comment to `tests/finn/hounfour/chain-bound-hash-vectors.test.ts` EXPECTED object explaining the golden file pattern
+- Document that expected hex values are computed from hounfour v8.3.0 commit `c29337e` and will need regeneration if hounfour changes internal hash serialization
+- Add a `scripts/regenerate-hash-vectors.ts` script that computes fresh expected values from the current hounfour installation and prints them in the EXPECTED format
+- Add guidance comment: `// To regenerate after hounfour upgrade: npx tsx scripts/regenerate-hash-vectors.ts`
+- **Why:** The Bridgebuilder review (Finding #8) noted that hardcoded hash expectations couple tests to hounfour's internal implementation. The golden file pattern is intentional (detects unintentional algorithm changes) but the maintenance story must be explicit.
+- **AC:** EXPECTED object has documentation comment explaining golden file pattern; regeneration script runs and produces matching values for current hounfour version; comment includes regeneration instructions
+
+#### T-4.4: File upstream impedance issue on hounfour (Finding #5)
+- Create a GitHub issue on `0xHoneyJar/loa-hounfour` documenting the `buildDomainTag()` / `validateDomainTag()` impedance mismatch
+- Issue should describe: `buildDomainTag("test-store", "8.3.0")` produces `"loa-commons:audit:test-store:8.3.0"` which `validateDomainTag()` rejects due to dots in version segment
+- Propose: either `buildDomainTag()` should sanitize internally, or `validateDomainTag()` should accept dots in the version segment
+- Reference finn's workaround (`store.ts:142`) and the Bridgebuilder review's Mars Climate Orbiter analogy
+- Add `// TODO(hounfour#XX): Remove sanitization when upstream fixes impedance` comment in `store.ts:142` with the issue number
+- **Why:** The Bridgebuilder review (Finding #5, HIGH severity) identified this as a protocol-level smell. Every hounfour consumer will discover and solve this independently. The fix belongs upstream.
+- **AC:** Issue created on `0xHoneyJar/loa-hounfour`; `store.ts` TODO comment references the issue number; issue body includes reproduction steps, proposed fix, and finn's current workaround
+
+#### T-4.5: Decision context documentation (Decision Trail Check)
+- Create `grimoires/loa/a2a/cycle-038-decisions.md` documenting the 3 key strategic choices:
+  - Why these specific 24 symbols in the consumer contract (minimum runtime surface — see T-4.1 contract scope policy)
+  - Why canonical dampening defaults to off (strangler fig: prove equivalence in staging before production)
+  - Why GovernedBilling is a conformance proof not a production implementation (type-level validation this cycle, runtime adoption is Sprint 5)
+- Link the decision context from `grimoires/loa/sdd.md` (new reference in §1 Executive Summary)
+- If PR #115 is still open, also update the PR description with a link to the decision context file. If PR is already merged, the in-repo artifact is sufficient.
+- **Why:** The Bridgebuilder's Decision Trail Check noted that the PR documents *what* changed but not *why* the strategic choices were made. Future agents need the reasoning, not just the diff. In-repo artifact ensures the context survives regardless of PR state.
+- **AC:** Decision context file exists in-repo at `grimoires/loa/a2a/cycle-038-decisions.md`; SDD references it; each of the 3 decisions has a 1-2 sentence rationale; PR update is best-effort (not blocking if merged)
+
+> GPT-review IMP-002: Moved decision context to in-repo artifact; PR update is optional/non-blocking (severity: blocking).
+
+#### T-4.6: Sprint 4 verification gate
+- Run full test suite: `pnpm test`
+- Type check: `pnpm tsc --noEmit`
+- Verify all new tests pass alongside existing tests
+- **AC:** All tests pass, 0 regressions
+
+---
+
+## Sprint 5: GovernedBilling Production Pathway (Bridgebuilder Vision)
+
+**Goal:** Advance GovernedBilling from type-level conformance proof to feature-flagged shadow-mode production infrastructure. Wire the governed billing pathway into the actual billing pipeline behind `FINN_GOVERNED_BILLING`, running invariant verification in parallel with the existing `BillingStateMachine` without affecting runtime behavior. Document the trust infrastructure framing identified in the Bridgebuilder's vision finding.
+
+**Risk:** Medium — shadow-mode means no behavioral change to production billing, but the wiring touches `src/billing/state-machine.ts` which is core infrastructure. Feature flag ensures zero production impact when disabled.
+
+**Dependency:** Sprint 4 must be complete (structured logging and contract generation infrastructure).
+
+**Source:** [Bridgebuilder Review — PR #115](https://github.com/0xHoneyJar/loa-finn/pull/115#issuecomment-3976376955), Finding #6 (GovernedBilling roadmap) + [Addendum: Vision Finding #10](https://github.com/0xHoneyJar/loa-finn/pull/115#issuecomment-3976378093) (trust infrastructure framing).
+
+### Tasks
+
+#### T-5.1: GovernedBilling shadow-mode wiring
+- In `src/billing/state-machine.ts`, add `FINN_GOVERNED_BILLING` env var check (default: `false`)
+- When enabled, after each state transition in `BillingStateMachine`, instantiate a `GovernedBilling` shadow and apply the same event
+- Compare the shadow's state against the primary's state — log structured telemetry on divergence: `{ event: "governed_billing_divergence", entryId: string, primary_state: string, shadow_state: string, event_type: string }`
+- When disabled (default): no shadow instantiation, no overhead, existing behavior unchanged
+- **Shadow purity constraints:** GovernedBilling shadow MUST be pure/in-memory — no DB writes, no network calls, no external side effects. Shadow must not emit any output except the defined structured telemetry events via `console.log`. No additional `await` on the critical billing path — shadow comparison is synchronous (GovernedBilling.applyEvent is synchronous by design; only `onTransitionSuccess` is async and is a no-op in the conformance proof).
+- **Performance budget:** Shadow adds <1ms per transition (GovernedBilling is a pure state mapper with 3 invariant checks — no I/O). Test harness must assert shadow overhead stays below 5ms per transition.
+- **Flag enforcement:** Test must assert that when `FINN_GOVERNED_BILLING` env var is absent (not just `false`), shadow mode is disabled. Default-off enforced at the env var read site, not at a config layer.
+- **Why:** The Bridgebuilder review (Finding #6) noted GovernedBilling is "a proof, not a path." Shadow-mode is the first milestone: prove GovernedResourceBase produces identical transitions without affecting production.
+- **AC:** `FINN_GOVERNED_BILLING=false` produces identical behavior to pre-change (no shadow instantiation); `FINN_GOVERNED_BILLING=true` runs shadow comparison on every state transition; divergence emits structured JSON log; shadow performs zero I/O (no DB, no network, no additional awaits); test asserts flag-absent means disabled; shadow overhead <5ms per transition in test harness
+
+> GPT-review IMP-003: Added shadow purity constraints, performance budget, and flag enforcement (severity: blocking).
+
+#### T-5.2: GovernedBilling invariant telemetry
+- When shadow mode is active, run `GovernedBilling.verifyInvariants()` after each shadow transition
+- Emit structured telemetry for invariant results: `{ event: "governed_billing_invariants", entryId: string, invariants: { cost_non_negative: boolean, valid_state: boolean, reserve_conservation: boolean }, all_hold: boolean }`
+- If any invariant fails in shadow mode: log WARNING (not error — shadow mode is observational only)
+- **Why:** This is the bridge between "type-level proof" and "production governance." Invariant telemetry in shadow mode proves the conservation laws hold on real billing data before promoting GovernedBilling to primary.
+- **AC:** Shadow mode emits invariant results as structured JSON after each transition; invariant failures produce WARNING log; telemetry includes all 3 invariant IDs and their hold/fail status
+
+#### T-5.3: GovernedBilling integration tests
+- Create `tests/finn/billing/governed-billing-shadow.test.ts`
+- Test shadow-mode wiring: mock `BillingStateMachine` transitions, verify `GovernedBilling` shadow produces identical state
+- Test invariant telemetry: verify structured log format for all 3 invariants
+- **Divergence test strategy:** Use mocking to force a deterministic divergence WITHOUT modifying production transition rules. Specifically: stub `GovernedBilling.applyEvent()` in a test-only override to return a different target state for one specific event, then assert the divergence log fires with the expected primary vs shadow states. This tests the *detection mechanism*, not the *likelihood of divergence*. No test-only hooks or production code changes required — standard vitest `vi.spyOn` on the shadow instance.
+- Test flag=false: verify no shadow instantiation, no `console.log` calls, no performance overhead
+- Test shadow purity: verify no I/O operations during shadow comparison (assert no DB/network mocks are called)
+- **Why:** Integration tests prove the shadow wiring works before enabling in staging.
+- **AC:** >=5 test cases covering: identical transitions, invariant telemetry format, divergence detection via mock, flag-off no-op, shadow purity (no I/O); divergence test does not require changing production transition rules; all tests pass
+
+> GPT-review IMP-004: Specified deterministic divergence test via mocking, no production code changes (severity: blocking).
+
+#### T-5.4: Trust infrastructure framing in SDD
+- Add a new section `§7: Trust Infrastructure Context` to `grimoires/loa/sdd.md`
+- Document the Bridgebuilder's reframe: finn's audit infrastructure (hash chains, conservation laws, GovernedResource, consumer contracts) constitutes trust primitives for community-governed economic coordination
+- Reference the ecosystem context: Social Monies vision, Freeside billing RFC (#62), Proof of Economic Life (#90), Multi-Model RFC (#31)
+- Map Ostrom's 8 commons governance principles to their hounfour/finn analogs (from Bridgebuilder addendum)
+- Include the GovernedBilling migration roadmap: (1) shadow mode (this sprint), (2) staging validation with real traffic, (3) promotion to primary via feature flag flip
+- **Why:** The Bridgebuilder's Vision Finding #10 and Addendum identified that the team may be building monetary infrastructure without naming it. Explicit framing ensures architecture evolves toward the right destiny.
+- **AC:** SDD §7 exists with trust infrastructure context; Ostrom mapping table present; GovernedBilling roadmap has 3 concrete milestones; ecosystem references cite actual issue/PR numbers
+
+#### T-5.5: Sprint 5 verification gate
+- Run full test suite: `pnpm test`
+- Type check: `pnpm tsc --noEmit`
+- Verify `FINN_GOVERNED_BILLING=false` produces zero additional log output (no shadow, no telemetry)
+- Verify all shadow-mode tests pass
+- **AC:** All tests pass, 0 regressions, flag=false is behavioral no-op
+
+---
+
+## Bridgebuilder Review → Sprint Traceability
+
+| Finding | Severity | Sprint | Tasks | Status |
+|---------|----------|--------|-------|--------|
+| #5: buildDomainTag/validateDomainTag impedance | HIGH | Sprint 4 | T-4.4 | Pending |
+| #6: GovernedBilling roadmap | MEDIUM | Sprint 5 | T-5.1, T-5.2, T-5.3, T-5.4 | Pending |
+| #7: Static consumer contract symbol list | MEDIUM | Sprint 4 | T-4.1 | Pending |
+| #8: Hardcoded hash expectations | MEDIUM | Sprint 4 | T-4.3 | Pending |
+| #9: Dampening delta structured logging | LOW | Sprint 4 | T-4.2 | Pending |
+| #10: Trust infrastructure framing | VISION | Sprint 5 | T-5.4 | Pending |
+| Decision Trail Check | — | Sprint 4 | T-4.5 | Pending |
 
 ---
 

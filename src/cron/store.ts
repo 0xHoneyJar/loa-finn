@@ -136,6 +136,7 @@ export class AtomicJsonStore<T> {
     const schemaId = options?.auditSchemaId ?? filenameStem(filePath)
     const contractVersion = options?.auditContractVersion ?? "8.2.0"
     this.auditDomainTag = buildDomainTag(schemaId, contractVersion)
+    // TODO(hounfour#41): Remove sanitization when upstream fixes impedance.
     // Chain-bound hash requires validateDomainTag-compliant segments (no dots).
     // buildDomainTag includes semver (e.g., "8.2.0") which has dots — sanitize
     // by replacing dots with hyphens for the chain-bound code path. (T-2.3 impedance fix)
