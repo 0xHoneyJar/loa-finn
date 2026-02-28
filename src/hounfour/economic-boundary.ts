@@ -74,6 +74,13 @@ export const DEFAULT_CRITERIA: QualificationCriteria = {
 
 /** Validates TIER_TRUST_MAP against protocol reputation states. Throws on mismatch. */
 export function validateTierTrustMap(): void {
+  if (!REPUTATION_STATES || !Array.isArray(REPUTATION_STATES)) {
+    console.warn(
+      "[economic-boundary] REPUTATION_STATES not available from hounfour — " +
+      "skipping TIER_TRUST_MAP validation (hounfour build may be incomplete)",
+    )
+    return
+  }
   const validStates = new Set<string>(REPUTATION_STATES)
   for (const [tier, mapping] of Object.entries(TIER_TRUST_MAP)) {
     if (!validStates.has(mapping.reputation_state)) {

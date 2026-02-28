@@ -62,7 +62,7 @@ jobs:
         run: npx tsc --noCheck --noEmit
 
       - name: Run tests
-        run: npx vitest run --exclude '.claude/**'
+        run: npx vitest run
 
   # ===========================================================================
   # Docker Build + ECR Push

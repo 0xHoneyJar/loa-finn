@@ -54,12 +54,21 @@ function createQuote(overrides: Partial<X402Quote> = {}): X402Quote {
   } as X402Quote
 }
 
+/** Test chain config matching mock addresses — avoids dependency on resolveChainConfig() */
+const TEST_CHAIN_CONFIG = {
+  chainId: 8453,
+  name: "Test Base",
+  usdcAddress: "0xUSDC",
+  testnet: true,
+}
+
 function createDeps(overrides: Partial<VerifyDeps> = {}): VerifyDeps {
   return {
     redis: createMockRedis() as any,
     treasuryAddress: "0xTreasury",
     verifyEOASignature: async () => true,
     walAppend: vi.fn(),
+    chainConfig: TEST_CHAIN_CONFIG,
     ...overrides,
   }
 }
