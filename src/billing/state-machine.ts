@@ -26,6 +26,7 @@ import {
   VALID_TRANSITIONS,
   parseBillingEntryId,
 } from "./types.js"
+import { GovernedBilling } from "./governed-billing.js"
 import type { EventWriter } from "../events/writer.js"
 import { STREAM_BILLING, fromBillingEnvelope } from "../events/types.js"
 
@@ -96,6 +97,16 @@ export function createBillingWALEnvelope<T>(
     wal_sequence: nextWALSequence(),
     payload,
   }
+}
+
+// ---------------------------------------------------------------------------
+// GovernedBilling Shadow Mode (T-5.1, T-5.2)
+// ---------------------------------------------------------------------------
+
+/** Shadow mode is enabled ONLY when env var is explicitly "true".
+ *  Function (not const) so the env var is read at call time — testable. */
+function isGovernedBillingEnabled(): boolean {
+  return process.env.FINN_GOVERNED_BILLING === "true"
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +214,9 @@ export class BillingStateMachine {
     await this.deps.redisUpdate(entry)
     this.deps.onTransition?.(billingEntryId, BillingState.IDLE, BillingState.RESERVE_HELD, serializeMicroUSD(estimatedCost))
 
+    // Shadow: synthetic IDLE pre-state for reserve
+    this.runGovernedShadow({ ...entry, state: BillingState.IDLE }, entry, "billing_reserve")
+
     return entry
   }
 
@@ -237,6 +251,8 @@ export class BillingStateMachine {
 
     await this.deps.redisUpdate(updated)
     this.deps.onTransition?.(entry.billing_entry_id, BillingState.RESERVE_HELD, BillingState.FINALIZE_PENDING, serializeMicroUSD(actualCost))
+
+    this.runGovernedShadow(entry, updated, "billing_commit")
 
     // Enqueue async finalize (best-effort — DLQ handles failures)
     await this.deps.enqueueFinalze(entry.billing_entry_id, entry.account_id, actualCost, entry.correlation_id)
@@ -282,6 +298,8 @@ export class BillingStateMachine {
     await this.deps.redisUpdate(updated)
     this.deps.onTransition?.(entry.billing_entry_id, BillingState.RESERVE_HELD, BillingState.RELEASED)
 
+    this.runGovernedShadow(entry, updated, "billing_release")
+
     return updated
   }
 
@@ -309,6 +327,8 @@ export class BillingStateMachine {
     await this.deps.redisUpdate(updated)
     this.deps.onTransition?.(entry.billing_entry_id, entry.state, BillingState.VOIDED)
 
+    this.runGovernedShadow(entry, updated, "billing_void")
+
     return updated
   }
 
@@ -335,6 +355,8 @@ export class BillingStateMachine {
 
     await this.deps.redisUpdate(updated)
     this.deps.onTransition?.(entry.billing_entry_id, entry.state, BillingState.FINALIZE_ACKED)
+
+    this.runGovernedShadow(entry, updated, "billing_finalize_ack")
 
     return updated
   }
@@ -364,6 +386,8 @@ export class BillingStateMachine {
     await this.deps.redisUpdate(updated)
     this.deps.onTransition?.(entry.billing_entry_id, entry.state, BillingState.FINALIZE_FAILED)
 
+    this.runGovernedShadow(entry, updated, "billing_finalize_fail")
+
     return updated
   }
 
@@ -384,6 +408,51 @@ export class BillingStateMachine {
     return this.withEntryLock(entry.billing_entry_id, entry.correlation_id, () =>
       this.void_(entry, reason, adminId),
     )
+  }
+
+  // === GOVERNED BILLING SHADOW (T-5.1, T-5.2) ===
+
+  /**
+   * Run GovernedBilling shadow comparison after a state transition.
+   * Fully synchronous — no I/O, no DB, no network, no additional awaits.
+   * Only runs when FINN_GOVERNED_BILLING=true.
+   */
+  private runGovernedShadow(
+    preState: BillingEntry,
+    postState: BillingEntry,
+    eventType: BillingEventType,
+  ): void {
+    if (!isGovernedBillingEnabled()) return
+
+    const shadow = new GovernedBilling(preState.billing_entry_id, preState)
+    const result = shadow.runShadow(eventType)
+
+    // T-5.1: Divergence detection
+    if (result.shadowState !== postState.state) {
+      console.log(JSON.stringify({
+        event: "governed_billing_divergence",
+        entryId: postState.billing_entry_id,
+        primary_state: postState.state,
+        shadow_state: result.shadowState,
+        event_type: eventType,
+      }))
+    }
+
+    // T-5.2: Invariant telemetry
+    console.log(JSON.stringify({
+      event: "governed_billing_invariants",
+      entryId: postState.billing_entry_id,
+      invariants: result.invariants,
+      all_hold: result.allHold,
+    }))
+
+    // T-5.2: Invariant failure warning (shadow mode is observational only)
+    if (!result.allHold) {
+      console.warn(
+        `[GovernedBilling] WARNING: Invariant violation in shadow mode for ${postState.billing_entry_id}`,
+        result.invariants,
+      )
+    }
   }
 
   // === VALIDATION ===

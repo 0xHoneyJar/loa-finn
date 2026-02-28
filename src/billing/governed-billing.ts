@@ -24,6 +24,20 @@ export type BillingInvariantId =
   | "reserve_conservation"
 
 // ---------------------------------------------------------------------------
+// Shadow Comparison Result — T-5.1 / T-5.2 (Sprint 5)
+// ---------------------------------------------------------------------------
+
+export interface ShadowCompareResult {
+  shadowState: BillingState
+  invariants: {
+    cost_non_negative: boolean
+    valid_state: boolean
+    reserve_conservation: boolean
+  }
+  allHold: boolean
+}
+
+// ---------------------------------------------------------------------------
 // GovernedBilling — extends GovernedResourceBase<BillingEntry, BillingEventType>
 // ---------------------------------------------------------------------------
 
@@ -72,8 +86,14 @@ export class GovernedBilling extends GovernedResourceBase<
     const targetState = TARGET_STATE[event]
     if (!targetState) return state
 
+    // billing_commit validates against COMMITTED (intermediate state) but
+    // produces FINALIZE_PENDING — matching BillingStateMachine's collapsed step
+    // where commit() validates RESERVE_HELD→COMMITTED then sets FINALIZE_PENDING.
+    const validationTarget =
+      event === "billing_commit" ? BillingState.COMMITTED : targetState
+
     const valid = VALID_TRANSITIONS[state.state]
-    if (!valid.includes(targetState)) return state
+    if (!valid.includes(validationTarget)) return state
 
     return { ...state, state: targetState, updated_at: Date.now() }
   }
@@ -127,5 +147,46 @@ export class GovernedBilling extends GovernedResourceBase<
   ): Promise<void> {
     // Conformance proof only — production adoption would append to
     // WAL audit trail and mutation log here.
+  }
+
+  // --- Shadow comparison (T-5.1 / T-5.2) ---
+
+  /**
+   * Run a synchronous shadow comparison: apply event to current state,
+   * then verify invariants on the resulting state.
+   *
+   * Used by BillingStateMachine's shadow mode to compare GovernedBilling's
+   * pure state transition against the primary transition. Fully synchronous —
+   * no I/O, no DB, no network, no additional awaits.
+   */
+  runShadow(eventType: BillingEventType): ShadowCompareResult {
+    const context: MutationContext = {
+      actorId: "finn:billing-shadow",
+      actorType: "system",
+    }
+    const newState = this.applyEvent(this.current, eventType, context)
+
+    // Verify invariants on the post-transition state by creating a
+    // verifier instance (verifyAll checks this.current, so we need
+    // a fresh instance seeded with newState).
+    const verifier = new GovernedBilling(this.resourceId, newState)
+    const results = verifier.verifyAll()
+
+    const invariantMap: ShadowCompareResult["invariants"] = {
+      cost_non_negative: true,
+      valid_state: true,
+      reserve_conservation: true,
+    }
+    for (const r of results) {
+      if (r.invariantId in invariantMap) {
+        invariantMap[r.invariantId as BillingInvariantId] = r.holds
+      }
+    }
+
+    return {
+      shadowState: newState.state,
+      invariants: invariantMap,
+      allHold: results.every((r) => r.holds),
+    }
   }
 }

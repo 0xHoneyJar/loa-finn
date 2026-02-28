@@ -557,13 +557,51 @@ Vitest test with fixed numeric scenarios verifying:
 
 ---
 
-## 7. Deployment & Rollback
+## 7. Trust Infrastructure Context (Bridgebuilder Vision)
 
-### 7.1 Deployment
+> **Source:** [Bridgebuilder Addendum — Vision Finding #10](https://github.com/0xHoneyJar/loa-finn/pull/115#issuecomment-3976378093)
+
+### 7.1 Framing
+
+Finn's audit infrastructure — hash chains (`computeChainBoundHash`, `computeAuditEntryHash`), conservation laws (`createBalanceConservation`, `buildNonNegativeInvariant`), GovernedResource conformance, and consumer contracts — constitutes **trust primitives for community-governed economic coordination**. The Bridgebuilder review identified that the team may be building monetary infrastructure without naming it. Explicit framing ensures architecture evolves toward the right destiny.
+
+### 7.2 Ostrom's Commons Governance Principles → Hounfour/Finn Analogs
+
+| Ostrom Principle | Hounfour/Finn Analog |
+|-----------------|---------------------|
+| 1. Clearly defined boundaries | Consumer contract (FINN_CONTRACT) — declares runtime surface boundary |
+| 2. Proportional equivalence | GovernedBilling reserve conservation — actual ≤ estimated |
+| 3. Collective choice arrangements | GovernanceMutation with actor_type: human/system/autonomous |
+| 4. Monitoring | Audit trails (chain-bound hash chains), structured telemetry |
+| 5. Graduated sanctions | BillingCircuitBreaker — CLOSED → HALF_OPEN → OPEN with cooldown |
+| 6. Conflict resolution | DLQ replay (finalize_fail → finalize_ack), admin void path |
+| 7. Minimal recognition of rights | Access policies in MutationContext (required_role, min_reputation_score) |
+| 8. Nested enterprises | Multi-layer: finn (agent billing) → freeside (credit system) → arrakis (settlement) |
+
+### 7.3 Ecosystem Context
+
+- **Social Monies Vision**: Hounfour's `GovernedResource<T>` is designed for community-governed economic resources ([Freeside Billing RFC #62](https://github.com/0xHoneyJar/loa-freeside/issues/62))
+- **Proof of Economic Life**: Audit trail integrity enables verifiable economic activity ([Hounfour #90](https://github.com/0xHoneyJar/loa-hounfour/issues/90))
+- **Multi-Model RFC**: GovernanceMutation's actor_type supports autonomous agents as first-class economic actors ([Hounfour #31](https://github.com/0xHoneyJar/loa-hounfour/issues/31))
+
+### 7.4 GovernedBilling Migration Roadmap
+
+| Phase | Cycle | Description | Status |
+|-------|-------|-------------|--------|
+| 1. Conformance proof | 038 (Sprint 3) | Type-level `GovernedResourceBase` conformance + conservation law tests | Complete |
+| 2. Shadow mode | 038 (Sprint 5) | Feature-flagged shadow wiring behind `FINN_GOVERNED_BILLING`, invariant telemetry, divergence detection | In progress |
+| 3. Staging validation | Future | Enable in staging with real traffic, monitor delta distribution and invariant telemetry | Planned |
+| 4. Production promotion | Future | Flip `FINN_GOVERNED_BILLING=true` after staging validates <0.1% divergence rate | Planned |
+
+---
+
+## 8. Deployment & Rollback
+
+### 8.1 Deployment
 
 Standard flow: merge → CI (typecheck + test + Docker + Trivy) → ECR → ECS rolling update with circuit breaker.
 
-### 7.2 Rollback Scenarios
+### 8.2 Rollback Scenarios
 
 | Scenario | Detection | Action |
 |----------|-----------|--------|
@@ -574,7 +612,7 @@ Standard flow: merge → CI (typecheck + test + Docker + Trivy) → ECR → ECS 
 
 ---
 
-## 8. Sprint Architecture Mapping
+## 9. Sprint Architecture Mapping
 
 ### Sprint 1: Pin Bump + Surface Adoption + CI (P0/P1)
 
@@ -605,7 +643,7 @@ Standard flow: merge → CI (typecheck + test + Docker + Trivy) → ECR → ECS 
 
 ---
 
-## 9. Decision Log
+## 10. Decision Log
 
 | Decision | Rationale | Alternatives Considered |
 |----------|-----------|------------------------|
