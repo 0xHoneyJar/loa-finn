@@ -49,7 +49,7 @@ jobs:
         run: npx tsc --noCheck --noEmit
 
       - name: Run tests
-        run: npx vitest run
+        run: npx vitest run --exclude '.claude/**'
 
   # ===========================================================================
   # Deploy to ECS
