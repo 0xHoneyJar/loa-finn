@@ -22,15 +22,10 @@ loa-finn: Multi-model AI inference engine serving token-gated agent experiences,
 | [checksums.json](checksums.json) | SHA-256 checksums for 8 reality spoke files at commit `9562034` | 8 |
 | [provenance-history.jsonl](provenance-history.jsonl) | Provenance audit trail — corpus stats per cycle (230 tagged blocks, 133 CODE-FACTUAL) | 2 |
 | [gate-metrics.jsonl](gate-metrics.jsonl) | Per-gate pass/fail metrics across all verification runs | ~292K bytes |
-
-### Placeholder Spokes (empty, reserved for future extraction)
-
-| File | Intended Coverage |
-|------|------------------|
-| [api-surface.md](api-surface.md) | Public API endpoints and contracts |
-| [architecture.md](architecture.md) | Condensed architecture reference |
-| [behaviors.md](behaviors.md) | Runtime behavior documentation |
-| [contracts.md](contracts.md) | Interface contracts and invariants |
+| [api-surface.md](api-surface.md) | 25+ HTTP endpoints, WebSocket protocol, 4 cron jobs, 6 external service deps — all with auth method, error codes, file:line provenance | 39 |
+| [architecture.md](architecture.md) | 5-layer architecture, module dependency graph, invoke/oracle data flows, persistence/security tables, deployment topology, design decisions | 30 |
+| [behaviors.md](behaviors.md) | 10 runtime behaviors: 26-step boot, billing lifecycle, Goodhart routing, session/WAL/recovery/audit/circuit/rate-limit/credit/shutdown | 45 |
+| [contracts.md](contracts.md) | 35 invariants: billing (INV-1–5), WAL (5), auth (5), economic boundary (3), audit chain (4), DLQ (3), concurrency (3), credits (2), recovery (3), circuit breaker (2) | 35 |
 
 ## Quick Facts
 
@@ -38,7 +33,8 @@ loa-finn: Multi-model AI inference engine serving token-gated agent experiences,
 - **Runtime**: Node.js 22+
 - **Framework**: Hono v4 HTTP + WebSocket
 - **Key modules**: hounfour (33 files), gateway (17), cron (13), persistence (10), bridgebuilder (7), agent (9), safety (6)
-- **Test framework**: Vitest (2101+ passing tests)
+- **Test framework**: Vitest (4681 passing tests across 225 files)
 - **Entry point**: `src/index.ts`
-- **Current cycle**: cycle-027
-- **Last updated**: 2026-02-19
+- **Hounfour version**: v8.3.1 (domain tag sanitization, chain-bound hashes)
+- **Current cycle**: cycle-038
+- **Last updated**: 2026-02-28
