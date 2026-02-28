@@ -28,6 +28,7 @@ loa-finn: Multi-model AI inference engine serving token-gated agent experiences,
 | [contracts.md](contracts.md) | 35 invariants: billing (INV-1–5), WAL (5), auth (5), economic boundary (3), audit chain (4), DLQ (3), concurrency (3), credits (2), recovery (3), circuit breaker (2) | 35 |
 | [contracts.yaml](contracts.yaml) | Machine-readable invariants: 36 invariants across 10 domains with source/enforcement file:line, pre/postconditions, failure modes, severity — enables agent consumption and programmatic validation | 36 |
 | [failure-modes.md](failure-modes.md) | Failure mode tables for 14 invariants: billing (INV-1–5), WAL (4), auth (2), credits (2) — violation, detection, recovery, blast radius per invariant | 14 |
+| [ecosystem-invariants.md](ecosystem-invariants.md) | Cross-repo invariant index: loa-finn (36), hounfour (73), dixie (4), freeside (5) — federation seed with cross-references and machine-readable format status | 11 |
 
 ## Quick Facts
 
