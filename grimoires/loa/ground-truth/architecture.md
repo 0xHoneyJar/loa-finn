@@ -13,6 +13,7 @@ commit: b4a3075
 ## System Layers
 
 <!-- provenance: CODE-FACTUAL -->
+<!-- deployment: invariant -->
 <!-- evidence: file=src/index.ts:2-863 -->
 loa-finn is a 15-module modular monolith organized in 5 layers. Boot sequence follows strict dependency order: config → identity → persistence → recovery → gateway → scheduler → serve.
 
@@ -50,6 +51,7 @@ loa-finn is a 15-module modular monolith organized in 5 layers. Boot sequence fo
 ## Module Dependency Graph
 
 <!-- provenance: CODE-FACTUAL -->
+<!-- deployment: invariant -->
 <!-- evidence: file=src/index.ts -->
 
 ```
@@ -69,6 +71,7 @@ identity (Pi SDK) ──→ persistence/wal.ts ──→ persistence/recovery.ts
 ## Data Flow: Invoke Path
 
 <!-- provenance: CODE-FACTUAL -->
+<!-- deployment: invariant -->
 <!-- evidence: file=src/gateway/routes/invoke.ts:34, file=src/hounfour/router.ts -->
 
 ```
@@ -105,6 +108,7 @@ HTTP POST /api/v1/oracle
 ## Persistence Architecture
 
 <!-- provenance: CODE-FACTUAL -->
+<!-- deployment: invariant -->
 <!-- evidence: file=src/persistence/wal.ts, file=src/persistence/r2-sync.ts, file=src/persistence/git-sync.ts, file=src/persistence/pruner.ts -->
 
 | Component | Role | Durability |
@@ -121,6 +125,7 @@ HTTP POST /api/v1/oracle
 ## Security Architecture
 
 <!-- provenance: CODE-FACTUAL -->
+<!-- deployment: invariant -->
 <!-- evidence: file=src/hounfour/jwt-auth.ts, file=src/gateway/routes/keys.ts -->
 
 | Auth Method | Where Used | Mechanism |
@@ -141,6 +146,8 @@ HTTP POST /api/v1/oracle
 
 <!-- provenance: CODE-FACTUAL -->
 <!-- evidence: file=deploy/Dockerfile, file=infrastructure/terraform/ -->
+
+<!-- deployment: staging — Task definition, cluster, service, image tag are staging-specific values. Architecture-invariant claims (ECS Fargate pattern, dependency topology) are stable across environments. -->
 
 ```
                     ┌─────────────┐
@@ -163,6 +170,7 @@ HTTP POST /api/v1/oracle
         └──────────┘ └──────────┘ └──────────┘
 ```
 
+<!-- deployment: staging -->
 **Cluster**: `arrakis-staging-cluster`
 **Service**: `loa-finn-armitage`
 **ECR**: `891376933289.dkr.ecr.us-east-1.amazonaws.com/loa-finn-armitage`
@@ -171,6 +179,7 @@ HTTP POST /api/v1/oracle
 ## Key Design Decisions
 
 <!-- provenance: CODE-FACTUAL -->
+<!-- deployment: invariant -->
 
 | Decision | Rationale | Evidence |
 |----------|-----------|----------|

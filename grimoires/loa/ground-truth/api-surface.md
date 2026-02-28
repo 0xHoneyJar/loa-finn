@@ -84,6 +84,28 @@ loa-finn exposes 25+ HTTP endpoints, 1 WebSocket endpoint, and 4 scheduled jobs.
 - **Response**: `{ response, model, usage: { prompt_tokens, completion_tokens, total_tokens }, cost_micro, trace_id, knowledge }`
 - **Error codes**: 400 (invalid), 401 (unauthed), 402 (budget exceeded), 413 (context overflow), 422 (model unavailable), 429 (rate limited), 502 (provider down), 503 (circuit breaker)
 
+#### Error Response Schemas
+
+<!-- provenance: CODE-FACTUAL -->
+<!-- evidence: file=src/gateway/routes/invoke.ts:12-25, file=src/gateway/routes/invoke.ts:74-94, file=src/hounfour/errors.ts:4-33 -->
+
+All error responses use the canonical shape: `{ error: string, code: string }`
+
+| Status | Code | `error` message | Trigger |
+|--------|------|-----------------|---------|
+| 400 | `INVALID_REQUEST` | `"prompt is required..."` or `"agent is required..."` or `"Invalid JSON body"` | Missing/empty fields or malformed JSON (`invoke.ts:42-57`) |
+| 401 | `TENANT_CONTEXT_MISSING` | `"Unauthorized"` | JWT middleware did not set TenantContext (`invoke.ts:37-39`) |
+| 402 | `BUDGET_EXCEEDED` | `"Budget exceeded"` | BudgetEnforcer denies request (`invoke.ts:14,78`) |
+| 403 | `KNOWLEDGE_INJECTION` | `"Knowledge source rejected for security"` | Knowledge enricher security filter (`invoke.ts:85`) |
+| 413 | `CONTEXT_OVERFLOW` | `"Context window exceeded"` | Prompt + knowledge exceeds model context window (`invoke.ts:86`) |
+| 422 | `ORACLE_MODEL_UNAVAILABLE` | `"Model context window insufficient for knowledge enrichment"` | No model can fit the knowledge payload (`invoke.ts:83`) |
+| 429 | `RATE_LIMITED` | `"Rate limit exceeded"` | Per-tenant RPM/TPM limit hit (`invoke.ts:82`) |
+| 502 | `PROVIDER_UNAVAILABLE` | `"Upstream provider unavailable"` | All providers failed (`invoke.ts:81`) |
+| 503 | `BUDGET_CIRCUIT_OPEN` | `"Service temporarily unavailable"` | Circuit breaker OPEN state (`invoke.ts:16,80`) |
+| 500 | `INTERNAL_ERROR` | `"Internal error"` | Unexpected non-HounfourError (`invoke.ts:92-93`) |
+
+**Note**: No `Retry-After` header on 429 — client must implement its own backoff. Circuit breaker cooldown is 30s (`src/billing/circuit-breaker.ts:18`) but not exposed to clients.
+
 ### GET /api/v1/usage
 - **Handler**: `src/gateway/routes/usage.ts:28`
 - **Auth**: JWT (tenant-isolated)
