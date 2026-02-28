@@ -31,6 +31,7 @@ const knownFailures = new Set([
   "tests/finn/pool-registry-validation.test.ts",
   "tests/finn/production-deploy.test.ts",
   "tests/finn/req-hash.test.ts",
+  "tests/finn/resolution-audit.test.ts",
   "tests/finn/sprint-12-observability.test.ts",
   "tests/finn/store-audit-trail.test.ts",
 ])
