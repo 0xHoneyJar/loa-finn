@@ -1,34 +1,37 @@
 {
-  "plan_id": "plan-20260227-cycle036-v2",
-  "branch": "feature/cycle-036-staging-readiness",
-  "state": "RUNNING",
+  "plan_id": "plan-20260228-c038",
+  "branch": "feature/hounfour-v830-upgrade",
+  "state": "JACKED_OUT",
   "timestamps": {
-    "started": "2026-02-27T00:00:00Z",
-    "last_activity": "2026-02-27T00:00:00Z"
+    "started": "2026-02-28T16:10:00Z",
+    "last_activity": "2026-02-28T20:05:00Z"
   },
   "sprints": {
-    "total": 3,
-    "completed": 0,
-    "current": "sprint-5",
+    "total": 5,
+    "completed": 5,
+    "current": null,
     "list": [
-      {"id": "sprint-5", "global_id": 149, "status": "pending", "cycles": 0, "files_changed": 0},
-      {"id": "sprint-6", "global_id": 150, "status": "pending", "cycles": 0, "files_changed": 0},
-      {"id": "sprint-7", "global_id": 151, "status": "pending", "cycles": 0, "files_changed": 0}
+      {"id": "sprint-1", "status": "completed", "cycles": 1},
+      {"id": "sprint-2", "status": "completed", "cycles": 1},
+      {"id": "sprint-3", "status": "completed", "cycles": 1},
+      {"id": "sprint-4", "status": "completed", "cycles": 1},
+      {"id": "sprint-5", "status": "completed", "cycles": 1}
     ]
   },
   "options": {
-    "from": 5,
-    "to": 7,
+    "from": 4,
+    "to": 5,
     "max_cycles": 20,
     "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 0,
-    "total_files_changed": 0,
-    "total_findings_fixed": 0
+    "total_cycles": 3,
+    "total_files_changed": 25,
+    "total_findings_fixed": 2
   },
   "bridge": {
-    "bridge_id": "bridge-20260226-7f9b73",
-    "iteration": 1
+    "bridge_id": "bridge-20260228-c038",
+    "iteration": 2,
+    "flatlined": true
   }
 }
