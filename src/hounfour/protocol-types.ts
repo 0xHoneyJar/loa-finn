@@ -229,3 +229,78 @@ export type {
   AuditEntryHashInput,
   AuditTrailVerificationResult,
 } from "@0xhoneyjar/loa-hounfour/commons"
+
+// ── v8.3.0 Pre-Launch Hardening (Cycle 038) ──────────────────────────────
+
+// Chain-bound hash — links audit entries to predecessors (SDD §5.1)
+export {
+  computeChainBoundHash,
+  validateDomainTag,
+  ChainBoundHashError,
+} from "@0xhoneyjar/loa-hounfour/commons"
+// Note: AuditEntryHashInput already exported above — serves as ChainBoundHashInput
+
+// Audit timestamp validation — strict ISO 8601 boundary checks (SDD §5.2)
+export { validateAuditTimestamp } from "@0xhoneyjar/loa-hounfour/commons"
+export type { AuditTimestampResult } from "@0xhoneyjar/loa-hounfour/commons"
+
+// Advisory lock key — FNV-1a 32-bit for pg_advisory_xact_lock (SDD §5.4)
+export { computeAdvisoryLockKey } from "@0xhoneyjar/loa-hounfour/commons"
+
+// Feedback dampening — EMA with cold-start Bayesian prior (SDD §5.3)
+export {
+  computeDampenedScore,
+  FeedbackDampeningConfigSchema,
+  FEEDBACK_DAMPENING_ALPHA_MIN,
+  FEEDBACK_DAMPENING_ALPHA_MAX,
+  DAMPENING_RAMP_SAMPLES,
+  DEFAULT_PSEUDO_COUNT,
+} from "@0xhoneyjar/loa-hounfour/commons"
+export type { FeedbackDampeningConfig } from "@0xhoneyjar/loa-hounfour/commons"
+
+// GovernedResource runtime interface (SDD §4.8)
+export type {
+  GovernedResource,
+  TransitionResult,
+  InvariantResult,
+  MutationContext,
+} from "@0xhoneyjar/loa-hounfour/commons"
+export { GovernedResourceBase } from "@0xhoneyjar/loa-hounfour/commons"
+
+// X402 canonical schemas — protocol-level payment types (SDD §6.1)
+// Note: finn has local wire types in src/x402/types.ts with different shapes;
+// these canonical schemas are for protocol-level contract validation.
+export {
+  X402QuoteSchema,
+  X402PaymentProofSchema,
+  X402SettlementSchema,
+  X402SettlementStatusSchema,
+  X402ErrorCodeSchema,
+} from "@0xhoneyjar/loa-hounfour/economy"
+export type {
+  X402Quote as CanonicalX402Quote,
+  X402PaymentProof as CanonicalX402PaymentProof,
+  X402Settlement as CanonicalX402Settlement,
+  X402SettlementStatus as CanonicalX402SettlementStatus,
+  X402ErrorCode as CanonicalX402ErrorCode,
+} from "@0xhoneyjar/loa-hounfour/economy"
+
+// Consumer contracts — drift detection for downstream consumers (SDD §4.4)
+export {
+  ConsumerContractSchema,
+  ConsumerContractEntrypointSchema,
+  validateConsumerContract,
+  computeContractChecksum,
+} from "@0xhoneyjar/loa-hounfour/integrity"
+export type {
+  ConsumerContract,
+  ConsumerContractEntrypoint,
+  ContractValidationResult,
+} from "@0xhoneyjar/loa-hounfour/integrity"
+
+// Tier-to-reputation mapping — bridges billing tiers to reputation states (SDD §6.2)
+export { mapTierToReputationState } from "@0xhoneyjar/loa-hounfour/governance"
+
+// Constraint conditionals — feature-flag-gated constraint evaluation (SDD §6.6)
+export type { ConstraintCondition } from "@0xhoneyjar/loa-hounfour/constraints"
+export { resolveConditionalExpression } from "@0xhoneyjar/loa-hounfour/constraints"

@@ -7,6 +7,12 @@ import { createHash } from "node:crypto"
 import type { PoolId } from "@0xhoneyjar/loa-hounfour"
 import type { NFTRoutingKey } from "../nft-routing-config.js"
 import type { TemporalDecayEngine, EMAKey } from "./temporal-decay.js"
+import {
+  computeDampenedScore,
+  FeedbackDampeningConfigSchema,
+} from "../protocol-types.js"
+import type { FeedbackDampeningConfig } from "../protocol-types.js"
+import { Value } from "@sinclair/typebox/value"
 
 // --- Types ---
 
@@ -34,6 +40,51 @@ export interface ReputationEvent {
   score: number
   timestamp: number
   hash: string
+}
+
+// --- Feature-flagged canonical dampening (T-3.1, T-3.2) ---
+
+const CANONICAL_DAMPENING_ENABLED = process.env.FINN_CANONICAL_DAMPENING === "true"
+
+/** Validated dampening config — null if invalid or unconfigured (T-3.2). */
+let dampeningConfig: FeedbackDampeningConfig | undefined
+let dampeningConfigValid = true
+
+if (CANONICAL_DAMPENING_ENABLED) {
+  const rawConfig = process.env.FINN_DAMPENING_CONFIG
+  if (rawConfig) {
+    try {
+      const parsed = JSON.parse(rawConfig)
+      if (Value.Check(FeedbackDampeningConfigSchema, parsed)) {
+        dampeningConfig = parsed
+      } else {
+        console.warn("[quality-signal] FINN_DAMPENING_CONFIG failed schema validation — falling back to local EMA")
+        dampeningConfigValid = false
+      }
+    } catch {
+      console.warn("[quality-signal] FINN_DAMPENING_CONFIG is not valid JSON — falling back to local EMA")
+      dampeningConfigValid = false
+    }
+  }
+  // undefined config → computeDampenedScore uses built-in defaults
+}
+
+/**
+ * Apply dampening to a quality score (T-3.1, SDD §3.7).
+ *
+ * When FINN_CANONICAL_DAMPENING=true and config is valid:
+ *   uses canonical computeDampenedScore() from hounfour v8.3.0.
+ * Otherwise: returns newScore unchanged (local EMA handles dampening).
+ */
+export function applyDampening(
+  oldScore: number | null,
+  newScore: number,
+  sampleCount: number,
+): number {
+  if (!CANONICAL_DAMPENING_ENABLED || !dampeningConfigValid) {
+    return newScore
+  }
+  return computeDampenedScore(oldScore, newScore, sampleCount, dampeningConfig)
 }
 
 // --- Scorer ---
@@ -118,6 +169,9 @@ export function normalizeToEvent(
 /**
  * Feed a quality observation into the EMA (complete signal flow).
  * For exploration-path observations, score is weighted at explorationFeedbackWeight.
+ *
+ * When FINN_CANONICAL_DAMPENING=true, applies canonical dampening before EMA update
+ * and logs delta when local vs canonical differ by >0.001. (T-3.1)
  */
 export async function feedQualitySignal(
   config: QualitySignalConfig,
@@ -126,9 +180,31 @@ export async function feedQualitySignal(
 ): Promise<void> {
   const event = normalizeToEvent(obs, config.latencyP50Ms, config.latencyP95Ms)
 
-  const score = isExploration
+  let score = isExploration
     ? event.score * config.explorationFeedbackWeight
     : event.score
+
+  // Apply canonical dampening when enabled (T-3.1)
+  if (CANONICAL_DAMPENING_ENABLED && dampeningConfigValid) {
+    const currentState = await config.decay.getRawState(event.key)
+    const oldScore = currentState?.ema ?? null
+    const sampleCount = (currentState?.sampleCount ?? 0) + 1
+
+    const dampened = applyDampening(oldScore, score, sampleCount)
+    const delta = Math.abs(dampened - score)
+    if (delta > 0.001) {
+      // Structured JSON telemetry (T-4.2, Finding #9 — enables log aggregation/alerting)
+      console.log(JSON.stringify({
+        event: "dampening_delta",
+        local: Number(score.toFixed(6)),
+        canonical: Number(dampened.toFixed(6)),
+        delta: Number(delta.toFixed(6)),
+        nftId: obs.nftId,
+        sampleCount,
+      }))
+    }
+    score = dampened
+  }
 
   await config.decay.updateEMA(event.key, score, event.timestamp, event.hash)
 }

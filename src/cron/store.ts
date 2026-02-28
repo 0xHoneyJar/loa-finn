@@ -10,6 +10,7 @@ import {
   AUDIT_TRAIL_GENESIS_HASH,
   buildDomainTag,
   computeAuditEntryHash,
+  computeChainBoundHash,
   verifyAuditTrailIntegrity,
   AuditEntrySchema,
   QuarantineRecordSchema,
@@ -78,6 +79,13 @@ export interface AtomicJsonStoreOptions<S extends TSchema = TSchema> {
   auditSchemaId?: string
   /** Protocol version for audit trail domain tag. Default: '8.2.0'. */
   auditContractVersion?: string
+  /**
+   * Enable chain-bound hash for new audit entries (v8.3.0).
+   * When true, new entries use computeChainBoundHash() with hashAlg: 'chainBoundV1'.
+   * When false (default), new entries use legacy computeAuditEntryHash().
+   * Controlled by FINN_CHAINBOUND_HASH env var. (Flatline IMP-009)
+   */
+  chainBoundHash?: boolean
 }
 
 const DEFAULT_MAX_SIZE = 10 * 1024 * 1024 // 10 MB
@@ -103,10 +111,12 @@ export class AtomicJsonStore<T> {
   private readonly schema: TSchema | undefined
   private readonly migrations: Map<number, (data: unknown) => unknown>
   private readonly mutex = new AsyncMutex()
-  // Audit trail (Sprint 5 T-5.6)
+  // Audit trail (Sprint 5 T-5.6, chain-bound hash T-2.3)
   private readonly auditEnabled: boolean
   private readonly auditPath: string
   private readonly auditDomainTag: string
+  private readonly auditDomainTagSanitized: string
+  private readonly chainBoundHash: boolean
   private auditPrevHash: string = AUDIT_TRAIL_GENESIS_HASH
   private auditEntryCount = 0
   private auditInitialized = false
@@ -126,6 +136,12 @@ export class AtomicJsonStore<T> {
     const schemaId = options?.auditSchemaId ?? filenameStem(filePath)
     const contractVersion = options?.auditContractVersion ?? "8.2.0"
     this.auditDomainTag = buildDomainTag(schemaId, contractVersion)
+    // TODO(hounfour#41): Remove sanitization when upstream fixes impedance.
+    // Chain-bound hash requires validateDomainTag-compliant segments (no dots).
+    // buildDomainTag includes semver (e.g., "8.2.0") which has dots — sanitize
+    // by replacing dots with hyphens for the chain-bound code path. (T-2.3 impedance fix)
+    this.auditDomainTagSanitized = this.auditDomainTag.replace(/\./g, "-")
+    this.chainBoundHash = options?.chainBoundHash ?? (process.env.FINN_CHAINBOUND_HASH === "true")
     this.quarantinePath = filePath + ".quarantine.jsonl"
 
     // Validate format registration at construction time, not on every read.
@@ -227,8 +243,11 @@ export class AtomicJsonStore<T> {
 
   /**
    * Verify the integrity of the audit trail hash chain.
-   * Returns the verification result from the commons verifyAuditTrailIntegrity.
-   * Throws if audit trail is not enabled or sidecar file is missing.
+   * Supports dual-format verification: legacy (computeAuditEntryHash) and
+   * chain-bound (computeChainBoundHash) entries, distinguished by hashAlg
+   * metadata. Legacy entries (no hashAlg) use computeAuditEntryHash.
+   * Verification failure is hard-fail — integrity violations are never suppressed.
+   * (Flatline IMP-003, SKP-009)
    */
   async verifyIntegrity(): Promise<AuditTrailVerificationResult> {
     if (!this.auditEnabled) {
@@ -247,14 +266,51 @@ export class AtomicJsonStore<T> {
     }
 
     const lines = raw.trim().split("\n").filter(Boolean)
+    if (lines.length === 0) return { valid: true }
+
     const entries: AuditEntry[] = lines.map((line) => JSON.parse(line))
 
-    return verifyAuditTrailIntegrity({
-      entries,
-      hash_algorithm: "sha256",
-      genesis_hash: AUDIT_TRAIL_GENESIS_HASH,
-      integrity_status: "unverified",
-    })
+    // Dual-format verification: check hashAlg to select algorithm per entry
+    let prevHash = AUDIT_TRAIL_GENESIS_HASH
+    for (const entry of entries) {
+      const hashAlg = (entry.payload as Record<string, unknown>)?.hashAlg as string | undefined
+
+      const hashInput: AuditEntryHashInput = {
+        entry_id: entry.entry_id,
+        timestamp: entry.timestamp,
+        event_type: entry.event_type,
+        payload: entry.payload,
+      }
+
+      let expectedHash: string
+      if (hashAlg === "chainBoundV1") {
+        expectedHash = computeChainBoundHash(hashInput, entry.hash_domain_tag, prevHash)
+      } else {
+        // Legacy (no hashAlg or 'legacyV1') — use original algorithm
+        expectedHash = computeAuditEntryHash(hashInput, entry.hash_domain_tag)
+      }
+
+      if (entry.entry_hash !== expectedHash) {
+        console.error(
+          `[store] INTEGRITY_FAILED: entry ${entry.entry_id} hash mismatch — ` +
+          `expected=${expectedHash}, actual=${entry.entry_hash}, hashAlg=${hashAlg ?? "legacyV1"}`,
+        )
+        return { valid: false }
+      }
+
+      // Verify chain linkage
+      if (entry.previous_hash !== prevHash) {
+        console.error(
+          `[store] INTEGRITY_FAILED: entry ${entry.entry_id} chain break — ` +
+          `expected prevHash=${prevHash}, actual=${entry.previous_hash}`,
+        )
+        return { valid: false }
+      }
+
+      prevHash = entry.entry_hash
+    }
+
+    return { valid: true }
   }
 
   // -------------------------------------------------------------------------
@@ -333,7 +389,9 @@ export class AtomicJsonStore<T> {
 
   /**
    * Append a single AuditEntry to the .audit.jsonl sidecar.
-   * Computes hash using commons computeAuditEntryHash, chains from prev_hash.
+   * Computes hash using either legacy computeAuditEntryHash or chain-bound
+   * computeChainBoundHash (v8.3.0), depending on FINN_CHAINBOUND_HASH flag.
+   * hashAlg metadata field discriminates algorithm for dual-format verification.
    */
   private async appendAuditEntry(eventType: string, canonicalJson: string): Promise<void> {
     await this.initAuditState()
@@ -348,16 +406,29 @@ export class AtomicJsonStore<T> {
       payload: { payload_hash: payloadHash },
     }
 
-    const entryHash = computeAuditEntryHash(hashInput, this.auditDomainTag)
+    // Dual-format hash: chain-bound (v8.3.0) or legacy, per feature flag (Flatline IMP-009)
+    // Chain-bound uses sanitized domain tag (no dots) for validateDomainTag compliance.
+    let entryHash: string
+    let hashAlg: "legacyV1" | "chainBoundV1"
+    let domainTagForEntry: string
+    if (this.chainBoundHash) {
+      domainTagForEntry = this.auditDomainTagSanitized
+      entryHash = computeChainBoundHash(hashInput, domainTagForEntry, this.auditPrevHash)
+      hashAlg = "chainBoundV1"
+    } else {
+      domainTagForEntry = this.auditDomainTag
+      entryHash = computeAuditEntryHash(hashInput, domainTagForEntry)
+      hashAlg = "legacyV1"
+    }
 
     const entry: AuditEntry = {
       entry_id: hashInput.entry_id,
       timestamp: hashInput.timestamp,
       event_type: hashInput.event_type,
-      payload: hashInput.payload,
+      payload: { payload_hash: payloadHash, hashAlg },
       entry_hash: entryHash,
       previous_hash: this.auditPrevHash,
-      hash_domain_tag: this.auditDomainTag,
+      hash_domain_tag: domainTagForEntry,
     }
 
     // Validate entry against schema before writing

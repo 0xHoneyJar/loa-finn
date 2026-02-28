@@ -8,6 +8,7 @@
 // at call sites that depend on format-aware validation.
 
 import { FormatRegistry } from "@sinclair/typebox"
+import { validateAuditTimestamp } from "./protocol-types.js"
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -15,13 +16,11 @@ if (!FormatRegistry.Has("uuid")) {
   FormatRegistry.Set("uuid", (value) => typeof value === "string" && UUID_RE.test(value))
 }
 
-// Strict ISO 8601 date-time pattern (RFC 3339). Date.parse alone accepts ambiguous
-// strings like "Tuesday" on some engines — regex ensures format compliance at trust boundaries.
-const ISO_8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/
-
+// Strict ISO 8601 date-time validation via canonical hounfour validator (v8.3.0).
+// Replaces local ISO_8601_RE regex — canonical validator adds epoch + future checks.
 if (!FormatRegistry.Has("date-time")) {
   FormatRegistry.Set("date-time", (value) =>
-    typeof value === "string" && ISO_8601_RE.test(value) && !isNaN(Date.parse(value)))
+    typeof value === "string" && validateAuditTimestamp(value).valid)
 }
 
 /**
