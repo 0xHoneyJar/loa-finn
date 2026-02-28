@@ -14,11 +14,12 @@ import {
   computeChainBoundHash,
   buildDomainTag,
   AUDIT_TRAIL_GENESIS_HASH,
+  computeAdvisoryLockKey,
 } from "../src/hounfour/protocol-types.js"
 import type { AuditEntryHashInput } from "../src/hounfour/protocol-types.js"
 
-const LEGACY_DOMAIN_TAG = buildDomainTag("test-store", "8.3.0")
-const SANITIZED_DOMAIN_TAG = LEGACY_DOMAIN_TAG.replace(/\./g, "-")
+// v8.3.1+: buildDomainTag natively sanitizes dots to hyphens (hounfour PR #42)
+const DOMAIN_TAG = buildDomainTag("test-store", "8.3.1")
 
 const ENTRY_A: AuditEntryHashInput = {
   entry_id: "00000000-0000-0000-0000-000000000001",
@@ -41,17 +42,17 @@ const ENTRY_C: AuditEntryHashInput = {
   payload: { payload_hash: "sha256:cccc" },
 }
 
-const legacyA = computeAuditEntryHash(ENTRY_A, LEGACY_DOMAIN_TAG)
-const legacyB = computeAuditEntryHash(ENTRY_B, LEGACY_DOMAIN_TAG)
-const legacyC = computeAuditEntryHash(ENTRY_C, LEGACY_DOMAIN_TAG)
+const legacyA = computeAuditEntryHash(ENTRY_A, DOMAIN_TAG)
+const legacyB = computeAuditEntryHash(ENTRY_B, DOMAIN_TAG)
+const legacyC = computeAuditEntryHash(ENTRY_C, DOMAIN_TAG)
 
-const chainBoundA = computeChainBoundHash(ENTRY_A, SANITIZED_DOMAIN_TAG, AUDIT_TRAIL_GENESIS_HASH)
-const chainBoundB = computeChainBoundHash(ENTRY_B, SANITIZED_DOMAIN_TAG, chainBoundA)
-const chainBoundC = computeChainBoundHash(ENTRY_C, SANITIZED_DOMAIN_TAG, chainBoundB)
+const chainBoundA = computeChainBoundHash(ENTRY_A, DOMAIN_TAG, AUDIT_TRAIL_GENESIS_HASH)
+const chainBoundB = computeChainBoundHash(ENTRY_B, DOMAIN_TAG, chainBoundA)
+const chainBoundC = computeChainBoundHash(ENTRY_C, DOMAIN_TAG, chainBoundB)
 
 const chainBoundA_tampered = computeChainBoundHash(
   ENTRY_A,
-  SANITIZED_DOMAIN_TAG,
+  DOMAIN_TAG,
   "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 )
 
@@ -64,3 +65,14 @@ console.log(`  chainBoundB: "${chainBoundB}",`)
 console.log(`  chainBoundC: "${chainBoundC}",`)
 console.log(`  chainBoundA_tampered: "${chainBoundA_tampered}",`)
 console.log("} as const")
+
+// Advisory lock key vectors
+const tagTestStore = buildDomainTag("test-store", "8.3.1")
+const tagGovCredits = buildDomainTag("governed-credits", "8.3.1")
+const tagSessions = buildDomainTag("sessions", "8.3.1")
+
+console.log("")
+console.log("// Advisory lock key vectors:")
+console.log(`//   test-store tag: "${tagTestStore}" → ${computeAdvisoryLockKey(tagTestStore)}`)
+console.log(`//   governed-credits tag: "${tagGovCredits}" → ${computeAdvisoryLockKey(tagGovCredits)}`)
+console.log(`//   sessions tag: "${tagSessions}" → ${computeAdvisoryLockKey(tagSessions)}`)
