@@ -26,6 +26,7 @@ loa-finn: Multi-model AI inference engine serving token-gated agent experiences,
 | [architecture.md](architecture.md) | 5-layer architecture, module dependency graph, invoke/oracle data flows, persistence/security tables, deployment topology, design decisions | 30 |
 | [behaviors.md](behaviors.md) | 10 runtime behaviors: 26-step boot, billing lifecycle, Goodhart routing, session/WAL/recovery/audit/circuit/rate-limit/credit/shutdown | 45 |
 | [contracts.md](contracts.md) | 35 invariants: billing (INV-1–5), WAL (5), auth (5), economic boundary (3), audit chain (4), DLQ (3), concurrency (3), credits (2), recovery (3), circuit breaker (2) | 35 |
+| [contracts.yaml](contracts.yaml) | Machine-readable invariants: 36 invariants across 10 domains with source/enforcement file:line, pre/postconditions, failure modes, severity — enables agent consumption and programmatic validation | 36 |
 | [failure-modes.md](failure-modes.md) | Failure mode tables for 14 invariants: billing (INV-1–5), WAL (4), auth (2), credits (2) — violation, detection, recovery, blast radius per invariant | 14 |
 
 ## Quick Facts

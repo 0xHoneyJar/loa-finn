@@ -1,0 +1,795 @@
+# grimoires/loa/ground-truth/contracts.yaml — Machine-Consumable GT Invariants
+#
+# Schema design informed by hounfour ConstraintFile (v8.3.1):
+#   hounfour: { $schema, schema_id, origin, contract_version, expression_version, constraints[] }
+#   GT:       { version, commit, hounfour_version, domains[].invariants[] }
+#
+# Mapping table (hounfour → GT):
+#   id                  → invariants[].id           (INV-1, INV-2, etc.)
+#   expression          → invariants[].statement    (human-readable; not DSL-evaluable)
+#   severity            → invariants[].severity     (always "error" for conservation laws)
+#   message             → invariants[].failure.detection
+#   fields              → invariants[].source.file + enforcement.file
+#   native_enforcement  → invariants[].enforcement  (function, lines)
+#   evaluation_geometry → N/A (GT invariants are structural, not expression-evaluable)
+#   condition           → N/A (no feature-flag gating for GT invariants)
+#
+# All claims grounded in codebase at the commit below.
+# Bidirectional traceability: each `id` matches the markdown heading anchor in contracts.md.
+
+version: "1.0.0"
+commit: "b4a3075"
+hounfour_version: "8.3.1"
+generated_at: "2026-02-28T12:00:00Z"
+
+domains:
+  - name: billing
+    description: "Billing conservation invariants (SDD §3.6)"
+    evidence: "src/hounfour/billing-invariants.ts:10-23, src/hounfour/billing-finalize-client.ts, src/hounfour/dlq-store.ts"
+    invariants:
+      - id: INV-1
+        name: COMPLETENESS
+        statement: "Every finalize() returns one of: finalized, idempotent, dlq"
+        source:
+          file: src/hounfour/billing-invariants.ts
+          line: 12
+        enforcement:
+          file: src/hounfour/billing-invariants.ts
+          lines: [28, 38]
+          function: assertCompleteness
+        preconditions:
+          - "billing entry exists with state FINALIZE_PENDING"
+        postconditions:
+          - "outcome ∈ {finalized, idempotent, dlq}"
+        failure:
+          detection: "assertCompleteness() throws 'INV-1 violated'"
+          recovery: "DLQ entry created with internal_error reason"
+          blast_radius: "Single billing entry. No cascade."
+        severity: error
+
+      - id: INV-2
+        name: PERSISTENCE_DURABLE
+        statement: "In durable mode, outcome=dlq implies entry persisted in DLQStore"
+        source:
+          file: src/hounfour/billing-invariants.ts
+          line: 14
+        enforcement:
+          file: src/hounfour/dlq-store.ts
+          lines: [11, 28]
+          function: "DLQStore port interface"
+        preconditions:
+          - "Redis with AOF configured"
+          - "DLQStore.durable === true"
+        postconditions:
+          - "DLQ entry persisted to Redis AOF"
+        failure:
+          detection: "AOF verification at boot (src/index.ts:205-206)"
+          recovery: "Redis AOF replays entries on restart"
+          blast_radius: "Bounded by AOF fsync interval."
+        severity: error
+
+      - id: INV-2D
+        name: PERSISTENCE_DEGRADED
+        statement: "In degraded mode, outcome=dlq implies entry in memory + ERROR log"
+        source:
+          file: src/hounfour/billing-invariants.ts
+          line: 16
+        enforcement:
+          file: src/index.ts
+          lines: [209, 212]
+          function: "InMemoryDLQStore fallback"
+        preconditions:
+          - "Redis unavailable"
+          - "DLQStore.durable === false"
+        postconditions:
+          - "DLQ entry in memory + ERROR logged"
+        failure:
+          detection: "Degraded mode logged at boot (src/index.ts:208)"
+          recovery: "Entries lost on process exit — ERROR logged for manual reconciliation"
+          blast_radius: "All in-flight DLQ entries at process exit."
+        severity: error
+
+      - id: INV-3
+        name: IDEMPOTENCY
+        statement: "Duplicate finalize for same reservation_id returns idempotent (via 409)"
+        source:
+          file: src/hounfour/billing-invariants.ts
+          line: 18
+        enforcement:
+          file: src/hounfour/billing-finalize-client.ts
+          lines: [297, 299]
+          function: "HTTP 409 → idempotent mapping"
+        preconditions:
+          - "reservation_id already finalized"
+        postconditions:
+          - "{ ok: true, status: 'idempotent' }"
+        failure:
+          detection: "Arrakis returns HTTP 409 on duplicate reservation_id"
+          recovery: "Automatic — 409 → idempotent. No DLQ entry."
+          blast_radius: "None — idempotency is the happy path."
+        severity: error
+
+      - id: INV-4
+        name: COST_IMMUTABILITY
+        statement: "actual_cost_micro is never modified after initial computation"
+        source:
+          file: src/hounfour/billing-invariants.ts
+          line: 20
+        enforcement:
+          file: src/billing/state-machine.ts
+          lines: [233, 263]
+          function: "COMMITTED transition (set-once)"
+        preconditions:
+          - "billing entry in RESERVE_HELD state"
+        postconditions:
+          - "actual_cost_micro set once, no mutable reference exposed"
+        failure:
+          detection: "Structural — no setter exposed after COMMITTED transition"
+          recovery: "Voided entries never reuse cost values. No runtime recovery needed."
+          blast_radius: "Single billing entry's cost record."
+        severity: error
+
+      - id: INV-5
+        name: BOUNDED_RETRY
+        statement: "Every DLQ entry replayed at most maxRetries times with exponential backoff"
+        source:
+          file: src/hounfour/billing-invariants.ts
+          line: 22
+        enforcement:
+          file: src/hounfour/billing-finalize-client.ts
+          lines: [169, 174]
+          function: "assertBoundedRetry + replayDeadLetters check"
+        preconditions:
+          - "DLQ entry exists with attempt_count < maxRetries"
+        postconditions:
+          - "attempt_count incremented, backoff applied"
+        failure:
+          detection: "assertBoundedRetry() at billing-invariants.ts:41-44"
+          recovery: "Terminal drop: entry removed with ERROR log (reservation_id, tenant_id, cost, attempts)"
+          blast_radius: "Single DLQ entry. Requires manual reconciliation."
+        severity: error
+
+  - name: wal
+    description: "Write-Ahead Log invariants"
+    evidence: "src/persistence/wal.ts, src/billing/state-machine.ts:54-77"
+    invariants:
+      - id: WAL-SEQ
+        name: MONOTONIC_SEQUENCE
+        statement: "WAL sequence numbers are strictly monotonically increasing within a single process"
+        source:
+          file: src/billing/state-machine.ts
+          lines: [65, 66]
+        enforcement:
+          file: src/persistence/wal.ts
+          lines: [18]
+          function: "monotonicFactory()"
+        preconditions:
+          - "WAL manager initialized"
+        postconditions:
+          - "Each new entry has sequence > all previous sequences"
+        failure:
+          detection: "monotonicFactory() is structurally monotonic"
+          recovery: "No runtime recovery needed. Multi-process gaps detected as verifiable discontinuity."
+          blast_radius: "Replay ordering ambiguous if system clock jumps backward."
+        severity: error
+
+      - id: WAL-CRC
+        name: CRC32_CHECKSUM
+        statement: "Every WAL envelope includes CRC32 of payload for corruption detection"
+        source:
+          file: src/billing/state-machine.ts
+          lines: [46, 51]
+        enforcement:
+          file: src/billing/state-machine.ts
+          lines: [46, 51]
+          function: "SHA-256 computed at append, verified on replay"
+        preconditions:
+          - "WAL append operation"
+        postconditions:
+          - "Checksum stored with entry"
+        failure:
+          detection: "SHA-256 checksum mismatch on replay"
+          recovery: "Corrupted entry skipped with ERROR log. Recovery cascade falls back to R2/git."
+          blast_radius: "Single WAL entry. Adjacent entries unaffected."
+        severity: error
+
+      - id: WAL-ROT
+        name: ATOMIC_SEGMENT_ROTATION
+        statement: "Current segment file is never partially visible; rename is atomic"
+        source:
+          file: src/persistence/wal.ts
+          lines: [91, 92]
+        enforcement:
+          file: src/persistence/wal.ts
+          lines: [91, 92]
+          function: "write to temp, rename atomically"
+        preconditions:
+          - "Segment size exceeds 10MB threshold"
+        postconditions:
+          - "New segment visible only after atomic rename"
+        failure:
+          detection: "OS-level atomic rename guarantee"
+          recovery: "Partial temp files cleaned on restart"
+          blast_radius: "Single segment transition."
+        severity: error
+
+      - id: WAL-DISK
+        name: DISK_PRESSURE_HYSTERESIS
+        statement: "Enters read-only at 100MB free, resumes at 150MB free"
+        source:
+          file: src/persistence/wal.ts
+          lines: [43, 45]
+        enforcement:
+          file: src/persistence/wal.ts
+          lines: [75, 88]
+          function: "DiskPressureError threshold checks"
+        preconditions:
+          - "WAL append attempted"
+        postconditions:
+          - "DiskPressureError thrown when free < 100MB"
+          - "Resumes when free > 150MB"
+        failure:
+          detection: "DiskPressureError thrown (wal.ts:84-87)"
+          recovery: "WAL enters read-only. Resumes at 150MB free. Billing routes to DLQ."
+          blast_radius: "All WAL writes blocked. Sessions cannot persist new messages."
+        severity: error
+
+      - id: WAL-AUTH
+        name: WAL_AUTHORITATIVENESS
+        statement: "WAL is the source of truth. Redis is derived, never authoritative."
+        source:
+          file: src/billing/state-machine.ts
+          lines: [1, 6]
+        enforcement:
+          file: src/billing/state-machine.ts
+          lines: [1, 6]
+          function: "Architectural constraint — WAL-first write pattern"
+        preconditions:
+          - "Any billing state transition"
+        postconditions:
+          - "WAL written before Redis cache update"
+        failure:
+          detection: "Structural — all transitions write WAL first"
+          recovery: "On restart, WAL replay rebuilds Redis state."
+          blast_radius: "If violated: full billing state corruption. Prevented by architectural constraint."
+        severity: error
+
+  - name: auth
+    description: "Authentication and authorization contracts"
+    evidence: "src/hounfour/jwt-auth.ts:1-120, src/index.ts:485-492"
+    invariants:
+      - id: AUTH-JWKS
+        name: S2S_JWT_VERIFICATION
+        statement: "S2S JWT MUST be verified against JWKS before tenant context is trusted"
+        source:
+          file: src/hounfour/jwt-auth.ts
+          lines: [113, 119]
+        enforcement:
+          file: src/hounfour/jwt-auth.ts
+          lines: [115, 116]
+          function: "issuer allowlist + AUDIENCE_MAP validation"
+        preconditions:
+          - "JWT presented in Authorization header"
+        postconditions:
+          - "TenantContext populated with verified claims"
+        failure:
+          detection: "JWT verification rejects invalid tokens"
+          recovery: "Request rejected with 401"
+          blast_radius: "Single request rejected."
+        severity: error
+
+      - id: AUTH-JTI
+        name: JTI_REPLAY_PROTECTION
+        statement: "Each JWT jti claim MUST be unique within MAX_JTI_WINDOW_SECONDS (default 600s)"
+        source:
+          file: src/hounfour/jwt-auth.ts
+          lines: [29, 32]
+        enforcement:
+          file: src/hounfour/jti-replay.ts
+          lines: [30, 37]
+          function: "JtiReplayGuard.checkAndStore()"
+        preconditions:
+          - "JWT with jti claim presented"
+        postconditions:
+          - "jti stored in replay guard with TTL"
+        failure:
+          detection: "checkAndStore() returns true if jti already seen"
+          recovery: "Request rejected with 401. Periodic sweep every 60s + max 100K entries."
+          blast_radius: "Single request rejected. No state corruption."
+        severity: error
+
+      - id: AUTH-ES256
+        name: PRODUCTION_ALGORITHM_ENFORCEMENT
+        statement: "Production MUST use ES256 for S2S; HS256 blocked unless explicitly configured"
+        source:
+          file: src/index.ts
+          lines: [486, 491]
+        enforcement:
+          file: src/index.ts
+          lines: [486, 491]
+          function: "isProduction && explicitAlg === 'HS256' → throw"
+        preconditions:
+          - "Production environment"
+          - "JWT algorithm configured as HS256"
+        postconditions:
+          - "Process exits with error before server.listen()"
+        failure:
+          detection: "Fail-fast at boot — throws before server starts"
+          recovery: "Operator must configure ES256 JWKS. No graceful fallback."
+          blast_radius: "Entire service fails to start. Prevents insecure algorithm downgrade."
+        severity: error
+
+      - id: AUTH-HANDSHAKE
+        name: PROTOCOL_HANDSHAKE
+        statement: "Protocol handshake with Arrakis MUST complete before server.listen() in production"
+        source:
+          file: src/index.ts
+          lines: [720, 725]
+        enforcement:
+          file: src/index.ts
+          lines: [720, 728]
+          function: "Handshake called before serve(); throws on validation failure"
+        preconditions:
+          - "Production environment"
+        postconditions:
+          - "Protocol version and capabilities negotiated"
+        failure:
+          detection: "Throws if validation fails (src/index.ts:728)"
+          recovery: "Process exits. Operator must fix protocol configuration."
+          blast_radius: "Entire service fails to start."
+        severity: error
+
+      - id: AUTH-JTI-MERGE
+        name: EFFECTIVE_JTI_POLICY
+        statement: "EFFECTIVE_JTI_POLICY merges local + protocol policies — stricter requirement wins"
+        source:
+          file: src/hounfour/jwt-auth.ts
+          lines: [39, 51]
+        enforcement:
+          file: src/hounfour/jwt-auth.ts
+          lines: [39, 51]
+          function: "OR semantics across policy sources"
+        preconditions:
+          - "Local and protocol JTI policies loaded"
+        postconditions:
+          - "Effective policy is union of both (stricter wins)"
+        failure:
+          detection: "Policy merge logic at jwt-auth.ts:39-51"
+          recovery: "Falls back to local policy if protocol policy unavailable"
+          blast_radius: "JTI window may be shorter or longer than intended."
+        severity: error
+
+  - name: economic_boundary
+    description: "Economic boundary evaluation contracts"
+    evidence: "src/hounfour/economic-boundary.ts"
+    invariants:
+      - id: EB-TIER
+        name: TIER_TO_TRUST_MAPPING
+        statement: "Tier determines trust score: free=10, pro=50, enterprise=80, authoritative=95"
+        source:
+          file: src/hounfour/economic-boundary.ts
+          lines: [56, 61]
+        enforcement:
+          file: src/hounfour/economic-boundary.ts
+          lines: [75, 97]
+          function: validateTierTrustMap
+        preconditions:
+          - "Module loaded"
+        postconditions:
+          - "All tier mappings valid against protocol REPUTATION_STATES"
+        failure:
+          detection: "validateTierTrustMap() throws at boot"
+          recovery: "Process crashes with FATAL error. Operator must fix mapping."
+          blast_radius: "Entire service fails to start."
+        severity: error
+
+      - id: EB-MODES
+        name: ENFORCEMENT_MODES
+        statement: "Three modes: bypass (skip), shadow (log only), enforce (403 on denial)"
+        source:
+          file: src/hounfour/economic-boundary.ts
+          lines: [43, 44]
+        enforcement:
+          file: src/hounfour/economic-boundary.ts
+          lines: [43, 50]
+          function: "VALID_MODES set check"
+        preconditions:
+          - "ECONOMIC_BOUNDARY_MODE env var set"
+        postconditions:
+          - "Mode is one of: enforce, shadow, bypass"
+        failure:
+          detection: "Invalid mode logged as warning, defaults to shadow"
+          recovery: "Falls back to shadow mode (safe default)"
+          blast_radius: "Economic boundary evaluation may be more/less restrictive than intended."
+        severity: error
+
+      - id: EB-INTERACT
+        name: MODE_INTERACTION_MATRIX
+        statement: "ECONOMIC_BOUNDARY_MODE × ACCESS_POLICY_ENFORCEMENT produces 9-cell interaction matrix"
+        source:
+          file: src/hounfour/economic-boundary.ts
+          lines: [13, 21]
+        enforcement:
+          file: src/hounfour/economic-boundary.ts
+          lines: [13, 21]
+          function: "Documented interaction matrix in source comments"
+        preconditions:
+          - "Both EB mode and AP enforcement configured"
+        postconditions:
+          - "Behavior follows documented interaction matrix"
+        failure:
+          detection: "Integration tests verify matrix cells"
+          recovery: "Both systems have independent fallbacks"
+          blast_radius: "Access decision may differ from documented expectation."
+        severity: warning
+
+  - name: audit_chain
+    description: "Audit trail chain contracts"
+    evidence: "src/hounfour/audit/buffered-audit-chain.ts, src/hounfour/protocol-types.ts"
+    invariants:
+      - id: AUDIT-MUTEX
+        name: SINGLE_WRITER_ORDERING
+        statement: "Mutex enforces sequential ordering for concurrent appenders within a process"
+        source:
+          file: src/hounfour/audit/buffered-audit-chain.ts
+          lines: [55, 56]
+        enforcement:
+          file: src/hounfour/audit/buffered-audit-chain.ts
+          lines: [55, 56]
+          function: "mutexPromise: Promise<void>"
+        preconditions:
+          - "Concurrent audit append calls"
+        postconditions:
+          - "Sequential ordering guaranteed within process"
+        failure:
+          detection: "Mutex acquisition ensures serialization"
+          recovery: "No recovery needed — mutex is structural guarantee"
+          blast_radius: "Ordering violations would corrupt hash chain."
+        severity: error
+
+      - id: AUDIT-CRITICAL
+        name: FAIL_CLOSED_CRITICAL_ACTIONS
+        statement: "routing_mode_change, settlement, admin_action throw when buffer full AND DynamoDB unavailable"
+        source:
+          file: src/hounfour/audit/buffered-audit-chain.ts
+          lines: [40]
+        enforcement:
+          file: src/hounfour/audit/buffered-audit-chain.ts
+          lines: [104, 108]
+          function: "CRITICAL_ACTIONS set check + throw"
+        preconditions:
+          - "Buffer full"
+          - "DynamoDB unavailable"
+          - "Action is in CRITICAL_ACTIONS set"
+        postconditions:
+          - "Operation throws — critical action not executed without audit"
+        failure:
+          detection: "Throw on buffer full + DB down for critical actions"
+          recovery: "Caller must retry after buffer drains or DB recovers"
+          blast_radius: "Critical admin operations blocked until audit available."
+        severity: error
+
+      - id: AUDIT-CHAIN
+        name: CHAIN_BOUND_HASH_INTEGRITY
+        statement: "Each chain-bound hash includes previous hash, creating tamper-evident ordering"
+        source:
+          file: src/hounfour/protocol-types.ts
+          lines: []
+        enforcement:
+          file: src/hounfour/protocol-types.ts
+          lines: []
+          function: "computeChainBoundHash(entry, domainTag, prevHash)"
+        preconditions:
+          - "Audit entry being appended"
+        postconditions:
+          - "Hash computed from entry + domainTag + prevHash"
+          - "Genesis hash: SHA-256 of empty string"
+        failure:
+          detection: "Hash chain verification on replay"
+          recovery: "Gap detection via missing sequence numbers creates verifiable discontinuity"
+          blast_radius: "Chain integrity broken from point of corruption forward."
+        severity: error
+
+      - id: AUDIT-RESUME
+        name: CRASH_RESUME
+        statement: "On startup, reads last committed hash from DynamoDB to recover prev_hash"
+        source:
+          file: src/hounfour/audit/buffered-audit-chain.ts
+          lines: [69, 72]
+        enforcement:
+          file: src/hounfour/audit/buffered-audit-chain.ts
+          lines: [69, 72]
+          function: "DynamoDB read on init"
+        preconditions:
+          - "Service restarting after crash"
+        postconditions:
+          - "prev_hash recovered from DynamoDB"
+          - "New entries chain from last committed hash"
+        failure:
+          detection: "DynamoDB read failure on init"
+          recovery: "Gap in chain detected as verifiable discontinuity"
+          blast_radius: "Hash chain has verifiable gap but no data loss."
+        severity: error
+
+  - name: dlq
+    description: "Dead Letter Queue contracts"
+    evidence: "src/hounfour/dlq-store.ts:11-28"
+    invariants:
+      - id: DLQ-DELIVERY
+        name: AT_LEAST_ONCE_DELIVERY
+        statement: "Entry remains in DLQ until explicitly deleted (terminalDrop)"
+        source:
+          file: src/hounfour/dlq-store.ts
+          lines: [11, 28]
+        enforcement:
+          file: src/hounfour/dlq-store.ts
+          lines: [11, 28]
+          function: "DLQStore interface + claimForReplay()"
+        preconditions:
+          - "DLQ entry created"
+        postconditions:
+          - "Entry persists until terminalDrop"
+        failure:
+          detection: "Entry presence verified before replay"
+          recovery: "Claim lock prevents concurrent replays"
+          blast_radius: "Single entry. Other entries unaffected."
+        severity: error
+
+      - id: DLQ-ATOMIC
+        name: ATOMIC_ATTEMPT_INCREMENT
+        statement: "incrementAttempt() atomically increments counter + reschedules"
+        source:
+          file: src/hounfour/dlq-store.ts
+          lines: [23]
+        enforcement:
+          file: src/hounfour/dlq-store.ts
+          lines: [23]
+          function: incrementAttempt
+        preconditions:
+          - "DLQ entry claimed for replay"
+        postconditions:
+          - "attempt_count incremented atomically"
+          - "Next retry scheduled with backoff"
+        failure:
+          detection: "Atomic operation guarantees consistency"
+          recovery: "On failure, entry remains at previous attempt count"
+          blast_radius: "Single DLQ entry."
+        severity: error
+
+      - id: DLQ-DURABLE
+        name: DURABLE_VS_DEGRADED
+        statement: "dlqStore.durable distinguishes Redis (true) vs in-memory (false)"
+        source:
+          file: src/hounfour/dlq-store.ts
+          lines: [27]
+        enforcement:
+          file: src/index.ts
+          lines: [208]
+          function: "Boot-time logging of durability mode"
+        preconditions:
+          - "DLQ store initialized"
+        postconditions:
+          - "durable property reflects storage backend"
+        failure:
+          detection: "Logged at boot (src/index.ts:208)"
+          recovery: "InMemoryDLQStore used when Redis unavailable"
+          blast_radius: "In-memory: all entries lost on process exit."
+        severity: warning
+
+  - name: concurrency
+    description: "Concurrency control contracts"
+    evidence: "src/billing/state-machine.ts:470-500, src/persistence/wal.ts"
+    invariants:
+      - id: CONC-LOCK
+        name: ENTRY_LEVEL_LOCKING
+        statement: "SET billing:lock:{entryId} {correlationId} NX EX 30 — acquire before transition"
+        source:
+          file: src/billing/state-machine.ts
+          lines: [477, 499]
+        enforcement:
+          file: src/billing/state-machine.ts
+          lines: [477, 499]
+          function: withEntryLock
+        preconditions:
+          - "Billing state transition requested"
+        postconditions:
+          - "Lock acquired or { ok: false, reason: 'lock_contention' }"
+        failure:
+          detection: "Redis SET NX returns false on contention"
+          recovery: "Caller retries with backoff or reports contention"
+          blast_radius: "Single billing entry. No cross-entry impact."
+        severity: error
+
+      - id: CONC-WAL
+        name: SINGLE_WRITER_WAL
+        statement: "Append operations are serialized via ULID monotonic factory"
+        source:
+          file: src/persistence/wal.ts
+          lines: [18]
+        enforcement:
+          file: src/persistence/wal.ts
+          lines: [18]
+          function: "monotonicFactory()"
+        preconditions:
+          - "WAL append operation"
+        postconditions:
+          - "ULID is strictly greater than previous"
+        failure:
+          detection: "monotonicFactory() guarantees monotonicity"
+          recovery: "No recovery needed — structural guarantee within process"
+          blast_radius: "Multi-process requires timestamp + process ID ordering."
+        severity: error
+
+      - id: CONC-SESSION
+        name: SESSION_ISOLATION
+        statement: "Each session has independent message history and compaction state"
+        source:
+          file: src/agent/session.ts
+          lines: [44, 52]
+        enforcement:
+          file: src/agent/session.ts
+          lines: [44, 52]
+          function: "SessionManager.create/open"
+        preconditions:
+          - "Session created or opened"
+        postconditions:
+          - "No cross-session message visibility"
+        failure:
+          detection: "Session ID isolation in all queries"
+          recovery: "Sessions are independent — no cascade"
+          blast_radius: "Single session only."
+        severity: error
+
+  - name: credits
+    description: "Credit conservation contracts"
+    evidence: "src/credits/credit-persistence.ts:44-46"
+    invariants:
+      - id: CREDIT-SUM
+        name: SUM_INVARIANT
+        statement: "allocated + unlocked + reserved + consumed + expired = initial_allocation"
+        source:
+          file: src/credits/credit-persistence.ts
+          lines: [44, 46]
+        enforcement:
+          file: src/credits/credit-persistence.ts
+          lines: [44, 46, 215]
+          function: "SQL CHECK constraint + verifyConservationSQL()"
+        preconditions:
+          - "Credit account update"
+        postconditions:
+          - "Sum of partitions equals initial_allocation"
+        failure:
+          detection: "Postgres rejects UPDATE — transaction rolls back"
+          recovery: "In-memory state unchanged. ERROR logged. Operation fails atomically."
+          blast_radius: "Single credit account. Other accounts unaffected."
+        severity: error
+
+      - id: CREDIT-NONCE
+        name: NONCE_REPLAY_PROTECTION
+        statement: "Used nonces tracked with TTL to prevent replay attacks on unlock/consume"
+        source:
+          file: src/credits/nonce-cleanup.ts
+          lines: []
+        enforcement:
+          file: src/credits/nonce-cleanup.ts
+          lines: []
+          function: "finn_used_nonces table with TTL-based uniqueness"
+        preconditions:
+          - "Credit unlock/consume operation with nonce"
+        postconditions:
+          - "Nonce stored; duplicate insert fails"
+        failure:
+          detection: "Duplicate nonce insert fails"
+          recovery: "Operation rejected. Nonces pruned after TTL expiry."
+          blast_radius: "Single credit operation rejected. No state corruption."
+        severity: error
+
+  - name: recovery
+    description: "Recovery cascade contracts"
+    evidence: "src/persistence/recovery.ts"
+    invariants:
+      - id: REC-MODES
+        name: NO_SILENT_DATA_LOSS
+        statement: "Mode selection determines failure handling: strict, degraded, clean"
+        source:
+          file: src/persistence/recovery.ts
+          lines: [12]
+        enforcement:
+          file: src/persistence/recovery.ts
+          lines: [50, 129]
+          function: "RecoveryEngine mode dispatch"
+        preconditions:
+          - "Recovery mode configured"
+        postconditions:
+          - "strict: fail if any source unavailable"
+          - "degraded: proceed if ≥1 source succeeds"
+          - "clean: start fresh (explicit choice)"
+        failure:
+          detection: "Mode validation at recovery start"
+          recovery: "Operator selects appropriate mode"
+          blast_radius: "Depends on mode — strict prevents any data loss; degraded may lose partial."
+        severity: error
+
+      - id: REC-TIMEOUT
+        name: TIMEOUT_PROTECTION
+        statement: "No hung source blocks boot indefinitely"
+        source:
+          file: src/persistence/recovery.ts
+          lines: [47, 51]
+        enforcement:
+          file: src/persistence/recovery.ts
+          lines: [47, 79]
+          function: "Per-source: 5s isAvailable(), 30s restore(). Overall: 120s deadline."
+        preconditions:
+          - "Recovery cascade initiated"
+        postconditions:
+          - "Each source completes or times out within bounds"
+        failure:
+          detection: "Timeout fires after configured deadline"
+          recovery: "Source marked unavailable, cascade continues to next source"
+          blast_radius: "Single source. Other sources unaffected."
+        severity: error
+
+      - id: REC-CHECKSUM
+        name: FILE_CHECKSUM_VALIDATION
+        statement: "Every restored file's checksum is verified against WAL entry"
+        source:
+          file: src/persistence/upstream.ts
+          lines: []
+        enforcement:
+          file: src/persistence/upstream.ts
+          lines: []
+          function: "RecoveryEngine checksum verification"
+        preconditions:
+          - "File restored from R2/git backup"
+        postconditions:
+          - "Checksum matches WAL entry"
+        failure:
+          detection: "Checksum mismatch detected"
+          recovery: "Corrupted file rejected, next source tried"
+          blast_radius: "Single file. Other restorations unaffected."
+        severity: error
+
+  - name: circuit_breaker
+    description: "Circuit breaker state machine contracts"
+    evidence: "src/billing/circuit-breaker.ts:46-180"
+    invariants:
+      - id: CB-FSM
+        name: STATE_MACHINE_GUARANTEES
+        statement: "3-state FSM: CLOSED→OPEN (5 failures/60s), OPEN→HALF_OPEN (30s cooldown), HALF_OPEN→CLOSED/OPEN"
+        source:
+          file: src/billing/circuit-breaker.ts
+          lines: [46, 180]
+        enforcement:
+          file: src/billing/circuit-breaker.ts
+          lines: [46, 180]
+          function: "BillingCircuitBreaker state transitions"
+        preconditions:
+          - "Billing finalization attempted"
+        postconditions:
+          - "State transitions follow documented FSM"
+        failure:
+          detection: "State checked on every billing operation"
+          recovery: "HALF_OPEN probe succeeds → CLOSED; fails → back to OPEN"
+          blast_radius: "All billing operations blocked when OPEN. 30s cooldown."
+        severity: error
+
+      - id: CB-PENDING
+        name: MAX_PENDING_RECONCILIATION
+        statement: "Circuit opens if >50 pending reconciliation entries, regardless of failure count"
+        source:
+          file: src/billing/circuit-breaker.ts
+          lines: []
+        enforcement:
+          file: src/billing/circuit-breaker.ts
+          lines: []
+          function: "Pending count threshold check"
+        preconditions:
+          - "DLQ entries accumulating"
+        postconditions:
+          - "Circuit opens when pending > 50"
+        failure:
+          detection: "Pending count exceeds threshold"
+          recovery: "Circuit enters OPEN state to prevent unbounded DLQ growth"
+          blast_radius: "All billing operations blocked until DLQ drains."
+        severity: error
