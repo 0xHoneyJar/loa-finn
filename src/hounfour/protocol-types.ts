@@ -259,7 +259,12 @@ export {
 export type { FeedbackDampeningConfig } from "@0xhoneyjar/loa-hounfour/commons"
 
 // GovernedResource runtime interface (SDD §4.8)
-export type { GovernedResource } from "@0xhoneyjar/loa-hounfour/commons"
+export type {
+  GovernedResource,
+  TransitionResult,
+  InvariantResult,
+  MutationContext,
+} from "@0xhoneyjar/loa-hounfour/commons"
 export { GovernedResourceBase } from "@0xhoneyjar/loa-hounfour/commons"
 
 // X402 canonical schemas — protocol-level payment types (SDD §6.1)
