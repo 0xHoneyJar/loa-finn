@@ -1,880 +1,615 @@
-# SDD: Staging Readiness — Goodhart Wiring, ECS Staging, Fly.io Cleanup
+# SDD: Hounfour v8.3.0 Upgrade + CI Standardization
 
 **Status:** Draft
 **Author:** Jani + Claude
-**Date:** 2026-02-26
-**Cycle:** 036
-**PRD:** `grimoires/loa/prd.md`
+**Date:** 2026-02-28
+**Cycle:** 038
+**PRD Reference:** `grimoires/loa/prd.md` (Cycle-038)
+**Branch:** `feature/hounfour-v830-upgrade`
 
 ---
 
 ## 1. Executive Summary
 
-This SDD implements 5 functional requirements to bring loa-finn from "Goodhart stack built but disconnected" to "running in shadow mode on staging." The primary engineering challenge is wiring 7 existing Goodhart components into the `src/index.ts` initialization sequence without breaking the deterministic routing path — all components already have constructors, tests, and types; they just need to be instantiated and composed.
+This SDD designs the integration of hounfour v8.3.0 canonical exports into finn's existing architecture. The upgrade follows finn's established barrel re-export pattern through `src/hounfour/protocol-types.ts` — all new imports flow through this single file. The design is structured around three integration tiers matching the PRD's scope classification:
 
-Secondary work: parameterize Terraform for multi-environment deployment, remove 14+ stale Fly.io/Railway references, and fix 3 failing CI workflows.
+1. **API surface adoption** (Sprint 1-2): Pin bump, type replacement, test-vector-verified function adoption
+2. **Behavioral adoption** (Sprint 3): Feature-flagged dampening, warn-only contract validation, type-level GovernedResource
+3. **CI housekeeping** (Sprint 1): SHA alignment across 4 actions in 2 workflows
+
+No new modules, services, or infrastructure. All changes are within existing files following existing patterns.
+
+**Export verification:** All hounfour v8.3.0 export names and module paths were verified against commit `c29337e` during PRD creation (see PRD §2 "Source of Truth — Verified v8.3.0 Exports"). The PRD passed GPT review iteration 2 with explicit confirmation that export verification resolved the fabrication concern. Sprint 1's first task after pin bump is `pnpm tsc --noEmit` which provides compile-time proof that all import paths resolve.
 
 ---
 
-## 2. System Architecture
+## 2. System Architecture Overview
 
-### 2.1 Current State
-
-```
-src/index.ts:304 → HounfourRouter({registry, budget, health, cheval, ...})
-                     ↓
-                   resolvePool() → deterministic routing (no reputation)
-```
-
-### 2.2 Target State
+### 2.1 Current Module Topology (Relevant to Upgrade)
 
 ```
-src/index.ts:~302 → Goodhart Init Block (try/catch, non-fatal)
-                       ├── KillSwitch(runtimeConfig)
-                       ├── createDixieTransport(DIXIE_BASE_URL)
-                       ├── TemporalDecayEngine({redis, halfLifeMs})
-                       ├── ExplorationEngine({redis, epsilon})
-                       ├── CalibrationEngine({s3, hmac})
-                       ├── ReputationAdapter({decay, calibration, transport})
-                       └── MechanismConfig (composites all above)
-                     ↓
-src/index.ts:~310 → HounfourRouter({..., goodhartConfig?})
-                     ↓
-                   resolvePool() → routing state machine
-                     ├── disabled: deterministic (skip Goodhart)
-                     ├── shadow: resolveWithGoodhart() → return deterministic result
-                     ├── enabled: resolveWithGoodhart() → use reputation result
-                     └── init_failed: deterministic + counter
+┌──────────────────────────────────────────────────────┐
+│                     @0xhoneyjar/loa-hounfour         │
+│  /economy  /commons  /integrity  /governance         │
+│  /constraints                                        │
+└──────────────┬───────────────────────────────────────┘
+               │  (git SHA pin in package.json)
+               ▼
+┌──────────────────────────────────────────────────────┐
+│  src/hounfour/protocol-types.ts  (barrel re-export)  │
+│  ════════════════════════════════════════════════════ │
+│  232 lines, ~80 current exports from /economy,       │
+│  /commons, /governance                               │
+│  +30 new re-exports from v8.3.0                      │
+└──────────────┬───────────────────────────────────────┘
+               │  (imported by all finn modules)
+               ▼
+┌──────────────────────────────────────────────────────┐
+│  Consuming Modules                                   │
+│  ├── src/x402/types.ts         (x402 schemas)        │
+│  ├── src/hounfour/typebox-formats.ts (date-time)     │
+│  ├── src/safety/audit-trail.ts (advisory lock, hash) │
+│  ├── src/cron/store.ts         (audit sidecar)       │
+│  ├── src/hounfour/audit/dynamo-audit.ts (hash chain) │
+│  └── src/hounfour/goodhart/quality-signal.ts (EMA)   │
+└──────────────────────────────────────────────────────┘
 ```
 
-### 2.3 Component Dependency Graph
+### 2.2 Design Principle: No New Abstractions
 
-```
-KillSwitch ← RuntimeConfig (Redis)
-TemporalDecayEngine ← RedisCommandClient
-ExplorationEngine ← RedisCommandClient
-CalibrationEngine ← S3Reader (optional, startup-only)
-DixieTransport ← DIXIE_BASE_URL env var
-ReputationAdapter ← {TemporalDecayEngine, CalibrationEngine, DixieTransport}
-MechanismConfig ← {all above + optional AuditLogger + optional Metrics}
-```
+Every change in this cycle modifies an existing file or adds a test file. No new modules, no new abstractions, no new patterns. The protocol-types barrel is the only integration point for re-exports. Behavioral changes are gated by env vars using patterns already established in the codebase (`PROTOCOL_HASH_CHAIN_ENABLED`, `X402_CHAIN_ID`, etc.).
 
 ---
 
 ## 3. Component Design
 
-### 3.1 Transport Factory
+### 3.1 Pin Bump (FR-1)
 
-**New file:** `src/hounfour/goodhart/transport-factory.ts`
+**Files modified:** `package.json`, `pnpm-lock.yaml`
+
+**Change:** Single-line SHA replacement in the git dependency string.
+
+```
+- "github:0xHoneyJar/loa-hounfour#33d2b710ec939711568c596503f9d7b61575eeb3"
++ "github:0xHoneyJar/loa-hounfour#c29337e305005c5de56f8796ba391fb42108b5c5"
+```
+
+**Verification sequence:**
+1. `pnpm install` — lockfile regeneration
+2. `pnpm why @0xhoneyjar/loa-hounfour` — confirm resolved commit
+3. `pnpm tsc --noEmit` — type compatibility
+4. `pnpm test:finn` — runtime compatibility
+5. `scripts/build-hounfour-dist.sh` runs automatically via `postinstall`
+
+**Rollback:** Revert `package.json` line, `pnpm install`, verify `pnpm test:finn` passes.
+
+### 3.2 Protocol Types Barrel Extension (FR-2, FR-4, FR-5, FR-7, FR-8, FR-9)
+
+**File modified:** `src/hounfour/protocol-types.ts`
+
+**Design:** Append new export blocks at the end of the file, grouped by source module with version comments matching the existing pattern. The file already has section headers like `// ── v8.2.0 Governance Additions ──` — we add `// ── v8.3.0 Pre-Launch Hardening ──`.
+
+**New export groups:**
 
 ```typescript
-import { DixieStubTransport, DixieHttpTransport } from "./dixie-transport.js"
-import type { DixieTransport } from "./dixie-transport.js"
+// ── v8.3.0 Pre-Launch Hardening (Cycle 038) ──────────────────────
 
-export function createDixieTransport(baseUrl?: string): DixieTransport {
-  if (!baseUrl || baseUrl === "stub") {
-    return new DixieStubTransport()
-  }
-  return new DixieHttpTransport({ baseUrl })
-}
+// x402 Payment Schemas (economy/x402-payment.ts)
+export {
+  X402QuoteSchema, X402PaymentProofSchema, X402SettlementStatusSchema,
+  X402SettlementSchema, X402ErrorCodeSchema,
+  type X402Quote, type X402PaymentProof, type X402SettlementStatus,
+  type X402Settlement, type X402ErrorCode,
+} from '@0xhoneyjar/loa-hounfour/economy'
+
+// Chain-Bound Hash (commons/chain-bound-hash.ts)
+export {
+  computeChainBoundHash, validateDomainTag, ChainBoundHashError,
+  type AuditEntryHashInput as ChainBoundHashInput,
+} from '@0xhoneyjar/loa-hounfour/commons'
+
+// Audit Timestamp (commons/audit-timestamp.ts)
+export {
+  validateAuditTimestamp, type AuditTimestampResult,
+} from '@0xhoneyjar/loa-hounfour/commons'
+
+// Advisory Lock (commons/advisory-lock.ts)
+export { computeAdvisoryLockKey } from '@0xhoneyjar/loa-hounfour/commons'
+
+// Feedback Dampening (commons/feedback-dampening.ts)
+export {
+  FeedbackDampeningConfigSchema, computeDampenedScore,
+  FEEDBACK_DAMPENING_ALPHA_MIN, FEEDBACK_DAMPENING_ALPHA_MAX,
+  DAMPENING_RAMP_SAMPLES, DEFAULT_PSEUDO_COUNT,
+  type FeedbackDampeningConfig,
+} from '@0xhoneyjar/loa-hounfour/commons'
+
+// GovernedResource Runtime (commons/governed-resource-runtime.ts)
+export {
+  TransitionResultSchema, InvariantResultSchema, MutationContextSchema,
+  GovernedResourceBase,
+  type TransitionResult, type InvariantResult, type MutationContext,
+  type GovernedResource,
+} from '@0xhoneyjar/loa-hounfour/commons'
+
+// Consumer Contract (integrity/consumer-contract.ts)
+export {
+  ConsumerContractEntrypointSchema, ConsumerContractSchema,
+  validateConsumerContract, computeContractChecksum,
+  type ConsumerContractEntrypoint, type ConsumerContract,
+  type ContractValidationResult,
+} from '@0xhoneyjar/loa-hounfour/integrity'
+
+// Tier-to-Reputation Mapping (governance/tier-reputation-map.ts)
+export { mapTierToReputationState } from '@0xhoneyjar/loa-hounfour/governance'
+
+// Constraint Conditionals (constraints/types.ts + evaluator.ts)
+export {
+  type ConstraintCondition,
+  resolveConditionalExpression,
+} from '@0xhoneyjar/loa-hounfour/constraints'
 ```
 
-**Rationale:** Single function replaces conditional logic. Existing `DixieHttpTransport` constructor (lines 85-109 of `dixie-transport.ts`) already validates URL, warms DNS, and configures circuit breaker. No new classes needed.
+**Name collision check:** `AuditEntryHashInput` is already exported from `/commons` as part of the v8.0.0 audit trail block. The chain-bound hash module re-exports the same type. We alias the chain-bound import as `ChainBoundHashInput` to avoid ambiguity.
 
-**Export from index:** Add `export { createDixieTransport } from "./transport-factory.js"` to `src/hounfour/goodhart/index.ts`.
+### 3.3 x402 Type Replacement (FR-2)
 
-### 3.2 Goodhart Initialization Block
+**File modified:** `src/x402/types.ts`
 
-**Location:** `src/index.ts`, after Redis init (line 197) and Oracle init (line 302), before HounfourRouter construction (line 304).
+**Current state:** File contains local interfaces `X402Quote`, `PaymentProof`, `SettlementResult` alongside finn-specific types (`X402Error`, `ChainConfig`, `EIP3009Authorization`, USDC lookups, constants).
 
-**Pattern:** Lazy, non-fatal, try/catch — mirrors existing Redis init pattern.
+**Design:**
 
-```typescript
-// Goodhart Protection Stack (FR-1)
-let goodhartConfig: MechanismConfig | undefined
-let routingState: RoutingState = "disabled"
-const requestedMode = process.env.FINN_REPUTATION_ROUTING ?? "shadow"
-
-if (requestedMode !== "disabled") {
-  try {
-    const transport = createDixieTransport(process.env.DIXIE_BASE_URL)
-
-    const decay = redis ? new TemporalDecayEngine({
-      redis,
-      halfLifeMs: 7 * 24 * 60 * 60 * 1000,      // 7 days
-      aggregateHalfLifeMs: 30 * 24 * 60 * 60 * 1000, // 30 days
-    }) : undefined
-
-    const exploration = redis ? new ExplorationEngine({
-      redis,
-      defaultEpsilon: parseFloat(process.env.FINN_EXPLORATION_EPSILON ?? "0.05"),
-      epsilonByTier: {},
-      blocklist: new Set(),
-      costCeiling: 2.0,
-    }) : undefined
-
-    // CalibrationEngine: only construct when explicitly configured
-    const calibBucket = process.env.FINN_CALIBRATION_BUCKET_NAME
-    const calibHmac = process.env.FINN_CALIBRATION_HMAC_KEY
-    const calibration = (calibBucket && calibHmac)
-      ? new CalibrationEngine({
-          s3Bucket: calibBucket,
-          s3Key: "finn/calibration.jsonl",
-          pollIntervalMs: 60_000,
-          calibrationWeight: 3.0,
-          hmacSecret: calibHmac,
-        })
-      : new NoopCalibrationEngine()  // returns neutral scores, no polling
-
-    const killSwitch = new KillSwitch(runtimeConfig)
-
-    if (decay && exploration) {
-      goodhartConfig = {
-        decay,
-        exploration,
-        calibration,
-        killSwitch,
-        explorationFeedbackWeight: 0.5,
-      }
-      routingState = requestedMode as "shadow" | "enabled"
-      console.log(`[finn] goodhart: initialized (state=${routingState})`)
-    } else {
-      console.warn("[finn] goodhart: redis unavailable, degrading to deterministic")
-      // routingState stays "disabled" — no init_failed because it's a known condition
-    }
-  } catch (err) {
-    console.warn(`[finn] goodhart: init failed (non-fatal): ${(err as Error).message}`)
-    routingState = "init_failed"
-    goodhartInitFailedCounter.inc()
-    // goodhartConfig remains undefined → deterministic routing
-  }
-}
-
-console.log(`[finn] routing state resolved: ${routingState} (requested: ${requestedMode})`)
-```
-
-**Key decisions:**
-- `requestedMode === "disabled"` skips construction entirely (AC4)
-- Redis null → no decay/exploration → stays "disabled" with log (AC5)
-- Init exception → explicit `init_failed` state + counter (distinguishable from disabled)
-- CalibrationEngine gated: only constructed when both `FINN_CALIBRATION_BUCKET_NAME` and `FINN_CALIBRATION_HMAC_KEY` are set; otherwise `NoopCalibrationEngine` (returns neutral scores, no polling, no log spam)
-- Transport factory respects `DIXIE_BASE_URL` (AC6)
-- Startup log prints both requested mode and resolved state for operator visibility
-
-### 3.3 Router Integration
-
-**File:** `src/hounfour/router.ts`
-
-**Change 1: Add optional fields to HounfourRouterOptions (line ~55)**
-
-```typescript
-export type RoutingState = "disabled" | "shadow" | "enabled" | "init_failed"
-
-export interface HounfourRouterOptions {
-  // ... existing fields ...
-  goodhartConfig?: MechanismConfig
-  routingState?: RoutingState
-}
-```
-
-**Change 2: Store in constructor + expose state (line ~208)**
-
-```typescript
-this.goodhartConfig = options.goodhartConfig
-this.routingState = options.routingState ?? "disabled"
-
-// Export routing state as gauge for observability
-routingModeGauge.set({ mode: this.routingState }, 1)
-console.log(`[finn] routing state: ${this.routingState}`)
-```
-
-**Change 3: Modify routing path in resolvePool (or wrapper)**
-
-The routing state machine from PRD FR-1:
-
-```typescript
-async resolvePoolForRequest(/* existing params */): Promise<PoolResolutionResult> {
-  // init_failed or disabled: deterministic routing
-  if (this.routingState === "disabled") {
-    return this.resolvePool(/* existing deterministic path */)
-  }
-  if (this.routingState === "init_failed") {
-    goodhartInitFailedRequestCounter.inc()
-    return this.resolvePool(/* existing deterministic path */)
-  }
-
-  const deterministicResult = this.resolvePool(/* existing */)
-
-  // Shadow or enabled: invoke Goodhart with mode context
-  const reputationResult = await resolveWithGoodhart(
-    this.goodhartConfig!,
-    tier, nftId, taskType, nftPreferences,
-    accessiblePools, circuitBreakerStates,
-    poolCosts, defaultPoolCost, poolCapabilities,
-    abortSignal,
-    {
-      mode: this.routingState,            // "shadow" | "enabled"
-      seed: requestId,                    // deterministic RNG seed
-      allowWrites: this.routingState === "enabled",  // no writes in shadow
-    },
-  )
-
-  if (this.routingState === "shadow") {
-    // Shadow: log divergence, return deterministic
-    shadowTotalCounter.inc()
-    if (reputationResult.pool !== deterministicResult.pool) {
-      shadowDivergedCounter.inc()
-    }
-    return deterministicResult
-  }
-
-  // Enabled: use reputation result
-  return reputationResult
-}
-```
-
-**Shadow mode write contract (mechanism-enforced):**
-- Shadow mode passes `allowWrites: false` to resolveWithGoodhart
-- Exploration engine uses seeded PRNG (from `requestId`) instead of `Math.random()`
-- Exploration counters are NOT incremented in shadow mode
-- EMA feedback writes are NOT executed in shadow mode
-- Redis operations are strictly read-only: GET for kill switch, GET for EMA state
-- Metrics (prom-client in-process counters) are the only "writes" — these are process-local, not shared state
-- **Enforcement:** In shadow mode, components receive a `ReadOnlyRedisClient` wrapper that only exposes `get`, `mget`, `hget`, `hgetall`, and `exists`. All mutating methods (`set`, `incr`, `hset`, `del`, etc.) throw `Error("Redis writes blocked in shadow mode")`. This prevents accidental writes by future code paths that forget to check `allowWrites`.
-
-```typescript
-// src/hounfour/goodhart/read-only-redis.ts
-export function createReadOnlyRedisClient(redis: RedisCommandClient): RedisCommandClient {
-  return new Proxy(redis, {
-    get(target, prop: string) {
-      const readMethods = new Set(["get", "mget", "hget", "hgetall", "exists", "ttl", "type"])
-      if (readMethods.has(prop)) return target[prop].bind(target)
-      if (typeof target[prop] === "function") {
-        return () => { throw new Error(`Redis writes blocked in shadow mode (attempted: ${prop})`) }
-      }
-      return target[prop]
-    }
-  })
-}
-```
-
-**KillSwitch integration (runtime override):**
-
-KillSwitch takes **highest precedence** in the routing state machine. Before evaluating shadow/enabled paths, the router checks the kill switch:
-
-```typescript
-// In resolvePoolForRequest, before shadow/enabled evaluation:
-if (this.goodhartConfig?.killSwitch) {
-  const killState = await this.goodhartConfig.killSwitch.getMode()
-  if (killState === "kill") {
-    killSwitchActivatedCounter.inc()
-    return this.resolvePool(/* deterministic fallback */)
-  }
-}
-```
-
-**Precedence order:** KillSwitch > routingState > env var. This ensures operators can always force-disable reputation routing at runtime via Redis key, without redeployment.
-
-### 3.3.1 `resolveWithGoodhart()` — Typed Contract
-
-**File:** `src/hounfour/goodhart/resolve.ts`
-
-This is the core integration function that connects the deterministic router to all 7 Goodhart components. Its contract must be explicit:
-
-```typescript
-export interface GoodhartOptions {
-  /** Current routing mode: "shadow" runs read-only, "enabled" allows writes */
-  mode: "shadow" | "enabled"
-  /** Deterministic seed for PRNG (requestId in shadow, Math.random in enabled) */
-  seed: string
-  /** Whether exploration counters, EMA feedback, etc. may write to Redis */
-  allowWrites: boolean
-}
-
-export interface GoodhartResult {
-  /** Selected pool ID */
-  pool: string
-  /** Reputation score that drove the selection */
-  score: number
-  /** Whether exploration (epsilon-greedy) overrode the score-based pick */
-  explored: boolean
-  /** Per-pool scored breakdown for observability */
-  scoredPools: ScoredPool[]
-}
-
-/**
- * Invoke the full Goodhart protection stack to select a pool.
- *
- * Error contract:
- *   - On individual pool scoring failure → that pool is excluded (partial degradation)
- *   - On ALL pool scoring failures → returns null (caller falls back to deterministic)
- *   - On timeout (50ms per Redis op) → same as scoring failure
- *   - Never throws — all errors are caught and logged
- *
- * Timeout contract:
- *   - Each Redis GET has a 50ms per-command timeout (configurable via FINN_REDIS_TIMEOUT_MS)
- *   - Total function timeout: 200ms (hardcoded ceiling)
- *   - On timeout: logs warning, returns null (deterministic fallback)
- */
-export async function resolveWithGoodhart(
-  config: MechanismConfig,
-  tier: string,
-  nftId: string,
-  taskType: string,
-  nftPreferences: NftPreferences,
-  accessiblePools: readonly PoolId[],
-  circuitBreakerStates: Map<string, CircuitBreakerState>,
-  poolCosts: Map<string, number>,
-  defaultPoolCost: number,
-  poolCapabilities: Map<string, PoolCapability>,
-  abortSignal: AbortSignal | undefined,
-  options: GoodhartOptions,
-): Promise<GoodhartResult | null> {
-  // ...implementation: score pools, apply exploration, return result or null
-}
-```
-
-**Fallback behavior:** When `resolveWithGoodhart` returns `null`, the caller (`resolvePoolForRequest`) uses the deterministic result. This is the same path as disabled/init_failed — no special handling needed.
-
-### 3.4 Parallel Reputation Scoring (FR-2)
-
-**File:** `src/hounfour/router.ts` — `resolvePoolWithReputation()` method
-
-**Current:** Sequential `for...of` loop scoring pools one at a time.
-
-**Change:** Replace with concurrency-limited `Promise.allSettled`:
-
-```typescript
-import pLimit from "p-limit"
-
-const SCORING_CONCURRENCY = 5  // max concurrent Redis/Dixie lookups per request
-const PER_POOL_TIMEOUT_MS = 50 // per-pool scoring timeout
-
-async resolvePoolWithReputation(
-  pools: readonly PoolId[],
-  queryFn: ReputationQueryFn,
-): Promise<ScoredPool[]> {
-  const limit = pLimit(SCORING_CONCURRENCY)
-
-  const results = await Promise.allSettled(
-    pools.map((pool) => limit(async () => {
-      const score = await Promise.race([
-        queryFn(pool),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`scoring timeout for ${pool}`)), PER_POOL_TIMEOUT_MS)
-        ),
-      ])
-      return { pool, score }
-    }))
-  )
-
-  const scored = results
-    .filter((r): r is PromiseFulfilledResult<ScoredPool> => r.status === "fulfilled")
-    .map(r => r.value)
-
-  // Fallback: if all scorings failed, return empty list
-  // Caller (resolveWithGoodhart) handles empty scored list → deterministic fallback
-  if (scored.length === 0 && pools.length > 0) {
-    reputationScoringFailedCounter.inc()
-    console.warn(`[finn] reputation: all ${pools.length} pool scorings failed, falling back to deterministic`)
-  }
-
-  return scored
-}
-```
-
-**Fallback contract:** When `resolvePoolWithReputation` returns an empty list, `resolveWithGoodhart` falls back to deterministic pool selection (existing `resolvePool()`). This ensures enabled mode cannot hard-fail routing due to scoring dependency failures. The `finn_reputation_scoring_failed_total` counter provides observability for this degradation.
-
-**Impact:** Individual pool scoring failures no longer block other pools (AC8). Total failure degrades gracefully to deterministic (no request-level errors).
-
-### 3.5 Prometheus Metrics
-
-**New counters (add to existing metrics file):**
-
-| Metric | Type | Labels | Purpose |
-|--------|------|--------|---------|
-| `finn_shadow_total` | Counter | — | Shadow mode invocations |
-| `finn_shadow_diverged` | Counter | — | Shadow result != deterministic |
-| `finn_goodhart_init_failed` | Counter | — | Init-time failures (set once at startup) |
-| `finn_goodhart_init_failed_requests` | Counter | — | Requests routed through init_failed state |
-| `finn_goodhart_routing_mode` | Gauge | `mode` | Current routing state (disabled/shadow/enabled/init_failed) |
-| `finn_routing_duration_seconds` | Histogram | `path` | Per-request routing latency |
-| `finn_reputation_scoring_failed_total` | Counter | — | All pool scorings failed, fell back to deterministic |
-
----
-
-## 4. Deployment Architecture
-
-### 4.1 Terraform Parameterization
-
-**Canonical Terraform:** `infrastructure/terraform/` (has Redis, DynamoDB, KMS, monitoring). `deploy/terraform/finn.tf` is a review artifact, not the deployment source.
-
-**Strategy:** Parameterize existing modules with `environment` variable. Staging reuses existing cluster/ALB/VPC.
-
-**New/modified files:**
-
-| File | Change |
-|------|--------|
-| `infrastructure/terraform/variables.tf` | Add `environment` variable (default: "production") |
-| `infrastructure/terraform/loa-finn-ecs.tf` | Parameterize service name, task def name, container env |
-| `infrastructure/terraform/loa-finn-alb.tf` | Parameterize host header, target group name, Route53 record |
-| `infrastructure/terraform/loa-finn-env.tf` | Parameterize SSM paths with `{env}` |
-| `infrastructure/terraform/environments/armitage.tfvars` | New: staging-specific overrides |
-
-**Key parameterization:**
-
-```hcl
-variable "environment" {
-  type    = string
-  default = "production"
-}
-
-locals {
-  service_name = "loa-finn-${var.environment}"
-  hostname     = var.environment == "production" ? "finn.arrakis.community" : "finn-${var.environment}.arrakis.community"
-  ssm_prefix   = "/loa-finn/${var.environment}"
-}
-```
-
-**Staging overrides (`armitage.tfvars`):**
-
-```hcl
-environment = "armitage"
-finn_cpu    = 256
-finn_memory = 512
-```
-
-### 4.1.1 Environment Isolation (Terraform-Enforced)
-
-Each environment gets its own isolated resources to prevent cross-environment contamination:
-
-| Resource | Production | Staging (armitage) |
-|----------|-----------|-------------------|
-| ECS Service | `loa-finn-production` | `loa-finn-armitage` |
-| Redis | Shared ElastiCache, logical DB 0, prefix `prod:` | Same cluster, logical DB 1 + key prefix `armitage:` (see §4.1.2 for runtime enforcement) |
-| S3 Calibration | `finn-calibration-<account>` | `finn-calibration-<account>/armitage/` (prefix isolation) |
-| DynamoDB | `finn-scoring-path-log` | `finn-scoring-path-log-armitage` (separate table) |
-| SSM Parameters | `/loa-finn/production/*` | `/loa-finn/armitage/*` |
-| CloudWatch Logs | `/ecs/finn` | `/ecs/finn-armitage` |
-| Task IAM Role | Scoped to production SSM/S3/DynamoDB | Scoped to armitage SSM/S3/DynamoDB |
-
-**IAM scoping (task role):**
-
-```hcl
-resource "aws_iam_policy" "finn_task" {
-  statement {
-    actions   = ["ssm:GetParameter", "ssm:GetParameters"]
-    resources = ["arn:aws:ssm:*:*:parameter/loa-finn/${var.environment}/*"]
-  }
-  statement {
-    actions   = ["s3:GetObject"]
-    resources = ["arn:aws:s3:::finn-calibration-*/${var.environment}/*"]
-  }
-  statement {
-    actions   = ["dynamodb:*"]
-    resources = ["arn:aws:dynamodb:*:*:table/finn-*-${var.environment}*"]
-  }
-}
-```
-
-**Terraform validation (prevent cross-env references):**
-
-```hcl
-variable "redis_url" {
-  type = string
-  validation {
-    condition     = var.environment == "production" || !can(regex("production", var.redis_url))
-    error_message = "Non-production environments cannot reference production Redis URL."
-  }
-}
-```
-
-### 4.1.2 Redis Runtime Isolation (Prefix Enforcement)
-
-While §4.1.1 defines Terraform-level isolation, Redis logical DB + key prefix on a shared cluster is fragile if misconfigured. Runtime enforcement adds defense-in-depth:
-
-```typescript
-// src/hounfour/infra/prefixed-redis.ts
-export function createPrefixedRedisClient(
-  redis: RedisCommandClient,
-  prefix: string,
-  dbIndex: number,
-): RedisCommandClient {
-  // SELECT the correct DB on connection
-  redis.select(dbIndex)
-
-  // Startup assertion: verify prefix is non-empty
-  if (!prefix || prefix.length < 2) {
-    throw new Error(`Redis prefix must be >= 2 chars, got: "${prefix}"`)
-  }
-
-  return new Proxy(redis, {
-    get(target, prop: string) {
-      // Intercept key-bearing commands to prepend prefix
-      const keyCommands = new Set(["get", "set", "del", "incr", "hget", "hset", "hgetall", "exists", "ttl", "mget"])
-      if (keyCommands.has(prop)) {
-        return (...args: unknown[]) => {
-          // First arg is always the key (or array of keys for mget)
-          if (prop === "mget" && Array.isArray(args[0])) {
-            args[0] = args[0].map((k: string) => `${prefix}${k}`)
-          } else if (typeof args[0] === "string") {
-            args[0] = `${prefix}${args[0]}`
-          }
-          return (target as any)[prop](...args)
-        }
-      }
-      return (target as any)[prop]
-    }
-  })
-}
-```
-
-**Startup assertion:** `src/index.ts` validates the prefix is set and matches the expected environment:
-
-```typescript
-const redisPrefix = process.env.FINN_REDIS_PREFIX
-if (!redisPrefix) throw new Error("FINN_REDIS_PREFIX must be set")
-const prefixedRedis = createPrefixedRedisClient(redis, redisPrefix, parseInt(process.env.FINN_REDIS_DB ?? "0"))
-```
-
-**Production uses `prod:` prefix**, staging uses `armitage:` prefix. Even if an operator accidentally points staging at the production Redis URL, the key prefix prevents data contamination.
-
-**Upgrade path:** When budget allows, migrate staging to a separate ElastiCache replication group (smaller node type, e.g. `cache.t3.micro`). The prefix wrapper remains as defense-in-depth.
-
-### 4.1.3 Terraform State Migration Plan
-
-**Risk:** Retroactively adding an `environment` variable and renaming resources (e.g., `loa-finn` → `loa-finn-production`) causes Terraform to propose destroying and recreating the existing production service.
-
-**Mitigation — separate state file approach (recommended):**
-
-1. **Do NOT modify the existing production Terraform state.** Production continues using the current resource names without an environment suffix.
-2. **Create a new Terraform workspace for staging:**
-   ```bash
-   cd infrastructure/terraform
-   terraform workspace new armitage
+1. **Remove** local interface definitions for `X402Quote`, `PaymentProof`, `SettlementResult`
+2. **Add** re-imports from `protocol-types.ts`:
+   ```typescript
+   import {
+     type X402Quote, type X402PaymentProof, type X402Settlement,
+   } from '../hounfour/protocol-types.js'
    ```
-3. **Staging resources use the `environment` variable** (`loa-finn-armitage`). Production resources are untouched.
-4. **Conditional naming in Terraform:**
-   ```hcl
-   locals {
-     # Production keeps legacy names for zero-risk migration
-     service_name = var.environment == "production" ? "loa-finn" : "loa-finn-${var.environment}"
-   }
+3. **Re-export** with backward-compatible aliases where names differ:
+   ```typescript
+   // Backward compatibility: local 'PaymentProof' → canonical 'X402PaymentProof'
+   export type PaymentProof = X402PaymentProof
+   // Backward compatibility: local 'SettlementResult' → canonical 'X402Settlement'
+   export type SettlementResult = X402Settlement
+   export type { X402Quote }
    ```
-5. **Future unification (optional):** After staging is validated, run `terraform state mv` to rename production resources to include the environment suffix. This is a separate, low-priority task.
+4. **Keep** all finn-specific types unchanged: `X402Error`, `ChainConfig`, `EIP3009Authorization`, `X402Receipt`, constants, USDC address lookups
 
-**Key principle:** This cycle's staging work must not touch production Terraform state in any way.
+**Why type aliases instead of find-replace:** The local names `PaymentProof` and `SettlementResult` are used across multiple consumer files. Type aliases preserve backward compatibility with zero consumer changes. The aliases can be deprecated in a future cycle.
 
-### 4.2 ALB + TLS Configuration
+### 3.4 Audit Timestamp Replacement (FR-3)
 
-**Existing ALB:** Shared across arrakis services, has HTTPS:443 listener.
+**File modified:** `src/hounfour/typebox-formats.ts`
 
-**New listener rule:**
-- Priority: 210 (production is 200, staging lower priority)
-- Condition: Host header matching staging hostname
-- Action: Forward to `finn-armitage-tg`
-
-**ACM certificate:** A `*.arrakis.community` wildcard cert only covers single-level subdomains. `finn.armitage.arrakis.community` is two levels deep and would NOT be covered. Two options:
-
-**Option A (recommended):** Use `finn-armitage.arrakis.community` (single-level subdomain, covered by existing wildcard `*.arrakis.community`). Pattern: `finn-<gibson-name>.arrakis.community`.
-
-**Option B:** Request explicit SAN cert for `finn.armitage.arrakis.community`.
-
-**SDD assumes Option A** (`finn-armitage.arrakis.community`) unless user specifies otherwise. The Gibson naming convention adapts: `finn-armitage`, `finn-chiba`, `finn-dixieflat`, etc.
-
-### 4.3 Route53
-
-**New ALIAS record:**
-- Name: `finn-armitage.arrakis.community`
-- Type: A (ALIAS)
-- Target: ALB DNS name
-- Evaluate health: Yes
-
-### 4.4 Staging Environment Variables
-
-**File:** `deploy/staging.env.example`
-
+**Current state:**
+```typescript
+const ISO_8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/
 ```
-NODE_ENV=production
-PORT=3000
-HOST=0.0.0.0
-DATA_DIR=/data
+Registered as the `date-time` format validator in TypeBox's FormatRegistry.
 
-# Routing — FINN_REPUTATION_ROUTING is the single source of truth
-# (ROUTING_MODE is a legacy alias; if both are set, FINN_REPUTATION_ROUTING wins)
-FINN_REPUTATION_ROUTING=shadow
-X402_SETTLEMENT_MODE=verify_only
+**Design:**
 
-# Goodhart (shadow mode defaults)
-FINN_EXPLORATION_EPSILON=0.05
-# DIXIE_BASE_URL intentionally unset → DixieStubTransport
-# FINN_CALIBRATION_BUCKET_NAME intentionally unset → graceful degrade
+1. Import `validateAuditTimestamp` from `protocol-types.ts`
+2. Replace the regex-based validator with a function call:
+   ```typescript
+   FormatRegistry.Set('date-time', (value) => {
+     const result = validateAuditTimestamp(value)
+     return result.valid
+   })
+   ```
+3. Remove `ISO_8601_RE` constant
+4. `assertFormatsRegistered()` remains unchanged — it only checks registry presence
 
-# Auth
-FINN_S2S_JWT_ALG=ES256
-FINN_AUTH_TOKEN=                    # Set via SSM/Secrets Manager
+**Compatibility analysis:** The canonical validator is strictly a superset of the regex:
+- Regex: syntactic pattern match (YYYY-MM-DDThh:mm:ss with tz)
+- Canonical: syntactic match + month/day range validation + leap second handling
+- Risk: canonical rejects edge cases the regex accepts (e.g., `2026-02-30T00:00:00Z`)
+- Mitigation: fixture test with existing timestamps (AC9-AC10)
 
-# Redis
-REDIS_URL=                          # Set via SSM/Secrets Manager
+**Consumer impact:** `assertFormatsRegistered()` is called in `src/cron/store.ts` constructor. Format registration happens once at module load. No per-call performance change.
 
-# Tracing
-OTLP_ENDPOINT=http://tempo.arrakis.local:4317
-```
+### 3.5 Chain-Bound Hash Integration (FR-4)
 
-### 4.5 Staging Deploy Workflow
+**Files modified:** `src/cron/store.ts`
 
-**New file:** `.github/workflows/deploy-staging.yml`
+**Current state:**
+- `store.ts` uses `computeAuditEntryHash()` (v8.0.0) for audit sidecar entries
+- `dynamo-audit.ts` uses manual `SHA-256(prevHash + ':' + payloadHash + ':' + timestamp)` for DynamoDB chain
+- `audit-trail.ts` has its own protocol v1 hash format (separate concern, not modified)
 
-**Trigger:** Manual dispatch (`workflow_dispatch`) with `environment` input.
+**Design — Dual-Format Verification:**
 
-**Flow:**
-1. Build & test (same as production)
-2. Docker build → ECR push (same tag format)
-3. Update task definition: `loa-finn-armitage`
-4. Deploy to ECS service: `loa-finn-armitage`
-5. Smoke test: `https://finn-armitage.arrakis.community/health`
+The chain-bound hash (`computeChainBoundHash`) adds domain tag binding to the existing `computeAuditEntryHash`. Backward compatibility requires verifying both formats.
 
----
+**Hash function input specifications:**
 
-## 5. Fly.io / Railway Removal
+| Algorithm | Function | Inputs | Chain-linked? |
+|-----------|----------|--------|---------------|
+| `legacyV1` | `computeAuditEntryHash(input: AuditEntryHashInput)` | `{ entry_id, timestamp, event_type, payload, previous_hash, hash_domain_tag }` | Yes — `previous_hash` is part of input |
+| `chainBoundV1` | `computeChainBoundHash(entry: AuditEntryHashInput, domainTag: string, previousHash: string)` | Same entry fields + explicit domainTag + previousHash params | Yes — `previousHash` is a separate parameter bound into hash |
 
-### 5.1 Files to Delete
+Both algorithms are chain-linked via `previous_hash`/`previousHash`. The legacy function includes `previous_hash` as a field in the `AuditEntryHashInput` struct. The chain-bound function takes it as a separate parameter for explicit domain binding.
 
-| File | Reason |
-|------|--------|
-| `railway.toml` (root) | Railway cron config — not used |
-| `deploy/railway.toml` | Duplicate Railway config |
-| `deploy/wrangler.jsonc` | Cloudflare Workers config — not used |
-| `grimoires/loa/context/bridgebuilder-minimal-railway.md` | Railway-specific context doc |
+**Genesis hash:** The first entry in any chain uses `AUDIT_TRAIL_GENESIS_HASH` (already exported from hounfour `/commons`, value: `'0'.repeat(64)`) as `previousHash`. This constant is already used in `store.ts` for legacy chain initialization.
 
-### 5.2 Files to Edit
+**Domain tag canonicalization:** Domain tags are computed by `buildDomainTag(schemaId, contractVersion)` (already in store.ts). Format: `{schemaId}:{contractVersion}` where `schemaId` is the filename stem and `contractVersion` defaults to `'8.2.0'`. After upgrade, new entries use `contractVersion: '8.3.0'`. Domain tags are deterministic — same inputs produce same string across all environments.
 
-| File | Change |
-|------|--------|
-| `deploy/BRIDGEBUILDER.md` | Remove Railway sections, update for ECS |
-| `deploy/vllm/README.md` | Remove Fly.io GPU section |
-| `README.md` | Remove Railway/Fly.io deployment references |
-| `.claude/settings.json` | Remove `fly:*`, `railway:*` permission entries |
-| `docs/operations.md` | Remove Railway section |
-| `docs/modules/bridgebuilder.md` | Update deployment references |
-| `grimoires/loa/context/research-minimal-pi.md` | Remove Fly.io fallback references |
-| `grimoires/loa/sdd-bridgebuilder-refactor.md` | Remove Railway references |
-| `grimoires/loa/sdd-product-launch.md` | Remove Fly.io references |
+**3.5.1 store.ts audit sidecar changes:**
 
-### 5.3 Files to Preserve
-
-| File | Reason |
-|------|--------|
-| `CHANGELOG.md` | Historical entries are factual — never rewrite history |
-
----
-
-## 6. CI E2E Fixes
-
-### 6.1 e2e-smoke.yml — Conditional Cross-Repo Checkout
-
-**Current failure:** `ARRAKIS_CHECKOUT_TOKEN` secret missing in fork/public PRs.
-
-**Fix:** Wrap cross-repo steps in conditional block. Skip entire job with clear message when secret unavailable.
-
-```yaml
-- name: Check cross-repo token
-  id: check-token
-  run: |
-    if [ -n "${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}" ]; then
-      echo "available=true" >> $GITHUB_OUTPUT
-    else
-      echo "available=false" >> $GITHUB_OUTPUT
-      echo "::warning::ARRAKIS_CHECKOUT_TOKEN not available — skipping e2e-smoke"
-    fi
+```typescript
+interface AuditEntryMetadata {
+  // ... existing fields
+  hashAlg?: 'legacyV1' | 'chainBoundV1'  // New field
+}
 ```
 
-### 6.2 e2e.yml — Oracle Directory Fixtures
+- **Write path:** New entries use `computeChainBoundHash(entryInput, domainTag, prevHash)` with `hashAlg: 'chainBoundV1'`. Genesis: `prevHash = AUDIT_TRAIL_GENESIS_HASH`.
+- **Read/verify path:** Check `hashAlg` field:
+  - Missing or `'legacyV1'` → verify with `computeAuditEntryHash(entryInput)` where `entryInput.previous_hash` comes from the prior entry
+  - `'chainBoundV1'` → verify with `computeChainBoundHash(entryInput, domainTag, prevHash)` where `prevHash` is the prior entry's `entry_hash`
+- Domain tag: Already computed via `buildDomainTag()` (existing in store.ts)
 
-**Current failure:** `deploy/build-context/oracle-knowledge/` and `deploy/build-context/oracle-persona/` directories missing.
+**3.5.2 dynamo-audit.ts — no change this cycle:**
 
-**Fix:** Commit `.gitkeep` fixtures so Docker COPY succeeds with empty directories. The `src/index.ts:289-301` Oracle init already degrades gracefully when corpus is empty.
+DynamoDB audit uses a custom hash formula (`prevHash + ':' + payloadHash + ':' + timestamp`) that is independent of the hounfour commons hash functions. Migrating this to chain-bound hash is out of scope — it would require a DynamoDB data migration strategy.
 
-```bash
-deploy/build-context/oracle-knowledge/.gitkeep
-deploy/build-context/oracle-persona/.gitkeep
+**3.5.3 audit-trail.ts — no change this cycle:**
+
+The safety audit trail has its own protocol v1 envelope format with JCS canonicalization. This is a separate hash chain from the cron store sidecar. The `PROTOCOL_HASH_CHAIN_ENABLED` feature flag already gates protocol v1 adoption. No interaction with chain-bound hash.
+
+### 3.6 Advisory Lock Key Replacement (FR-5)
+
+**File modified:** TBD — depends on where local advisory lock key computation exists.
+
+**Current state:** `FileLock` in `audit-trail.ts` uses PID-based file locking (not advisory locks). Advisory lock key computation (database-level PostgreSQL `pg_advisory_lock`) may exist elsewhere. Implementation must search for local lock key computation across: `audit-trail.ts`, `store.ts`, `billing/`, `drizzle/`.
+
+**Signature:** `computeAdvisoryLockKey(domainTag: string) => number`
+- Input: domain tag string (e.g., from `buildDomainTag()`)
+- Output: signed 32-bit integer via FNV-1a hash
+- Deterministic: same input always produces same output
+
+**Design — test-vector-first approach with mandatory adoption:**
+
+1. **Locate** local advisory lock key computation (grep for `pg_advisory`, `advisory_lock`, or numeric hash of domain tags)
+2. **Extract** >=3 test vectors: `{ domainTag, expectedKey }` from current implementation
+3. **Compare** canonical `computeAdvisoryLockKey()` output against vectors
+4. **Expected outcome (identical):** Both implementations target FNV-1a 32-bit signed. Replace local computation, add re-export to `protocol-types.ts`. This is the expected path.
+5. **Fallback (different):** If canonical function produces different keys despite both targeting FNV-1a:
+   - **Phase A (this cycle):** Implement dual-try lock acquisition behind `FINN_CANONICAL_LOCK_KEY` flag (default: `false`). When flag is `false`, acquire lock with local key. When flag is `true`, acquire lock with canonical key. Log both keys for comparison at startup.
+   - **Phase B (next deploy):** After verifying logs show both keys are stable, flip flag to `true` in staging. Monitor for lock contention.
+   - **Phase C (subsequent cycle):** Remove local implementation and flag.
+   - Document mismatch details and dual-try plan in `NOTES.md`.
+
+**Why this approach:** Advisory lock key mismatches between service instances during rolling deployment cause lock contention failures. The dual-try mechanism ensures adoption happens (FR-5 is met) while preventing split-brain during the transition window. The PRD's AC17 safety requirement ("if different, do NOT replace") is satisfied by the feature flag defaulting to `false` — the local key is used until explicitly switched.
+
+### 3.7 Feedback Dampening (FR-6) — Feature-Flagged
+
+**File modified:** `src/hounfour/goodhart/quality-signal.ts`
+
+**Current state:** `feedQualitySignal()` applies exploration dampening via `score *= explorationFeedbackWeight`. The EMA update via `config.decay.updateEMA()` is the scoring mechanism. Composite quality score uses weights: 0.3 latency, 0.4 error, 0.3 content.
+
+**Canonical function signature analysis:**
+
+```typescript
+computeDampenedScore(
+  oldScore: number | null,  // Previous EMA value (null for first observation)
+  newScore: number,         // Raw composite quality score [0, 1]
+  sampleCount: number,      // Number of observations for this key so far
+  config?: FeedbackDampeningConfig  // Optional: alpha bounds, ramp samples, pseudo count
+): number  // Returns dampened score [0, 1]
 ```
 
-### 6.3 e2e-v2.yml — GHCR Authentication
+The canonical function implements sample-count-aware EMA dampening: alpha ramps from `FEEDBACK_DAMPENING_ALPHA_MIN` (conservative, low weight on new data) to `FEEDBACK_DAMPENING_ALPHA_MAX` (responsive) as `sampleCount` increases through `DAMPENING_RAMP_SAMPLES`. This replaces finn's current exploration dampening (`score *= explorationFeedbackWeight`) which is a fixed multiplier, not sample-count-aware.
 
-**Current failure:** `loa-freeside:v7.11.0` pull denied.
+**Integration point:** The canonical function replaces the EMA alpha calculation within `feedQualitySignal()`, NOT the composite quality scoring (latency/error/content weights). The composite score is finn-local logic that produces `newScore`. The canonical dampening controls how `newScore` blends with the prior EMA value `oldScore`.
 
-**Fix:** Add GHCR login step using `ARRAKIS_CHECKOUT_TOKEN`. Skip job when token unavailable.
+**Design:**
 
-```yaml
-- name: Login to GHCR
-  if: env.HAS_TOKEN == 'true'
-  uses: docker/login-action@v3
-  with:
-    registry: ghcr.io
-    username: ${{ github.actor }}
-    password: ${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}
+```typescript
+const USE_CANONICAL_DAMPENING = process.env.FINN_CANONICAL_DAMPENING === 'true'
+let dampeningConfigValid = true  // Set at startup
+
+// At startup — config validation (non-blocking):
+const config: FeedbackDampeningConfig | undefined = loadDampeningConfig()
+if (config) {
+  dampeningConfigValid = Value.Check(FeedbackDampeningConfigSchema, config)
+  if (!dampeningConfigValid) {
+    logger.warn('dampening_config_invalid', { config })
+    // Falls back to local regardless of flag
+  }
+}
+
+// In feedQualitySignal(), after composite score is computed:
+function applyDampening(oldScore: number | null, newScore: number, sampleCount: number): number {
+  if (USE_CANONICAL_DAMPENING && dampeningConfigValid) {
+    const canonical = computeDampenedScore(oldScore, newScore, sampleCount, config)
+    const local = localEMAUpdate(oldScore, newScore, sampleCount)
+    if (Math.abs(canonical - local) > 0.001) {
+      logger.info('dampening_delta', { canonical, local, delta: canonical - local, sampleCount })
+    }
+    return canonical
+  }
+  return localEMAUpdate(oldScore, newScore, sampleCount)
+}
 ```
 
----
+**Config validation side effects:** `dampeningConfigValid` is set once at startup. If validation fails, the flag is permanently false for this process lifetime — no config validation code runs in the hot path. The `FeedbackDampeningConfigSchema` check uses TypeBox `Value.Check` which is pure (no side effects beyond boolean return).
 
-## 7. Security Architecture
+### 3.8 GovernedResource Type Conformance (FR-7)
 
-### 7.1 No New Attack Surface
+**File modified:** One finn governed state transition module (TBD during implementation)
 
-This cycle introduces **no new network listeners, endpoints, or auth flows**. All changes are internal wiring:
+**Design:** Type-level only. No runtime changes.
 
-- Transport factory: DixieStubTransport returns `null` (no network)
-- Shadow mode: reads from Redis (existing connection), writes metrics only
-- Staging: same TLS/auth as production, just different hostname
+```typescript
+import type { GovernedResource } from '../hounfour/protocol-types.js'
 
-### 7.2 Staging Isolation
+interface FinnResourceState { /* existing fields */ }
 
-| Concern | Mitigation |
-|---------|------------|
-| Staging accesses production Redis | Separate Redis logical DB + key prefix, enforced by Terraform IAM scoping (§4.1.1) |
-| Staging receives real traffic | Different hostname, no DNS overlap |
-| x402 settlements in staging | `X402_SETTLEMENT_MODE=verify_only` — no real payments |
-| Shadow mode writes to shared state | Shadow mode is strictly read-only for Redis (§3.3 write contract): `allowWrites: false` passed to resolveWithGoodhart; exploration counters and EMA feedback writes are disabled; only process-local prom-client metrics are written |
-| Cross-environment SSM leakage | Task IAM role scoped to `/loa-finn/${environment}/*` only (§4.1.1) |
-
-### 7.3 Secret Management
-
-Staging secrets use the same SSM Parameter Store pattern as production, with `/loa-finn/armitage/` prefix:
-
-```
-/loa-finn/armitage/ANTHROPIC_API_KEY
-/loa-finn/armitage/FINN_S2S_SECRET
-/loa-finn/armitage/REDIS_URL
-/loa-finn/armitage/FINN_AUTH_TOKEN
+class FinnResourceManager implements GovernedResource<FinnResourceState> {
+  // TypeScript compiler enforces interface conformance
+  // Existing methods already satisfy the interface
+}
 ```
 
----
+**Selection criteria:** Module with existing state transition logic. Candidates: `src/billing/state-machine.ts` (strongest), `src/cron/runner.ts`, `src/credits/entitlement.ts`.
 
-## 8. Testing Strategy
+**Verification:** `pnpm tsc --noEmit` — compiler error if interface is not satisfied.
 
-### 8.1 Unit Tests
+### 3.9 Consumer Contract Validation (FR-8) — Warn-Only
 
-| Component | Test File | What's Tested |
-|-----------|-----------|---------------|
-| Transport factory | `tests/finn/goodhart/transport-factory.test.ts` | Stub selection, HTTP selection, empty string, URL parsing |
-| Routing state machine | `tests/finn/goodhart/routing-state.test.ts` | All 4 states: disabled, shadow, enabled, init_failed |
-| Shadow divergence | `tests/finn/goodhart/shadow-mode.test.ts` | Counter increments, deterministic result returned |
-| Parallel scoring | `tests/finn/hounfour/parallel-scoring.test.ts` | allSettled behavior, individual failure isolation |
+**File modified:** `src/index.ts` or `src/gateway/server.ts` (startup path)
 
-### 8.2 Integration Tests
+**Design:** Startup-time validation, non-blocking.
 
-| Test | Validates |
-|------|-----------|
-| Goodhart init with mock Redis | Full composition chain, MechanismConfig created |
-| Goodhart init without Redis | Graceful degradation, deterministic fallback |
-| Shadow mode routing | End-to-end shadow path with mock pools |
+**Contract definition:** The `ConsumerContract` declares which hounfour exports finn actually consumes. The `version` field is finn's own consumed-API version (matching the hounfour version finn was built against), not finn's package version.
 
-### 8.3 E2E Validation (on staging)
+```typescript
+import {
+  validateConsumerContract, computeContractChecksum,
+  type ConsumerContract,
+} from './hounfour/protocol-types.js'
 
-| Check | Method |
-|-------|--------|
-| Health endpoint | `curl https://finn-armitage.arrakis.community/health` |
-| Shadow metrics | `curl .../metrics \| grep finn_shadow_total` |
-| Routing mode | `curl .../metrics \| grep finn_goodhart_routing_mode` |
-| No Fly.io references | `grep -r "fly.io\|railway\|flyctl" src/ deploy/ .github/ docs/` |
+// Inline code constant — finn's declaration of consumed hounfour exports
+const FINN_CONTRACT: ConsumerContract = {
+  name: 'finn',
+  version: '8.3.0',  // hounfour API version finn targets
+  entrypoints: [
+    { module: '/economy', symbols: ['microUSDC', 'readMicroUSDC', 'BillingEntrySchema', 'X402QuoteSchema', /* ... */] },
+    { module: '/commons', symbols: ['computeAuditEntryHash', 'buildDomainTag', 'computeChainBoundHash', 'validateAuditTimestamp', 'computeAdvisoryLockKey', /* ... */] },
+    { module: '/integrity', symbols: ['validateConsumerContract', 'computeContractChecksum'] },
+    { module: '/governance', symbols: ['mapTierToReputationState'] },
+    { module: '/constraints', symbols: ['resolveConditionalExpression'] },
+  ],
+}
 
----
+// Export map: built from protocol-types.ts actual imports at module evaluation time.
+// This is a Record<string, string[]> mapping module paths to exported symbol names.
+// Constructed once at startup by introspecting the barrel re-exports.
+const FINN_EXPORT_MAP: Record<string, string[]> = {
+  '/economy': Object.keys(await import('@0xhoneyjar/loa-hounfour/economy')),
+  '/commons': Object.keys(await import('@0xhoneyjar/loa-hounfour/commons')),
+  '/integrity': Object.keys(await import('@0xhoneyjar/loa-hounfour/integrity')),
+  '/governance': Object.keys(await import('@0xhoneyjar/loa-hounfour/governance')),
+  '/constraints': Object.keys(await import('@0xhoneyjar/loa-hounfour/constraints')),
+}
 
-## 9. Performance Considerations
+// At startup (after imports resolved):
+const result = validateConsumerContract(FINN_CONTRACT, FINN_EXPORT_MAP)
+if (!result.valid) {
+  console.warn('[contract-validation] Consumer contract mismatch:', result.errors)
+  // Do NOT throw or exit — warn-only mode
+}
+```
 
-### 9.1 Request Path
+**Note:** The `FINN_EXPORT_MAP` construction uses dynamic imports to introspect actual available exports. If dynamic imports are not supported in the startup path (ESM top-level await is available per tsconfig target ES2024), an alternative is a static object manually listing known exports. Implementation will determine the simplest approach that passes the unit test (AC27).
 
-| Operation | Latency | Blocking? |
-|-----------|---------|-----------|
-| KillSwitch mode check | ~0.1ms (Redis GET) | Yes (50ms timeout) |
-| EMA lookup | ~0.1ms (Redis GET) | Yes (50ms timeout) |
-| Exploration coin flip | ~0us (Math.random) | No |
-| Calibration lookup | ~0us (in-memory Map) | No |
-| DixieStubTransport | ~0us (`return null`) | No |
-| Shadow divergence check | ~0us (string compare) | No |
-| Metric increment | ~0us (prom-client) | No |
+**Contract source:** Inline code constant. Not fetched externally. Updated when finn's hounfour consumption changes.
 
-**Total shadow overhead:** <1ms typical, <50ms worst case (Redis timeout).
+### 3.10 CI Action SHA Alignment (FR-10)
 
-**Timeout enforcement:**
-- Per Redis command: `FINN_REDIS_TIMEOUT_MS` env var (default: 50ms). Applied via `ioredis` `commandTimeout` option.
-- Per `resolveWithGoodhart` call: 200ms hard ceiling. Uses `Promise.race` with `AbortController.timeout(200)`.
-- On timeout: log warning, increment `finn_goodhart_timeout_total` counter, return `null` → deterministic fallback.
-- Per pool scoring: 50ms timeout via `Promise.race` in `resolvePoolWithReputation` (§3.4).
+**Files modified:** `.github/workflows/deploy-staging.yml`, `.github/workflows/oracle.yml`
 
-### 9.2 Startup Path
+**Design:** Direct SHA replacement. No functional changes.
 
-| Operation | Latency | Notes |
-|-----------|---------|-------|
-| Import Goodhart modules | ~50ms | Dynamic import |
-| KillSwitch construction | ~0ms | No async |
-| TemporalDecayEngine construction | ~1ms | Reads Lua script from disk |
-| ExplorationEngine construction | ~0ms | No async |
-| CalibrationEngine construction | ~0ms | Polling starts separately |
-
-**Total startup overhead:** <100ms.
-
----
-
-## 10. Design Decisions
-
-### D1: Subdomain Format
-
-`finn-armitage.arrakis.community` (hyphenated, single-level) instead of `finn.armitage.arrakis.community` (dotted, multi-level). Reason: existing `*.arrakis.community` wildcard ACM cert covers single-level subdomains only. Multi-level would require a new SAN cert.
-
-### D2: Canonical Terraform
-
-Use `infrastructure/terraform/` as the canonical source (comprehensive: Redis, DynamoDB, KMS, monitoring). The `deploy/terraform/finn.tf` is a review artifact — mark as deprecated or delete.
-
-### D3: Goodhart Config as Optional Field
-
-Add `goodhartConfig?: MechanismConfig` to `HounfourRouterOptions` rather than creating a new wrapper class. This preserves backward compatibility and follows the existing optional-composition pattern.
+| File | Line(s) | Current | Target | Action |
+|------|---------|---------|--------|--------|
+| deploy-staging.yml | 44, 77 | v4.2.2 SHA | `34e114876b0b11c390a56381ad16ebd13914f8d5` (v4.3.1) | checkout |
+| deploy-staging.yml | 162 | v1.7.1 SHA | `9666dc9a3bf790a3a7a3a3ce7d1a8600100b0ad2` (v1.7.2) | ecs-render |
+| deploy-staging.yml | 169 | v2.3.1 SHA (different) | `3e7310352de28fdb25b55df7a1dfd15a5ddeb369` (v2.3.1) | ecs-deploy |
+| oracle.yml | 91 | v4.6.2 SHA | `4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1` (v4.6.1) | upload-artifact |
 
 ---
 
-## 11. Shadow → Enabled Graduation Protocol
+## 4. Data Architecture
 
-### 11.1 Exit Criteria (all must be met for ≥48 hours)
+### 4.1 Audit Entry hashAlg Field
 
-| Metric | Threshold | Source |
-|--------|-----------|--------|
-| Shadow overhead p99 | < 10ms | `finn_routing_duration_seconds{path="shadow"}` |
-| Shadow error rate | < 0.1% | `finn_goodhart_timeout_total / finn_shadow_total` |
-| Divergence rate | Stable (not trending up) | `finn_shadow_diverged / finn_shadow_total` |
-| Init failure rate | 0 | `finn_goodhart_init_failed` |
-| KillSwitch state | "normal" | Redis key check |
-| Scoring failure rate | < 1% | `finn_reputation_scoring_failed_total / finn_shadow_total` |
+New optional field in audit sidecar entries (`.audit.jsonl` files managed by `src/cron/store.ts`):
 
-### 11.2 Graduation Runbook
+```typescript
+{
+  // ... existing AuditEntry fields (entry_id, timestamp, event_type, etc.)
+  hashAlg?: 'legacyV1' | 'chainBoundV1'
+}
+```
 
-1. **Validate exit criteria** for 48 continuous hours on staging
-2. **Update SSM parameter:** `/loa-finn/armitage/FINN_REPUTATION_ROUTING` from `shadow` to `enabled`
-3. **ECS redeploy** to pick up new env (or use runtime config if KillSwitch supports mode switching)
-4. **Monitor for 1 hour:** watch all metrics above, plus `finn_goodhart_routing_mode{mode="enabled"}`
-5. **Rollback trigger:** If any threshold exceeded, set KillSwitch to "kill" (instant, no redeploy)
-6. **Post-graduation:** Keep shadow metrics active for 7 days (they'll read zero, confirming mode)
+**Migration:** No data migration required. Missing `hashAlg` implies `legacyV1`. New entries written with `'chainBoundV1'`. Existing entries remain valid and verifiable.
 
-### 11.3 Rollback Paths
+**Verification logic:**
+```typescript
+function verifyEntry(entry: AuditEntry, prevHash: string, domainTag: string): boolean {
+  if (!entry.hashAlg || entry.hashAlg === 'legacyV1') {
+    // Legacy: previous_hash is INSIDE the AuditEntryHashInput struct
+    const input: AuditEntryHashInput = {
+      entry_id: entry.entry_id,
+      timestamp: entry.timestamp,
+      event_type: entry.event_type,
+      payload: entry.payload,
+      previous_hash: prevHash,       // Chain linkage via struct field
+      hash_domain_tag: domainTag,
+    }
+    return computeAuditEntryHash(input) === entry.entry_hash
+  }
+  if (entry.hashAlg === 'chainBoundV1') {
+    // Chain-bound: previousHash is a separate parameter for explicit binding
+    const input: AuditEntryHashInput = {
+      entry_id: entry.entry_id,
+      timestamp: entry.timestamp,
+      event_type: entry.event_type,
+      payload: entry.payload,
+      previous_hash: prevHash,
+      hash_domain_tag: domainTag,
+    }
+    return computeChainBoundHash(input, domainTag, prevHash) === entry.entry_hash
+  }
+  return false // Unknown algorithm version
+}
+```
 
-| Severity | Method | Speed |
-|----------|--------|-------|
-| P0 (routing broken) | KillSwitch → "kill" via Redis SET | < 1 second |
-| P1 (degraded quality) | SSM parameter → "shadow", redeploy | ~5 minutes |
-| P2 (non-urgent) | SSM parameter → "disabled", next deploy | ~30 minutes |
+### 4.2 No Schema Changes
+
+- No database migrations (DynamoDB schema unchanged, PostgreSQL unchanged)
+- No new configuration files
+- One new env var: `FINN_CANONICAL_DAMPENING` (boolean, default `false`)
 
 ---
 
-## 12. Implementation Order
+## 5. Testing Strategy
 
-1. **Transport factory** — new file, re-export (no existing code changes)
-2. **Goodhart init block** — src/index.ts insertion (main wiring)
-3. **Router integration** — HounfourRouterOptions extension + state machine
-4. **Parallel scoring** — Promise.allSettled replacement
-5. **Prometheus metrics** — new counters/histogram
-6. **Unit tests** — transport factory, routing states, shadow mode
-7. **Fly.io/Railway removal** — file deletions and edits
-8. **Terraform parameterization** — environment variable, tfvars
-9. **Staging deploy workflow** — new GitHub Actions workflow
-10. **CI E2E fixes** — conditional secrets, .gitkeep fixtures, GHCR login
-11. **staging.env.example** — documentation
+### 5.1 New Test Files
+
+| File | Purpose | FR |
+|------|---------|-----|
+| `tests/finn/hounfour/audit-timestamp-fixtures.json` | Valid/invalid timestamp corpus (>=20 valid, >=10 invalid) | FR-3 |
+| `tests/finn/hounfour/chain-bound-hash-vectors.test.ts` | Deterministic 3-entry hash sequence test | FR-4 |
+| `tests/finn/hounfour/advisory-lock-vectors.test.ts` | Lock key test vectors (>=3 vectors) | FR-5 |
+
+### 5.2 Timestamp Fixture Design (FR-3)
+
+JSON file with `valid` and `invalid` arrays. Valid timestamps extracted from existing audit trail entries where possible. Invalid timestamps cover: impossible dates (Feb 30), out-of-range months (13), out-of-range hours (25), missing timezone, date-only strings, garbage input.
+
+**Test command:** Add `"test:audit-fixtures": "vitest run tests/finn/hounfour/audit-timestamp-fixtures.test.ts"` to package.json.
+
+### 5.3 Hash Vector Test Design (FR-4)
+
+Vitest test that:
+1. Creates fixed test entries with known field values (hardcoded entry_id, timestamp, event_type, payload)
+2. Computes legacy hash via `computeAuditEntryHash(input)` with `previous_hash: AUDIT_TRAIL_GENESIS_HASH` — asserts expected hex
+3. Computes chain-bound hash via `computeChainBoundHash(input, domainTag, AUDIT_TRAIL_GENESIS_HASH)` — asserts expected hex
+4. Builds 3-entry chain (genesis → A → B) for both algorithms, verifying:
+   - Each entry's hash depends on the previous entry's hash (chain linkage)
+   - Changing `prevHash` in any entry produces a DIFFERENT hash (tamper detection)
+   - Legacy and chain-bound produce DIFFERENT hashes for the same entry (algorithm isolation)
+5. Domain tag for test: `buildDomainTag('test-vector-store', '8.3.0')`
+
+### 5.4 Advisory Lock Vector Test Design (FR-5)
+
+Vitest test with >=3 vectors extracted from current implementation. Each vector: `{ domainTag: string, expectedKey: number }`. All must pass with canonical `computeAdvisoryLockKey()`.
+
+### 5.5 Existing Test Suites (Must Pass Unmodified)
+
+| Suite | Command | Expected |
+|-------|---------|----------|
+| Core finn | `pnpm test:finn` | 27 pass, 0 fail |
+| Billing | `pnpm test:billing` | All pass |
+| Gateway | `pnpm test:gateway` | All pass |
+| X402 | `pnpm test:x402` | All pass |
+| Type check | `pnpm tsc --noEmit` | 0 errors |
+
+### 5.6 Dampening Comparison Test (FR-6)
+
+Vitest test with fixed numeric scenarios verifying:
+- **Boundary cases:** `sampleCount=0` (first observation), `sampleCount=1`, `sampleCount=DAMPENING_RAMP_SAMPLES` (alpha fully ramped), `sampleCount=DAMPENING_RAMP_SAMPLES+100` (past ramp)
+- **Numeric assertions:** For each scenario, assert `computeDampenedScore(oldScore, newScore, sampleCount)` equals expected numeric value (hardcoded in test, computed once during test authoring)
+- **Flag disabled:** Verify local EMA update called, canonical function NOT called
+- **Flag enabled:** Verify canonical `computeDampenedScore` called with correct `(oldScore, newScore, sampleCount, config)` args
+- **Comparison logging:** When flag enabled and delta > 0.001, verify `dampening_delta` log emitted with `{ canonical, local, delta, sampleCount }`
+- **Config validation failure:** Verify that invalid config causes fallback to local regardless of flag
+
+---
+
+## 6. Security Considerations
+
+### 6.1 Supply Chain
+
+- Git SHA pin (not semver tag) — immutable commit reference
+- `postinstall` builds hounfour from source (`scripts/build-hounfour-dist.sh`)
+- Lockfile integrity verified by pnpm
+- No new external dependencies
+
+### 6.2 Hash Chain Integrity
+
+- Dual-format verification prevents hash algorithm confusion
+- `hashAlg` field is append-only (new entries only, never backfilled)
+- Legacy entries verified with legacy function — no recomputation
+- `verifyAuditTrailIntegrity()` validates entire chain
+
+### 6.3 Feature Flag Security
+
+- `FINN_CANONICAL_DAMPENING` — boolean env var, default false
+- No new API endpoints or user-facing surfaces
+- Consumer contract validation is read-only, non-blocking
+
+---
+
+## 7. Deployment & Rollback
+
+### 7.1 Deployment
+
+Standard flow: merge → CI (typecheck + test + Docker + Trivy) → ECR → ECS rolling update with circuit breaker.
+
+### 7.2 Rollback Scenarios
+
+| Scenario | Detection | Action |
+|----------|-----------|--------|
+| Type incompatibility | `pnpm tsc --noEmit` fails pre-merge | Revert package.json SHA |
+| Test regression | CI test failure | Revert package.json SHA |
+| Runtime failure | ECS health check | ECS circuit breaker auto-rollback |
+| Dampening anomaly | Comparison logging | `FINN_CANONICAL_DAMPENING=false` (no redeploy) |
+
+---
+
+## 8. Sprint Architecture Mapping
+
+### Sprint 1: Pin Bump + Surface Adoption + CI (P0/P1)
+
+| Task | Files | Section |
+|------|-------|---------|
+| Pin bump to v8.3.0 | `package.json` | §3.1 |
+| Extend protocol-types barrel | `protocol-types.ts` | §3.2 |
+| Replace x402 local types | `src/x402/types.ts` | §3.3 |
+| Re-export governance + constraints | `protocol-types.ts` | §3.2 |
+| CI SHA alignment | 2 workflow files | §3.10 |
+| Verify typecheck + all tests pass | — | §5.5 |
+
+### Sprint 2: Test-Vector Adoption (P1)
+
+| Task | Files | Section |
+|------|-------|---------|
+| Audit timestamp replacement + fixtures | `typebox-formats.ts`, test file | §3.4, §5.2 |
+| Chain-bound hash integration + vectors | `store.ts`, test file | §3.5, §5.3 |
+| Advisory lock replacement + vectors | TBD source, test file | §3.6, §5.4 |
+
+### Sprint 3: Behavioral Adoption (P2)
+
+| Task | Files | Section |
+|------|-------|---------|
+| Feature-flagged dampening + tests | `quality-signal.ts`, test file | §3.7, §5.6 |
+| GovernedResource type annotation | TBD state module | §3.8 |
+| Consumer contract warn-only validation | startup path | §3.9 |
+
+---
+
+## 9. Decision Log
+
+| Decision | Rationale | Alternatives Considered |
+|----------|-----------|------------------------|
+| Type aliases for x402 backward compat | Zero consumer changes, aliases deprecatable later | Find-replace across all consumers (higher risk, more churn) |
+| `hashAlg` field for dual-format | Explicit versioning, no ambiguity | Heuristic detection based on hash length (fragile) |
+| Feature flag for dampening | Decouples adoption from validation | Shadow mode running both paths always (higher complexity) |
+| Warn-only contract validation | No risk to service availability | Skip entirely (loses early warning) |
+| No dynamo-audit.ts changes | Custom hash formula is separate concern | Migrate to chain-bound (requires DynamoDB data migration) |
+| No audit-trail.ts protocol v1 changes | Already has its own migration path via `PROTOCOL_HASH_CHAIN_ENABLED` | Integrate chain-bound into protocol v1 (conflicting migration chains) |

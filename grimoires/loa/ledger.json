@@ -1552,7 +1552,17 @@
       "sprints": [],
       "archived": "2026-02-27T07:00:00Z",
       "notes": "PRD posted to hounfour PR #39 as [finn] feedback; implementation owned by hounfour"
+    },
+    {
+      "id": "cycle-038",
+      "label": "Hounfour v8.3.0 Upgrade + CI Standardization",
+      "status": "active",
+      "started": "2026-02-28T12:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": null,
+      "sprints": []
     }
   ],
+  "current_cycle": "cycle-038",
   "next_global_sprint_id": 153
 }

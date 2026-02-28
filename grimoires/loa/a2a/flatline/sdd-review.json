@@ -1,188 +1,23 @@
 {
-  "consensus_summary": {
-    "high_consensus_count": 5,
-    "disputed_count": 1,
-    "low_value_count": 0,
-    "blocker_count": 8,
-    "model_agreement_percent": 90,
-    "models": 2,
-    "tertiary_items": 0,
-    "confidence": "full"
-  },
-  "high_consensus": [
-    {
-      "id": "IMP-001",
-      "description": "Real gap: the SDD names resolveWithGoodhart() as the primary integration seam but leaves its contract underspecified (return type, error/timeout semantics, option meanings). This is highly actionable (add a typed signature + behavioral contract + examples) and prevents divergent implementations, especially around allowWrites and failure modes.",
-      "gpt_score": 880,
-      "opus_score": 950,
-      "tertiary_score": null,
-      "delta": 70,
-      "average_score": 915,
-      "source": "gpt_scored",
-      "would_integrate": true,
-      "agreement": "HIGH"
-    },
-    {
-      "id": "IMP-002",
-      "description": "Critical operational safety gap: relying on documentation/Terraform string validation does not enforce Redis DB/prefix isolation at runtime. This is actionable (wrap Redis client with enforced prefix/SELECT, or require separate endpoints/ACLs, add startup assertions) and has high blast-radius if missed (staging contaminating prod).",
-      "gpt_score": 910,
-      "opus_score": 820,
-      "tertiary_score": null,
-      "delta": 90,
-      "average_score": 865,
-      "source": "gpt_scored",
-      "would_integrate": true,
-      "agreement": "HIGH"
-    },
-    {
-      "id": "IMP-003",
-      "description": "Real gap with clear ROI: the doc mentions a 50ms budget but doesn’t specify where/how it’s enforced. Without explicit per-command timeouts and a defined fallback, shadow mode can still add tail latency. Actionable: configure client timeouts, add deadline propagation, and specify behavior on timeout (skip scoring).",
-      "gpt_score": 860,
-      "opus_score": 830,
-      "tertiary_score": null,
-      "delta": 30,
-      "average_score": 845,
-      "source": "gpt_scored",
-      "would_integrate": true,
-      "agreement": "HIGH"
-    },
-    {
-      "id": "IMP-005",
-      "description": "Important operability gap: if KillSwitch exists but isn’t wired into routing decisions, the system lacks a safe runtime rollback path. Actionable: define precedence (KillSwitch overrides env state), runtime toggle mechanism, and rollback runbook. High value during shadow rollout and incident response.",
-      "gpt_score": 820,
-      "opus_score": 810,
-      "tertiary_score": null,
-      "delta": 10,
-      "average_score": 815,
-      "source": "gpt_scored",
-      "would_integrate": true,
-      "agreement": "HIGH"
-    },
-    {
-      "id": "IMP-008",
-      "description": "Valuable operational completeness: defining gates/exit criteria for moving from shadow to enabled prevents indefinite shadowing and provides measurable success conditions (latency overhead, error rate, divergence thresholds, duration). Actionable, though thresholds may be somewhat subjective and require iteration.",
-      "gpt_score": 760,
-      "opus_score": 710,
-      "tertiary_score": null,
-      "delta": 50,
-      "average_score": 735,
-      "source": "gpt_scored",
-      "would_integrate": true,
-      "agreement": "HIGH"
-    }
-  ],
-  "disputed": [
-    {
-      "id": "IMP-007",
-      "description": "Critical doc correctness issue: template placeholders in canonical code snippets make the SDD misleading and non-executable. Very low effort to fix with immediate payoff (copy/paste accuracy, reviewer trust). This is a must-fix before implementation.",
-      "gpt_score": 970,
-      "opus_score": 620,
-      "tertiary_score": null,
-      "delta": 350,
-      "average_score": 795,
-      "source": "gpt_scored",
-      "would_integrate": true,
-      "agreement": "DISPUTED"
-    }
-  ],
-  "low_value": [],
-  "blockers": [
-    {
-      "id": "SKP-002",
-      "concern": "Environment isolation relies on Redis logical DB + key prefix on a shared cluster, which is fragile and easy to misconfigure",
-      "severity": "CRITICAL",
-      "severity_score": 900,
-      "why_matters": "Logical DB separation and prefixes do not provide strong isolation: a wrong DB index, missing prefix, or shared Lua scripts/keys can cause cross-environment contamination. A single bug could corrupt production reputation/kill-switch state or leak staging behavior into prod.",
-      "location": "Section 4.1.1: Environment Isolation (Redis shared cluster, logical DB 1 + key prefix)",
-      "recommendation": "Use separate Redis clusters (or at least separate replication groups) per environment, or enforce isolation at the client layer with a mandatory prefix wrapper that cannot be bypassed. Add runtime assertions that reject missing/incorrect prefix and DB index.",
-      "source": "tertiary_skeptic"
-    },
-    {
-      "id": "SKP-004",
-      "concern": "Parallel scoring with Promise.allSettled can create unbounded concurrency and overload dependencies",
-      "severity": "HIGH",
-      "severity_score": 740,
-      "why_matters": "If `pools` is large, `Promise.allSettled(pools.map(...))` can fan out many concurrent Redis/Dixie/S3 lookups, increasing tail latency and causing rate limits or connection pool exhaustion. This can cascade into timeouts and degrade routing for all requests.",
-      "location": "Section 3.4: Parallel Reputation Scoring (Promise.allSettled)",
-      "recommendation": "Introduce a concurrency limit (e.g., p-limit) and per-request budget/timeouts. Add circuit-breaker behavior for scoring and cap max pools scored per request.",
-      "source": "tertiary_skeptic"
-    },
-    {
-      "id": "SKP-001",
-      "concern": "SDD contains apparent template/merge artifacts and invalid TypeScript conditions that would prevent compilation",
-      "severity": "CRITICAL",
-      "severity_score": 950,
-      "why_matters": "The Goodhart init block includes `{{DOCUMENT_CONTENT}}` tokens and malformed boolean expressions like `(calibBucket {{DOCUMENT_CONTENT}}{{DOCUMENT_CONTENT}} calibHmac)` and `if (decay {{DOCUMENT_CONTENT}}{{DOCUMENT_CONTENT}} exploration)`, which will not compile. If this reflects the real intended change, the service will fail to build/deploy and the project stalls immediately.",
-      "location": "Section 3.2: Goodhart Initialization Block (code snippet in src/index.ts)",
-      "recommendation": "Replace artifacts with explicit operators (e.g., `&&`) and ensure the SDD matches the actual patch. Add a CI step that typechecks the exact staged diff (tsc/eslint) before merge.",
-      "source": "tertiary_skeptic"
-    },
-    {
-      "id": "SKP-003",
-      "concern": "Shadow mode 'read-only' contract is asserted but not enforced; accidental writes to Redis/Dixie are still possible",
-      "severity": "HIGH",
-      "severity_score": 760,
-      "why_matters": "Passing `allowWrites: false` is a convention. Any future code path (or existing one) that forgets to check it can write exploration counters/EMA feedback or call external services. This undermines the safety of shadow mode and can create hard-to-debug state drift.",
-      "location": "Section 3.3: Shadow mode write contract; Section 7.2: Shadow mode writes to shared state",
-      "recommendation": "Enforce read-only at the adapter boundary: provide a `ReadOnlyRedisClient` interface in shadow mode that lacks mutating methods, and a `NoopWriteReputationAdapter` that hard-blocks writes. Add tests that fail if any Redis write command is invoked in shadow mode.",
-      "source": "tertiary_skeptic"
-    },
-    {
-      "id": "SKP-002",
-      "concern": "Shadow mode 'read-only' contract is enforced by convention, not by mechanism",
-      "severity": "HIGH",
-      "severity_score": 750,
-      "why_matters": "The shadow mode write contract (§3.3) relies on passing `allowWrites: false` and trusting that every downstream component (ExplorationEngine, TemporalDecayEngine, CalibrationEngine, future components) correctly honors this flag. There is no Redis-level read-only enforcement, no wrapper that intercepts write commands. A single component ignoring the flag silently corrupts shared state. As the system evolves and new engineers add components, this convention will be violated.",
-      "location": "Section 3.3 — Shadow mode write contract",
-      "recommendation": "Provide a read-only Redis client wrapper (or a Redis connection with ACL read-only permissions) to shadow mode components. Enforce the contract at the infrastructure layer, not the application layer.",
-      "source": "tertiary_skeptic"
-    },
-    {
-      "id": "SKP-001",
-      "concern": "Shared Redis cluster with logical DB isolation is insufficient for staging/production separation",
-      "severity": "CRITICAL",
-      "severity_score": 900,
-      "why_matters": "Logical DB + key prefix isolation on the same ElastiCache cluster means a staging bug (e.g., FLUSHDB, runaway KEYS scan, memory exhaustion) can directly impact production Redis performance and availability. Redis logical databases share the same memory pool, CPU, and connection limits. A single misconfigured or buggy staging deployment could take down production routing.",
-      "location": "Section 4.1.1 — Environment Isolation table (Redis row)",
-      "recommendation": "Use a separate ElastiCache cluster or at minimum a separate Redis replication group for staging. If cost is a concern, use a smaller node type for staging. Logical DB isolation is not a security or reliability boundary.",
-      "source": "tertiary_skeptic"
-    },
-    {
-      "id": "SKP-005",
-      "concern": "Terraform parameterization of existing production infrastructure risks production outage",
-      "severity": "CRITICAL",
-      "severity_score": 850,
-      "why_matters": "Retroactively adding an `environment` variable and renaming resources (ECS service, target groups, DynamoDB tables, SSM paths) to include environment prefixes will cause Terraform to see the existing production resources as needing destruction and recreation. A `terraform plan` that renames `loa-finn` to `loa-finn-production` will propose destroying the current service and creating a new one. If not handled with extreme care (state moves, imports), this causes production downtime.",
-      "location": "Section 4.1 — Terraform Parameterization",
-      "recommendation": "Explicitly document the Terraform state migration plan. Use `terraform state mv` commands to rename existing resources before applying. Better yet, use a separate Terraform workspace or state file for staging to avoid touching production state at all during this cycle.",
-      "source": "tertiary_skeptic"
-    },
-    {
-      "id": "SKP-003",
-      "concern": "The `resolveWithGoodhart` function is referenced but never defined in this SDD",
-      "severity": "HIGH",
-      "severity_score": 720,
-      "why_matters": "The entire routing state machine (§3.3) and parallel scoring (§3.4) depend on `resolveWithGoodhart`, which is called with 12+ positional parameters including a mode/seed/allowWrites options object. This function is the critical integration point between the existing deterministic router and all 7 Goodhart components, yet its signature, implementation location, error handling, timeout behavior, and fallback logic are completely unspecified. This is the hardest piece of the entire SDD and it's hand-waved.",
-      "location": "Section 3.3 — resolvePoolForRequest method",
-      "recommendation": "Define the `resolveWithGoodhart` function signature, file location, error handling contract, timeout budget, and fallback behavior explicitly. This is the core integration function and deserves its own subsection.",
-      "source": "tertiary_skeptic"
-    }
-  ],
-  "degraded": false,
-  "degraded_model": null,
-  "confidence": "full",
   "phase": "sdd",
   "document": "grimoires/loa/sdd.md",
-  "domain": "this sdd implements 5 functional",
-  "execution": {
-    "mode": "interactive",
-    "mode_reason": "CLI flag --interactive",
-    "run_id": null
+  "timestamp": "2026-02-28T14:10:00Z",
+  "status": "skipped",
+  "reason": "Anthropic API circuit breaker open — Opus review + skeptic calls failed after 4 retries each (2 attempts). GPT-5.3-Codex calls succeeded but single-model results insufficient for cross-model consensus.",
+  "fallback_validation": {
+    "gpt_review": {
+      "iterations": 3,
+      "verdict": "APPROVED",
+      "findings": "grimoires/loa/a2a/gpt-review/sdd-findings-3.json",
+      "blocking_issues_resolved": 6
+    }
   },
-  "timestamp": "2026-02-26T07:38:56Z",
-  "metrics": {
-    "total_latency_ms": 92000,
-    "cost_cents": 0,
-    "cost_usd": 0
+  "consensus_summary": {
+    "high_consensus_count": 0,
+    "disputed_count": 0,
+    "low_value_count": 0,
+    "blocker_count": 0,
+    "model_agreement_percent": 0,
+    "models": 0
   }
 }
