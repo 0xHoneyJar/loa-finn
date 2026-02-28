@@ -115,7 +115,6 @@ export class AtomicJsonStore<T> {
   private readonly auditEnabled: boolean
   private readonly auditPath: string
   private readonly auditDomainTag: string
-  private readonly auditDomainTagSanitized: string
   private readonly chainBoundHash: boolean
   private auditPrevHash: string = AUDIT_TRAIL_GENESIS_HASH
   private auditEntryCount = 0
@@ -134,13 +133,8 @@ export class AtomicJsonStore<T> {
     this.auditEnabled = options?.auditTrail ?? false
     this.auditPath = filePath + ".audit.jsonl"
     const schemaId = options?.auditSchemaId ?? filenameStem(filePath)
-    const contractVersion = options?.auditContractVersion ?? "8.2.0"
+    const contractVersion = options?.auditContractVersion ?? "8.3.1"
     this.auditDomainTag = buildDomainTag(schemaId, contractVersion)
-    // TODO(hounfour#41): Remove sanitization when upstream fixes impedance.
-    // Chain-bound hash requires validateDomainTag-compliant segments (no dots).
-    // buildDomainTag includes semver (e.g., "8.2.0") which has dots — sanitize
-    // by replacing dots with hyphens for the chain-bound code path. (T-2.3 impedance fix)
-    this.auditDomainTagSanitized = this.auditDomainTag.replace(/\./g, "-")
     this.chainBoundHash = options?.chainBoundHash ?? (process.env.FINN_CHAINBOUND_HASH === "true")
     this.quarantinePath = filePath + ".quarantine.jsonl"
 
@@ -406,13 +400,13 @@ export class AtomicJsonStore<T> {
       payload: { payload_hash: payloadHash },
     }
 
-    // Dual-format hash: chain-bound (v8.3.0) or legacy, per feature flag (Flatline IMP-009)
-    // Chain-bound uses sanitized domain tag (no dots) for validateDomainTag compliance.
+    // Dual-format hash: chain-bound (v8.3.1+) or legacy, per feature flag (Flatline IMP-009)
+    // buildDomainTag() natively sanitizes dots since hounfour v8.3.1 (PR #42).
     let entryHash: string
     let hashAlg: "legacyV1" | "chainBoundV1"
     let domainTagForEntry: string
     if (this.chainBoundHash) {
-      domainTagForEntry = this.auditDomainTagSanitized
+      domainTagForEntry = this.auditDomainTag
       entryHash = computeChainBoundHash(hashInput, domainTagForEntry, this.auditPrevHash)
       hashAlg = "chainBoundV1"
     } else {
