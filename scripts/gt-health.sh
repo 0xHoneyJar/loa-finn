@@ -62,9 +62,7 @@ echo ""
 
 if [[ $drift_exit -eq 1 ]]; then
   drift_ok=false
-  if [[ "$overall_status" == "healthy" ]]; then
-    overall_status="stale"
-  fi
+  overall_status="broken"
 fi
 
 # Summary

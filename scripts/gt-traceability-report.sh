@@ -28,14 +28,15 @@ if [[ ! -f "$GT_YAML" ]]; then
 fi
 
 # Extract invariant IDs from contracts.yaml
-mapfile -t inv_ids < <(python3 -c "
-import yaml
-with open('$GT_YAML') as f:
+mapfile -t inv_ids < <(python3 - "$GT_YAML" <<'PYEOF'
+import yaml, sys
+with open(sys.argv[1]) as f:
     data = yaml.safe_load(f)
 for domain in data['domains']:
     for inv in domain['invariants']:
         print(inv['id'])
-")
+PYEOF
+)
 
 total=${#inv_ids[@]}
 covered=0
