@@ -365,3 +365,69 @@ jobs:
           else
             echo "No hardcoded path violations found."
           fi
+
+  # =============================================================================
+  # GT YAML VALIDATION - Validates Ground Truth machine-readable invariants
+  # =============================================================================
+  gt-yaml-validate:
+    name: GT YAML Validate
+    runs-on: ubuntu-latest
+    # Run on PRs to main; continue-on-error so it doesn't block merges
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Check for GT YAML files
+        id: check-gt
+        run: |
+          if [ -f "grimoires/loa/ground-truth/contracts.yaml" ]; then
+            echo "has_gt=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_gt=false" >> "$GITHUB_OUTPUT"
+            echo "No GT YAML files found — skipping validation"
+          fi
+
+      - name: Install Python dependencies
+        if: steps.check-gt.outputs.has_gt == 'true'
+        run: pip install pyyaml
+
+      - name: Validate GT YAML
+        if: steps.check-gt.outputs.has_gt == 'true'
+        run: |
+          echo "Validating Ground Truth YAML files..."
+          bash scripts/validate-gt-yaml.sh
+          echo "GT YAML validation passed"
+
+  # =============================================================================
+  # GT HEALTH - Staleness + drift monitoring for Ground Truth citations
+  # =============================================================================
+  gt-health:
+    name: GT Health
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0  # Full history for git log/blame
+
+      - name: Check for GT files
+        id: check-gt
+        run: |
+          if [ -f "grimoires/loa/ground-truth/contracts.yaml" ]; then
+            echo "has_gt=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_gt=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Python dependencies
+        if: steps.check-gt.outputs.has_gt == 'true'
+        run: pip install pyyaml
+
+      - name: Run GT Health Check
+        if: steps.check-gt.outputs.has_gt == 'true'
+        run: |
+          bash scripts/gt-health.sh || echo "GT Health: advisory warnings (non-blocking)"

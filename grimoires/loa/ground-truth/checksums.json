@@ -1,8 +1,16 @@
 {
-  "generated_at": "2026-02-24T01:40:57Z",
-  "git_sha": "aac80ed4aeee3876998935a94f0bf6e8d76330dc",
+  "generated_at": "2026-02-28T12:00:00Z",
+  "git_sha": "b4a3075986140d9402399fbfd571d0f09a0e014e",
   "algorithm": "sha256",
   "files": {
+    "grimoires/loa/ground-truth/api-surface.md": "048e15c4a0b7acea7196f8878d8c84de5894365a07c251ef4f95e871b3f8d476",
+    "grimoires/loa/ground-truth/architecture.md": "225497b6f5889c748f4ee963d75d18e1d9f150686ca6dc9a808f4ae437b4282c",
+    "grimoires/loa/ground-truth/behaviors.md": "9ac9fc63b93f4be6fb3a3255254786ea432aad85dd20e51ba08ed401105b784b",
+    "grimoires/loa/ground-truth/contracts.md": "742c6c0697cc4fdd0fe7321685d3254a65ee1e1d9abc013f84d49ce321b49b3d",
+    "grimoires/loa/ground-truth/contracts.yaml": "d3e2f457b3047e9b5bb759c2b0df8208142cb6b8078489f39ee097d2f0e51af9",
+    "grimoires/loa/ground-truth/failure-modes.md": "551ca7d5554d52a4eb459d39d460863fda1d145a0a4b452923face64ef362fc7",
+    "grimoires/loa/ground-truth/ecosystem-invariants.md": "b6cb8c58861f42031f06ea9e0def080f2a49e96e0d6e85398ec21a5aa5f27241",
+    "grimoires/loa/ground-truth/index.md": "3c489187c31d7550548dbd2e64e47bea57ad5ad14279daf75af34944c2d2b6f8",
     "grimoires/oracle/onboarding-guide.md": "fa6280c8d39e6e2d88cebefeb05d41c80369c73672f4f090e456043efbe7e3f1",
     "grimoires/oracle/naming-mythology.md": "f41e079b4c99bf06f2a9d898a172436a6152ef221cd3871f856353c95da1c97c",
     "grimoires/oracle/code-reality-finn.md": "94b4ac47b713c0e2cbc26ff0fdaf772cc4948d1bc451f082edadef0c5e17ddf2",
