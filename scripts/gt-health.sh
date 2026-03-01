@@ -11,14 +11,10 @@
 #
 # Usage:
 #   ./scripts/gt-health.sh              # Human-readable
-#   ./scripts/gt-health.sh --json       # JSON output
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-JSON_MODE=false
-[[ "${1:-}" == "--json" ]] && JSON_MODE=true
 
 overall_status="healthy"
 yaml_ok=true
