@@ -36,17 +36,18 @@ fi
 cd "$REPO_ROOT"
 
 # Get GT commit from contracts.yaml
-gt_commit=$(python3 -c "
-import yaml
-with open('$GT_YAML') as f:
+gt_commit=$(python3 - "$GT_YAML" <<'PYEOF'
+import yaml, sys
+with open(sys.argv[1]) as f:
     data = yaml.safe_load(f)
 print(data.get('commit', 'HEAD'))
-")
+PYEOF
+)
 
 # Extract unique source files from contracts.yaml
-mapfile -t source_files < <(python3 -c "
-import yaml
-with open('$GT_YAML') as f:
+mapfile -t source_files < <(python3 - "$GT_YAML" <<'PYEOF'
+import yaml, sys
+with open(sys.argv[1]) as f:
     data = yaml.safe_load(f)
 files = set()
 for domain in data['domains']:
@@ -59,7 +60,8 @@ for domain in data['domains']:
             files.add(enf['file'])
 for f in sorted(files):
     print(f)
-")
+PYEOF
+)
 
 # Also extract citations from GT markdown files
 mapfile -t md_citations < <(

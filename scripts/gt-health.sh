@@ -46,7 +46,9 @@ echo ""
 
 if [[ $staleness_exit -eq 1 ]]; then
   staleness_ok=false
-  overall_status="broken"
+  if [[ "$overall_status" == "healthy" ]]; then
+    overall_status="stale"
+  fi
 elif [[ $staleness_exit -eq 2 ]]; then
   staleness_ok=false
   overall_status="broken"
@@ -60,8 +62,8 @@ echo ""
 
 if [[ $drift_exit -eq 1 ]]; then
   drift_ok=false
-  if [[ "$overall_status" != "broken" ]]; then
-    overall_status="broken"
+  if [[ "$overall_status" == "healthy" ]]; then
+    overall_status="stale"
   fi
 fi
 

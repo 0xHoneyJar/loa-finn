@@ -389,6 +389,10 @@ jobs:
             echo "No GT YAML files found — skipping validation"
           fi
 
+      - name: Install Python dependencies
+        if: steps.check-gt.outputs.has_gt == 'true'
+        run: pip install pyyaml
+
       - name: Validate GT YAML
         if: steps.check-gt.outputs.has_gt == 'true'
         run: |
@@ -418,6 +422,10 @@ jobs:
           else
             echo "has_gt=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Install Python dependencies
+        if: steps.check-gt.outputs.has_gt == 'true'
+        run: pip install pyyaml
 
       - name: Run GT Health Check
         if: steps.check-gt.outputs.has_gt == 'true'

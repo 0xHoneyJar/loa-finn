@@ -76,28 +76,28 @@ for yaml_file in "${files[@]}"; do
   echo "━━━ Validating: $basename_file ━━━"
 
   # 1. YAML parse check
-  if ! python3 -c "
+  if ! python3 - "$yaml_file" <<'PARSEOF' 2>&1; then
 import yaml, sys
 try:
-    with open('$yaml_file') as f:
+    with open(sys.argv[1]) as f:
         yaml.safe_load(f)
 except yaml.YAMLError as e:
     print(f'YAML parse error: {e}', file=sys.stderr)
     sys.exit(1)
-" 2>&1; then
+PARSEOF
     fail "$basename_file: YAML parse error"
     continue
   fi
   pass "YAML parses cleanly"
 
   # 2-5. Detailed validation via Python
-  validation_output=$(python3 -c "
+  validation_output=$(python3 - "$yaml_file" "$REPO_ROOT" <<'VALIDEOF'
 import yaml, sys, os
 
-with open('$yaml_file') as f:
+with open(sys.argv[1]) as f:
     data = yaml.safe_load(f)
 
-repo_root = '$REPO_ROOT'
+repo_root = sys.argv[2]
 errors = []
 warnings = []
 
@@ -181,7 +181,8 @@ for w in warnings:
 
 print(f'SUMMARY: {len(all_ids)} invariants, {len(errors)} errors, {len(warnings)} warnings')
 sys.exit(1 if errors else 0)
-" 2>&1) || true
+VALIDEOF
+) || true
 
   # Parse and display results
   while IFS= read -r line; do

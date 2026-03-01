@@ -182,13 +182,13 @@ domains:
         enforcement:
           file: src/billing/state-machine.ts
           lines: [46, 51]
-          function: "SHA-256 computed at append, verified on replay"
+          function: "crc32() computed at append, verified on replay"
         preconditions:
           - "WAL append operation"
         postconditions:
           - "Checksum stored with entry"
         failure:
-          detection: "SHA-256 checksum mismatch on replay"
+          detection: "CRC32 checksum mismatch on replay"
           recovery: "Corrupted entry skipped with ERROR log. Recovery cascade falls back to R2/git."
           blast_radius: "Single WAL entry. Adjacent entries unaffected."
         severity: error

@@ -36,9 +36,9 @@ fi
 cd "$REPO_ROOT"
 
 # Extract citations with function names from contracts.yaml
-citations=$(python3 -c "
-import yaml, json
-with open('$GT_YAML') as f:
+citations=$(python3 - "$GT_YAML" <<'PYEOF'
+import yaml, json, sys
+with open(sys.argv[1]) as f:
     data = yaml.safe_load(f)
 results = []
 for domain in data['domains']:
@@ -48,7 +48,7 @@ for domain in data['domains']:
         enf_file = enf.get('file', '')
         enf_lines = enf.get('lines', [])
         enf_func = enf.get('function', '')
-        if enf_file and enf_lines:
+        if enf_file and (enf_lines or enf_func):
             results.append({
                 'id': inv_id,
                 'file': enf_file,
@@ -56,7 +56,8 @@ for domain in data['domains']:
                 'function': enf_func,
             })
 print(json.dumps(results))
-")
+PYEOF
+)
 
 aligned=0
 shifted=0
@@ -69,17 +70,31 @@ if $JSON_MODE; then
 fi
 
 first=true
-echo "$citations" | python3 -c "
+GT_CITATIONS="$citations" python3 - "$REPO_ROOT" "$JSON_MODE" <<'PYEOF'
 import json, sys, os, re
 
-repo_root = '$REPO_ROOT'
-entries = json.loads(sys.stdin.read())
-json_mode = '$JSON_MODE' == 'true'
+repo_root = sys.argv[1]
+entries = json.loads(os.environ['GT_CITATIONS'])
+json_mode = sys.argv[2] == 'true'
 
 aligned = 0
 shifted = 0
 broken = 0
 results = []
+
+def find_function_in_file(file_lines, func_name):
+    """Search for a function name in file, return line number or None."""
+    if not func_name or func_name == 'N/A':
+        return None
+    search_term = func_name.split('(')[0].strip().split()[-1]
+    for i, line in enumerate(file_lines, 1):
+        if search_term in line:
+            return i
+    return None
+
+def get_search_term(func_name):
+    """Extract the searchable portion of a function name."""
+    return func_name.split('(')[0].strip().split()[-1]
 
 for entry in entries:
     inv_id = entry['id']
@@ -93,10 +108,24 @@ for entry in entries:
         reason = 'file not found'
         broken += 1
     elif not lines or all(l == 0 for l in lines):
-        # Empty lines — skip drift check
-        status = 'ALIGNED'
-        reason = 'no line citation'
-        aligned += 1
+        # Empty lines — do file-level function search if function name available
+        if func_name and func_name != 'N/A':
+            with open(full_path) as f:
+                file_lines = f.readlines()
+            found_at = find_function_in_file(file_lines, func_name)
+            search_term = get_search_term(func_name)
+            if found_at:
+                status = 'ALIGNED'
+                reason = f'function "{search_term}" found at line {found_at} (no line citation)'
+                aligned += 1
+            else:
+                status = 'BROKEN'
+                reason = f'function "{search_term}" not found in file (no line citation)'
+                broken += 1
+        else:
+            status = 'ALIGNED'
+            reason = 'no line citation, no function to verify'
+            aligned += 1
     else:
         with open(full_path) as f:
             file_lines = f.readlines()
@@ -108,13 +137,7 @@ for entry in entries:
         if max_line > total_lines:
             # Lines exceed file length — check if function exists elsewhere
             if func_name and func_name != 'N/A':
-                # Search for function name in file
-                found_at = None
-                search_term = func_name.split('(')[0].strip().split()[-1]  # last word
-                for i, line in enumerate(file_lines, 1):
-                    if search_term in line:
-                        found_at = i
-                        break
+                found_at = find_function_in_file(file_lines, func_name)
                 if found_at:
                     status = 'SHIFTED'
                     reason = f'function found at line {found_at} (cited {min_line}-{max_line})'
@@ -132,25 +155,21 @@ for entry in entries:
             cited_content = ''.join(file_lines[min_line-1:max_line])
 
             if func_name and func_name != 'N/A':
-                search_term = func_name.split('(')[0].strip().split()[-1]
+                search_term = get_search_term(func_name)
                 if search_term in cited_content:
                     status = 'ALIGNED'
-                    reason = f'function \"{search_term}\" found at cited lines'
+                    reason = f'function "{search_term}" found at cited lines'
                     aligned += 1
                 else:
                     # Function not at cited lines — search whole file
-                    found_at = None
-                    for i, line in enumerate(file_lines, 1):
-                        if search_term in line:
-                            found_at = i
-                            break
+                    found_at = find_function_in_file(file_lines, func_name)
                     if found_at:
                         status = 'SHIFTED'
-                        reason = f'function \"{search_term}\" found at line {found_at} (cited {min_line}-{max_line})'
+                        reason = f'function "{search_term}" found at line {found_at} (cited {min_line}-{max_line})'
                         shifted += 1
                     else:
                         status = 'BROKEN'
-                        reason = f'function \"{search_term}\" not found in file'
+                        reason = f'function "{search_term}" not found in file'
                         broken += 1
             else:
                 # No function name to verify — assume aligned if lines are within range
@@ -173,12 +192,12 @@ if json_mode:
         if not first:
             print(',')
         first = False
-        print(f'    {{\"id\": \"{r[\"id\"]}\", \"status\": \"{r[\"status\"]}\", \"file\": \"{r[\"file\"]}\", \"reason\": \"{r[\"reason\"]}\"}}', end='')
+        print(f'    {{"id": "{r["id"]}", "status": "{r["status"]}", "file": "{r["file"]}", "reason": "{r["reason"]}"}}', end='')
     print()
     print('  ],')
-    print(f'  \"aligned\": {aligned},')
-    print(f'  \"shifted\": {shifted},')
-    print(f'  \"broken\": {broken}')
+    print(f'  "aligned": {aligned},')
+    print(f'  "shifted": {shifted},')
+    print(f'  "broken": {broken}')
     print('}')
 else:
     for r in results:
@@ -190,9 +209,9 @@ else:
         else:
             color = '\033[0;31m'
         nc = '\033[0m'
-        print(f'  {color}{status:8s}{nc} {r[\"id\"]:15s} {r[\"file\"]}:{r[\"lines\"]}')
+        print(f'  {color}{status:8s}{nc} {r["id"]:15s} {r["file"]}:{r["lines"]}')
         if status != 'ALIGNED':
-            print(f'           {r[\"reason\"]}')
+            print(f'           {r["reason"]}')
     print()
     print('━━━ Drift Summary ━━━')
     print(f'Total citations: {len(results)}')
@@ -200,4 +219,4 @@ else:
 
 if broken > 0:
     sys.exit(1)
-"
+PYEOF

@@ -4,7 +4,8 @@
 // Naming convention: test descriptions use "[INV-ID] invariant name" for traceability.
 
 import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { parse } from "yaml"
 
 // --- Types ---
@@ -56,6 +57,8 @@ export interface GTContracts {
 
 // --- Loader ---
 
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 const CONTRACTS_PATH = join(__dirname, "../../grimoires/loa/ground-truth/contracts.yaml")
 
 let _cached: GTContracts | null = null
