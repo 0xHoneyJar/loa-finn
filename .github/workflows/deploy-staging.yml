@@ -1,8 +1,8 @@
-name: Deploy to Staging (Armitage)
+name: Build & Push to ECR (Staging)
 
-# cycle-036 T-3.4 — ECS Fargate staging deployment
-# Manual dispatch with environment input. Immutable image tags (git SHA).
-# Health check gating + automatic rollback via ECS circuit breaker.
+# Build + test + push Docker image to ECR for Freeside-managed deployment.
+# Deployment is handled by Freeside's deploy-ring.sh (issue #114).
+# Optionally triggers ECS force-new-deployment after push.
 # T-6.3: All actions pinned to commit SHA. T-6.7: pnpm instead of npm.
 
 permissions:
@@ -12,24 +12,21 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      environment:
-        description: "Staging environment name"
-        required: true
-        default: "armitage"
-        type: choice
-        options:
-          - armitage
       image_tag:
         description: "Docker image tag (leave empty to build from HEAD)"
         required: false
         type: string
+      force_deploy:
+        description: "Trigger ECS force-new-deployment after push"
+        required: false
+        default: true
+        type: boolean
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: loa-finn
-  ECS_CLUSTER: honeyjar-armitage
-  ECS_SERVICE: loa-finn-armitage
-  STAGING_URL: https://finn-armitage.arrakis.community
+  ECR_REPOSITORY: arrakis-staging-loa-finn
+  ECS_CLUSTER: arrakis-staging-cluster
+  ECS_SERVICE: arrakis-staging-finn
 
 jobs:
   # ===========================================================================
@@ -108,7 +105,6 @@ jobs:
             -f deploy/Dockerfile \
             --label "git.sha=${{ github.sha }}" \
             --label "git.ref=${{ github.ref }}" \
-            --label "deploy.environment=${{ inputs.environment }}" \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             .
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
@@ -139,13 +135,16 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
   # ===========================================================================
-  # Deploy to Staging ECS
+  # Optional: Trigger ECS Redeployment
   # ===========================================================================
-  deploy:
-    name: Deploy to ECS (${{ inputs.environment }})
+  # Finn is deployed by Freeside's deploy-ring.sh (6-phase orchestrator).
+  # This job optionally triggers a force-new-deployment to pull the latest image.
+  # Full health gating and rollback are handled by Freeside's deploy pipeline.
+  force-deploy:
+    name: Trigger ECS Redeployment
     needs: build-and-push
+    if: ${{ inputs.force_deploy }}
     runs-on: ubuntu-latest
-    environment: staging
 
     steps:
       - name: Configure AWS credentials
@@ -154,86 +153,31 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Download task definition
+      - name: Force new deployment
         run: |
-          aws ecs describe-task-definition \
-            --task-definition loa-finn-${{ inputs.environment }} \
-            --query 'taskDefinition' \
-            --output json > task-definition.json
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment \
+            --query 'service.deployments[0].{status:status,desired:desiredCount,running:runningCount}' \
+            --output table
 
-      - name: Update task definition with new image
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@9666dc9a3bf790a3a7a3a3ce7d1a8600100b0ad2 # v1.7.2
-        with:
-          task-definition: task-definition.json
-          container-name: loa-finn
-          image: ${{ needs.build-and-push.outputs.image }}
-
-      - name: Deploy to ECS (rolling update)
-        uses: aws-actions/amazon-ecs-deploy-task-definition@3e7310352de28fdb25b55df7a1dfd15a5ddeb369 # v2.3.1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
-          # Rollback: ECS circuit breaker auto-reverts on health check failure
-          # (deployment_circuit_breaker enabled in Terraform)
-
-  # ===========================================================================
-  # Smoke Tests
-  # ===========================================================================
-  smoke-test:
-    name: Smoke Tests
-    needs: deploy
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Wait for service stabilization
-        run: sleep 15
-
-      - name: Health check
+      - name: Wait for service stability
         run: |
-          for i in 1 2 3 4 5; do
-            if curl -sf "${{ env.STAGING_URL }}/health"; then
-              echo "Health check passed (attempt $i)"
-              exit 0
-            fi
-            echo "Health check failed (attempt $i), retrying in 10s..."
-            sleep 10
-          done
-          echo "Health check failed after 5 attempts"
-          exit 1
-
-      - name: JWKS endpoint check
-        run: |
-          curl -sf "${{ env.STAGING_URL }}/.well-known/jwks.json" | jq '.keys | length > 0' || exit 1
-          echo "JWKS endpoint OK"
-
-      - name: Metrics endpoint check
-        run: |
-          # T-6.6: Metrics now requires auth — use bearer token from secrets
-          curl -sf -H "Authorization: Bearer ${{ secrets.FINN_METRICS_BEARER_TOKEN }}" \
-            "${{ env.STAGING_URL }}/metrics" | grep -q "loa_finn_http_requests_total" || exit 1
-          echo "Metrics endpoint OK"
-
-      - name: Routing mode check
-        run: |
-          # Verify staging is in shadow mode (not enabled)
-          HEALTH=$(curl -sf "${{ env.STAGING_URL }}/health")
-          echo "Health response: $HEALTH"
-          # Check that goodhart routing state is shadow or disabled (not enabled)
-          echo "$HEALTH" | jq -e '.routingState != "enabled"' || {
-            echo "WARNING: Staging routing state is 'enabled' — expected 'shadow' or 'disabled'"
+          echo "Waiting for ECS service to stabilize (up to 5 min)..."
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }} || {
+            echo "::warning::Service did not stabilize within timeout. Check ECS console."
             exit 1
           }
-          echo "Routing mode check passed"
+          echo "Service stable."
 
       - name: Summary
         run: |
-          echo "## Staging Deploy Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## Staging Build & Deploy Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** \`${{ needs.build-and-push.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **URL:** ${{ env.STAGING_URL }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Cluster:** ${{ env.ECS_CLUSTER }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Service:** ${{ env.ECS_SERVICE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deploy:** Freeside-managed (Cloud Map internal)" >> $GITHUB_STEP_SUMMARY

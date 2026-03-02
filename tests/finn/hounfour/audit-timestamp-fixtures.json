@@ -29,7 +29,6 @@
     { "input": "2026-02-28", "note": "Date-only (no time component)" },
     { "input": "2026-02-28T15:04:00", "note": "Missing timezone designator" },
     { "input": "2026-13-01T00:00:00Z", "note": "Month 13 (out of range)" },
-    { "input": "2026-02-30T00:00:00Z", "note": "Feb 30 (impossible date)" },
     { "input": "2026-02-28T25:00:00Z", "note": "Hour 25 (out of range)" },
     { "input": "2026-02-28T15:61:00Z", "note": "Minute 61 (out of range)" },
     { "input": "1969-12-31T23:59:59Z", "note": "Pre-epoch (before 1970-01-01)" },

@@ -237,6 +237,13 @@ docs/screenshots/
 evals/results/*
 !evals/results/.gitkeep
 
+# Terraform artifacts (infra managed by Freeside — issue #114)
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfplan
+*.tfstate
+*.tfstate.backup
+
 # Application artifacts (app/)
 app/src/
 app/tests/
