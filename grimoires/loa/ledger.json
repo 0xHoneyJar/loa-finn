@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "active_cycle": "cycle-052",
+  "active_cycle": "cycle-048",
   "cycles": [
     {
       "id": "cycle-036",
@@ -425,9 +425,8 @@
     {
       "id": "cycle-048",
       "label": "Community Feedback — Review Pipeline Hardening",
-      "status": "archived",
+      "status": "active",
       "created": "2026-02-28T08:50:00Z",
-      "archived": "2026-03-25T00:00:00Z",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprints": [
@@ -435,61 +434,28 @@
           "local_id": 1,
           "global_id": 98,
           "label": "Foundation — Curl Guard, Error Surfacing, YAML Regex",
-          "status": "completed"
+          "status": "planned"
         },
         {
           "local_id": 2,
           "global_id": 99,
           "label": "Verdict Centralization & Flatline Readiness",
-          "status": "completed"
+          "status": "planned"
         },
         {
           "local_id": 3,
           "global_id": 100,
           "label": "Timeout Consolidation & Migration",
-          "status": "completed"
+          "status": "planned"
         },
         {
           "local_id": 4,
           "global_id": 101,
           "label": "Integration Testing, CI Lint, Protocol Docs",
-          "status": "completed"
-        }
-      ]
-    },
-    {
-      "id": "cycle-bug-20260324-i444-525da0",
-      "label": "Bug Fix — collect-trace.sh unbound variables and invalid JSON",
-      "type": "bugfix",
-      "status": "active",
-      "source_issue": "https://github.com/0xHoneyJar/loa/issues/444",
-      "created_at": "2026-03-24T00:00:00Z",
-      "sprints": ["sprint-bug-102"],
-      "triage": "grimoires/loa/a2a/bug-20260324-i444-525da0/triage.md",
-      "sprint_plan": "grimoires/loa/a2a/bug-20260324-i444-525da0/sprint.md"
-    },
-    {
-      "id": "cycle-052",
-      "label": "User-Friendly Release Summaries & Zone-Aware Filtering",
-      "status": "active",
-      "created": "2026-03-25T00:00:00Z",
-      "prd": "grimoires/loa/prd.md",
-      "sdd": "grimoires/loa/sdd.md",
-      "sprints": [
-        {
-          "local_id": 1,
-          "global_id": 107,
-          "label": "User-Friendly Release Summaries",
-          "status": "planned"
-        },
-        {
-          "local_id": 2,
-          "global_id": 108,
-          "label": "Zone-Aware Release Filtering",
           "status": "planned"
         }
       ]
     }
   ],
-  "global_sprint_counter": 108
+  "global_sprint_counter": 101
 }
