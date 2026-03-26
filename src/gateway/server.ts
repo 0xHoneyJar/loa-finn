@@ -36,6 +36,8 @@ import { createIdentityRoutes, type IdentityRouteDeps } from "./routes/identity.
 import { corpusVersionMiddleware } from "./corpus-version.js"
 import type { ConversationManager } from "../nft/conversation.js"
 import type { PersonalityProvider } from "../nft/personality-provider.js"
+import { createAgentChatRoutes, type AgentChatDeps } from "./routes/agent-chat.js"
+import { createOwnershipMiddleware, type OwnershipGateConfig } from "../nft/ownership-gate.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
@@ -63,6 +65,10 @@ export interface AppOptions {
   x402Deps?: X402RouteDeps
   /** Identity route dependencies — when provided, /api/identity routes are mounted (Sprint 3 T3.2) */
   identityDeps?: IdentityRouteDeps
+  /** Agent chat dependencies — when provided, /api/v1/agent/chat route is mounted (Cycle 040) */
+  agentChatDeps?: AgentChatDeps
+  /** Ownership gate config — when provided, ownership middleware is applied to chat routes (Cycle 040) */
+  ownershipGateConfig?: OwnershipGateConfig
   /** Goodhart engine health (Sprint 5 T-5.6) */
   goodhartHealth?: () => { status: string; killSwitch: string; explorationEnabled: boolean }
   /** Audit chain health (Sprint 5 T-5.6) */
@@ -434,6 +440,15 @@ export function createApp(config: FinnConfig, options: AppOptions) {
 
   // CSP middleware — applies Content-Security-Policy to HTML responses only
   app.use("*", cspMiddleware())
+
+  // Agent chat — ownership-gated, personality-conditioned (Cycle 040 Sprint 1)
+  if (options.agentChatDeps) {
+    const chatApp = createAgentChatRoutes(options.agentChatDeps)
+    if (options.ownershipGateConfig) {
+      chatApp.use("*", createOwnershipMiddleware(options.ownershipGateConfig))
+    }
+    app.route("/api/v1/agent/chat", chatApp)
+  }
 
   // Public API — no auth required (T2.5)
   if (options.personalityProvider && options.redisClient) {
