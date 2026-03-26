@@ -83,11 +83,11 @@ None. All pipeline components already exist.
 
 ### Acceptance Criteria
 
-- [ ] Generated BEAUVOIR docs include cultural references appropriate to the ancestor
-- [ ] Two agents with different ancestors produce visibly different cultural grounding
-- [ ] After N interactions, personality dials shift within ±0.5% per epoch, ±5% cumulative
-- [ ] Experience state persists across deploys (Postgres-backed)
-- [ ] API response includes `agent_name`, `archetype`, and `era` fields
+- [x] Generated BEAUVOIR docs include cultural references appropriate to the ancestor
+- [x] Two agents with different ancestors produce visibly different cultural grounding
+- [x] After N interactions, personality dials shift within ±0.5% per epoch, ±5% cumulative
+- [x] Experience state persists across deploys (Postgres-backed)
+- [x] API response includes `agent_name`, `archetype`, and `era` fields
 
 ### Dependencies
 
