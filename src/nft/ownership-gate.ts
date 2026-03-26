@@ -82,7 +82,7 @@ export async function verifyOwnership(
       owner: cached,
       fromCache: true,
       code: "OWNERSHIP_REQUIRED",
-      message: `Token ${tokenId} is owned by ${cached.slice(0, 10)}..., not your wallet`,
+      message: "You do not own this token",
     }
   }
 
@@ -120,7 +120,7 @@ export async function verifyOwnership(
       owner,
       fromCache: false,
       code: "OWNERSHIP_REQUIRED",
-      message: `Token ${tokenId} is owned by ${owner.slice(0, 10)}..., not your wallet`,
+      message: "You do not own this token",
     }
   }
 

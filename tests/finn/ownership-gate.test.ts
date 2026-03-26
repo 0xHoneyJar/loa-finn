@@ -78,7 +78,7 @@ describe("verifyOwnership", () => {
 
       expect(result.verified).toBe(false)
       expect(result.code).toBe("OWNERSHIP_REQUIRED")
-      expect(result.message).toContain("not your wallet")
+      expect(result.message).toBe("You do not own this token")
     })
 
     it("rejects from cache when owner doesn't match", async () => {

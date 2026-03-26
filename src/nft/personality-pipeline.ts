@@ -102,19 +102,27 @@ async function acquireLock(
   redis: RedisClient,
   tokenId: string,
   ttlSeconds: number,
-): Promise<boolean> {
+): Promise<string | null> {
+  const lockValue = `${process.pid}-${Date.now()}`
   const result = await redis.set(
     `${LOCK_PREFIX}${tokenId}`,
-    Date.now().toString(),
+    lockValue,
     "EX",
     ttlSeconds,
     "NX",
   )
-  return result === "OK"
+  return result === "OK" ? lockValue : null
 }
 
-async function releaseLock(redis: RedisClient, tokenId: string): Promise<void> {
-  await redis.del(`${LOCK_PREFIX}${tokenId}`)
+async function releaseLock(redis: RedisClient, tokenId: string, lockValue: string): Promise<void> {
+  // Only delete if we still own the lock (Lua atomic check-and-delete)
+  // Prevents deleting another process's lock if ours expired
+  await redis.eval(
+    `if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end`,
+    1,
+    `${LOCK_PREFIX}${tokenId}`,
+    lockValue,
+  )
 }
 
 async function waitForLock(
@@ -183,9 +191,9 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
     }
 
     // 2. Acquire singleflight lock (SKP-004)
-    const gotLock = await acquireLock(this.redis, tokenId, this.lockTtlSeconds)
+    const lockValue = await acquireLock(this.redis, tokenId, this.lockTtlSeconds)
 
-    if (!gotLock) {
+    if (!lockValue) {
       // Another request is synthesizing — wait for it, then read from store
       await waitForLock(this.redis, tokenId)
       const afterWait = await this.store.get(tokenId)
@@ -204,9 +212,7 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
     try {
       return await this.synthesizePipeline(tokenId)
     } finally {
-      if (gotLock) {
-        await releaseLock(this.redis, tokenId).catch(() => {})
-      }
+      await releaseLock(this.redis, tokenId, lockValue).catch(() => {})
     }
   }
 

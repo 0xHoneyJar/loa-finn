@@ -27,6 +27,10 @@ function createMockRedis() {
     get: vi.fn(async (key: string) => store.get(key) ?? null),
     del: vi.fn(async (key: string) => { store.delete(key); return 1 }),
     exists: vi.fn(async (key: string) => (store.has(key) ? 1 : 0)),
+    eval: vi.fn(async (_s: string, _n: number, key: string) => {
+      if (store.has(key)) { store.delete(key); return 1 }
+      return 0
+    }),
     _store: store,
   }
 }

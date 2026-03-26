@@ -25,6 +25,11 @@ function createMockRedis() {
     get: vi.fn(async (key: string) => store.get(key) ?? null),
     del: vi.fn(async (key: string) => { store.delete(key); return 1 }),
     exists: vi.fn(async (key: string) => (store.has(key) ? 1 : 0)),
+    eval: vi.fn(async (_script: string, _numkeys: number, key: string, _value: string) => {
+      // Simulate Lua check-and-delete
+      if (store.has(key)) { store.delete(key); return 1 }
+      return 0
+    }),
     _store: store,
   }
 }
@@ -296,11 +301,16 @@ describe("PersonalityPipelineOrchestrator", () => {
       )
     })
 
-    it("releases lock after synthesis completes", async () => {
+    it("releases lock via Lua check-and-delete after synthesis", async () => {
       const orch = createOrchestrator()
       await orch.get("42")
 
-      expect(redis.del).toHaveBeenCalledWith("finn:synth-lock:42")
+      expect(redis.eval).toHaveBeenCalledWith(
+        expect.stringContaining("redis.call"),
+        1,
+        "finn:synth-lock:42",
+        expect.any(String),
+      )
     })
 
     it("releases lock even when synthesis fails", async () => {
@@ -309,7 +319,12 @@ describe("PersonalityPipelineOrchestrator", () => {
 
       await orch.get("42")
 
-      expect(redis.del).toHaveBeenCalledWith("finn:synth-lock:42")
+      expect(redis.eval).toHaveBeenCalledWith(
+        expect.stringContaining("redis.call"),
+        1,
+        "finn:synth-lock:42",
+        expect.any(String),
+      )
     })
   })
 
