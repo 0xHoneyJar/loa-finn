@@ -1663,7 +1663,7 @@
           "local_id": "sprint-3",
           "global_id": 164,
           "label": "Pre-Compute + Polish + E2E Validation",
-          "status": "pending",
+          "status": "completed",
           "tasks": 5
         }
       ]

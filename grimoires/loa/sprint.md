@@ -119,12 +119,12 @@ Sprint 1 (pipeline orchestrator must exist).
 
 ### Acceptance Criteria
 
-- [ ] 5 personalities pre-computed and cached
-- [ ] All 5 pass anti-narration validation (0% violation rate)
-- [ ] Pairwise cosine similarity < 0.7 between all 5 demos
-- [ ] Transfer listener invalidates both personality and signal caches
-- [ ] Scale-out doc covers all 5 patterns from PRD 5.5
-- [ ] E2E test covers full cold-cache → warm-cache pipeline flow
+- [x] 5 personalities pre-computed and cached *(test fixtures; real tokenIds at production wiring)*
+- [x] All 5 pass anti-narration validation (0% violation rate)
+- [x] Pairwise cosine similarity < 0.7 between all 5 demos
+- [x] Transfer listener invalidates both personality and signal caches
+- [x] Scale-out doc covers all 5 patterns from PRD 5.5
+- [x] E2E test covers full cold-cache → warm-cache pipeline flow
 
 ### Dependencies
 
