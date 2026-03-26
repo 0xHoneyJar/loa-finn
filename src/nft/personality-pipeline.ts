@@ -15,6 +15,7 @@ import type { PersonalityStore } from "./personality-store.js"
 import type { SignalSnapshot, DAMPFingerprint } from "./signal-types.js"
 import { deriveDAMP } from "./damp.js"
 import { nameKDF } from "./name-derivation.js"
+import type { ExperienceEngine } from "./experience-engine.js"
 import { createHash } from "node:crypto"
 
 // ---------------------------------------------------------------------------
@@ -28,8 +29,10 @@ export interface PipelineOrchestratorConfig {
   redis: RedisClient
   /** Salt for deterministic name derivation */
   collectionSalt?: string
-  /** Identity subgraph resolver (optional, wired in Sprint 2) */
+  /** Identity subgraph resolver (Sprint 2 T-2.1) */
   resolveSubgraph?: (snapshot: SignalSnapshot) => Promise<IdentitySubgraph | null>
+  /** Experience engine for gradual personality drift (Sprint 2 T-2.2) */
+  experienceEngine?: ExperienceEngine
   /** Singleflight lock TTL in seconds (default: 30) */
   lockTtlSeconds?: number
   /** BEAUVOIR max length in characters (default: 8000) */
@@ -139,6 +142,7 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
   private readonly redis: RedisClient
   private readonly collectionSalt: string
   private readonly resolveSubgraph?: (snapshot: SignalSnapshot) => Promise<IdentitySubgraph | null>
+  private readonly experienceEngine?: ExperienceEngine
   private readonly lockTtlSeconds: number
   private readonly maxBeauvoirLength: number
 
@@ -149,6 +153,7 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
     this.redis = config.redis
     this.collectionSalt = config.collectionSalt ?? "finnNFT-default-salt"
     this.resolveSubgraph = config.resolveSubgraph
+    this.experienceEngine = config.experienceEngine
     this.lockTtlSeconds = config.lockTtlSeconds ?? 30
     this.maxBeauvoirLength = config.maxBeauvoirLength ?? 8000
   }
@@ -228,6 +233,17 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
       return null
     }
 
+    // 4b. Apply experience drift at read-time (Sprint 2 T-2.2, IMP-005/SKP-007)
+    // Canonical ordering: birth_fingerprint + stored_offsets = effective_fingerprint
+    if (this.experienceEngine) {
+      try {
+        fingerprint = this.experienceEngine.applyExperience(fingerprint, tokenId)
+      } catch (err) {
+        this.logDegradation("experience_drift", tokenId, err)
+        // Continue with birth fingerprint — drift failure is non-fatal
+      }
+    }
+
     // 5. Resolve identity subgraph (optional, graceful degradation)
     let subgraph: IdentitySubgraph | undefined
     let degraded = false
@@ -286,6 +302,7 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
       behavioral_traits: [],
       expertise_domains: [],
       beauvoir_template: beauvoirMd,
+      era: snapshot.era,
     }
 
     // 10. Dual-write: Postgres first, then Redis (SKP-003)

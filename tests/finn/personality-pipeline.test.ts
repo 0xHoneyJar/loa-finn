@@ -35,7 +35,7 @@ const MOCK_SNAPSHOT: SignalSnapshot = {
   birthday: "1990-06-15",
   era: "modern" as any,
   molecule: "psilocybin" as any,
-  tarot: { card: "The Magician", suit: "major", number: 1 } as any,
+  tarot: { name: "The Magician", suit: "major", number: 1 } as any,
   element: "fire" as any,
   swag: { rank: "S" as any, score: 85 },
   zodiac: { sun: "gemini" as any, moon: "aries" as any, rising: "leo" as any },
