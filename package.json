@@ -33,7 +33,7 @@
   "dependencies": {
     "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#v8.3.1",
     "@aws-sdk/client-s3": "^3.1000.0",
-    "@hono/node-server": "^1.19.9",
+    "@hono/node-server": "^1.19.10",
     "@mariozechner/pi-agent-core": "~0.52.6",
     "@mariozechner/pi-ai": "~0.52.10",
     "@mariozechner/pi-coding-agent": "~0.52.6",
@@ -42,7 +42,7 @@
     "canonicalize": "^2.1.0",
     "croner": "^10.0.1",
     "drizzle-orm": "^0.45.1",
-    "hono": "^4.11.9",
+    "hono": "^4.12.4",
     "jose": "^6.1.3",
     "p-limit": "^7.3.0",
     "postgres": "^3.4.8",
@@ -80,7 +80,7 @@
   },
   "pnpm": {
     "overrides": {
-      "fast-xml-parser": ">=5.3.8",
+      "fast-xml-parser": ">=5.5.7",
       "minimatch@>=3 <3.1.4": "3.1.4",
       "minimatch@>=9 <9.0.7": "9.0.7",
       "minimatch@>=10 <10.2.3": "10.2.3",
@@ -89,7 +89,10 @@
       "ajv@<6.14.0": "6.14.0",
       "ajv@>=7 <8.18.0": "8.18.0",
       "esbuild@<=0.24.2": "0.25.0",
-      "hono@>=4 <4.11.10": "4.11.10"
+      "hono@>=4 <4.12.4": "4.12.4",
+      "undici@>=7 <7.24.0": "7.24.0",
+      "file-type@>=21 <21.3.2": "21.3.2",
+      "flatted@<3.4.2": "3.4.2"
     }
   }
 }
