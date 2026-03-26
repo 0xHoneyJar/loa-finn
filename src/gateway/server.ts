@@ -442,12 +442,12 @@ export function createApp(config: FinnConfig, options: AppOptions) {
   app.use("*", cspMiddleware())
 
   // Agent chat — ownership-gated, personality-conditioned (Cycle 040 Sprint 1)
+  // Middleware MUST be registered before route to ensure execution order (C1 fix)
   if (options.agentChatDeps) {
-    const chatApp = createAgentChatRoutes(options.agentChatDeps)
     if (options.ownershipGateConfig) {
-      chatApp.use("*", createOwnershipMiddleware(options.ownershipGateConfig))
+      app.use("/api/v1/agent/chat/*", createOwnershipMiddleware(options.ownershipGateConfig))
     }
-    app.route("/api/v1/agent/chat", chatApp)
+    app.route("/api/v1/agent/chat", createAgentChatRoutes(options.agentChatDeps))
   }
 
   // Public API — no auth required (T2.5)

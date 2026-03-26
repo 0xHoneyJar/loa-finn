@@ -168,8 +168,9 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
 
   /**
    * Full pipeline resolution with metadata about cache status and degradation.
+   * @param depth - recursion guard for singleflight retry (max 2)
    */
-  async resolve(tokenId: string): Promise<PipelineResult | null> {
+  async resolve(tokenId: string, depth: number = 0): Promise<PipelineResult | null> {
     // 1. Check cache (fast path)
     const cached = await this.store.get(tokenId)
     if (cached) {
@@ -186,7 +187,13 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
       if (afterWait) {
         return { config: afterWait, fromCache: true, degraded: false }
       }
-      // Lock holder failed — fall through to synthesize ourselves
+      // Lock holder failed — re-attempt with depth guard to prevent thundering herd (C2 fix)
+      if (depth < 2) {
+        return this.resolve(tokenId, depth + 1)
+      }
+      // Max depth reached — give up
+      this.logDegradation("singleflight_exhausted", tokenId, new Error("Max retry depth reached"))
+      return null
     }
 
     try {
@@ -204,11 +211,9 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
   private async synthesizePipeline(tokenId: string): Promise<PipelineResult | null> {
     // 3. Resolve signals from on-chain (via cache)
     let snapshot: SignalSnapshot
-    let owner: string
     try {
       const signals = await this.signalCache.getSignals(tokenId)
       snapshot = signals.snapshot
-      owner = signals.owner
     } catch (err) {
       this.logDegradation("signal_resolution", tokenId, err)
       return null // Cannot proceed without signals
