@@ -1,8 +1,10 @@
-// src/gateway/routes/identity.ts — Identity Resolution Endpoints (Sprint 3 T3.2)
+// src/gateway/routes/identity.ts — Identity Resolution Endpoints (Sprint 3 T3.2, Issue #136)
 //
 // Public endpoints for multi-NFT identity resolution:
 // - GET /wallet/:wallet/nfts  → all NFTs for a wallet (plural, canonical)
 // - GET /wallet/:wallet/nft   → first NFT for a wallet (singular, deprecated)
+//
+// Response shape aligned with Dixie NftOwnershipResolver (loa-dixie PR #83).
 
 import { Hono } from "hono"
 
@@ -10,20 +12,44 @@ import { Hono } from "hono"
 // Types
 // ---------------------------------------------------------------------------
 
-/** Minimal NFT info returned by identity resolution. */
+/** NFT info returned by the plural /nfts endpoint (Issue #136). */
+export interface NFTOwnershipInfo {
+  nftId: string
+  contractAddress: string
+  tokenId: number
+  ownerWallet: string
+  delegatedWallets: string[]
+}
+
+/** Legacy NFT info returned by the singular /nft endpoint. */
 export interface NFTInfo {
   collection: string
   tokenId: string
   title: string
 }
 
+/** Internal detection result from the dependency. */
+export interface DetectedNFT {
+  collection: string
+  tokenId: string
+  title: string
+  /** Contract address (if available from on-chain reader) */
+  contractAddress?: string
+  /** Owner wallet (if available from on-chain reader) */
+  ownerWallet?: string
+  /** Delegated wallets (if available) */
+  delegatedWallets?: string[]
+}
+
 /** Dependencies injected into identity route factory. */
 export interface IdentityRouteDeps {
   /** Resolve all NFTs for a wallet address */
   detectNfts: (wallet: string) => Promise<{
-    nfts: Array<{ collection: string; tokenId: string; title: string }>
+    nfts: DetectedNFT[]
     total: number
   }>
+  /** Contract address for the Mibera collection (used as default if not in detection result) */
+  defaultContractAddress?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +63,24 @@ const WALLET_RE = /^0x[a-fA-F0-9]{40}$/
 const DEPRECATED_NFT_SUNSET = "2026-09-01T00:00:00Z"
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert internal detection result to the Issue #136 response shape.
+ * Dixie's NftOwnershipResolver expects: { nftId, contractAddress, tokenId, ownerWallet, delegatedWallets }
+ */
+function toOwnershipInfo(nft: DetectedNFT, wallet: string, defaultContract: string): NFTOwnershipInfo {
+  return {
+    nftId: `${nft.collection}:${nft.tokenId}`,
+    contractAddress: nft.contractAddress ?? defaultContract,
+    tokenId: Number(nft.tokenId),
+    ownerWallet: nft.ownerWallet ?? wallet,
+    delegatedWallets: nft.delegatedWallets ?? [],
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Route Factory
 // ---------------------------------------------------------------------------
 
@@ -46,8 +90,9 @@ const DEPRECATED_NFT_SUNSET = "2026-09-01T00:00:00Z"
  */
 export function createIdentityRoutes(deps: IdentityRouteDeps): Hono {
   const app = new Hono()
+  const defaultContract = deps.defaultContractAddress ?? ""
 
-  // GET /wallet/:wallet/nfts — All NFTs for a wallet (canonical endpoint)
+  // GET /wallet/:wallet/nfts — All NFTs for a wallet (canonical endpoint, Issue #136)
   app.get("/wallet/:wallet/nfts", async (c) => {
     const wallet = c.req.param("wallet")
 
@@ -69,9 +114,9 @@ export function createIdentityRoutes(deps: IdentityRouteDeps): Hono {
       )
     }
 
+    // Issue #136: empty wallet returns { nfts: [] }, not 404
     return c.json({
-      nfts: result.nfts as NFTInfo[],
-      total: result.total,
+      nfts: result.nfts.map((nft) => toOwnershipInfo(nft, wallet, defaultContract)),
     })
   })
 
