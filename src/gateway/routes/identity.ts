@@ -7,6 +7,7 @@
 // Response shape aligned with Dixie NftOwnershipResolver (loa-dixie PR #83).
 
 import { Hono } from "hono"
+import { buildNftId } from "../../nft/nft-id.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,7 +73,7 @@ const DEPRECATED_NFT_SUNSET = "2026-09-01T00:00:00Z"
  */
 function toOwnershipInfo(nft: DetectedNFT, wallet: string, defaultContract: string): NFTOwnershipInfo {
   return {
-    nftId: `${nft.collection}:${nft.tokenId}`,
+    nftId: buildNftId(nft.collection, nft.tokenId),
     contractAddress: nft.contractAddress ?? defaultContract,
     tokenId: Number(nft.tokenId),
     ownerWallet: nft.ownerWallet ?? wallet,
