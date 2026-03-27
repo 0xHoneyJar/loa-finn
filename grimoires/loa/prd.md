@@ -1,407 +1,426 @@
-# PRD: Hounfour v8.3.0 Upgrade + CI Standardization
+# PRD: Per-NFT Personality — Pipeline Wiring + Scale-Out Design
 
 **Status:** Draft
 **Author:** Jani + Claude
-**Date:** 2026-02-28
-**Cycle:** 038
-**References:** [Hounfour PR #39](https://github.com/0xHoneyJar/loa-hounfour/pull/39) (MERGED) · [Freeside Issue #108](https://github.com/0xHoneyJar/loa-freeside/issues/108) · [Launch Readiness #66](https://github.com/0xHoneyJar/loa-finn/issues/66)
-**Flatline Review:** 3-model (Opus + GPT-5.3 + Gemini 2.5) — 4 HIGH_CONSENSUS integrated, 3 BLOCKERS addressed
+**Date:** 2026-03-26
+**Cycle:** 040
+**References:** [Issue #132](https://github.com/0xHoneyJar/loa-finn/issues/132) · [Issue #133](https://github.com/0xHoneyJar/loa-finn/issues/133) (Soft Launch Checklist) · [Issue #131](https://github.com/0xHoneyJar/loa-finn/issues/131) (Critical Path)
 
 ---
 
 ## 1. Problem Statement
 
-Hounfour PR #39 merged on 2026-02-28, releasing v8.3.0 with pre-launch protocol hardening across 8 feature requirements. Finn is pinned to v8.2.0 (commit `33d2b710ec939711568c596503f9d7b61575eeb3`). The v8.3.0 release exports canonical implementations for patterns finn currently implements locally — x402 payment schemas, audit timestamp validation, advisory lock key computation, and chain-bound hashing. It also introduces new capabilities finn should adopt: feedback dampening, consumer contract validation, and GovernedResource runtime interfaces.
+The finnNFT personality engine is 85% built across 68 files (~18K lines in `src/nft/`). The DAMP-96 derivation engine, BEAUVOIR synthesizer, anti-narration framework, on-chain reader, signal cache, personality store, name derivation, and experience engine all exist as working code. However, **none of this is connected to the chat session flow**. Users currently interact with 4 generic static personalities loaded from `config/personalities.json` via `StaticPersonalityLoader`.
 
-Separately, finn's 11 CI workflows have minor action version drift across 4 actions. These are low-risk but should be standardized for supply chain hygiene.
+The gap is the "last mile" — wiring existing components into a pipeline triggered by session creation: `tokenId → on-chain read → DAMP-96 derivation → BEAUVOIR synthesis → personality injection`. Additionally, the identity graph (`identity-graph.ts`) and experience engine (`experience-engine.ts`) are fully implemented but never invoked.
 
-**Scope classification:** This cycle contains two categories of work:
-1. **API surface adoption** (FRs 1-5, 9): Purely additive — importing new exports, replacing local implementations with type-compatible canonical versions. No behavioral change.
-2. **Behavioral adoption** (FRs 6-8): Intentional behavioral changes — adopting canonical dampening, governance interfaces, and contract validation that may alter runtime behavior. These require gated rollout.
-3. **CI housekeeping** (FR-10): Version alignment only — no behavioral changes.
+This cycle delivers the soft launch: 5-10 team members chatting with distinct, on-chain-derived agent personalities. It also documents the scale-out architecture for 100K+ NFTs.
 
-> **Note on FR-7 (GovernedResource):** Classified as "behavioral adoption" in scope heading for visibility, but scoped to **type-level conformance only** this cycle. No runtime behavior change. Reclassified here per Flatline IMP-002.
-
-> Source: Hounfour v8.3.0 tag at commit `c29337e305005c5de56f8796ba391fb42108b5c5`, finn `package.json:33`, CI workflow audit
+> Sources: Issue #132 (full spec), Code analysis of `src/nft/` (68 files), `agent-chat.ts` session flow, `config/personalities.json` (4 static entries)
 
 ---
 
-## 2. Source of Truth — Verified v8.3.0 Exports
+## 2. Goals & Success Metrics
 
-All export names and paths below were verified against hounfour tag v8.3.0 (commit `c29337e`). Source files are listed for traceability. Hounfour FR numbers refer to the hounfour v8.3.0 release FRs, not this PRD's FRs.
+### 2.1 Business Objectives
 
-### From `@0xhoneyjar/loa-hounfour/economy` (hounfour FR-1: x402-payment.ts)
+- **Soft launch ready**: 5-10 team members chatting with distinct dNFT agents on production
+- **Product thesis validated**: "The art and the agent are the same thing expressed in different modalities" — on-chain traits produce personality
+- **Scale-out architecture designed**: Caching, batch derivation, and degradation patterns documented for 100K+ NFTs
 
-```typescript
-import {
-  X402QuoteSchema, X402PaymentProofSchema, X402SettlementStatusSchema,
-  X402SettlementSchema, X402ErrorCodeSchema,
-  type X402Quote, type X402PaymentProof, type X402SettlementStatus,
-  type X402Settlement, type X402ErrorCode,
-} from '@0xhoneyjar/loa-hounfour/economy'
-```
+### 2.2 Quantitative Success Criteria
 
-### From `@0xhoneyjar/loa-hounfour/commons` (hounfour FRs 3, 5, 8)
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| DAMP fingerprint distinctiveness | Cosine similarity < 0.7 between any two agents | `src/nft/eval/distinctiveness.ts` |
+| BEAUVOIR synthesis latency | < 10s per generation (Opus) | Circuit breaker telemetry |
+| Streaming response start | < 3s for cached personalities | Gateway latency metrics |
+| Anti-narration violation rate | 0% on generated BEAUVOIR docs | `validateAntiNarration()` assertions |
+| Cache hit rate (soft launch) | 100% for pre-computed demo IDs | Redis cache metrics |
 
-```typescript
-// hounfour FR-5: chain-bound-hash.ts
-import {
-  computeChainBoundHash, validateDomainTag, ChainBoundHashError,
-  type AuditEntryHashInput as ChainBoundHashInput,
-} from '@0xhoneyjar/loa-hounfour/commons'
+### 2.3 Qualitative Success Criteria
 
-// hounfour FR-5: audit-timestamp.ts
-import {
-  validateAuditTimestamp, type AuditTimestampResult,
-} from '@0xhoneyjar/loa-hounfour/commons'
+| Criteria | Validation |
+|----------|------------|
+| Team members rate personality quality 4+/5 | Post-chat feedback during soft launch |
+| Users can distinguish agents by conversation alone | Blind test: guess which archetype from conversation |
+| Personality feels "alive", not templated | Subjective team assessment |
 
-// hounfour FR-5: advisory-lock.ts
-import { computeAdvisoryLockKey } from '@0xhoneyjar/loa-hounfour/commons'
-
-// hounfour FR-3: feedback-dampening.ts
-import {
-  FeedbackDampeningConfigSchema, computeDampenedScore,
-  FEEDBACK_DAMPENING_ALPHA_MIN, FEEDBACK_DAMPENING_ALPHA_MAX,
-  DAMPENING_RAMP_SAMPLES, DEFAULT_PSEUDO_COUNT,
-  type FeedbackDampeningConfig,
-} from '@0xhoneyjar/loa-hounfour/commons'
-
-// hounfour FR-8: governed-resource-runtime.ts
-import {
-  TransitionResultSchema, InvariantResultSchema, MutationContextSchema,
-  GovernedResourceBase,
-  type TransitionResult, type InvariantResult, type MutationContext,
-  type GovernedResource,
-} from '@0xhoneyjar/loa-hounfour/commons'
-```
-
-### From `@0xhoneyjar/loa-hounfour/integrity` (hounfour FR-4: consumer-contract.ts)
-
-```typescript
-import {
-  ConsumerContractEntrypointSchema, ConsumerContractSchema,
-  validateConsumerContract, computeContractChecksum,
-  type ConsumerContractEntrypoint, type ConsumerContract,
-  type ContractValidationResult,
-} from '@0xhoneyjar/loa-hounfour/integrity'
-```
-
-### From `@0xhoneyjar/loa-hounfour/governance` (hounfour FR-2: tier-reputation-map.ts)
-
-```typescript
-import { mapTierToReputationState } from '@0xhoneyjar/loa-hounfour/governance'
-```
-
-### From `@0xhoneyjar/loa-hounfour/constraints` (hounfour FR-6: types.ts + evaluator.ts)
-
-```typescript
-import {
-  type ConstraintCondition,
-  resolveConditionalExpression,
-} from '@0xhoneyjar/loa-hounfour/constraints'
-```
+> Sources: Issue #133 "Wow Criteria", Phase 2 interview
 
 ---
 
-## 3. Goals & Success Metrics
+## 3. User & Stakeholder Context
 
-| Goal | Metric | Target |
-|------|--------|--------|
-| Bump hounfour to v8.3.0 | `pnpm why @0xhoneyjar/loa-hounfour` shows v8.3.0 commit | Commit `c29337e` in lockfile |
-| Replace local x402 types | `src/x402/types.ts` local interfaces removed | 0 local x402 schema definitions |
-| Adopt audit timestamp validation | `typebox-formats.ts` local regex removed | `validateAuditTimestamp()` used |
-| Verify chain-bound hash compat | Test suite with known hash vectors passes, dual-format verification | 0 regressions |
-| Adopt advisory lock key | Local key computation replaced | `computeAdvisoryLockKey()` used |
-| Adopt feedback dampening (gated) | Quality pipeline uses canonical dampening behind flag | Feature flag `FINN_CANONICAL_DAMPENING` |
-| CI action version alignment | All workflows use fleet-standard SHAs | 0 version drift |
-| All existing tests pass | `pnpm test` green | 0 regressions |
+### 3.1 Primary Persona: finnNFT Holder
+
+- **Access**: Connects wallet, SIWE authentication
+- **Interaction**: Web chat at `/chat/{tokenId}`, Discord `/agent` command
+- **Ownership model**: Own NFT only — `on-chain-reader.ts:readOwner(tokenId)` must match SIWE wallet
+- **Soft launch scope**: 5-10 allowlisted team members (`CHAT_ALLOWED_ADDRESSES`)
+
+### 3.2 Stakeholders
+
+| Stakeholder | Interest | Involvement |
+|-------------|----------|-------------|
+| @janitooor | Primary maintainer, PR reviewer | Approval on all implementation |
+| Team members | Soft launch testers | Quality feedback on personality distinctiveness |
+
+> Sources: Issue #133 Gate 5 (access control), Phase 3 interview
 
 ---
 
-## 4. Scope
+## 4. Functional Requirements
 
-### In Scope
+### FR-1: End-to-End Pipeline Wiring
 
-#### FR-1: Pin Bump (P0)
+**When** a user creates a chat session with a `tokenId`, **the system shall** resolve personality through this pipeline:
 
-Update `package.json` hounfour dependency from:
-```json
-"@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#33d2b710ec939711568c596503f9d7b61575eeb3"
 ```
-to:
-```json
-"@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#c29337e305005c5de56f8796ba391fb42108b5c5"
+Session creation (agent-chat.ts)
+  → Verify ownership: readOwner(tokenId) == SIWE wallet
+  → Check cache: PersonalityStore.get(tokenId) → Redis → Postgres
+  → Cache miss: OnChainReader.readSignals(tokenId)
+  → Signal derivation: buildSignalSnapshot() → deriveDAMP()
+  → Identity graph: KnowledgeGraphLoader.extractSubgraph()
+  → BEAUVOIR synthesis: BeauvoirSynthesizer.synthesize() [Opus]
+  → Store: PersonalityStore.write() [Redis + Postgres dual-write]
+  → Resolve: resolvePersonalityPrompt() → inject into system prompt
 ```
 
-Run `pnpm install`, verify lockfile resolves correctly. v8.3.0 is API-additive (MINOR release, no removed exports).
+**Integration points** (existing code to wire):
+- `src/nft/on-chain-reader.ts` → `readSignals(tokenId)` returns `SignalSnapshot`
+- `src/nft/signal-engine.ts` → `buildSignalSnapshot()` constructs full signal
+- `src/nft/damp.ts` → `deriveDAMP(snapshot)` returns `DAMPFingerprint` (96 dials)
+- `src/nft/identity-graph.ts` → `extractSubgraph(archetype, ancestor, era, element)` returns `SynthesisSubgraph`
+- `src/nft/beauvoir-synthesizer.ts` → `synthesize(fingerprint, signals, subgraph)` returns BEAUVOIR.md
+- `src/nft/personality-resolver.ts` → `resolvePersonalityPrompt()` wraps in `<system-personality>` delimiters
+- `src/nft/personality-context.ts` → `buildPersonalityContext()` creates protocol v4.5 context
+- `src/nft/name-derivation.ts` → `nameKDF(signals)` returns canonical agent name
 
-**Rollback procedure:** If runtime-only incompatibilities emerge after pin bump (types check but runtime fails):
-1. Revert `package.json` to the v8.2.0 SHA
-2. Run `pnpm install` to restore lockfile
-3. Run `pnpm test` to verify clean revert
-4. Document the incompatibility in `NOTES.md` blockers section
+**Concurrency control (SKP-004):** The pipeline MUST use a per-token distributed lock (Redis `SET NX` with expiry) to prevent duplicate Opus synthesis for the same tokenId. Concurrent requests for the same token wait on the lock rather than triggering parallel synthesis. Writes use compare-and-swap by content hash to prevent last-writer-wins corruption.
 
-> Flatline IMP-001: Rollback procedure added (avg score 885).
+**Dual-write consistency (SKP-003):** Postgres is the source of truth. Write order: Postgres first (with idempotency key), then Redis cache. On read, if Redis and Postgres disagree (content hash mismatch), perform read-repair from Postgres. Store `personality_version` / `content_hash` in both stores for mismatch detection.
 
-**Supply-chain note:** Hounfour is consumed via git commit SHA pin, not a registry package. This is the established pattern across the ecosystem (finn, dixie, freeside all use the same mechanism). The hounfour repo has branch protection enabled on `main`. Full registry publishing with signed provenance is tracked as a future ecosystem improvement but is out of scope for this cycle.
+**BEAUVOIR sanitization (SKP-008):** Generated BEAUVOIR content MUST be sanitized before storage: strip/escape `<system-personality>` delimiter tokens and any system-role directives. Validate against allowed sections/headers and enforce length limits. The anti-narration validator already catches some adversarial patterns; add delimiter-specific checks.
 
-> Flatline SKP-001: Supply-chain risk acknowledged. Registry migration deferred — ecosystem-wide concern, not finn-specific.
+**WebSocket loading sequence (IMP-002):** For cold-cache resolution (up to 20s), the WebSocket MUST send a structured loading state frame: `{ "type": "personality_loading", "stage": "on_chain_read|damp_derivation|synthesis|caching", "progress_percent": N }`. Client renders a loading indicator until `{ "type": "personality_ready", "agent_name": "...", "archetype": "..." }` is received.
 
-**Acceptance Criteria:**
-- AC1: `package.json` contains the exact v8.3.0 dependency string above
-- AC2: `pnpm install` succeeds; `pnpm why @0xhoneyjar/loa-hounfour` output shows commit `c29337e`
-- AC3: `pnpm test` passes with 0 failures and 0 new warnings
+**Experience engine ordering (IMP-005):** Drift is applied at read-time, NOT during synthesis. The canonical order is: `birth_fingerprint` (immutable) + `stored_drift_offsets` (versioned, Postgres) = `effective_fingerprint` (computed). Synthesis uses the `effective_fingerprint`. Drift offsets are updated asynchronously post-session via atomic Postgres transaction with optimistic concurrency.
 
-#### FR-2: x402 Schema Canonicalization (P0)
+**Acceptance criteria**:
+- A tokenId in the WebSocket query produces a personality derived from on-chain traits, not from static config
+- Ownership verification rejects non-owners with appropriate error
+- Pipeline completes within 20s on cold cache, <1s on warm cache
+- Concurrent requests for same tokenId do not trigger duplicate synthesis
+- Postgres is always consistent; Redis may lag but self-heals via read-repair
+- Generated BEAUVOIR content cannot break out of system-personality delimiters
 
-Replace local x402 interfaces in `src/x402/types.ts` with canonical schemas from `@0xhoneyjar/loa-hounfour/economy` (source: `src/economy/x402-payment.ts`).
+> Sources: Issue #132 Sprint 1, Flatline SKP-004 (HIGH:760), SKP-003 (HIGH:770), SKP-008 (CRITICAL:940), IMP-002, IMP-005
 
-| Local Interface (src/x402/types.ts) | Canonical Export |
-|-------------------------------------|-----------------|
-| `X402Quote` (local interface) | `X402QuoteSchema` / `type X402Quote` |
-| `PaymentProof` (local interface) | `X402PaymentProofSchema` / `type X402PaymentProof` |
-| `SettlementResult` (local interface) | `X402SettlementSchema` / `type X402Settlement` |
+### FR-2: Identity Graph Integration
 
-Keep finn-specific types in `src/x402/types.ts`: `X402Error`, `ChainConfig`, `EIP3009Authorization`, USDC address lookups. Re-export canonical types from `src/hounfour/protocol-types.ts`.
+**The system shall** inject cultural references, aesthetic preferences, and philosophical foundations from the identity graph into the BEAUVOIR synthesis prompt.
 
-**Acceptance Criteria:**
-- AC4: Local `X402Quote`, `PaymentProof`, `SettlementResult` interface definitions removed from `src/x402/types.ts`
-- AC5: All x402 consumers compile successfully with canonical types (verified by `pnpm tsc --noEmit`)
-- AC6: `pnpm test` passes with 0 failures — no test modifications needed (types are structurally compatible)
+**Current state**: `identity-graph.ts` (483 lines) has `extractSubgraph()`, `resolveCulturalReferences()`, `resolveAestheticPreferences()`, `resolvePhilosophicalFoundations()` — all implemented. `buildSynthesisPrompt()` has slots for this data but receives empty inputs.
 
-#### FR-3: Audit Timestamp Validation (P1)
+**Task**: Wire `KnowledgeGraphLoader.extractSubgraph()` output into `BeauvoirSynthesizer.buildSynthesisPrompt()` so the synthesis prompt includes:
+- Cultural references from ancestor's codex neighborhood (hop depth = 2)
+- Aesthetic notes from archetype affinity
+- Philosophical lineage from era + element nodes
 
-Replace the local ISO 8601 regex in `src/hounfour/typebox-formats.ts`:
-```typescript
-const ISO_8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/
+**Acceptance criteria**:
+- Generated BEAUVOIR docs reference cultural context appropriate to the ancestor
+- Two agents with different ancestors produce visibly different cultural grounding
+
+> Sources: Code analysis (`identity-graph.ts:483`, `beauvoir-synthesizer.ts:511`)
+
+### FR-3: Experience Engine Wiring
+
+**The system shall** track interactions per personality and apply gradual dial drift over time.
+
+**Current state**: `experience-engine.ts` (322 lines) fully implements:
+- Epoch triggers after N interactions
+- Per-dial exponential decay with 30-day half-life
+- Drift formula: `impact * exp(-ln(2)/30 * age_days)`
+- Clamping: ±0.5% per epoch, ±5% cumulative from birth values
+- `experience-accumulator.ts`, `experience-rebase.ts`, `experience-config.ts` all implemented
+
+**Task**: Wire experience engine into personality resolution path:
+- After each session, increment interaction counter
+- On epoch trigger, compute dial drift from accumulated interactions
+- Apply drift offsets during `resolvePersonalityPrompt()` before synthesis
+- Store experience state in Redis/Postgres
+
+**Acceptance criteria**:
+- Interaction count tracked per tokenId
+- After N interactions (configurable epoch size), personality dials shift within ±0.5% bounds
+- Cumulative drift never exceeds ±5% from birth values
+
+> Sources: Code analysis (`experience-engine.ts`, `experience-types.ts`, `experience-accumulator.ts`)
+
+### FR-4: Pre-Computed Demo Personalities
+
+**The system shall** support pre-computing personality derivations for known tokenIds.
+
+**Task**: Create a script/command that:
+1. Takes a list of tokenIds (or reads from config)
+2. Runs the full pipeline: on-chain read → DAMP → identity graph → BEAUVOIR synthesis → cache write
+3. Validates anti-narration on each generated BEAUVOIR
+4. Reports distinctiveness scores between all generated personalities
+
+**For soft launch**: Use test/mock tokenIds initially, swap for real team-owned IDs before launch.
+
+**Acceptance criteria**:
+- 5 personalities pre-computed and cached
+- All pass anti-narration validation
+- Pairwise cosine similarity < 0.7
+
+> Sources: Issue #132 Sprint 3, Phase 5 interview
+
+### FR-5: Chat Metadata — Name & Archetype
+
+**The system shall** expose the agent's derived name and archetype in API response metadata and chat page UX.
+
+**loa-finn (API)**:
+- Include `agent_name` (from `nameKDF()`), `archetype`, `era` in session creation response
+- Include in WebSocket personality metadata frame
+
+**loa-freeside (UX)**:
+- Update `chat-page.routes.ts` to display agent name instead of generic "Agent Chat"
+- Show archetype/era as flavor text
+- Optionally show tarot card or zodiac as visual flair
+
+**Acceptance criteria**:
+- Chat page shows derived agent name (e.g., "Kael Tempest" not "Agent #1")
+- Archetype visible as secondary metadata
+
+> Sources: Issue #132 Sprint 3 Task 3.4, Phase 3/6 interview
+
+### FR-6: Centralized Ownership Verification Gate
+
+**When** a user attempts to create a chat session via ANY entry point (HTTP, WebSocket, Discord, or future paths), **the system shall** verify NFT ownership through a single centralized function:
+
 ```
-with `validateAuditTimestamp()` from `@0xhoneyjar/loa-hounfour/commons` (source: `src/commons/audit-timestamp.ts`). The canonical validator returns `{ valid: boolean; normalized: string; error?: string }`.
+verifyOwnership(tokenId, wallet) → centralized service function
+  → On-chain ownerOf() call (NOT cached for auth decisions)
+  → Match against SIWE-authenticated wallet address
+  → Allow if match, reject with 403 if mismatch
+  → Short TTL owner cache (60s max) for repeated checks within same session
+```
 
-**Compatibility requirement:** Create a test fixture file (`tests/finn/hounfour/audit-timestamp-fixtures.json`) with timestamps extracted from existing audit trail entries. Run both local regex and canonical validator against fixtures. Any existing valid timestamp that the canonical validator rejects requires a documented exception or data migration.
+**Centralization requirement (SKP-001):** All session creation paths MUST route through a single `verifyOwnership()` function. Deny-by-default: if tokenId is present but ownership not validated, reject. Integration tests MUST cover every entry point.
 
-**Acceptance Criteria:**
-- AC7: `typebox-formats.ts` uses `validateAuditTimestamp()` for TypeBox `date-time` format registration
-- AC8: Local `ISO_8601_RE` regex removed
-- AC9: Timestamp fixture file contains >= 20 valid and >= 10 invalid timestamps; `pnpm test:audit-fixtures` passes
-- AC10: If canonical validator rejects any existing valid timestamp, a migration decision is documented in `NOTES.md` blockers section
+**Ownership cache TTL (SKP-002):** Ownership data MUST NOT use the 24h signal cache. Auth-layer ownership uses a separate 60s TTL cache. On NFT transfer, `transfer-listener.ts` invalidates immediately. Store `blockNumber` with ownership reads for staleness detection.
 
-#### FR-4: Chain-Bound Hash Adoption (P1)
+**Active-session transfer behavior (IMP-004):** If ownership changes during an active session, the current session completes but no new sessions are allowed for the old owner. Transfer invalidation is eventual (within 60s TTL) for in-flight sessions.
 
-Verify finn's audit hash chain (`src/cron/store.ts`, `src/hounfour/audit/dynamo-audit.ts`) is compatible with `computeChainBoundHash()` from `@0xhoneyjar/loa-hounfour/commons` (source: `src/commons/chain-bound-hash.ts`). Signature: `computeChainBoundHash(entry: AuditEntryHashInput, domainTag: string, previousHash: string): string`.
+**Acceptance criteria**:
+- Non-owners receive 403 with clear error message on ALL entry points
+- Ownership check uses 60s TTL cache (NOT 24h signal cache)
+- Transfer events invalidate ownership cache immediately
+- Soft launch: also checks `CHAT_ALLOWED_ADDRESSES` allowlist
+- Integration tests cover HTTP, WebSocket, and any other session creation paths
 
-Finn already imports `computeAuditEntryHash()` from v8.2.0. The chain-bound variant adds domain tag binding. Adopt `validateDomainTag()` where finn constructs domain tags via `buildDomainTag()`.
+> Sources: Issue #133 Gate 5, Flatline SKP-001 (CRITICAL:910), SKP-002 (CRITICAL:880), IMP-004 (HIGH_CONSENSUS)
 
-**Compatibility requirements:**
-1. Existing stored hashes must remain verifiable (chain-bound hash must not invalidate entries written with `computeAuditEntryHash`)
-2. New entries may use `computeChainBoundHash()` if domain tag is available
-3. Create a deterministic test that computes hashes for a known 3-entry sequence and matches expected values
+### FR-7: Fallback & Degradation Chain
 
-**Dual-format verification strategy:** Introduce a `hashAlg` field in audit entry metadata to distinguish legacy entries (computed with `computeAuditEntryHash`) from new entries (computed with `computeChainBoundHash`). Verification logic must detect the algorithm version and apply the correct hash function. Entries without `hashAlg` are assumed legacy. This ensures historical audit trails remain verifiable after the write-path transitions to chain-bound hashes.
+**If** any pipeline stage fails, **the system shall** degrade gracefully:
 
-> Flatline SKP-006: Hash versioning and dual-format verification added (severity 860).
+| Failure | Fallback |
+|---------|----------|
+| On-chain read fails | Use cached signals if available, else reject |
+| DAMP derivation fails | Should not fail (pure function), but reject if input invalid |
+| Identity graph load fails | Synthesize without cultural grounding (empty subgraph) |
+| BEAUVOIR synthesis fails (circuit breaker open) | Use cached BEAUVOIR if available, else use static fallback |
+| Redis unavailable | Fall through to Postgres, then on-chain |
 
-**Acceptance Criteria:**
-- AC11: `computeChainBoundHash` and `validateDomainTag` re-exported from `protocol-types.ts`
-- AC12: Hash vector test: compute chain for `[genesis, entry-A, entry-B]` with fixed inputs; assert specific expected hash values for both legacy and chain-bound algorithms
-- AC13: Existing `verifyAuditTrailIntegrity()` tests pass without modification
-- AC14: Verification logic correctly validates both legacy (no `hashAlg`) and chain-bound (`hashAlg: 'chainBoundV1'`) entries
+**Acceptance criteria**:
+- No pipeline failure produces an unhandled error
+- Degradation logged with severity for monitoring
+- Static fallback (`config/personalities.json`) is the last resort, never the default
 
-#### FR-5: Advisory Lock Key (P1)
-
-Replace local advisory lock key computation in `src/safety/audit-trail.ts` with `computeAdvisoryLockKey()` from `@0xhoneyjar/loa-hounfour/commons` (source: `src/commons/advisory-lock.ts`). Signature: `(domainTag: string) => number` — returns signed 32-bit integer via FNV-1a hash.
-
-**Test vector requirement:** Extract 3 lock key test vectors from current implementation: `{ domainTag: string, expectedKey: number }`. Verify canonical function produces identical keys. If keys differ, do NOT replace — document incompatibility in `NOTES.md`.
-
-**Acceptance Criteria:**
-- AC15: `computeAdvisoryLockKey()` re-exported from `protocol-types.ts`
-- AC16: Test file contains >= 3 lock key vectors; all pass with canonical function
-- AC17: If canonical function produces different keys for same inputs, replacement is blocked and documented
-
-#### FR-6: Feedback Dampening (P2) — BEHAVIORAL CHANGE
-
-Adopt `computeDampenedScore()` from `@0xhoneyjar/loa-hounfour/commons` (source: `src/commons/feedback-dampening.ts`). Signature: `(oldScore: number | null, newScore: number, sampleCount: number, config?: FeedbackDampeningConfig) => number`. This is an **intentional behavioral change** — the canonical dampening algorithm may produce different scores than finn's current local implementation.
-
-**Rollout strategy:** Gate behind `FINN_CANONICAL_DAMPENING` env var (default: `false`). When enabled, use canonical `computeDampenedScore()`; when disabled, use existing local logic. Log both values for comparison. Remove flag after validation on staging.
-
-**Promotion gate:** The feature flag may be promoted to `true` (and local logic removed) when:
-- Staging comparison logs show max absolute score delta < 0.05 across >= 100 routing decisions
-- No quality signal anomalies observed in staging metrics for >= 24 hours
-
-> Flatline IMP-003: Quantitative promotion gate added (avg score 850).
-
-**Config validation failure behavior:** If `FeedbackDampeningConfigSchema` validation fails at startup, log warning and fall back to local implementation (do not block service startup).
-
-**Acceptance Criteria:**
-- AC18: Feature flag `FINN_CANONICAL_DAMPENING` controls which dampening function is used
-- AC19: When flag is disabled, behavior is identical to current implementation (0 diff)
-- AC20: When flag is enabled, canonical function is called; both local and canonical scores are logged for comparison
-- AC21: Dampening config validated against `FeedbackDampeningConfigSchema` at startup; invalid config falls back to local implementation with warning log
-- AC22: Promotion criteria documented in `NOTES.md` (delta threshold + observation window)
-
-#### FR-7: GovernedResource Runtime Interface (P2) — TYPE-LEVEL ONLY
-
-Adopt `GovernedResource<T>` type interface from `@0xhoneyjar/loa-hounfour/commons` (source: `src/commons/governed-resource-runtime.ts`). This is **type-level conformance only** for this cycle — finn's governed state transitions will implement the `GovernedResource<T>` generic interface, verified by the TypeScript compiler. Runtime schema validation via `TransitionResultSchema`/`InvariantResultSchema` is deferred to a future cycle.
-
-> Flatline IMP-002: Reclassified from "BEHAVIORAL CHANGE" to "TYPE-LEVEL ONLY" — no runtime behavior change in this cycle (avg score 835).
-
-**Acceptance Criteria:**
-- AC23: `GovernedResource<T>`, `GovernedResourceBase`, `TransitionResult`, `InvariantResult`, `MutationContext` types re-exported from `protocol-types.ts`
-- AC24: At least one finn governed state transition implements `GovernedResource<T>` — verified by `pnpm tsc --noEmit` (compiler enforces interface conformance)
-- AC25: No runtime schema validation added in this cycle (deferred)
-
-#### FR-8: Consumer Contract Validation (P2) — BEHAVIORAL CHANGE
-
-Adopt `ConsumerContractSchema` and `validateConsumerContract()` from `@0xhoneyjar/loa-hounfour/integrity` (source: `src/integrity/consumer-contract.ts`). Signature: `validateConsumerContract(contract: ConsumerContract, exportMap: Record<string, string[]>): ContractValidationResult`.
-
-**Rollout strategy:** Warn-only mode. Contract validation runs at service startup with `console.warn()` on failure — does NOT block startup or reject requests. Fail-closed enforcement deferred until downstream services (dixie, freeside) have conforming contracts.
-
-**Acceptance Criteria:**
-- AC26: `ConsumerContractSchema`, `validateConsumerContract`, `computeContractChecksum` re-exported from `protocol-types.ts`
-- AC27: Startup validation runs in warn-only mode: logs warning on contract mismatch, does not throw or exit
-- AC28: Contract definition stored as code constant (not fetched from external source)
-
-#### FR-9: Re-export New Governance + Constraint Exports (P3)
-
-Re-export `mapTierToReputationState` from `/governance` and `ConstraintCondition`/`resolveConditionalExpression` from `/constraints` via `protocol-types.ts`. **No local implementation exists to replace** — these are forward-looking re-exports for future use.
-
-**Acceptance Criteria:**
-- AC29: `mapTierToReputationState`, `ConstraintCondition`, `resolveConditionalExpression` available via `protocol-types.ts`
-- AC30: `pnpm tsc --noEmit` passes (imports resolve correctly)
-
-#### FR-10: CI Action Version Standardization (P1)
-
-Standardize all action SHAs to fleet-standard versions. Target SHAs (verified from existing majority usage):
-
-| Action | Target SHA | Version | Files to Update |
-|--------|-----------|---------|-----------------|
-| `actions/checkout` | `34e114876b0b11c390a56381ad16ebd13914f8d5` | v4.3.1 | deploy-staging.yml lines 44, 77 |
-| `amazon-ecs-render-task-definition` | `9666dc9a3bf790a3a7a3a3ce7d1a8600100b0ad2` | v1.7.2 | deploy-staging.yml line 162 |
-| `amazon-ecs-deploy-task-definition` | `3e7310352de28fdb25b55df7a1dfd15a5ddeb369` | v2.3.1 | deploy-staging.yml line 169 |
-| `actions/upload-artifact` | `4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1` | v4.6.1 | oracle.yml line 91 |
-
-No functional workflow changes. No new verification steps added to workflows. SHA-to-version correspondence verified manually in PR description.
-
-**Note on broader CI pinning:** All 11 workflows already pin third-party actions to commit SHAs — this FR only addresses version *drift* (same action at different SHAs). A comprehensive CI supply-chain audit (automated SHA-to-release verification, tag retargeting detection) is a valid future improvement but out of scope for this cycle.
-
-> Flatline SKP-002: Broader CI pinning audit acknowledged as future work. Current scope limited to drift alignment.
-
-**Acceptance Criteria:**
-- AC31: `deploy-staging.yml` lines 44, 77 use checkout SHA `34e114876b...` (v4.3.1)
-- AC32: `deploy-staging.yml` line 162 uses ECS render SHA `9666dc9a3b...` (v1.7.2)
-- AC33: `deploy-staging.yml` line 169 uses ECS deploy SHA `3e7310352d...` (v2.3.1)
-- AC34: `oracle.yml` line 91 uses upload-artifact SHA `4cec3d8aa0...` (v4.6.1)
-- AC35: `grep -r 'uses:' .github/workflows/ | sort` shows no SHA duplicates for same action
-
-### Out of Scope
-
-- Hounfour v9 contributions (covered by archived cycle-037 PRD)
-- New CI workflows or pipeline restructuring
-- Node.js version changes (current multi-version matrix is correct)
-- Breaking changes to finn's public API
-- Dixie/freeside deployment changes
-- Runtime schema validation for GovernedResource (deferred)
-- Fail-closed consumer contract enforcement (deferred)
-- Registry-based package publishing for hounfour (ecosystem-wide concern)
-- Automated CI SHA-to-release verification tooling (future improvement)
+> Sources: Code analysis (circuit breaker in `beauvoir-synthesizer.ts`, `personality-provider-chain.ts` fallback order)
 
 ---
 
-## 5. Technical Approach
+## 5. Technical & Non-Functional Requirements
 
-### 5.1 Protocol Types Barrel Strategy
+### 5.1 Performance
 
-All new v8.3.0 re-exports go through `src/hounfour/protocol-types.ts` — finn's single import point for hounfour. This preserves the existing pattern and makes future upgrades a single-file diff for re-exports.
+| Metric | Target |
+|--------|--------|
+| Cached personality resolution | < 100ms |
+| Cold cache (on-chain + synthesis) | < 20s (with loading state) |
+| Pre-computed personality load | < 50ms |
+| Streaming response start | < 3s after personality resolved |
 
-### 5.2 Local Implementation Replacement Pattern
+### 5.2 Synthesis Model
 
-For each local implementation being replaced:
-1. Add canonical import to `protocol-types.ts`
-2. Create test vectors from current implementation's behavior
-3. Verify canonical function produces identical outputs for test vectors
-4. If identical: update consuming module, remove local implementation
-5. If different: document incompatibility, do NOT replace (block item)
+- **Model**: Claude Opus for BEAUVOIR generation
+- **Rationale**: Highest personality depth and nuance for the "wow" factor
+- **Cost**: One-time per personality (cached after generation)
 
-### 5.3 Behavioral Change Gating
+### 5.3 Caching Architecture
 
-FRs classified as behavioral changes (FR-6 feedback dampening, FR-8 consumer contracts) use feature flags or warn-only modes. This ensures the pin bump and API surface adoption can merge independently of behavioral validation. FR-7 (GovernedResource) is type-level only — no runtime gating needed.
+| Layer | Store | TTL | Purpose |
+|-------|-------|-----|---------|
+| Signal cache | Redis | 24h | On-chain signal snapshots |
+| Personality store | Redis + Postgres | 1h / permanent | BEAUVOIR docs + DAMP fingerprints |
+| R2 backup | S3-compatible | Permanent | BEAUVOIR.md versioned backup |
+| Identity graph cache | Redis | 24h | Codex subgraphs |
 
-### 5.4 CI Standardization
+**Already built**: `signal-cache.ts`, `personality-store.ts`, `identity-graph.ts:IdentityGraphCache`
 
-Pin to the SHA already used by the majority of workflows (fleet standard). No version bumps — only alignment. Each updated file gets a single commit for clear git blame.
+### 5.4 Security
 
-### 5.5 Sprint Dependency Order
+- Ownership verification via on-chain `ownerOf()` before session creation
+- Anti-narration validation (7 constraints) on every BEAUVOIR generation
+- Temporal voice domain checking per era
+- SIWE + JWT auth chain (existing)
+- Soft launch allowlist (`CHAT_ALLOWED_ADDRESSES`)
 
-Sprint 1 (pin bump + x402 + CI) MUST complete before Sprint 2 (audit timestamp + hash + lock), which MUST complete before Sprint 3 (dampening + GovernedResource + contract). This ordering reflects:
-- FR-1 (pin bump) is prerequisite for all other FRs — new exports are not available until v8.3.0 is installed
-- FR-10 (CI) is independent and parallelizable with FR-1/FR-2
-- Sprint 2 FRs are pure adoption with test vectors; Sprint 3 FRs involve behavioral gating
+### 5.5 Scale-Out Design (Architecture Documentation)
 
----
+Document (not implement) the following patterns for 100K+ NFTs:
 
-## 6. Risks & Dependencies
+1. **Batch derivation**: Pre-compute DAMP fingerprints for all minted tokenIds during off-peak hours
+2. **Cache warming**: Proactive synthesis for frequently accessed agents (top 1000 by interaction count)
+3. **Synthesis queue**: Rate-limited BEAUVOIR generation to prevent Opus API burst
+4. **Degradation tiers**: Full personality → cached BEAUVOIR → generic archetype template → static fallback
+5. **Transfer invalidation**: `transfer-listener.ts` already exists — document integration with cache invalidation
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| v8.3.0 type incompatibility with finn's local x402 types | Low | Medium | Verify structural compatibility via `pnpm tsc --noEmit` before removing locals |
-| Canonical audit timestamp validator rejects existing stored timestamps | Medium | Low | Fixture-based comparison (AC9-AC10); block replacement if incompatible |
-| Advisory lock key computation differs between local and canonical | Low | High | Test vector comparison (AC16-AC17); block replacement if different |
-| Canonical feedback dampening produces materially different scores | Expected | Medium | Feature flag rollout (AC18-AC22); log comparison on staging; quantitative promotion gate |
-| Chain-bound hash breaks legacy audit trail verification | Low | Critical | Dual-format verification with `hashAlg` field (AC14); legacy entries verified with legacy function |
-| CI SHA update breaks workflow | Very Low | Low | All changes are patch-level version alignment within same major |
-
-### Dependencies
-
-- **Hounfour v8.3.0** — MERGED (PR #39, commit `c29337e`). No dependency risk.
-- **pnpm** — Already using pnpm. No change needed.
-- **Freeside Issue #108** — Parallel v8.3.0 upgrade. No coordination needed.
-
----
-
-## 7. Non-Functional Requirements
-
-| NFR | Requirement | Verification |
-|-----|------------|-------------|
-| Backward compatibility | Zero breaking changes to finn's public API | `pnpm tsc --noEmit` + `pnpm test` |
-| Test coverage | All existing tests pass; new fixture tests for adopted functions | `pnpm test` shows 0 regressions |
-| Performance | No measurable latency change | Canonical functions are pure/synchronous |
-| Bundle size | Net reduction (removing local implementations) | `du -sh dist/` before/after |
+> Sources: Phase 5 interview, `transfer-listener.ts` (231 lines, implemented)
 
 ---
 
-## 8. Implementation Notes
+## 6. Scope & Prioritization
 
-### Sprint Sizing
+### 6.1 In Scope (This Cycle)
 
-Estimated 3 sprints (dependency-ordered — see §5.5):
-- **Sprint 1** (P0 + CI): Pin bump (FR-1) + x402 schemas (FR-2) + CI standardization (FR-10) + re-exports (FR-9)
-- **Sprint 2** (P1 — requires Sprint 1): Audit timestamp (FR-3) + chain-bound hash (FR-4) + advisory lock (FR-5)
-- **Sprint 3** (P2 — requires Sprint 2): Feedback dampening (FR-6) + GovernedResource (FR-7) + consumer contract (FR-8)
+| Priority | Feature | Repos |
+|----------|---------|-------|
+| P0 | FR-1: Pipeline wiring (tokenId → personality → session) | loa-finn |
+| P0 | FR-6: Ownership verification gate | loa-finn |
+| P0 | FR-7: Fallback & degradation chain | loa-finn |
+| P1 | FR-2: Identity graph integration into synthesis | loa-finn |
+| P1 | FR-3: Experience engine wiring | loa-finn |
+| P1 | FR-4: Pre-computed demo personalities (5 test tokenIds) | loa-finn |
+| P2 | FR-5: Chat metadata — name & archetype display | loa-finn + loa-freeside |
+| P2 | Scale-out architecture documentation | loa-finn (docs) |
 
-### Key Files
+### 6.2 Explicitly Out of Scope
 
-| File | Role | Change |
+| Feature | Reason |
+|---------|--------|
+| Governance/DAO voting enforcement | Post-launch feature, governance_model field exists but enforcement deferred |
+| Routing affinity enforcement in hounfour | Partial wire exists, not needed for soft launch |
+| Agent mode switching endpoint | Post-launch personalization feature |
+| Flatline review integration for synthesis | Quality gate, not critical path |
+| Discord bot personality integration | Separate work track in loa-freeside |
+| Eval harness integration into CI | Quality tooling, not launch-blocking |
+| Personality versioning UI | API-level versioning exists, UI deferred |
+
+### 6.3 Cross-Repo Work
+
+| Repo | Work | Effort |
 |------|------|--------|
-| `package.json` | Hounfour pin | Bump commit SHA to `c29337e` |
-| `pnpm-lock.yaml` | Lockfile | Regenerated by `pnpm install` |
-| `src/hounfour/protocol-types.ts` | Re-export barrel | Add ~30 new re-exports |
-| `src/x402/types.ts` | Local x402 interfaces | Remove replaced interfaces, keep finn-specific types |
-| `src/hounfour/typebox-formats.ts` | ISO 8601 regex | Replace with `validateAuditTimestamp()` |
-| `src/safety/audit-trail.ts` | Advisory lock | Replace local key computation |
-| `src/hounfour/goodhart/quality-signal.ts` | Quality scoring | Adopt canonical dampening behind feature flag |
-| `src/hounfour/audit/dynamo-audit.ts` | Audit hash chain | Add `hashAlg` field, dual-format verification |
-| `.github/workflows/deploy-staging.yml` | CI | Update 4 action SHAs |
-| `.github/workflows/oracle.yml` | CI | Update 1 action SHA |
+| **loa-finn** | Pipeline wiring, identity graph, experience engine, demo personalities | Primary dev work |
+| **loa-freeside** | Chat page: display agent name/archetype from API metadata | Light UX update |
+
+> Sources: Phase 6 interview, Issue #132 Sprint breakdown
 
 ---
 
-## Appendix: Flatline Review Trail
+## 7. Risks & Dependencies
 
-| ID | Category | Summary | Resolution |
-|----|----------|---------|------------|
-| IMP-001 | HIGH_CONSENSUS (885) | Add rollback procedure for pin bump | Integrated into FR-1 |
-| IMP-002 | HIGH_CONSENSUS (835) | Fix FR-7 scope classification inconsistency | Integrated — FR-7 reclassified to TYPE-LEVEL ONLY |
-| IMP-003 | HIGH_CONSENSUS (850) | Add quantitative promotion gate for dampening | Integrated into FR-6 |
-| IMP-004 | HIGH_CONSENSUS (855) | Fix FR numbering in export inventory | Integrated — hounfour FR prefix added throughout §2 |
-| SKP-001 | BLOCKER (900) | Supply-chain risk with git SHA pins | Acknowledged in FR-1; registry migration out of scope |
-| SKP-002 | BLOCKER (720) | CI pinning only covers 4 actions | Acknowledged in FR-10; broader audit out of scope |
-| SKP-006 | BLOCKER (860) | Chain-bound hash backward compatibility | Addressed in FR-4 with dual-format verification strategy |
+### 7.1 Technical Risks
+
+| Risk | Severity | Likelihood | Mitigation |
+|------|----------|------------|------------|
+| Opus synthesis latency (10s+) blocks first session | High | Medium | Pre-compute for known IDs, loading state for cold cache |
+| On-chain reader RPC failures (rate limits, network) | Medium | Medium | Circuit breaker + fallback chain (cache → Postgres → static) |
+| Anti-narration false positives rejecting valid BEAUVOIR | Medium | Low | Retry loop (2 retries) with violation feedback already built |
+| Identity graph missing codex data for some combos | Low | Low | `extractSubgraph()` returns empty subgraph gracefully |
+| Experience engine drift accumulating incorrectly | Medium | Low | ±5% cumulative clamp, rebase mechanism exists |
+| Cross-repo coordination overhead (finn + freeside) | Low | Medium | API contract first, UX second |
+
+### 7.2 Dependencies
+
+| Dependency | Status | Risk |
+|------------|--------|------|
+| `ANTHROPIC_API_KEY` configured for Opus | Available in production secrets | None |
+| Redis for personality caching | Running in staging + production | None |
+| RPC endpoint for finnNFT contract | Configured via `ALCHEMY_API_KEY` | Rate limit risk at scale |
+| IPFS gateway for metadata | Configured in `on-chain-reader.ts` | Latency risk |
+| 5 test tokenIds for demo | To be created with mock on-chain data | Low |
+| Postgres for dual-write | Running, schema needs personality tables | Migration required |
+
+### 7.3 Assumptions
+
+1. **[ASSUMPTION]** `BeauvoirSynthesizer.buildSynthesisPrompt()` handles all 12 DAMP categories adequately — enrichment needs identity graph wiring, not prompt restructuring. **If wrong**: Sprint 2 scope expands.
+2. **[ASSUMPTION]** Experience engine wiring doesn't affect synthesis latency — epoch checks are fast, drift computation is pure math. **If wrong**: Experience engine needs async processing path.
+3. **[ASSUMPTION]** `agent-chat.ts` is the sole session creation path. **If wrong**: Discord and other entry points need the same pipeline wiring.
+
+> Sources: Phase 7 interview, code analysis
+
+---
+
+## 8. Appendix: Existing Code Inventory
+
+### 8.1 Pipeline Components (All in `src/nft/`)
+
+| Component | File | Lines | Status |
+|-----------|------|-------|--------|
+| Signal types & constants | `signal-types.ts` | 308 | Complete |
+| Signal engine | `signal-engine.ts` | 391 | Complete |
+| DAMP-96 derivation | `damp.ts` | 305 | Complete |
+| DAMP offset tables | `damp-tables.ts` | 126 | Complete |
+| BEAUVOIR synthesizer | `beauvoir-synthesizer.ts` | 511 | Complete |
+| BEAUVOIR template | `beauvoir-template.ts` | 112 | Complete (fallback) |
+| Anti-narration (7 constraints) | `anti-narration.ts` | 701 | Complete |
+| Temporal voice domain | `temporal-voice.ts` | 206 | Complete |
+| On-chain reader | `on-chain-reader.ts` | 400 | Complete |
+| Signal cache (Redis 24h) | `signal-cache.ts` | 123 | Complete |
+| Personality store (Redis+Pg) | `personality-store.ts` | 228 | Complete |
+| Personality service (CRUD) | `personality.ts` | 1331 | Complete |
+| Personality resolver | `personality-resolver.ts` | 289 | Complete |
+| Personality context (v4.5) | `personality-context.ts` | 248 | Complete |
+| Personality provider chain | `personality-provider-chain.ts` | 62 | Complete |
+| Static personality loader | `static-personality-loader.ts` | 170 | Complete (legacy) |
+| Name derivation (HKDF) | `name-derivation.ts` | 229 | Complete |
+| Identity graph | `identity-graph.ts` | 483 | Complete, **not wired** |
+| Experience engine | `experience-engine.ts` | 322 | Complete, **not wired** |
+| Experience accumulator | `experience-accumulator.ts` | 244 | Complete, **not wired** |
+| Experience config | `experience-config.ts` | 226 | Complete, **not wired** |
+| Experience rebase | `experience-rebase.ts` | 202 | Complete, **not wired** |
+| First contact | `first-contact.ts` | 93 | Complete |
+| Entropy ceremony | `entropy.ts` | 696 | Complete |
+| Transfer listener | `transfer-listener.ts` | 231 | Complete |
+| Codex data loader | `codex-data/loader.ts` | — | Complete |
+
+### 8.2 Current Session Flow (What Changes)
+
+**Before** (static):
+```
+agent-chat.ts → StaticPersonalityLoader → personalities.json → generic prompt
+```
+
+**After** (dynamic):
+```
+agent-chat.ts
+  → verifyOwnership(tokenId, siweWallet)
+  → PersonalityProviderChain.get(tokenId)
+    → PersonalityStore (Redis → Postgres)
+    → [cache miss] OnChainReader.readSignals(tokenId)
+    → deriveDAMP(snapshot)
+    → KnowledgeGraphLoader.extractSubgraph(...)
+    → BeauvoirSynthesizer.synthesize(fingerprint, signals, subgraph) [Opus]
+    → PersonalityStore.write(tokenId, personality) [dual-write]
+    → ExperienceEngine.applyDrift(fingerprint, tokenId) [if epochs accumulated]
+  → resolvePersonalityPrompt(personality)
+  → buildPersonalityContext(personality)
+  → compose system prompt with <system-personality> delimiters
+  → invoke model with personality context
+```

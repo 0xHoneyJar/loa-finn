@@ -127,6 +127,8 @@ export function createAgentChatRoutes(deps: AgentChatDeps): Hono {
       personality: {
         archetype: personality.archetype,
         display_name: personality.display_name,
+        agent_name: personality.display_name,
+        ...(personality.era && { era: personality.era }),
         ...(personalityContext && {
           routing_version: personalityContext.protocol_version,
           dominant_dimensions: personalityContext.dominant_dimensions.slice(0, 3).map(d => d.dial_id),

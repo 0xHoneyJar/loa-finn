@@ -20,6 +20,8 @@ export interface PersonalityConfig {
   expertise_domains: string[]
   /** System prompt template injected into agent context */
   beauvoir_template: string
+  /** Era derived from on-chain signals (Cycle 040 Sprint 2) */
+  era?: string
 }
 
 // ---------------------------------------------------------------------------

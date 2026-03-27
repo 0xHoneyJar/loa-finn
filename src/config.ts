@@ -104,6 +104,17 @@ export interface FinnConfig {
   /** Static personality config path (Sprint 4) */
   personalityConfigPath: string
 
+  /** Per-NFT personality pipeline — Mibera on Berachain (Cycle 040) */
+  personality: {
+    enabled: boolean
+    /** Mibera ERC-721 contract address on Berachain (chain ID 80094) */
+    contractAddress: string
+    /** Berachain JSON-RPC endpoint for on-chain reads */
+    rpcUrl: string
+    collectionSalt: string
+    allowedAddresses: string[]
+  }
+
   /** PostgreSQL database (Sprint 1 — finn schema) */
   postgres: {
     enabled: boolean
@@ -285,6 +296,17 @@ export function loadConfig(): FinnConfig {
     },
 
     personalityConfigPath: process.env.FINN_PERSONALITY_CONFIG ?? "config/personalities.json",
+
+    personality: {
+      enabled: process.env.FINN_PERSONALITY_PIPELINE === "true",
+      contractAddress: process.env.FINN_NFT_CONTRACT_ADDRESS ?? "0x6666397dfe9a8c469bf65dc744cb1c733416c420",
+      rpcUrl: process.env.BERACHAIN_RPC_URL ?? "https://rpc.berachain.com",
+      collectionSalt: process.env.FINN_COLLECTION_SALT ?? "finnNFT-default-salt",
+      allowedAddresses: (process.env.CHAT_ALLOWED_ADDRESSES ?? "")
+        .split(",")
+        .map((a) => a.trim().toLowerCase())
+        .filter(Boolean),
+    },
 
     postgres: {
       enabled: process.env.FINN_POSTGRES_ENABLED === "true",

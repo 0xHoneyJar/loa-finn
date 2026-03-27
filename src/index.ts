@@ -601,9 +601,101 @@ async function main() {
     console.log("[finn] sidecar mode requested but hounfour not available — skipped")
   }
 
+  // 6e. Initialize personality pipeline (Cycle 040 — Per-NFT Personality)
+  let personalityAppOptions: Record<string, unknown> = {}
+  if (config.personality.enabled && redis?.isConnected() && finnDb) {
+    try {
+      const { OnChainReader } = await import("./nft/on-chain-reader.js")
+      const { SignalCache } = await import("./nft/signal-cache.js")
+      const { PersonalityStore } = await import("./nft/personality-store.js")
+      const { PersonalityPipelineOrchestrator } = await import("./nft/personality-pipeline.js")
+      const { createSubgraphResolver } = await import("./nft/identity-graph-resolver.js")
+      const { createPersonalityStorePg } = await import("./nft/personality-store-pg.js")
+      const { RpcPool } = await import("./x402/rpc-pool.js")
+
+      const { berachain } = await import("viem/chains")
+
+      const redisClient = redis.getClient()
+      const rpcPool = new RpcPool({
+        // Berachain: use configured RPC URL (default: https://rpc.berachain.com)
+        rpcUrls: [config.personality.rpcUrl],
+        chain: berachain,
+      })
+      const onChainReader = new OnChainReader({
+        rpcPool,
+        contractAddress: config.personality.contractAddress,
+      })
+      const signalCache = new SignalCache({ redis: redisClient, onChainReader })
+      const pg = createPersonalityStorePg(finnDb)
+      const personalityStore = new PersonalityStore({ redis: redisClient, pg, onChainReader })
+
+      // BeauvoirSynthesizer requires a SynthesisRouter — use hounfour if available
+      let synthesizer: import("./nft/beauvoir-synthesizer.js").BeauvoirSynthesizer | null = null
+      if (hounfour) {
+        const { BeauvoirSynthesizer } = await import("./nft/beauvoir-synthesizer.js")
+        const synthRouter = {
+          invoke: async (agent: string, prompt: string, options?: { temperature?: number; max_tokens?: number }) => {
+            const result = await hounfour.invoke({
+              messages: [{ role: "user", content: prompt }],
+              model: "claude-opus-4-6",
+              temperature: options?.temperature ?? 0.7,
+              maxTokens: options?.max_tokens ?? 2048,
+            })
+            return { content: result.content ?? "" }
+          },
+        }
+        synthesizer = new BeauvoirSynthesizer(synthRouter)
+      }
+
+      if (synthesizer) {
+        const pipeline = new PersonalityPipelineOrchestrator({
+          signalCache,
+          synthesizer,
+          personalityStore: personalityStore,
+          redis: redisClient,
+          collectionSalt: config.personality.collectionSalt,
+          resolveSubgraph: createSubgraphResolver(),
+        })
+
+        const allowedSet = new Set(config.personality.allowedAddresses)
+
+        personalityAppOptions = {
+          personalityProvider: pipeline,
+          agentChatDeps: {
+            personalityProvider: pipeline,
+            generateResponse: async (systemPrompt: string, userMessage: string) => {
+              if (!hounfour) throw new Error("Hounfour not available")
+              const result = await hounfour.invoke({
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: userMessage },
+                ],
+              })
+              return result.content ?? ""
+            },
+          },
+          ownershipGateConfig: {
+            redis: redisClient,
+            readOwner: (tokenId: string) => onChainReader.readOwner(tokenId),
+            ownerCacheTtlSeconds: 60,
+            allowedAddresses: allowedSet.size > 0 ? allowedSet : undefined,
+          },
+        }
+
+        console.log(`[finn] personality pipeline: enabled (contract=${config.personality.contractAddress.slice(0, 10)}..., allowlist=${allowedSet.size} addresses)`)
+      } else {
+        console.log("[finn] personality pipeline: skipped (hounfour not available for synthesis)")
+      }
+    } catch (err) {
+      console.warn(`[finn] personality pipeline: initialization failed (non-fatal): ${(err as Error).message}`)
+    }
+  } else if (config.personality.enabled) {
+    console.log("[finn] personality pipeline: skipped (requires redis + postgres)")
+  }
+
   // 7. Create gateway (with executor for sandbox, pool for health stats)
   const ledgerPath = join(config.dataDir, "hounfour", "cost-ledger.jsonl")
-  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient, billingConservationGuard: billingGuard, ledgerPath })
+  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient, billingConservationGuard: billingGuard, ledgerPath, ...personalityAppOptions })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()

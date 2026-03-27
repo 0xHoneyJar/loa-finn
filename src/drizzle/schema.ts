@@ -148,3 +148,19 @@ export const finnEvents = finnSchema.table("finn_events", {
   index("idx_events_stream_timestamp").on(table.stream, table.timestamp),
   index("idx_events_correlation").on(table.correlationId),
 ])
+
+// --- finn_experience_snapshots ---
+// Persistent experience state for personality drift across deploys (Cycle 040, Sprint 2 T-2.3)
+// ExperienceStore loads from this on boot, flushes on epoch triggers.
+export const finnExperienceSnapshots = finnSchema.table("finn_experience_snapshots", {
+  personalityId: text("personality_id").primaryKey(),          // collection:tokenId
+  topicDistribution: jsonb("topic_distribution").notNull().default({}),
+  styleCounts: jsonb("style_counts").notNull().default({}),
+  metaphorFamilies: jsonb("metaphor_families").notNull().default({}),
+  interactionCount: integer("interaction_count").notNull().default(0),
+  epochCount: integer("epoch_count").notNull().default(0),
+  dialOffsets: jsonb("dial_offsets").notNull().default({}),   // Partial<Record<DAMPDialId, number>>
+  pendingInteractions: jsonb("pending_interactions").notNull().default([]),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),   // Unix ms
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),   // Unix ms
+})
