@@ -9,6 +9,7 @@
 
 import type { Context, Next } from "hono"
 import type { OwnershipProvider } from "../nft/chain-config.js"
+import { buildNftId } from "../nft/nft-id.js"
 import * as jose from "jose"
 
 // ---------------------------------------------------------------------------
@@ -27,7 +28,7 @@ const ownerCache = new Map<string, CacheEntry>()
 
 /** Get cached owner for a collection:tokenId pair. Returns null on miss/expired. */
 export function getCachedOwner(collection: string, tokenId: string): string | null {
-  const key = `${collection}:${tokenId}`
+  const key = buildNftId(collection, tokenId)
   const entry = ownerCache.get(key)
   if (!entry) return null
   if (Date.now() > entry.expiresAt) {
@@ -39,7 +40,7 @@ export function getCachedOwner(collection: string, tokenId: string): string | nu
 
 /** Set cached owner with TTL. */
 export function setCachedOwner(collection: string, tokenId: string, owner: string): void {
-  const key = `${collection}:${tokenId}`
+  const key = buildNftId(collection, tokenId)
   ownerCache.set(key, {
     owner,
     expiresAt: Date.now() + CACHE_TTL_MS,
@@ -48,7 +49,7 @@ export function setCachedOwner(collection: string, tokenId: string, owner: strin
 
 /** Invalidate cached owner entry. */
 export function invalidateOwnerCache(collection: string, tokenId: string): void {
-  const key = `${collection}:${tokenId}`
+  const key = buildNftId(collection, tokenId)
   ownerCache.delete(key)
 }
 
