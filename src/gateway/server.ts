@@ -347,15 +347,37 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     return authMiddleware(config)(c, next)
   })
 
-  // POST /api/sessions — create session
+  // POST /api/sessions — create session (with optional per-NFT personality, Issue #138)
   app.post("/api/sessions", async (c) => {
     try {
-      const { sessionId } = await router.create()
+      // Accept optional token_id for per-NFT personality injection
+      let systemPromptOverride: string | undefined
+      let personalityMeta: { agent_name?: string; archetype?: string; era?: string } | undefined
+      try {
+        const body = await c.req.json<{ token_id?: string }>()
+        if (body?.token_id && options.personalityProvider) {
+          const personality = await options.personalityProvider.get(body.token_id)
+          if (personality) {
+            systemPromptOverride = personality.beauvoir_template
+            personalityMeta = {
+              agent_name: personality.display_name,
+              archetype: personality.archetype,
+              era: personality.era,
+            }
+            console.log(`[api] session with personality: token_id=${body.token_id} name=${personality.display_name}`)
+          }
+        }
+      } catch {
+        // No JSON body or parse error — create session without personality (backward compatible)
+      }
+
+      const { sessionId } = await router.create({ systemPromptOverride })
       return c.json(
         {
           sessionId,
           created: new Date().toISOString(),
           wsUrl: `ws://${c.req.header("Host") ?? "localhost:3000"}/ws/${sessionId}`,
+          ...(personalityMeta && { personality: personalityMeta }),
         },
         201,
       )

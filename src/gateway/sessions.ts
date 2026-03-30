@@ -33,7 +33,7 @@ export class SessionRouter {
     this.evictionTimer.unref()
   }
 
-  async create(): Promise<{ sessionId: string; session: AgentSession }> {
+  async create(options?: { systemPromptOverride?: string }): Promise<{ sessionId: string; session: AgentSession }> {
     if (this.sessions.size >= MAX_SESSIONS) {
       // Evict oldest idle session to make room
       this.evictIdle()
@@ -42,7 +42,11 @@ export class SessionRouter {
       }
     }
 
-    const loaSession = await createLoaSession({ config: this.config, executor: this.executor })
+    const loaSession = await createLoaSession({
+      config: this.config,
+      executor: this.executor,
+      systemPromptOverride: options?.systemPromptOverride,
+    })
     const now = Date.now()
 
     this.sessions.set(loaSession.sessionId, {
