@@ -637,10 +637,12 @@ async function main() {
       }
       const personalityStore = new PersonalityStore({ redis: redisClient, pg, onChainReader })
 
-      // BeauvoirSynthesizer requires a SynthesisRouter — use hounfour if available
+      // BeauvoirSynthesizer requires a SynthesisRouter
+      // Prefer hounfour (multi-model routing), fall back to direct Anthropic API
       let synthesizer: import("./nft/beauvoir-synthesizer.js").BeauvoirSynthesizer | null = null
+      const { BeauvoirSynthesizer } = await import("./nft/beauvoir-synthesizer.js")
+
       if (hounfour) {
-        const { BeauvoirSynthesizer } = await import("./nft/beauvoir-synthesizer.js")
         const synthRouter = {
           invoke: async (agent: string, prompt: string, options?: { temperature?: number; max_tokens?: number }) => {
             const result = await hounfour.invoke({
@@ -653,6 +655,35 @@ async function main() {
           },
         }
         synthesizer = new BeauvoirSynthesizer(synthRouter)
+        console.log("[finn] personality pipeline: synthesis via hounfour")
+      } else if (process.env.ANTHROPIC_API_KEY) {
+        // Direct Anthropic API fallback — no hounfour needed (Issue #140)
+        const synthRouter = {
+          invoke: async (_agent: string, prompt: string, options?: { temperature?: number; max_tokens?: number }) => {
+            const response = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-api-key": process.env.ANTHROPIC_API_KEY!,
+                "anthropic-version": "2023-06-01",
+              },
+              body: JSON.stringify({
+                model: "claude-sonnet-4-6-20250514",
+                max_tokens: options?.max_tokens ?? 2048,
+                temperature: options?.temperature ?? 0.7,
+                messages: [{ role: "user", content: prompt }],
+              }),
+            })
+            if (!response.ok) {
+              throw new Error(`Anthropic API error: ${response.status} ${response.statusText}`)
+            }
+            const data = await response.json() as { content: Array<{ type: string; text: string }> }
+            const text = data.content?.find((b: { type: string }) => b.type === "text")?.text ?? ""
+            return { content: text }
+          },
+        }
+        synthesizer = new BeauvoirSynthesizer(synthRouter)
+        console.log("[finn] personality pipeline: synthesis via direct Anthropic API (sonnet)")
       }
 
       if (synthesizer) {
