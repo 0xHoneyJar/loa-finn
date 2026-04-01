@@ -15,8 +15,8 @@ import type { SignalSnapshot } from "./signal-types.js"
 
 export interface PersonalityStoreConfig {
   redis: RedisCommandClient
-  /** Postgres query functions (injected for testability) */
-  pg: PersonalityStorePg
+  /** Postgres query functions — optional, Redis-only mode when null (Issue #140) */
+  pg: PersonalityStorePg | null
   /** On-chain reader for fallback signal reads */
   onChainReader?: OnChainReader
   /** Redis cache TTL in seconds (default: 3600 = 1h) */
@@ -58,7 +58,7 @@ export interface StoredPersonalityVersion {
 
 export class PersonalityStore implements PersonalityProvider {
   private readonly redis: RedisCommandClient
-  private readonly pg: PersonalityStorePg
+  private readonly pg: PersonalityStorePg | null
   private readonly onChainReader: OnChainReader | undefined
   private readonly ttl: number
   private readonly keyPrefix: string
@@ -80,17 +80,19 @@ export class PersonalityStore implements PersonalityProvider {
     const cached = await this.getFromRedis(tokenId)
     if (cached) return cached
 
-    // 2. Try Postgres
-    const stored = await this.pg.getPersonalityByTokenId(tokenId)
-    if (stored) {
-      const version = stored.currentVersionId
-        ? await this.pg.getLatestVersion(stored.id)
-        : null
+    // 2. Try Postgres (if available)
+    if (this.pg) {
+      const stored = await this.pg.getPersonalityByTokenId(tokenId)
+      if (stored) {
+        const version = stored.currentVersionId
+          ? await this.pg.getLatestVersion(stored.id)
+          : null
 
-      const config = this.storedToConfig(stored, version)
-      // Backfill Redis
-      await this.setInRedis(tokenId, config)
-      return config
+        const config = this.storedToConfig(stored, version)
+        // Backfill Redis
+        await this.setInRedis(tokenId, config)
+        return config
+      }
     }
 
     // 3. No on-chain fallback for PersonalityConfig (on-chain gives SignalSnapshot, not PersonalityConfig)
@@ -107,43 +109,44 @@ export class PersonalityStore implements PersonalityProvider {
    * Used when seeding static config or updating from signal derivation.
    */
   async write(config: PersonalityConfig, personalityId: string): Promise<void> {
-    const now = new Date()
+    // Write to Postgres (if available — Redis-only mode when pg is null, Issue #140)
+    if (this.pg) {
+      const now = new Date()
+      const existing = await this.pg.getPersonalityByTokenId(config.token_id)
+      const latestVersion = existing ? await this.pg.getLatestVersion(existing.id) : null
+      const nextVersionNum = latestVersion ? latestVersion.versionNumber + 1 : 1
+      const versionId = generateUlid()
 
-    // Write to Postgres
-    const existing = await this.pg.getPersonalityByTokenId(config.token_id)
-    const latestVersion = existing ? await this.pg.getLatestVersion(existing.id) : null
-    const nextVersionNum = latestVersion ? latestVersion.versionNumber + 1 : 1
-    const versionId = generateUlid()
+      if (!existing) {
+        await this.pg.upsertPersonality({
+          id: personalityId,
+          tokenId: config.token_id,
+          archetype: config.archetype,
+          currentVersionId: versionId,
+          createdAt: now,
+          updatedAt: now,
+        })
+      } else {
+        await this.pg.upsertPersonality({
+          ...existing,
+          archetype: config.archetype,
+          currentVersionId: versionId,
+          updatedAt: now,
+        })
+      }
 
-    if (!existing) {
-      await this.pg.upsertPersonality({
-        id: personalityId,
-        tokenId: config.token_id,
-        archetype: config.archetype,
-        currentVersionId: versionId,
+      await this.pg.insertVersion({
+        id: versionId,
+        personalityId: existing?.id ?? personalityId,
+        versionNumber: nextVersionNum,
+        beauvoirTemplate: config.beauvoir_template,
+        dampFingerprint: null,
+        epochNumber: 0,
         createdAt: now,
-        updatedAt: now,
-      })
-    } else {
-      await this.pg.upsertPersonality({
-        ...existing,
-        archetype: config.archetype,
-        currentVersionId: versionId,
-        updatedAt: now,
       })
     }
 
-    await this.pg.insertVersion({
-      id: versionId,
-      personalityId: existing?.id ?? personalityId,
-      versionNumber: nextVersionNum,
-      beauvoirTemplate: config.beauvoir_template,
-      dampFingerprint: null,
-      epochNumber: 0,
-      createdAt: now,
-    })
-
-    // Write to Redis
+    // Write to Redis (always — primary cache)
     await this.setInRedis(config.token_id, config)
   }
 
@@ -152,6 +155,7 @@ export class PersonalityStore implements PersonalityProvider {
    * Skips entries that already exist.
    */
   async seedFromStatic(configs: PersonalityConfig[]): Promise<number> {
+    if (!this.pg) return 0 // Redis-only mode — no seeding needed
     let seeded = 0
     for (const config of configs) {
       const existing = await this.pg.getPersonalityByTokenId(config.token_id)

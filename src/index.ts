@@ -603,14 +603,13 @@ async function main() {
 
   // 6e. Initialize personality pipeline (Cycle 040 — Per-NFT Personality)
   let personalityAppOptions: Record<string, unknown> = {}
-  if (config.personality.enabled && redis?.isConnected() && finnDb) {
+  if (config.personality.enabled && redis?.isConnected()) {
     try {
       const { OnChainReader } = await import("./nft/on-chain-reader.js")
       const { SignalCache } = await import("./nft/signal-cache.js")
       const { PersonalityStore } = await import("./nft/personality-store.js")
       const { PersonalityPipelineOrchestrator } = await import("./nft/personality-pipeline.js")
       const { createSubgraphResolver } = await import("./nft/identity-graph-resolver.js")
-      const { createPersonalityStorePg } = await import("./nft/personality-store-pg.js")
       const { RpcPool } = await import("./x402/rpc-pool.js")
 
       const { berachain } = await import("viem/chains")
@@ -626,7 +625,16 @@ async function main() {
         contractAddress: config.personality.contractAddress,
       })
       const signalCache = new SignalCache({ redis: redisClient, onChainReader })
-      const pg = createPersonalityStorePg(finnDb)
+
+      // Postgres is optional — use Redis-only when Postgres unavailable (Issue #140)
+      let pg: any = null
+      if (finnDb) {
+        const { createPersonalityStorePg } = await import("./nft/personality-store-pg.js")
+        pg = createPersonalityStorePg(finnDb)
+        console.log("[finn] personality pipeline: postgres available (dual-write mode)")
+      } else {
+        console.log("[finn] personality pipeline: postgres unavailable (redis-only mode)")
+      }
       const personalityStore = new PersonalityStore({ redis: redisClient, pg, onChainReader })
 
       // BeauvoirSynthesizer requires a SynthesisRouter — use hounfour if available
@@ -690,7 +698,7 @@ async function main() {
       console.warn(`[finn] personality pipeline: initialization failed (non-fatal): ${(err as Error).message}`)
     }
   } else if (config.personality.enabled) {
-    console.log("[finn] personality pipeline: skipped (requires redis + postgres)")
+    console.log("[finn] personality pipeline: skipped (requires redis)")
   }
 
   // 7. Create gateway (with executor for sandbox, pool for health stats)
