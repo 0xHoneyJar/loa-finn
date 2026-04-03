@@ -229,6 +229,22 @@ export class OnChainReader {
       }
     }
 
+    // On-chain → code attribute name mapping (Mibera metadata uses natural language names)
+    const ATTR_ALIASES: Record<string, string> = {
+      "drug": "molecule",
+      "time period": "era",
+      "swag rank": "swag_rank",
+      "swag score": "swag_score",
+      "sun sign": "sun_sign",
+      "moon sign": "moon_sign",
+      "ascending sign": "ascending_sign",
+    }
+    for (const [onChain, code] of Object.entries(ATTR_ALIASES)) {
+      if (attrMap.has(onChain) && !attrMap.has(code)) {
+        attrMap.set(code, attrMap.get(onChain)!)
+      }
+    }
+
     // Extract required fields
     // Normalize archetype: on-chain uses "chicago/detroit", code expects "chicago_detroit"
     const rawArchetype = this.requireString(attrMap, "archetype", tokenId)
@@ -263,12 +279,18 @@ export class OnChainReader {
       }
     }
 
-    // Derive era from birthday
-    const era = this.deriveEra(birthday, tokenId)
+    // Era: use on-chain "time period" / "era" if available, else derive from birthday
+    const onChainEra = attrMap.get("era") ?? attrMap.get("time period")
+    const era = (typeof onChainEra === "string" && onChainEra.trim()
+      ? onChainEra.trim().toLowerCase().replace(/\s+/g, "_") as Era
+      : this.deriveEra(birthday, tokenId))
 
-    // Derive tarot + element from molecule (simplified — full bijection in signal-engine.ts)
+    // Derive tarot from molecule, use on-chain element if available
     const tarot = deriveTarotFromMolecule(molecule)
-    const element = tarot.element
+    const onChainElement = attrMap.get("element")
+    const element = (typeof onChainElement === "string" && onChainElement.trim()
+      ? onChainElement.trim().toLowerCase() as Element
+      : tarot.element)
 
     return {
       archetype,
@@ -347,14 +369,30 @@ export class OnChainReader {
   }
 
   private deriveEra(birthday: string, tokenId: string): Era {
-    const yearMatch = birthday.match(/^(-?\d+)/)
-    if (!yearMatch) {
+    // Handle multiple birthday formats:
+    // ISO: "1990-06-15" → year = 1990
+    // Mibera: "06/04/2019 CE 10:42" → year = 2019
+    // Ancient: "-500" or "500 BCE" → year = -500
+    let year: number
+    const ceMatch = birthday.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*CE/)
+    const bceMatch = birthday.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*BCE/)
+    const isoMatch = birthday.match(/^(-?\d{4})/)
+    const plainYearMatch = birthday.match(/^(-?\d+)/)
+
+    if (ceMatch) {
+      year = parseInt(ceMatch[3], 10)
+    } else if (bceMatch) {
+      year = -parseInt(bceMatch[3], 10)
+    } else if (isoMatch) {
+      year = parseInt(isoMatch[1], 10)
+    } else if (plainYearMatch) {
+      year = parseInt(plainYearMatch[1], 10)
+    } else {
       throw new OnChainReaderError(
         "INVALID_METADATA",
         `Token ${tokenId}: birthday "${birthday}" has no parseable year`,
       )
     }
-    const year = parseInt(yearMatch[1], 10)
 
     for (const [era, bounds] of Object.entries(ERA_BOUNDARIES)) {
       if (year >= bounds.start && year < bounds.end) {
