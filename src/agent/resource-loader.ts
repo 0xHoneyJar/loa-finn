@@ -20,6 +20,7 @@ export async function createLoaResourceLoader(
   let systemPrompt: string | undefined
   if (options.systemPromptOverride) {
     systemPrompt = options.systemPromptOverride
+    console.log(`[resource-loader] using personality override (${systemPrompt.length} chars, starts: "${systemPrompt.slice(0, 80)}...")`)
   } else {
     try {
       systemPrompt = await readFile(options.beauvoirPath, "utf-8")
