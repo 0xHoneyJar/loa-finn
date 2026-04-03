@@ -55,6 +55,12 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
+# Copy codex data files (JSON not emitted by tsc — needed by personality pipeline)
+COPY --from=builder /app/src/nft/codex-data/*.json ./dist/src/nft/codex-data/
+
+# Copy static personality config (fallback for personality pipeline)
+COPY config/ ./config/
+
 # Copy upstream bridgebuilder skill (runtime import resolution via package.json imports)
 COPY --from=builder /app/.claude/skills/bridgebuilder-review/dist/ ./.claude/skills/bridgebuilder-review/dist/
 COPY --from=builder /app/.claude/skills/bridgebuilder-review/package.json ./.claude/skills/bridgebuilder-review/package.json
