@@ -668,7 +668,7 @@ async function main() {
                 "anthropic-version": "2023-06-01",
               },
               body: JSON.stringify({
-                model: "claude-sonnet-4-6-20250514",
+                model: "claude-sonnet-4-5-20250929",
                 max_tokens: options?.max_tokens ?? 2048,
                 temperature: options?.temperature ?? 0.7,
                 messages: [{ role: "user", content: prompt }],
