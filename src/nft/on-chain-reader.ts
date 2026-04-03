@@ -230,7 +230,9 @@ export class OnChainReader {
     }
 
     // Extract required fields
-    const archetype = this.requireString(attrMap, "archetype", tokenId) as Archetype
+    // Normalize archetype: on-chain uses "chicago/detroit", code expects "chicago_detroit"
+    const rawArchetype = this.requireString(attrMap, "archetype", tokenId)
+    const archetype = rawArchetype.replace(/\//g, "_").toLowerCase() as Archetype
     if (!ARCHETYPES.includes(archetype)) {
       throw new OnChainReaderError(
         "INVALID_METADATA",
