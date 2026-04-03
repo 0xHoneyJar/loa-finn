@@ -266,10 +266,25 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
       }
     }
 
-    // 6. Synthesize BEAUVOIR (LLM call, may fail)
+    // 6a. Derive canonical name BEFORE synthesis (so it can be injected)
+    const agentName = nameKDF(
+      snapshot.archetype,
+      snapshot.ancestor,
+      snapshot.era,
+      snapshot.molecule,
+      snapshot.element,
+      tokenId,
+      this.collectionSalt,
+    )
+
+    // 6b. Synthesize BEAUVOIR (LLM call, may fail)
+    // Inject the derived name into the synthesis via userCustom
     let beauvoirMd: string
     try {
-      beauvoirMd = await this.synthesizer.synthesize(snapshot, fingerprint, subgraph)
+      beauvoirMd = await this.synthesizer.synthesize(snapshot, fingerprint, subgraph, {
+        name: agentName,
+        custom_instructions: `Your name is ${agentName}. Always introduce yourself by this name. This name was deterministically derived from your on-chain identity — it is uniquely yours.`,
+      })
     } catch (err) {
       this.logDegradation("beauvoir_synthesis", tokenId, err)
       // Fallback: check if there's a cached version from a previous generation
@@ -288,18 +303,7 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
     // 7. Sanitize BEAUVOIR (SKP-008)
     beauvoirMd = sanitizeBeauvoir(beauvoirMd, this.maxBeauvoirLength)
 
-    // 8. Derive canonical name
-    const agentName = nameKDF(
-      snapshot.archetype,
-      snapshot.ancestor,
-      snapshot.era,
-      snapshot.molecule,
-      snapshot.element,
-      tokenId,
-      this.collectionSalt,
-    )
-
-    // 9. Build PersonalityConfig
+    // 8. Build PersonalityConfig (name already derived in step 6a)
     const config: PersonalityConfig = {
       token_id: tokenId,
       archetype: snapshot.archetype,
