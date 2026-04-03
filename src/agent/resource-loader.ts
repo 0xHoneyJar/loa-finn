@@ -53,5 +53,9 @@ export async function createLoaResourceLoader(
     noThemes: true,
   })
 
+  // CRITICAL: reload() must be called to initialize internal state from constructor options.
+  // Without this, systemPrompt stays undefined even though systemPromptSource is set.
+  await loader.reload()
+
   return loader
 }
