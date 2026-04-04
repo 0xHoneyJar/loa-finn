@@ -313,6 +313,7 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
       expertise_domains: [],
       beauvoir_template: beauvoirMd,
       era: snapshot.era,
+      codex_version: this.getCodexVersion(),
     }
 
     // 10. Dual-write: Postgres first, then Redis (SKP-003)
@@ -326,6 +327,19 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
     }
 
     return { config, fromCache: false, degraded, degradedReason }
+  }
+
+  private getCodexVersion(): string {
+    try {
+      // Read from codex-data/codex-version.json at runtime
+      const { readFileSync } = require("node:fs")
+      const { resolve } = require("node:path")
+      const versionPath = resolve(__dirname, "codex-data", "codex-version.json")
+      const data = JSON.parse(readFileSync(versionPath, "utf-8"))
+      return `v${data.version}-${(data.sha ?? "unknown").slice(0, 8)}`
+    } catch {
+      return "unknown"
+    }
   }
 
   private logDegradation(stage: string, tokenId: string, err: unknown): void {
