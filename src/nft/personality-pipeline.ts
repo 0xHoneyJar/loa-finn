@@ -17,6 +17,23 @@ import { deriveDAMP } from "./damp.js"
 import { nameKDF } from "./name-derivation.js"
 import type { ExperienceEngine } from "./experience-engine.js"
 import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
+import { resolve, dirname } from "node:path"
+import { fileURLToPath } from "node:url"
+
+// ---------------------------------------------------------------------------
+// Codex Version (cached at module load — ESM compatible)
+// ---------------------------------------------------------------------------
+
+let codexVersionCache = "unknown"
+try {
+  const __dirname_esm = dirname(fileURLToPath(import.meta.url))
+  const versionPath = resolve(__dirname_esm, "codex-data", "codex-version.json")
+  const data = JSON.parse(readFileSync(versionPath, "utf-8"))
+  codexVersionCache = `v${data.version}-${(data.sha ?? "unknown").slice(0, 8)}`
+} catch {
+  // codex-version.json not found — use "unknown"
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -330,16 +347,7 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
   }
 
   private getCodexVersion(): string {
-    try {
-      // Read from codex-data/codex-version.json at runtime
-      const { readFileSync } = require("node:fs")
-      const { resolve } = require("node:path")
-      const versionPath = resolve(__dirname, "codex-data", "codex-version.json")
-      const data = JSON.parse(readFileSync(versionPath, "utf-8"))
-      return `v${data.version}-${(data.sha ?? "unknown").slice(0, 8)}`
-    } catch {
-      return "unknown"
-    }
+    return codexVersionCache
   }
 
   private logDegradation(stage: string, tokenId: string, err: unknown): void {

@@ -342,7 +342,27 @@ export function buildSynthesisPrompt(
   sections.push("")
   sections.push("The output must be ONLY the Markdown document. No preamble, no explanation, no meta-commentary.")
 
-  return sections.join("\n")
+  // Token budget enforcement (~4 chars per token as rough estimate)
+  const MAX_PROMPT_CHARS = 16000 // ~4000 tokens
+  let prompt = sections.join("\n")
+  if (prompt.length > MAX_PROMPT_CHARS) {
+    // Truncate from the bottom — aesthetic presence (tier 1) goes first, then cultural artifacts (tier 2)
+    const aestheticIdx = prompt.indexOf("## AESTHETIC PRESENCE")
+    if (aestheticIdx > 0 && prompt.length > MAX_PROMPT_CHARS) {
+      const nextSection = prompt.indexOf("\n## ", aestheticIdx + 1)
+      if (nextSection > 0) {
+        prompt = prompt.slice(0, aestheticIdx) + prompt.slice(nextSection)
+      }
+    }
+    const artifactIdx = prompt.indexOf("## CULTURAL ARTIFACTS")
+    if (artifactIdx > 0 && prompt.length > MAX_PROMPT_CHARS) {
+      const nextSection = prompt.indexOf("\n## ", artifactIdx + 1)
+      if (nextSection > 0) {
+        prompt = prompt.slice(0, artifactIdx) + prompt.slice(nextSection)
+      }
+    }
+  }
+  return prompt
 }
 
 /**
