@@ -1,6 +1,9 @@
 {
-  "version": "0.1.0",
-  "sha": "placeholder",
-  "description": "Mibera-codex snapshot used for identity derivation",
-  "pinned_at": "2026-02-19T00:00:00Z"
+  "version": "2.0.0",
+  "sha": "a6f61a1875235eb428146779305bf8fb8593a0c6",
+  "description": "Mibera-codex v2 — full trait knowledge graph (construct-mibera-codex PR #48)",
+  "source": "github:0xHoneyJar/construct-mibera-codex#a6f61a1875235eb428146779305bf8fb8593a0c6",
+  "nodes": 11475,
+  "edges": 192707,
+  "updated": "2026-04-04"
 }

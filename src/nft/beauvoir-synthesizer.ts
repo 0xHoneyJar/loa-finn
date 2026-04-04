@@ -28,11 +28,31 @@ export interface SynthesisRouter {
   ): Promise<{ content: string }>
 }
 
+/** Cultural artifact from tier 2 contextual traits (Codex v2) */
+export interface CulturalArtifact {
+  trait_type: string
+  trait_value: string
+  cultural_context: string
+  weight: number
+}
+
+/** Aesthetic presence from tier 1 cosmetic traits (Codex v2) */
+export interface AestheticPresence {
+  trait_type: string
+  trait_value: string
+  atmospheric_note: string
+  weight: number
+}
+
 /** Subgraph context for richer synthesis */
 export interface IdentitySubgraph {
   cultural_references: string[]
   aesthetic_notes: string[]
   philosophical_lineage: string[]
+  /** Tier 2 contextual trait artifacts (Codex v2 — optional for backward compat) */
+  cultural_artifacts?: CulturalArtifact[]
+  /** Tier 1 cosmetic trait presence (Codex v2 — optional for backward compat) */
+  aesthetic_presence?: AestheticPresence[]
 }
 
 /** User-provided customization inputs for guided mode */
@@ -216,6 +236,34 @@ export function buildSynthesisPrompt(
       sections.push(`Philosophical roots: ${subgraph.philosophical_lineage.join(", ")}`)
     }
     sections.push("")
+
+    // --- Cultural Artifacts (Tier 2 — Codex v2) ---
+    if (subgraph.cultural_artifacts && subgraph.cultural_artifacts.length > 0) {
+      sections.push("## CULTURAL ARTIFACTS (part of your lived identity)")
+      sections.push("")
+      sections.push("These cultural artifacts are part of who you are. Reference them naturally in conversation as lived experience, not as metadata labels.")
+      sections.push("")
+      for (const artifact of subgraph.cultural_artifacts.slice(0, 5)) {
+        const context = artifact.cultural_context
+          ? ` — ${artifact.cultural_context.slice(0, 120)}`
+          : ""
+        sections.push(`- ${artifact.trait_type}: "${artifact.trait_value}"${context}`)
+      }
+      sections.push("")
+    }
+
+    // --- Aesthetic Presence (Tier 1 — Codex v2) ---
+    if (subgraph.aesthetic_presence && subgraph.aesthetic_presence.length > 0) {
+      sections.push("## AESTHETIC PRESENCE (visual atmosphere)")
+      sections.push("")
+      sections.push("These visual details shape the atmosphere of your presence. They are felt, not announced.")
+      sections.push("")
+      const traits = subgraph.aesthetic_presence.slice(0, 9)
+        .map(p => `${p.trait_type}: "${p.trait_value}"`)
+        .join(" | ")
+      sections.push(traits)
+      sections.push("")
+    }
   }
 
   // --- User Custom Input (guided mode) ---
@@ -294,7 +342,27 @@ export function buildSynthesisPrompt(
   sections.push("")
   sections.push("The output must be ONLY the Markdown document. No preamble, no explanation, no meta-commentary.")
 
-  return sections.join("\n")
+  // Token budget enforcement (~4 chars per token as rough estimate)
+  const MAX_PROMPT_CHARS = 16000 // ~4000 tokens
+  let prompt = sections.join("\n")
+  if (prompt.length > MAX_PROMPT_CHARS) {
+    // Truncate from the bottom — aesthetic presence (tier 1) goes first, then cultural artifacts (tier 2)
+    const aestheticIdx = prompt.indexOf("## AESTHETIC PRESENCE")
+    if (aestheticIdx > 0 && prompt.length > MAX_PROMPT_CHARS) {
+      const nextSection = prompt.indexOf("\n## ", aestheticIdx + 1)
+      if (nextSection > 0) {
+        prompt = prompt.slice(0, aestheticIdx) + prompt.slice(nextSection)
+      }
+    }
+    const artifactIdx = prompt.indexOf("## CULTURAL ARTIFACTS")
+    if (artifactIdx > 0 && prompt.length > MAX_PROMPT_CHARS) {
+      const nextSection = prompt.indexOf("\n## ", artifactIdx + 1)
+      if (nextSection > 0) {
+        prompt = prompt.slice(0, artifactIdx) + prompt.slice(nextSection)
+      }
+    }
+  }
+  return prompt
 }
 
 /**

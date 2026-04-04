@@ -238,6 +238,7 @@ export class OnChainReader {
       "sun sign": "sun_sign",
       "moon sign": "moon_sign",
       "ascending sign": "ascending_sign",
+      "face accessory": "face_accessory",
     }
     for (const [onChain, code] of Object.entries(ATTR_ALIASES)) {
       if (attrMap.has(onChain) && !attrMap.has(code)) {
@@ -292,6 +293,24 @@ export class OnChainReader {
       ? onChainElement.trim().toLowerCase() as Element
       : tarot.element)
 
+    // Tier 2: Contextual traits (optional — Codex v2)
+    const shirt = this.optionalString(attrMap, "shirt")
+    const tattoo = this.optionalString(attrMap, "tattoo")
+    const item = this.optionalString(attrMap, "item")
+    const hat = this.optionalString(attrMap, "hat")
+    const mask = this.optionalString(attrMap, "mask")
+
+    // Tier 1: Cosmetic traits (optional — Codex v2)
+    const eyes = this.optionalString(attrMap, "eyes")
+    const hair = this.optionalString(attrMap, "hair")
+    const mouth = this.optionalString(attrMap, "mouth")
+    const eyebrows = this.optionalString(attrMap, "eyebrows")
+    const earrings = this.optionalString(attrMap, "earrings")
+    const glasses = this.optionalString(attrMap, "glasses")
+    const face_accessory = this.optionalString(attrMap, "face_accessory")
+    const body = this.optionalString(attrMap, "body")
+    const background = this.optionalString(attrMap, "background")
+
     return {
       archetype,
       ancestor,
@@ -305,7 +324,18 @@ export class OnChainReader {
       sun_sign: sunSign,
       moon_sign: moonSign,
       ascending_sign: ascendingSign,
+      // Tier 2 contextual
+      shirt, tattoo, item, hat, mask,
+      // Tier 1 cosmetic
+      eyes, hair, mouth, eyebrows, earrings, glasses, face_accessory, body, background,
     }
+  }
+
+  /** Read an optional string attribute. Returns null if missing. */
+  private optionalString(attrMap: Map<string, string | number>, key: string): string | null {
+    const val = attrMap.get(key)
+    if (val === undefined || val === null) return null
+    return String(val)
   }
 
   // --- Private helpers ---

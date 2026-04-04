@@ -17,6 +17,23 @@ import { deriveDAMP } from "./damp.js"
 import { nameKDF } from "./name-derivation.js"
 import type { ExperienceEngine } from "./experience-engine.js"
 import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
+import { resolve, dirname } from "node:path"
+import { fileURLToPath } from "node:url"
+
+// ---------------------------------------------------------------------------
+// Codex Version (cached at module load — ESM compatible)
+// ---------------------------------------------------------------------------
+
+let codexVersionCache = "unknown"
+try {
+  const __dirname_esm = dirname(fileURLToPath(import.meta.url))
+  const versionPath = resolve(__dirname_esm, "codex-data", "codex-version.json")
+  const data = JSON.parse(readFileSync(versionPath, "utf-8"))
+  codexVersionCache = `v${data.version}-${(data.sha ?? "unknown").slice(0, 8)}`
+} catch {
+  // codex-version.json not found — use "unknown"
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -313,6 +330,7 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
       expertise_domains: [],
       beauvoir_template: beauvoirMd,
       era: snapshot.era,
+      codex_version: this.getCodexVersion(),
     }
 
     // 10. Dual-write: Postgres first, then Redis (SKP-003)
@@ -326,6 +344,10 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
     }
 
     return { config, fromCache: false, degraded, degradedReason }
+  }
+
+  private getCodexVersion(): string {
+    return codexVersionCache
   }
 
   private logDegradation(stage: string, tokenId: string, err: unknown): void {

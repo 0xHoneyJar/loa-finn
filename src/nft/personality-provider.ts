@@ -22,6 +22,8 @@ export interface PersonalityConfig {
   beauvoir_template: string
   /** Era derived from on-chain signals (Cycle 040 Sprint 2) */
   era?: string
+  /** Codex version used for personality derivation (Cycle 041) */
+  codex_version?: string
 }
 
 // ---------------------------------------------------------------------------
