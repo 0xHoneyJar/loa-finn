@@ -88,23 +88,41 @@ export type AgentMode = "default" | "brainstorm" | "critique" | "execute"
 // ---------------------------------------------------------------------------
 
 export interface SignalSnapshot {
-  // Tier 1: Load-bearing (define worldview)
+  // Tier 3: Load-bearing — define worldview (weight 3x)
   archetype: Archetype
-  ancestor: string          // 33 options from mibera-codex
-  birthday: string          // ISO date string (e.g., "1352-06-15")
-  era: Era                  // Derived from birthday
+  ancestor: string          // 35 ancestors from mibera-codex v2
+  birthday: string          // Date string (e.g., "06/04/2019 CE 10:42")
+  era: Era                  // Derived from birthday or on-chain "time period"
 
-  // Tier 2: Textural (color expression)
+  // Tier 3 continued: Textural — color expression
   molecule: string          // Drug name, 78 options from mibera-codex
   tarot: TarotCard          // Derived (bijective from molecule)
-  element: Element          // Derived from tarot suit
+  element: Element          // Derived from tarot suit or on-chain "element"
 
-  // Tier 3: Modifier (adjust expression)
+  // Tier 3 continued: Modifier — adjust expression
   swag_rank: SwagRank
   swag_score: number        // 0-100 continuous
   sun_sign: ZodiacSign
   moon_sign: ZodiacSign
   ascending_sign: ZodiacSign
+
+  // Tier 2: Contextual — cultural artifacts (weight 2x, Codex v2)
+  shirt?: string | null
+  tattoo?: string | null
+  item?: string | null
+  hat?: string | null
+  mask?: string | null
+
+  // Tier 1: Cosmetic — aesthetic presence (weight 1x, Codex v2)
+  eyes?: string | null
+  hair?: string | null
+  mouth?: string | null
+  eyebrows?: string | null
+  earrings?: string | null
+  glasses?: string | null
+  face_accessory?: string | null
+  body?: string | null
+  background?: string | null
 }
 
 // ---------------------------------------------------------------------------
