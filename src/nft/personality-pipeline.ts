@@ -301,7 +301,7 @@ export class PersonalityPipelineOrchestrator implements PersonalityProvider {
       beauvoirMd = await this.synthesizer.synthesize(snapshot, fingerprint, subgraph, {
         name: agentName,
         custom_instructions: `Your name is ${agentName}. Always introduce yourself by this name. This name was deterministically derived from your on-chain identity — it is uniquely yours.`,
-      })
+      }, null, tokenId)
     } catch (err) {
       this.logDegradation("beauvoir_synthesis", tokenId, err)
       // Fallback: check if there's a cached version from a previous generation
