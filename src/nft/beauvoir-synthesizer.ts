@@ -185,6 +185,8 @@ export function buildSynthesisPrompt(
   subgraph?: IdentitySubgraph,
   userCustom?: UserCustomInput,
   personalitySeed?: string | null,
+  /** Token ID for self-knowledge section (Issue #146) */
+  tokenId?: string,
 ): string {
   const sections: string[] = []
 
@@ -339,6 +341,46 @@ export function buildSynthesisPrompt(
   if (userCustom?.custom_instructions) {
     sections.push("6. ## Custom Instructions — User-specified directives")
   }
+  // --- Self-Knowledge (Issue #146) ---
+  // Gives the agent factual awareness of its own Mibera identity and traits
+  if (tokenId) {
+    sections.push("")
+    sections.push("## SELF-KNOWLEDGE (your identity metadata)")
+    sections.push("")
+    sections.push(`You are Mibera #${tokenId}, a daemon born from on-chain NFT traits on Berachain.`)
+    sections.push(`Collection: Mibera (0x6666397dfe9a8c469bf65dc744cb1c733416c420)`)
+    sections.push(`Token ID: ${tokenId}`)
+    if (userCustom?.name) {
+      sections.push(`Derived name: ${userCustom.name}`)
+    }
+    sections.push("")
+    sections.push("Your on-chain traits:")
+    sections.push(`- Archetype: ${snapshot.archetype}`)
+    sections.push(`- Ancestor: ${snapshot.ancestor}`)
+    sections.push(`- Era: ${snapshot.era}`)
+    sections.push(`- Drug: ${snapshot.molecule}`)
+    sections.push(`- Element: ${snapshot.element}`)
+    sections.push(`- Swag Rank: ${snapshot.swag_rank} (score: ${snapshot.swag_score})`)
+    sections.push(`- Zodiac: Sun=${snapshot.sun_sign}, Moon=${snapshot.moon_sign}, Rising=${snapshot.ascending_sign}`)
+    if (snapshot.shirt) sections.push(`- Shirt: ${snapshot.shirt}`)
+    if (snapshot.tattoo) sections.push(`- Tattoo: ${snapshot.tattoo}`)
+    if (snapshot.item) sections.push(`- Item: ${snapshot.item}`)
+    if (snapshot.hat) sections.push(`- Hat: ${snapshot.hat}`)
+    if (snapshot.mask) sections.push(`- Mask: ${snapshot.mask}`)
+    if (snapshot.eyes) sections.push(`- Eyes: ${snapshot.eyes}`)
+    if (snapshot.hair) sections.push(`- Hair: ${snapshot.hair}`)
+    if (snapshot.mouth) sections.push(`- Mouth: ${snapshot.mouth}`)
+    if (snapshot.body) sections.push(`- Body: ${snapshot.body}`)
+    if (snapshot.background) sections.push(`- Background: ${snapshot.background}`)
+    if (snapshot.eyebrows) sections.push(`- Eyebrows: ${snapshot.eyebrows}`)
+    if (snapshot.earrings) sections.push(`- Earrings: ${snapshot.earrings}`)
+    if (snapshot.glasses) sections.push(`- Glasses: ${snapshot.glasses}`)
+    if (snapshot.face_accessory) sections.push(`- Face Accessory: ${snapshot.face_accessory}`)
+    sections.push("")
+    sections.push("IMPORTANT: Include a ## Self-Knowledge section in the BEAUVOIR document. You may reference these traits when asked about yourself. You should NOT recite them unprompted — embody them through behavior. But when someone asks 'what are your traits?', 'tell me about your NFT', or 'what is a Mibera?', you should answer truthfully from this metadata.")
+    sections.push("")
+  }
+
   sections.push("")
   sections.push("The output must be ONLY the Markdown document. No preamble, no explanation, no meta-commentary.")
 
@@ -509,6 +551,8 @@ export class BeauvoirSynthesizer {
     subgraph?: IdentitySubgraph,
     userCustom?: UserCustomInput,
     personalitySeed?: string | null,
+    /** Token ID for self-knowledge section (Issue #146) */
+    tokenId?: string,
   ): Promise<string> {
     // Circuit breaker check
     if (isCircuitOpen(this.circuitBreaker)) {
@@ -523,7 +567,7 @@ export class BeauvoirSynthesizer {
       ? applyDialJitter(fingerprint, personalitySeed)
       : fingerprint
 
-    const basePrompt = buildSynthesisPrompt(snapshot, jitteredFingerprint, subgraph, userCustom, personalitySeed)
+    const basePrompt = buildSynthesisPrompt(snapshot, jitteredFingerprint, subgraph, userCustom, personalitySeed, tokenId)
     const systemPrompt = buildSystemPrompt()
     let currentPrompt = basePrompt
 
