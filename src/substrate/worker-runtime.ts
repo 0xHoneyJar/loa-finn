@@ -222,7 +222,9 @@ function createRuntimeForSlug(
   const modelRunnerLayer = buildBridgeModelRunnerLayer(port)
   const eventWriterLayer = buildBridgeEventWriterLayer(port)
   const layer = Layer.mergeAll(modelRunnerLayer, eventWriterLayer)
-  return ManagedRuntime.make(layer)
+  // ManagedRuntime.make narrows to the layer's exact service union; the cache
+  // erases that to ManagedRuntime<unknown, never> for the per-slug Map.
+  return ManagedRuntime.make(layer) as unknown as ManagedRuntime.ManagedRuntime<unknown, never>
 }
 
 function buildBridgeModelRunnerLayer(port: Pick<MessagePort, "postMessage">): Layer.Layer<ModelRunnerTag> {

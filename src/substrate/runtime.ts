@@ -112,13 +112,15 @@ export function composeLayer(
   // didn't declare them — capability-bounded principle. Logger and Clock are
   // ambient and provided by Effect's default runtime.
   if (layers.length === 0) {
-    return Layer.empty
+    // Layer.empty is Layer<never, never, never>; widen to the public return type
+    return Layer.empty as Layer.Layer<unknown, never, never>
   }
   if (layers.length === 1) {
     return layers[0]!
   }
-  // Effect's Layer.mergeAll takes a tuple — fold left
-  return layers.reduce((acc, l) => Layer.merge(acc, l))
+  // Effect's Layer.mergeAll takes a tuple — fold left. Layer.merge widens
+  // input variance, so we cast the seed back to the public return type.
+  return layers.reduce((acc, l) => Layer.merge(acc, l)) as Layer.Layer<unknown, never, never>
 }
 
 /**
