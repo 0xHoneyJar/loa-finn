@@ -1275,8 +1275,9 @@
           "local_id": "sprint-1",
           "global_id": 126,
           "label": "Loader Scaffolding (src/substrate/{types,loader,jwt-validator}.ts)",
-          "status": "planned",
-          "tasks": 5
+          "status": "completed",
+          "tasks": 5,
+          "notes": "5/5 tasks done. 21/21 tests pass (jwt-validator: 11, loader: 10). Substrate module typecheck-clean (pre-existing project errors unaffected). 2 LOW review notes applied (unused nbfMs dropped, jose compactVerify import hoisted). 0 CRITICAL/HIGH audit findings; 1 MEDIUM + 1 LOW deferred (unbounded JWT cache, no manifest size limit — both forward-looking hardening for trust:vendor work). Commits: c2d032b (preplan), 2002db1 (planning), de6ae4f (feat sprint-126), bb2e44b (COMPLETED)."
         },
         {
           "local_id": "sprint-2",

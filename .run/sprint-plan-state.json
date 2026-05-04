@@ -1,30 +1,85 @@
 {
-  "plan_id": "plan-20260221-cycle031-adaptive-intelligence",
-  "branch": "feature/protocol-convergence-v7",
-  "state": "JACKED_OUT",
+  "plan_id": "plan-20260503-cycle032-substrate-runtime",
+  "branch": "feature/cycle-2-substrate-runtime",
+  "state": "HALTED",
   "timestamps": {
-    "started": "2026-02-21T12:00:00Z",
-    "last_activity": "2026-02-21T16:00:00Z"
+    "started": "2026-05-03T17:50:00Z",
+    "last_activity": "2026-05-03T18:42:00Z"
   },
   "sprints": {
-    "total": 2,
-    "completed": 2,
+    "total": 7,
+    "completed": 1,
     "current": null,
     "list": [
-      {"id": "sprint-1", "global_id": 124, "status": "completed", "cycles": 1, "label": "Quality Signal Governance + Anti-Sycophancy"},
-      {"id": "sprint-2", "global_id": 125, "status": "completed", "cycles": 1, "label": "EventStore Indexed Access + Reputation Bootstrap"}
+      {
+        "id": "sprint-1",
+        "global_id": 126,
+        "status": "completed",
+        "label": "Loader Scaffolding",
+        "tasks": 5,
+        "cycles": 1
+      },
+      {
+        "id": "sprint-2",
+        "global_id": 127,
+        "status": "pending",
+        "label": "Runtime Composition",
+        "tasks": 4
+      },
+      {
+        "id": "sprint-3",
+        "global_id": 128,
+        "status": "pending",
+        "label": "ModelRunner Layer + Tag Identity Bridge (PAIR-POINT)",
+        "tasks": 4
+      },
+      {
+        "id": "sprint-4",
+        "global_id": 129,
+        "status": "pending",
+        "label": "EventWriter Layer",
+        "tasks": 3
+      },
+      {
+        "id": "sprint-5",
+        "global_id": 130,
+        "status": "pending",
+        "label": "Sandbox Bridge (Wire-Up)",
+        "tasks": 3
+      },
+      {
+        "id": "sprint-6",
+        "global_id": 131,
+        "status": "pending",
+        "label": "CLI + Programmatic API (ALEXANDER craft)",
+        "tasks": 4
+      },
+      {
+        "id": "sprint-7",
+        "global_id": 132,
+        "status": "pending",
+        "label": "E2E Smoke + Doctrine §13 + Memory",
+        "tasks": 3
+      }
     ]
   },
   "options": {
     "from": 1,
-    "to": 2,
+    "to": 7,
     "max_cycles": 20,
-    "timeout_hours": 8
+    "timeout_hours": 8,
+    "consolidate_pr": true
   },
   "metrics": {
-    "total_cycles": 2,
-    "total_files_changed": 9,
+    "total_cycles": 1,
+    "total_files_changed": 8,
     "total_findings_fixed": 2
   },
-  "cycle": "cycle-031"
+  "cycle": "cycle-032",
+  "pause": {
+    "reason": "operator-bound: drive sprint-1 to completion in this session, resume sprint-2 in fresh session",
+    "at_sprint": "sprint-1",
+    "next_sprint": "sprint-2",
+    "resume_with": "/run-resume OR /implement sprint-2 (manual continuation)"
+  }
 }
