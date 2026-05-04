@@ -348,6 +348,11 @@ export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
           exportName,
           input,
           runtimeOpts,
+          // Codex C1 fix: thread declared capability requirements through to
+          // the worker so createRuntimeForSlug can compose only the layers
+          // the manifest actually requested. Empty array = no bridge caps.
+          // Undefined preserves back-compat (worker treats as "all layers").
+          requirements: loaded.manifest.requirements?.map((r) => r.tag),
         })
       })
     },

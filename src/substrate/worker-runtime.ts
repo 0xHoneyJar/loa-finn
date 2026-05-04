@@ -199,7 +199,18 @@ const pendingDispose = new Set<string>()
  * outside the originating ALS frame, OR refactor that hoists getStore()
  * into the Layer factory), the regression test will fail loud.
  */
-const invocationContext = new AsyncLocalStorage<{ topLevelJobId: string }>()
+const invocationContext = new AsyncLocalStorage<{
+  topLevelJobId: string
+  /**
+   * Codex/GPT-5 cross-model finding C2 (HIGH): the bridge proxy's
+   * `completionRequest.metadata` was hardcoded with empty strings for
+   * agent/tenant_id even though `runtimeOpts` carries them in. Threading
+   * runtimeOpts through ALS lets the per-invoke metadata flow correctly to
+   * the ModelRunner without breaking the cached-Layer pattern (the same
+   * mechanism that proves correct for topLevelJobId per F1's regression test).
+   */
+  runtimeOpts: { agentId: string; tenantId: string; poolId: string; modelId: string; tier: string }
+}>()
 
 // ── Public API for sandbox-worker.ts to delegate to ─────────────────
 
@@ -222,6 +233,19 @@ export interface SubstrateInvokePayload {
   exportName: string
   input: unknown
   runtimeOpts: { agentId: string; tenantId: string; poolId: string; modelId: string; tier: string }
+  /**
+   * Codex/GPT-5 cross-model finding C1 (HIGH): the parent-side loader knows
+   * the construct's declared requirements (`manifest.requirements[].tag`).
+   * Pass them through so the worker-side runtime composition can enforce the
+   * capability bound — rather than always providing both ModelRunner and
+   * EventWriter regardless of what the construct declared.
+   *
+   * Shape: array of Tag key strings (e.g., ["ModelRunner", "EventWriter"]).
+   * Optional for backwards compat: when undefined, default to both layers
+   * (current pre-iter-1-cross-review behavior). When provided as [], the
+   * construct opted out of all bridge capabilities.
+   */
+  requirements?: string[]
 }
 
 /**
@@ -232,6 +256,19 @@ export interface SubstrateInvokePayload {
  * with a typed rate-limit error.
  */
 const MAX_CONCURRENT_BRIDGE_REQUESTS = 32
+
+/**
+ * Codex/GPT-5 cross-review C3 (MEDIUM/HIGH): ceiling on how long a bridge
+ * proxy waits for a parent response before rejecting and cleaning up.
+ * Without this, a missing modelrunner.res or eventwriter.res (parent
+ * crash, network blip, queue overflow) wedges the construct's Effect
+ * forever. Combined with F17's defer-dispose pattern, that means the
+ * worker leaks the cached runtime permanently.
+ *
+ * Default 60s — generous for an LLM call but bounded. Operators can
+ * override per-config in a follow-up; for now constant.
+ */
+const BRIDGE_RESPONSE_TIMEOUT_MS = 60_000
 
 export interface SubstrateInvokeResult {
   ok: true
@@ -260,8 +297,11 @@ export async function handleSubstrateInvoke(
   port: Pick<MessagePort, "postMessage">,
 ): Promise<SubstrateInvokeResult | SubstrateInvokeFailure> {
   // Wrap the entire invocation in AsyncLocalStorage so bridge proxy Layers
-  // can read the top-level jobId at proxy-call time (Bridgebuilder iter-2 #4).
-  return await invocationContext.run({ topLevelJobId: payload.jobId }, async () => {
+  // can read the top-level jobId AND runtimeOpts at proxy-call time
+  // (Bridgebuilder iter-2 #4 + Codex cross-review C2).
+  return await invocationContext.run(
+    { topLevelJobId: payload.jobId, runtimeOpts: payload.runtimeOpts },
+    async () => {
   try {
     const slug = payload.slug
 
@@ -533,9 +573,30 @@ function createRuntimeForSlug(
   payload: SubstrateInvokePayload,
   port: Pick<MessagePort, "postMessage">,
 ): ManagedRuntime.ManagedRuntime<unknown, never> {
-  const modelRunnerLayer = buildBridgeModelRunnerLayer(port)
-  const eventWriterLayer = buildBridgeEventWriterLayer(port)
-  const layer = Layer.mergeAll(modelRunnerLayer, eventWriterLayer)
+  // Codex/GPT-5 cross-review C1 (HIGH): only compose the layers the
+  // construct's manifest declared in `requirements[].tag`. When the parent
+  // didn't pass `requirements` at all (back-compat for pre-iter-1 callers),
+  // fall back to both layers — current behavior. When `requirements` is
+  // an empty array, the construct opted out of all bridge capabilities,
+  // and the runtime gets `Layer.empty` so any access fails-loud.
+  const requested = payload.requirements
+  const wantsModelRunner = requested === undefined || requested.includes("ModelRunner")
+  const wantsEventWriter = requested === undefined || requested.includes("EventWriter")
+
+  // Layers are widened to Layer<unknown> for the conditional composition —
+  // ManagedRuntime.make accepts the union via the cast below.
+  const layers: Array<Layer.Layer<unknown>> = []
+  if (wantsModelRunner) layers.push(buildBridgeModelRunnerLayer(port) as Layer.Layer<unknown>)
+  if (wantsEventWriter) layers.push(buildBridgeEventWriterLayer(port) as Layer.Layer<unknown>)
+
+  let layer: Layer.Layer<unknown>
+  if (layers.length === 0) {
+    layer = Layer.empty as Layer.Layer<unknown>
+  } else if (layers.length === 1) {
+    layer = layers[0]!
+  } else {
+    layer = Layer.mergeAll(layers[0]!, ...layers.slice(1))
+  }
   // ManagedRuntime.make narrows to the layer's exact service union; the cache
   // erases that to ManagedRuntime<unknown, never> for the per-slug Map.
   return ManagedRuntime.make(layer) as unknown as ManagedRuntime.ManagedRuntime<unknown, never>
@@ -556,27 +617,44 @@ function buildBridgeModelRunnerLayer(port: Pick<MessagePort, "postMessage">): La
             )
           }
           const subJobId = randomUUID()
+          // Codex C2 fix: read runtimeOpts from ALS frame so per-invoke
+          // tenant/agent identity threads to the actual ModelRunner call.
+          // Previously hardcoded as empty strings, breaking billing and
+          // tenant isolation downstream.
+          const ctx = invocationContext.getStore()
+          const topLevelJobId = ctx?.topLevelJobId
+          const opts = ctx?.runtimeOpts
           const completionRequest = {
             messages: [
               { role: "system" as const, content: systemPrompt },
               { role: "user" as const, content: userMessage },
             ],
             options: { temperature: 0.2, max_tokens: 4096 },
-            metadata: { agent: "", tenant_id: "", nft_id: "", trace_id: subJobId },
+            metadata: {
+              agent: opts?.agentId ?? "",
+              tenant_id: opts?.tenantId ?? "",
+              nft_id: "",
+              trace_id: subJobId,
+            },
           }
-          // Thread top-level jobId via AsyncLocalStorage so parent can skip
-          // stale modelrunner.req calls (Bridgebuilder iter-2 #4).
-          const ctx = invocationContext.getStore()
-          const topLevelJobId = ctx?.topLevelJobId
-          const response = await new Promise<unknown>((resolve, reject) => {
-            pendingBridgeRequests.set(subJobId, { resolve, reject })
-            port.postMessage({
-              type: "modelrunner.req",
-              jobId: subJobId,
-              topLevelJobId,
-              completionRequest,
-            })
-          })
+          // Codex C3 fix: bound the wait with a timeout. Without this, a
+          // missing modelrunner.res wedges the construct's Effect forever
+          // and (combined with F17 defer-dispose) leaks the cached runtime
+          // permanently. On timeout: reject + delete pendingBridgeRequests
+          // entry so handleBridgeResponse for a late response no-ops.
+          const response = await bridgeRequestWithTimeout(
+            subJobId,
+            () => {
+              port.postMessage({
+                type: "modelrunner.req",
+                jobId: subJobId,
+                topLevelJobId,
+                completionRequest,
+              })
+            },
+            (subJobId) =>
+              new ModelRunnerErrorWire("timeout", `modelrunner.req ${subJobId} no response within ${BRIDGE_RESPONSE_TIMEOUT_MS}ms`),
+          )
           // Response shape: { text: string }
           const r = response as { text?: string }
           if (typeof r.text !== "string") {
@@ -589,6 +667,38 @@ function buildBridgeModelRunnerLayer(port: Pick<MessagePort, "postMessage">): La
             ? cause
             : new ModelRunnerErrorWire("unknown", cause instanceof Error ? cause.message : String(cause)),
       }),
+  })
+}
+
+/**
+ * Codex C3 fix shared helper: wraps the pending-bridge-request Promise with
+ * a setTimeout that rejects + cleans up the pendingBridgeRequests entry
+ * after BRIDGE_RESPONSE_TIMEOUT_MS. The send callback fires after the entry
+ * is registered so a sub-millisecond response can't race past the entry.
+ */
+function bridgeRequestWithTimeout(
+  subJobId: string,
+  send: () => void,
+  buildTimeoutError: (subJobId: string) => unknown,
+): Promise<unknown> {
+  return new Promise<unknown>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      // Late response would no-op (handleBridgeResponse checks pendingBridgeRequests
+      // and drops if not found — already correct on line ~423).
+      pendingBridgeRequests.delete(subJobId)
+      reject(buildTimeoutError(subJobId))
+    }, BRIDGE_RESPONSE_TIMEOUT_MS)
+    // Wrap resolve/reject to clear the timer when a response DOES arrive.
+    const wrappedResolve = (value: unknown) => {
+      clearTimeout(timer)
+      resolve(value)
+    }
+    const wrappedReject = (reason: unknown) => {
+      clearTimeout(timer)
+      reject(reason)
+    }
+    pendingBridgeRequests.set(subJobId, { resolve: wrappedResolve, reject: wrappedReject })
+    send()
   })
 }
 
@@ -609,15 +719,20 @@ function buildBridgeEventWriterLayer(port: Pick<MessagePort, "postMessage">): La
           // Thread top-level jobId for parent-side stale-invoke skip (Bridgebuilder iter-2 #4).
           const ctx = invocationContext.getStore()
           const topLevelJobId = ctx?.topLevelJobId
-          await new Promise<unknown>((resolve, reject) => {
-            pendingBridgeRequests.set(subJobId, { resolve, reject })
-            port.postMessage({
-              type: "eventwriter.req",
-              jobId: subJobId,
-              topLevelJobId,
-              envelope,
-            })
-          })
+          // Codex C3 fix: timeout-bounded await — see bridgeRequestWithTimeout doc.
+          await bridgeRequestWithTimeout(
+            subJobId,
+            () => {
+              port.postMessage({
+                type: "eventwriter.req",
+                jobId: subJobId,
+                topLevelJobId,
+                envelope,
+              })
+            },
+            (subJobId) =>
+              new EventWriterErrorWire("unknown", `eventwriter.req ${subJobId} no response within ${BRIDGE_RESPONSE_TIMEOUT_MS}ms`),
+          )
         },
         catch: (cause) =>
           cause instanceof EventWriterErrorWire
