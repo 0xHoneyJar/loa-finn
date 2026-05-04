@@ -196,6 +196,7 @@ describe("e2e — real worker_threads + bridge protocol + Effect program", () =>
   it("invoke roundtrip: parent → worker → construct → bridge proxy → parent → result", async () => {
     const bridge = makeSandboxBridge({
       workerScript,
+      trustedPacksDirs: [constructDir],
       modelInvoker: makeMockInvoker(() => "synthetic-llm-response"),
       eventWriter: noopEventWriter,
     })
@@ -220,6 +221,7 @@ describe("e2e — real worker_threads + bridge protocol + Effect program", () =>
     let invocations = 0
     const bridge = makeSandboxBridge({
       workerScript,
+      trustedPacksDirs: [constructDir],
       modelInvoker: makeMockInvoker(() => {
         invocations++
         return `response-${invocations}`
@@ -246,6 +248,7 @@ describe("e2e — real worker_threads + bridge protocol + Effect program", () =>
   it("invoker error propagates back as TYPED Effect failure (runPromiseExit Bridgebuilder fix)", async () => {
     const bridge = makeSandboxBridge({
       workerScript,
+      trustedPacksDirs: [constructDir],
       modelInvoker: {
         complete: async () => {
           throw new Error("simulated cheval crash")
@@ -276,6 +279,7 @@ describe("e2e — real worker_threads + bridge protocol + Effect program", () =>
   it("dispose(slug) posts dispose-runtime; subsequent invoke rebuilds the runtime", async () => {
     const bridge = makeSandboxBridge({
       workerScript,
+      trustedPacksDirs: [constructDir],
       modelInvoker: makeMockInvoker(() => "ok"),
       eventWriter: noopEventWriter,
     })
@@ -299,9 +303,35 @@ describe("e2e — real worker_threads + bridge protocol + Effect program", () =>
     }
   }, 30_000)
 
+  it("default-deny: bridge with empty trustedPacksDirs rejects modPath outside trust (Bridgebuilder iter-3 HIGH fix)", async () => {
+    // Construct a bridge with NO trustedPacksDirs — worker should default-deny
+    // every substrate-invoke modPath.
+    const bridge = makeSandboxBridge({
+      workerScript,
+      trustedPacksDirs: [], // explicit empty — production omission is the hazard this defends against
+      modelInvoker: makeMockInvoker(() => "ok"),
+      eventWriter: noopEventWriter,
+    })
+    try {
+      const loaded = loadedFor("e2e-test-construct", "gradeText")
+      const captured = await bridge
+        .invoke(loaded, { agentId: "a", tenantId: "t", poolId: "p", modelId: "m", tier: "pro" }, null)
+        .then(
+          () => null,
+          (e: unknown) => e,
+        )
+      expect(captured).toBeTruthy()
+      expect(captured).toMatchObject({ _tag: "ModPathTrustError" })
+      expect(JSON.stringify(captured)).toMatch(/no trustedPacksDirs registered/)
+    } finally {
+      await bridge.shutdown()
+    }
+  }, 30_000)
+
   it("shutdown() terminates the worker cleanly + rejects in-flight invocations", async () => {
     const bridge = makeSandboxBridge({
       workerScript,
+      trustedPacksDirs: [constructDir],
       // Mock invoker that hangs forever — simulates an in-flight invocation when shutdown hits
       modelInvoker: {
         complete: () => new Promise(() => {}),

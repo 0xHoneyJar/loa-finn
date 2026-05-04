@@ -106,29 +106,27 @@ const moduleCache = new Map<string, Record<string, unknown>>()
 const modulePathToSlug = new Map<string, string>()
 
 /**
- * Per-worker allowlist of trusted parent dirs that modPath is permitted to
- * live under (Bridgebuilder iter-2 #2 — defense-in-depth path containment
- * on the worker side). Populated lazily on first substrate-invoke; the
- * worker trusts the parent's loader to validate per-pack containment, but
- * a worker-side allowlist defends against a buggy or compromised parent
- * sending an attacker-controlled modPath. Parent dirs are realpath-normalized.
+ * Per-worker allowlist of trusted prefix roots. modPath must start with
+ * one of these to be admitted. Populated EXPLICITLY at worker startup via
+ * `registerTrustedPacksDir()` — typically called from worker-entry.ts
+ * reading `workerData.trustedPacksDirs` passed by the parent's
+ * `makeSandboxBridge({ trustedPacksDirs: [...] })`.
+ *
+ * Bridgebuilder iter-3 HIGH fix: the previous lazy-trust-on-first-use
+ * fallback (`if (size === 0) return true`) was a TOCTOU bypass — the
+ * first attacker-controlled modPath would always be admitted AND
+ * permanently registered. Default-deny is the only safe shape.
  */
 const trustedModPathPrefixes = new Set<string>()
 
-function registerTrustedModPathParent(modPath: string): void {
-  // Use the modPath's parent directory (and walk up two levels for
-  // packs/dist/index.js shape) as the trusted prefix root. Operators using
-  // `Substrate.make` should explicitly call registerTrustedPacksDir() at
-  // startup for stricter containment; lazy registration is the fallback.
-  const parts = modPath.split(sep)
-  if (parts.length < 2) return
-  // Trust the immediate parent directory (where the construct's pack root lives).
-  const parent = parts.slice(0, -1).join(sep)
-  trustedModPathPrefixes.add(parent + sep)
-}
-
+/**
+ * Whether the worker has had any trusted prefixes registered. If false,
+ * `isModPathTrusted` returns false for ALL paths — a startup misconfiguration
+ * that the parent forgot to set `trustedPacksDirs` will now fail loud and
+ * fast on the first invoke instead of silently admitting any path.
+ */
 function isModPathTrusted(modPath: string): boolean {
-  if (trustedModPathPrefixes.size === 0) return true // first-call lazy registration; allow + register
+  if (trustedModPathPrefixes.size === 0) return false // default-deny
   for (const prefix of trustedModPathPrefixes) {
     if (modPath.startsWith(prefix)) return true
   }
@@ -227,20 +225,21 @@ export async function handleSubstrateInvoke(
   try {
     const slug = payload.slug
 
-    // Worker-side path containment (Bridgebuilder iter-2 #2 — defense in depth)
+    // Worker-side path containment (Bridgebuilder iter-2 #2 + iter-3 HIGH).
+    // Default-deny: trustedPacksDirs MUST be pre-registered via worker-entry's
+    // setup-from-workerData — see registerTrustedPacksDir(). The previous
+    // lazy-trust-on-first-use fallback was a TOCTOU bypass and is removed.
     if (!isModPathTrusted(payload.modPath)) {
       return {
         ok: false,
         error: {
           _tag: "ModPathTrustError",
-          message: `worker rejected modPath outside trusted prefixes: ${payload.modPath}`,
+          message: trustedModPathPrefixes.size === 0
+            ? `worker has no trustedPacksDirs registered — pass via workerData.trustedPacksDirs at Worker construction`
+            : `worker rejected modPath outside trusted prefixes: ${payload.modPath}`,
         },
       }
     }
-    // Lazy registration: first time we see a modPath, trust its parent dir
-    // for subsequent calls. Operators can call registerTrustedPacksDir() at
-    // worker startup for stricter pre-registration.
-    registerTrustedModPathParent(payload.modPath)
 
     // Get or create runtime for this slug
     let runtime = runtimeCache.get(slug)

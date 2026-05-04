@@ -69,6 +69,15 @@ export interface SandboxBridgeOptions {
    */
   invokeTimeoutMs?: number
   /**
+   * Trusted packs-directory prefixes for worker-side modPath containment.
+   * REQUIRED for production — the worker default-denies any modPath that
+   * doesn't start with one of these prefixes (Bridgebuilder iter-3 HIGH
+   * fix). Pass at construction; merged into `workerOptions.workerData`.
+   * In development with no security model, omit and the worker will reject
+   * all substrate-invoke envelopes with a clear error.
+   */
+  trustedPacksDirs?: string[]
+  /**
    * Optional structured logger. Defaults to a no-op. Production wires up
    * pi-coding-agent's logger or similar. Used for: invoke start/end with
    * jobId+slug, bridge errors, worker exits, dispose calls, stray messages.
@@ -99,7 +108,17 @@ export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
   }
 
   // Single dedicated worker for sprint-5. Multi-worker pool is a follow-up.
-  const worker = new Worker(opts.workerScript, opts.workerOptions)
+  // Merge trustedPacksDirs into workerData so worker-entry.ts can register
+  // them at boot — Bridgebuilder iter-3 HIGH fix requires explicit, eager
+  // registration (worker default-denies modPath without trusted prefixes).
+  const mergedWorkerOptions: WorkerOptions = {
+    ...(opts.workerOptions ?? {}),
+    workerData: {
+      ...(((opts.workerOptions?.workerData as Record<string, unknown> | undefined) ?? {})),
+      trustedPacksDirs: opts.trustedPacksDirs ?? [],
+    },
+  }
+  const worker = new Worker(opts.workerScript, mergedWorkerOptions)
   let shutdownRequested = false
 
   // Map of in-flight top-level invoke jobIds → resolvers (with timeout cleanup)
@@ -245,8 +264,14 @@ export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
 
   worker.on("exit", (code) => {
     if (!shutdownRequested && code !== 0) {
-      logger.error("substrate-bridge: worker exited unexpectedly", { code })
-      const err = new Error(`substrate worker exited unexpectedly with code ${code}`)
+      logger.error("substrate-bridge: worker exited unexpectedly — bridge unusable", { code })
+      // Bridgebuilder iter-3 Medium fix: mark shutdownRequested so subsequent
+      // invoke() calls reject fast instead of queueing into a dead worker
+      // (the previous behavior would silently hang indefinitely). Auto-respawn
+      // is a follow-up; for now, fail loud and force the operator to recreate
+      // the bridge.
+      shutdownRequested = true
+      const err = new Error(`substrate worker exited unexpectedly with code ${code} — bridge no longer accepting invocations`)
       for (const [, pending] of inFlight) {
         if (pending.timer) clearTimeout(pending.timer)
         pending.reject(err)

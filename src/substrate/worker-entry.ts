@@ -9,11 +9,12 @@
 // stays Effect-free. Substrate gets its own worker entry that imports Effect
 // via worker-runtime.ts.
 
-import { parentPort } from "node:worker_threads"
+import { parentPort, workerData } from "node:worker_threads"
 import {
   handleSubstrateInvoke,
   handleDisposeRuntime,
   handleBridgeResponse,
+  registerTrustedPacksDir,
   type SubstrateInvokePayload,
 } from "./worker-runtime.js"
 
@@ -22,6 +23,19 @@ if (!parentPort) {
 }
 
 const port = parentPort
+
+// Bridgebuilder iter-3 HIGH fix: register trusted packs dirs at worker
+// startup. Default-deny means substrate-invoke envelopes with a modPath
+// outside these prefixes are rejected. Parent passes via:
+//   new Worker(script, { workerData: { trustedPacksDirs: ["/abs/packs/"] } })
+const wdAny = workerData as { trustedPacksDirs?: unknown } | null
+if (wdAny && Array.isArray(wdAny.trustedPacksDirs)) {
+  for (const dir of wdAny.trustedPacksDirs) {
+    if (typeof dir === "string" && dir.length > 0) {
+      registerTrustedPacksDir(dir)
+    }
+  }
+}
 
 port.on("message", async (msg: unknown) => {
   if (typeof msg !== "object" || msg === null) return
