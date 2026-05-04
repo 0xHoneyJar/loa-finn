@@ -1,8 +1,9 @@
 // src/hounfour/types.ts — Hounfour shared types (SDD §4.2, T-14.4)
 // All interfaces for the multi-model provider abstraction layer.
 //
-// Canonical branded types re-exported from @0xhoneyjar/loa-hounfour (v7.0.0).
+// Canonical branded types re-exported from @0xhoneyjar/loa-hounfour (v7.9.2).
 // Use wire-boundary.ts parse functions to construct branded values.
+// Protocol schemas and types centralized in protocol-types.ts (Task 2.4).
 
 export type { MicroUSD, BasisPoints, AccountId } from "@0xhoneyjar/loa-hounfour"
 export type { PoolId } from "@0xhoneyjar/loa-hounfour"
@@ -113,6 +114,7 @@ export interface RequestMetadata {
   nft_id: string                        // "" for Phase 0-3
   trace_id: string                      // UUID per request
   reservation_id?: string               // billing reservation from arrakis JWT (Phase 5)
+  task_type?: import("./protocol-types.js").TaskType  // Task type classification (v7.11.0)
 }
 
 export interface CompletionResult {
@@ -255,6 +257,18 @@ export interface ModelPortBase {
 
 // --- Budget ---
 
+/**
+ * Budget epoch classification for temporal diversity.
+ * Log-only metadata — does NOT mutate protocol CapitalLayerSnapshot.
+ * Enables communities to express calendar, event-based, or governance-synced budget rhythms.
+ */
+export interface BudgetEpoch {
+  /** Epoch type: calendar (monthly/quarterly), event (campaign/launch), or community-sync (DAO vote cycle). */
+  epoch_type: "calendar" | "event" | "community-sync"
+  /** Community-provided epoch identifier (e.g., "Q1-2026", "launch-campaign-3", "governance-cycle-7"). */
+  epoch_id: string
+}
+
 export interface BudgetSnapshot {
   scope: string
   spent_usd: number
@@ -262,6 +276,42 @@ export interface BudgetSnapshot {
   percent_used: number
   warning: boolean
   exceeded: boolean
+  /** Optional ISO 8601 budget period end from upstream provider. When absent, 30-day default used. */
+  budget_period_end?: string
+  /** Optional epoch metadata for temporal diversity. Log-only — not stored in protocol snapshot. */
+  budget_epoch?: BudgetEpoch
+}
+
+/**
+ * Reputation query parameters (SDD §4.2.1, cycle-034 T-2.2).
+ * Carries nftId for per-NFT scoring differentiation.
+ */
+export interface ReputationQuery {
+  nftId: string
+  poolId: import("@0xhoneyjar/loa-hounfour").PoolId
+  routingKey: import("../hounfour/nft-routing-config.js").NFTRoutingKey
+}
+
+/** Options for reputation queries, including AbortSignal for timeout composition. */
+export interface ReputationQueryOptions {
+  signal?: AbortSignal
+}
+
+/**
+ * Query function for pool-level reputation scoring (SDD §4.2.1, cycle-034).
+ * Returns a reputation score clamped to [0,1], or null if no signal available.
+ * Used by resolvePoolWithReputation to rank candidate pools.
+ */
+export type ReputationQueryFn = (
+  query: ReputationQuery,
+  options?: ReputationQueryOptions,
+) => Promise<number | null>
+
+/** Provider for dynamic reputation scoring (Sprint 5, Task 5.3). */
+export interface ReputationProvider {
+  getReputationBoost(tenantId: string): Promise<{ boost: number; source: string } | null>
+  /** Optional cohort-specific score for task-dimensional reputation (v7.11.0, Task 2.4). */
+  getTaskCohortScore?(tenantId: string, taskType: string): Promise<number | null>
 }
 
 // --- Ledger Entry (16 fields per SDD §5.2) ---
@@ -304,6 +354,7 @@ export interface LedgerEntryV2 {
   nft_id?: string
   pool_id?: string
   ensemble_id?: string
+  task_type?: string                      // Task type (e.g., "finn:conversation") — optional for backward compat
   prompt_tokens: number
   completion_tokens: number
   reasoning_tokens: number
@@ -472,4 +523,17 @@ export interface StreamErrorData {
 
 export interface StreamThinkingData {
   thinking: string
+}
+
+// --- v7.11.0 Hono Context Type Augmentation (SDD §4.6.6, IMP-006) ---
+// Module augmentation ensures c.get("taskType") returns TaskType (not unknown)
+// and c.set("taskType", value) requires TaskType at compile time.
+// Index signature preserves backward-compatibility for existing untyped context variables.
+
+declare module "hono" {
+  interface ContextVariableMap {
+    taskType: import("./protocol-types.js").TaskType
+    taskTypeRestricted: boolean
+    [key: string]: unknown
+  }
 }

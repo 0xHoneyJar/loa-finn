@@ -27,7 +27,10 @@ function normalizeRoute(path: string): string {
     .replace(/\/api\/v1\/agent\/[^/]+$/, "/api/v1/agent/:tokenId")
     .replace(/\/api\/sessions\/[^/]+\/message$/, "/api/sessions/:id/message")
     .replace(/\/api\/sessions\/[^/]+$/, "/api/sessions/:id")
-    .replace(/\/agent\/[^/]+$/, "/agent/:tokenId")
+    .replace(/\/agent\/[^/]+\/[^/]+$/, "/agent/:collection/:tokenId")
+    .replace(/\/chat\/[^/]+\/[^/]+$/, "/chat/:collection/:tokenId")
+    .replace(/\/api\/v1\/conversations\/[^/]+\/messages$/, "/api/v1/conversations/:id/messages")
+    .replace(/\/api\/v1\/conversations\/[^/]+$/, "/api/v1/conversations/:id")
 }
 
 // ---------------------------------------------------------------------------

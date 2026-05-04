@@ -1,9 +1,21 @@
 // src/cron/store.ts — Atomic JSON file store with corruption recovery (SDD §4.1)
 
-import { open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises"
+import { open, readFile, rename, stat, unlink, writeFile, appendFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { Value } from "@sinclair/typebox/value"
 import type { TSchema } from "@sinclair/typebox"
+import "../hounfour/typebox-formats.js" // Register uuid/date-time formats for Value.Check
+import { assertFormatsRegistered } from "../hounfour/typebox-formats.js"
+import {
+  AUDIT_TRAIL_GENESIS_HASH,
+  buildDomainTag,
+  computeAuditEntryHash,
+  computeChainBoundHash,
+  verifyAuditTrailIntegrity,
+  AuditEntrySchema,
+  QuarantineRecordSchema,
+} from "../hounfour/protocol-types.js"
+import type { AuditEntry, AuditEntryHashInput, AuditTrailVerificationResult, QuarantineRecord } from "../hounfour/protocol-types.js"
 
 // ---------------------------------------------------------------------------
 // Error types (SDD §4.1)
@@ -61,6 +73,19 @@ export interface AtomicJsonStoreOptions<S extends TSchema = TSchema> {
   schema?: S
   /** Migration callbacks keyed by _schemaVersion they upgrade FROM. */
   migrations?: Map<number, (data: unknown) => unknown>
+  /** Enable audit trail hash chain sidecar (.audit.jsonl). Default false. (Sprint 5 T-5.6) */
+  auditTrail?: boolean
+  /** Schema ID for audit trail domain tag (e.g., 'GovernedCredits'). Default: filename stem. */
+  auditSchemaId?: string
+  /** Protocol version for audit trail domain tag. Default: '8.2.0'. */
+  auditContractVersion?: string
+  /**
+   * Enable chain-bound hash for new audit entries (v8.3.0).
+   * When true, new entries use computeChainBoundHash() with hashAlg: 'chainBoundV1'.
+   * When false (default), new entries use legacy computeAuditEntryHash().
+   * Controlled by FINN_CHAINBOUND_HASH env var. (Flatline IMP-009)
+   */
+  chainBoundHash?: boolean
 }
 
 const DEFAULT_MAX_SIZE = 10 * 1024 * 1024 // 10 MB
@@ -86,6 +111,16 @@ export class AtomicJsonStore<T> {
   private readonly schema: TSchema | undefined
   private readonly migrations: Map<number, (data: unknown) => unknown>
   private readonly mutex = new AsyncMutex()
+  // Audit trail (Sprint 5 T-5.6, chain-bound hash T-2.3)
+  private readonly auditEnabled: boolean
+  private readonly auditPath: string
+  private readonly auditDomainTag: string
+  private readonly chainBoundHash: boolean
+  private auditPrevHash: string = AUDIT_TRAIL_GENESIS_HASH
+  private auditEntryCount = 0
+  private auditInitialized = false
+  // Quarantine sidecar (Sprint 6 T-6.4)
+  private readonly quarantinePath: string
 
   constructor(filePath: string, options?: AtomicJsonStoreOptions) {
     this.filePath = filePath
@@ -94,6 +129,20 @@ export class AtomicJsonStore<T> {
     this.maxSizeBytes = options?.maxSizeBytes ?? DEFAULT_MAX_SIZE
     this.schema = options?.schema
     this.migrations = options?.migrations ?? new Map()
+    // Audit trail config
+    this.auditEnabled = options?.auditTrail ?? false
+    this.auditPath = filePath + ".audit.jsonl"
+    const schemaId = options?.auditSchemaId ?? filenameStem(filePath)
+    const contractVersion = options?.auditContractVersion ?? "8.3.1"
+    this.auditDomainTag = buildDomainTag(schemaId, contractVersion)
+    this.chainBoundHash = options?.chainBoundHash ?? (process.env.FINN_CHAINBOUND_HASH === "true")
+    this.quarantinePath = filePath + ".quarantine.jsonl"
+
+    // Validate format registration at construction time, not on every read.
+    // FormatRegistry is a global singleton — once registered, formats persist.
+    if (this.schema) {
+      assertFormatsRegistered(["uuid", "date-time"])
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -167,7 +216,95 @@ export class AtomicJsonStore<T> {
 
       // 5. fsync the containing directory so the rename is durable
       await fsyncDir(dirname(this.filePath))
+
+      // 6. Append audit trail entry (best-effort — failure logged, not thrown) (T-5.6)
+      if (this.auditEnabled) {
+        try {
+          await this.appendAuditEntry("write", json)
+        } catch (err) {
+          console.error(
+            `[store] Audit trail append failed (store write succeeded):`,
+            err instanceof Error ? err.message : String(err),
+          )
+        }
+      }
     })
+  }
+
+  // -------------------------------------------------------------------------
+  // Audit trail (Sprint 5 T-5.6)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Verify the integrity of the audit trail hash chain.
+   * Supports dual-format verification: legacy (computeAuditEntryHash) and
+   * chain-bound (computeChainBoundHash) entries, distinguished by hashAlg
+   * metadata. Legacy entries (no hashAlg) use computeAuditEntryHash.
+   * Verification failure is hard-fail — integrity violations are never suppressed.
+   * (Flatline IMP-003, SKP-009)
+   */
+  async verifyIntegrity(): Promise<AuditTrailVerificationResult> {
+    if (!this.auditEnabled) {
+      throw new Error("Audit trail is not enabled for this store")
+    }
+
+    let raw: string
+    try {
+      raw = await readFile(this.auditPath, "utf-8")
+    } catch (err) {
+      if (isEnoent(err)) {
+        // No sidecar yet — empty trail is valid
+        return { valid: true }
+      }
+      throw err
+    }
+
+    const lines = raw.trim().split("\n").filter(Boolean)
+    if (lines.length === 0) return { valid: true }
+
+    const entries: AuditEntry[] = lines.map((line) => JSON.parse(line))
+
+    // Dual-format verification: check hashAlg to select algorithm per entry
+    let prevHash = AUDIT_TRAIL_GENESIS_HASH
+    for (const entry of entries) {
+      const hashAlg = (entry.payload as Record<string, unknown>)?.hashAlg as string | undefined
+
+      const hashInput: AuditEntryHashInput = {
+        entry_id: entry.entry_id,
+        timestamp: entry.timestamp,
+        event_type: entry.event_type,
+        payload: entry.payload,
+      }
+
+      let expectedHash: string
+      if (hashAlg === "chainBoundV1") {
+        expectedHash = computeChainBoundHash(hashInput, entry.hash_domain_tag, prevHash)
+      } else {
+        // Legacy (no hashAlg or 'legacyV1') — use original algorithm
+        expectedHash = computeAuditEntryHash(hashInput, entry.hash_domain_tag)
+      }
+
+      if (entry.entry_hash !== expectedHash) {
+        console.error(
+          `[store] INTEGRITY_FAILED: entry ${entry.entry_id} hash mismatch — ` +
+          `expected=${expectedHash}, actual=${entry.entry_hash}, hashAlg=${hashAlg ?? "legacyV1"}`,
+        )
+        return { valid: false }
+      }
+
+      // Verify chain linkage
+      if (entry.previous_hash !== prevHash) {
+        console.error(
+          `[store] INTEGRITY_FAILED: entry ${entry.entry_id} chain break — ` +
+          `expected prevHash=${prevHash}, actual=${entry.previous_hash}`,
+        )
+        return { valid: false }
+      }
+
+      prevHash = entry.entry_hash
+    }
+
+    return { valid: true }
   }
 
   // -------------------------------------------------------------------------
@@ -194,7 +331,7 @@ export class AtomicJsonStore<T> {
     // Run migrations if _schemaVersion is present (SDD §4.1)
     parsed = this.applyMigrations(parsed)
 
-    // TypeBox schema validation
+    // TypeBox schema validation (format guard runs at construction time — see NOTES.md)
     if (this.schema) {
       if (!Value.Check(this.schema, parsed)) {
         return null // Schema mismatch
@@ -219,7 +356,87 @@ export class AtomicJsonStore<T> {
     return current
   }
 
-  /** Rename a corrupt file out of the way so recovery doesn't loop. */
+  /**
+   * Initialize audit chain state from existing .audit.jsonl sidecar.
+   * Reads the last entry to resume the hash chain after process restart.
+   * Called lazily on first appendAuditEntry; idempotent.
+   */
+  private async initAuditState(): Promise<void> {
+    if (this.auditInitialized) return
+    this.auditInitialized = true
+
+    let raw: string
+    try {
+      raw = await readFile(this.auditPath, "utf-8")
+    } catch (err) {
+      if (isEnoent(err)) return // No sidecar yet — start from genesis
+      throw err
+    }
+
+    const lines = raw.trim().split("\n").filter(Boolean)
+    if (lines.length === 0) return
+
+    const lastEntry = JSON.parse(lines[lines.length - 1]) as AuditEntry
+    this.auditPrevHash = lastEntry.entry_hash
+    this.auditEntryCount = lines.length
+  }
+
+  /**
+   * Append a single AuditEntry to the .audit.jsonl sidecar.
+   * Computes hash using either legacy computeAuditEntryHash or chain-bound
+   * computeChainBoundHash (v8.3.0), depending on FINN_CHAINBOUND_HASH flag.
+   * hashAlg metadata field discriminates algorithm for dual-format verification.
+   */
+  private async appendAuditEntry(eventType: string, canonicalJson: string): Promise<void> {
+    await this.initAuditState()
+    const { createHash, randomUUID } = await import("node:crypto")
+
+    const payloadHash = "sha256:" + createHash("sha256").update(canonicalJson, "utf-8").digest("hex")
+
+    const hashInput: AuditEntryHashInput = {
+      entry_id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      event_type: `store.data.${eventType}`,
+      payload: { payload_hash: payloadHash },
+    }
+
+    // Dual-format hash: chain-bound (v8.3.1+) or legacy, per feature flag (Flatline IMP-009)
+    // buildDomainTag() natively sanitizes dots since hounfour v8.3.1 (PR #42).
+    let entryHash: string
+    let hashAlg: "legacyV1" | "chainBoundV1"
+    let domainTagForEntry: string
+    if (this.chainBoundHash) {
+      domainTagForEntry = this.auditDomainTag
+      entryHash = computeChainBoundHash(hashInput, domainTagForEntry, this.auditPrevHash)
+      hashAlg = "chainBoundV1"
+    } else {
+      domainTagForEntry = this.auditDomainTag
+      entryHash = computeAuditEntryHash(hashInput, domainTagForEntry)
+      hashAlg = "legacyV1"
+    }
+
+    const entry: AuditEntry = {
+      entry_id: hashInput.entry_id,
+      timestamp: hashInput.timestamp,
+      event_type: hashInput.event_type,
+      payload: { payload_hash: payloadHash, hashAlg },
+      entry_hash: entryHash,
+      previous_hash: this.auditPrevHash,
+      hash_domain_tag: domainTagForEntry,
+    }
+
+    // Validate entry against schema before writing
+    if (!Value.Check(AuditEntrySchema, entry)) {
+      throw new Error(`Audit entry does not conform to AuditEntrySchema`)
+    }
+
+    await appendFile(this.auditPath, JSON.stringify(entry) + "\n", "utf-8")
+
+    this.auditPrevHash = entryHash
+    this.auditEntryCount++
+  }
+
+  /** Rename a corrupt file out of the way and write QuarantineRecord to sidecar (T-6.4). */
   private async quarantine(path: string): Promise<void> {
     const ts = Date.now()
     const dest = `${path}.corrupt.${ts}`
@@ -227,6 +444,34 @@ export class AtomicJsonStore<T> {
       await rename(path, dest)
     } catch {
       // Best effort — file may already be gone
+      return
+    }
+
+    // Write QuarantineRecord to .quarantine.jsonl sidecar (best-effort).
+    // Note: QuarantineRecordSchema was designed for audit trail discontinuities.
+    // We reuse it for store corruption with semantic approximation:
+    //   first/last_affected_index = 0 (no meaningful index for file corruption)
+    //   discontinuity_id = fresh UUID (not referencing an audit trail discontinuity)
+    // See Bridgebuilder review MEDIUM-3 on PR #107 for upstream proposal context.
+    try {
+      const { randomUUID } = await import("node:crypto")
+      const record: QuarantineRecord = {
+        quarantine_id: randomUUID(),
+        discontinuity_id: randomUUID(),
+        resource_type: "json_store",
+        resource_id: this.filePath,
+        status: "active",
+        quarantined_at: new Date(ts).toISOString(),
+        first_affected_index: 0,
+        last_affected_index: 0,
+        resolution_notes: `Corrupt file moved to ${dest}`,
+      }
+
+      if (Value.Check(QuarantineRecordSchema, record)) {
+        await appendFile(this.quarantinePath, JSON.stringify(record) + "\n", "utf-8")
+      }
+    } catch {
+      // Best effort — quarantine record write failure should not block recovery
     }
   }
 }
@@ -292,4 +537,11 @@ async function fsyncDir(dirPath: string): Promise<void> {
 /** Type-guard for Node ENOENT errors. */
 function isEnoent(err: unknown): boolean {
   return (err as NodeJS.ErrnoException)?.code === "ENOENT"
+}
+
+/** Extract filename stem (without extension) from a path. */
+function filenameStem(filePath: string): string {
+  const base = filePath.split("/").pop() ?? filePath
+  const dot = base.lastIndexOf(".")
+  return dot > 0 ? base.slice(0, dot) : base
 }

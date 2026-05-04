@@ -8,6 +8,9 @@
 
 import type { BrandedMicroUSD as MicroUSD, BasisPoints, AccountId } from "@0xhoneyjar/loa-hounfour"
 import { type PoolId, POOL_IDS, isValidPoolId } from "@0xhoneyjar/loa-hounfour"
+import type { MicroUSDC } from "./protocol-types.js"
+import { readMicroUSDC } from "./protocol-types.js"
+import type { TaskType } from "./protocol-types.js"
 
 // ---------------------------------------------------------------------------
 // Error Type
@@ -55,6 +58,11 @@ export const MAX_MICRO_USD_LENGTH = 30
 export function parseMicroUSD(raw: string): MicroUSD {
   if (typeof raw !== "string" || raw.length === 0) {
     throw new WireBoundaryError("micro_usd", raw, "empty or non-string value")
+  }
+
+  // Bounds check: reject absurdly long strings before BigInt conversion (DoS prevention)
+  if (raw.length > MAX_MICRO_USD_LENGTH) {
+    throw new WireBoundaryError("micro_usd", raw, "value exceeds maximum length")
   }
 
   // Reject plus sign prefix
@@ -157,6 +165,46 @@ export function assertMicroUSDFormat(value: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// StrictMicroUSD — positive-only MicroUSD for wire boundaries (Sprint 2, Task 2.1)
+// ---------------------------------------------------------------------------
+
+declare const _strictMicroUSDBrand: unique symbol
+
+/**
+ * Nominally branded positive-only MicroUSD. Intersects the protocol
+ * BrandedMicroUSD with a local unique symbol so that:
+ *   - StrictMicroUSD IS assignable to MicroUSD / BrandedMicroUSD (superset)
+ *   - MicroUSD IS NOT assignable to StrictMicroUSD (missing brand)
+ *
+ * Only `parseStrictMicroUSD()` can construct this type.
+ */
+export type StrictMicroUSD = MicroUSD & { readonly [_strictMicroUSDBrand]: true }
+
+/**
+ * Parse a raw string into a StrictMicroUSD branded type.
+ *
+ * Delegates to `parseMicroUSD()` for normalization and canonicalization,
+ * then rejects negative values. This is the SOLE CONSTRUCTOR for
+ * StrictMicroUSD — the only place the internal branding cast occurs.
+ *
+ * Use at wire egress boundaries where negative values must be rejected.
+ */
+export function parseStrictMicroUSD(raw: string): StrictMicroUSD {
+  const value = parseMicroUSD(raw)
+  if (value < 0n) {
+    throw new WireBoundaryError("strict_micro_usd", raw, "negative values not allowed at strict boundary")
+  }
+  return value as StrictMicroUSD
+}
+
+/**
+ * Serialize a StrictMicroUSD value to canonical wire format string.
+ */
+export function serializeStrictMicroUSD(value: StrictMicroUSD): string {
+  return value.toString()
+}
+
+// ---------------------------------------------------------------------------
 // MicroUSD Arithmetic Helpers (branded-safe wrappers)
 // ---------------------------------------------------------------------------
 
@@ -229,15 +277,23 @@ export function subtractCreditUnit(a: CreditUnit, b: CreditUnit): CreditUnit {
 }
 
 // ---------------------------------------------------------------------------
-// MicroUSDC — string ↔ branded bigint (Sprint 2, Task 2.1)
+// MicroUSDC — string ↔ protocol branded bigint (Sprint 2, Task 2.3)
 // On-chain settlement unit: 1 MicroUSDC = 0.000001 USDC (6 decimals)
+// Type imported from @0xhoneyjar/loa-hounfour/economy (replaces local brand).
 // ---------------------------------------------------------------------------
 
-declare const _microUSDCBrand: unique symbol
-export type MicroUSDC = bigint & { readonly [_microUSDCBrand]: true }
+// Re-export protocol MicroUSDC type for backward-compatible import paths.
+export type { MicroUSDC } from "./protocol-types.js"
 
-const MICRO_USDC_PATTERN = /^-?(?:0|[1-9][0-9]*)$/
-
+/**
+ * Parse a raw string into a protocol MicroUSDC branded type.
+ *
+ * Validates wire format (non-empty, no plus sign, length bound, digits only),
+ * normalizes leading zeros, and delegates to protocol readMicroUSDC() for
+ * non-negativity validation and branding.
+ *
+ * On-chain amounts are always non-negative — negatives are rejected.
+ */
 export function parseMicroUSDC(raw: string): MicroUSDC {
   if (typeof raw !== "string" || raw.length === 0) {
     throw new WireBoundaryError("micro_usdc", raw, "empty or non-string value")
@@ -248,21 +304,21 @@ export function parseMicroUSDC(raw: string): MicroUSDC {
   if (raw.length > MAX_MICRO_USD_LENGTH) {
     throw new WireBoundaryError("micro_usdc", raw, "value exceeds maximum length")
   }
-  const isNegative = raw.startsWith("-")
-  const digits = isNegative ? raw.slice(1) : raw
-  if (digits.length === 0) {
-    throw new WireBoundaryError("micro_usdc", raw, "bare minus sign")
+  if (raw.startsWith("-")) {
+    throw new WireBoundaryError("micro_usdc", raw, "negative values not allowed for on-chain amounts")
   }
-  if (!/^[0-9]+$/.test(digits)) {
+  if (!/^[0-9]+$/.test(raw)) {
     throw new WireBoundaryError("micro_usdc", raw, "contains non-digit characters")
   }
-  const stripped = digits.replace(/^0+/, "") || "0"
-  let canonical = isNegative ? `-${stripped}` : stripped
-  if (canonical === "-0") canonical = "0"
-  if (!MICRO_USDC_PATTERN.test(canonical)) {
-    throw new WireBoundaryError("micro_usdc", raw, "does not match canonical pattern")
+  // Normalize leading zeros: "007" → "7", "000" → "0"
+  const canonical = raw.replace(/^0+/, "") || "0"
+
+  // Delegate to protocol for branding and non-negativity validation
+  const result = readMicroUSDC(canonical)
+  if (result === undefined) {
+    throw new WireBoundaryError("micro_usdc", raw, "protocol validation failed")
   }
-  return BigInt(canonical) as MicroUSDC
+  return result
 }
 
 export function serializeMicroUSDC(value: MicroUSDC): string {
@@ -322,20 +378,37 @@ export function convertCreditUnitToMicroUSD(
  *
  * Rate is expressed as MicroUSDC per USD (e.g. 1_000_000 = 1:1 peg).
  * Formula: microUSDC = microUSD * usdUsdcRate / 1_000_000
+ *
+ * Uses protocol readMicroUSDC() for branding and non-negativity validation.
+ * On-chain amounts are always non-negative — negative inputs produce an error.
  */
 export function convertMicroUSDtoMicroUSDC(
   amount: MicroUSD,
   usdUsdcRate: number,
   rounding: "ceil" | "floor" = "ceil",
 ): MicroUSDC {
+  // On-chain amounts are always non-negative — reject negative input early
+  // to prevent rounding from silently converting small negatives to 0.
+  if ((amount as bigint) < 0n) {
+    throw new WireBoundaryError("micro_usdc", amount.toString(), "negative MicroUSD not allowed for on-chain conversion")
+  }
   // Rate as 6-decimal fixed point: 1.0 → 1_000_000
   const rate = BigInt(Math.round(usdUsdcRate * 1_000_000))
   const product = (amount as bigint) * rate
   const divisor = MICRO_USD_PER_DOLLAR // 10^6
+  let result: bigint
   if (rounding === "ceil") {
-    return ((product + divisor - 1n) / divisor) as MicroUSDC
+    result = (product + divisor - 1n) / divisor
+  } else {
+    result = product / divisor
   }
-  return (product / divisor) as MicroUSDC
+  // Guard: result is bigint from BigInt arithmetic, so .toString() is safe
+  // (no Number precision loss). Delegate to protocol for branding.
+  const branded = readMicroUSDC(result.toString())
+  if (branded === undefined) {
+    throw new WireBoundaryError("micro_usdc", result.toString(), "conversion produced invalid MicroUSDC (negative input?)")
+  }
+  return branded
 }
 
 // ---------------------------------------------------------------------------
@@ -408,4 +481,98 @@ export function parsePoolId(raw: string): PoolId {
     throw new WireBoundaryError("pool_id", raw, `not a valid pool ID. Valid: ${POOL_IDS.join(", ")}`)
   }
   return raw
+}
+
+// ---------------------------------------------------------------------------
+// TaskType — string ↔ branded governance task type (Sprint 2, Task 2.2)
+// ---------------------------------------------------------------------------
+
+const TASK_TYPE_MAX_LENGTH = 64
+const TASK_TYPE_PATTERN = /^[a-z0-9_]+:[a-z0-9_]+$/
+
+/**
+ * Parse a raw string into a TaskType branded type.
+ *
+ * Validates `namespace:type` format (e.g., "finn:conversation").
+ * Input is lowercased before validation.
+ *
+ * Constraints:
+ * - Max 64 characters total
+ * - Format: `namespace:type` where both parts are `[a-z0-9_]+`
+ * - Namespace and type each must be 1+ characters
+ *
+ * This is the SOLE CONSTRUCTOR for TaskType in finn — the only place
+ * the branding cast occurs.
+ */
+export function parseTaskType(raw: string): TaskType {
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new WireBoundaryError("task_type", raw, "empty or non-string value")
+  }
+
+  const normalized = raw.toLowerCase()
+
+  if (normalized.length > TASK_TYPE_MAX_LENGTH) {
+    throw new WireBoundaryError("task_type", raw, `exceeds maximum length of ${TASK_TYPE_MAX_LENGTH} characters`)
+  }
+
+  if (!TASK_TYPE_PATTERN.test(normalized)) {
+    throw new WireBoundaryError(
+      "task_type",
+      raw,
+      "must match namespace:type format where namespace and type are [a-z0-9_]+ (1+ chars each)",
+    )
+  }
+
+  return normalized as TaskType
+}
+
+// ---------------------------------------------------------------------------
+// Task Type Registry (Sprint 2, Task 2.6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Finn-native task types, pre-parsed at module load.
+ * Key is the short name (after colon), value is the full TaskType.
+ */
+export const FINN_TASK_TYPES: ReadonlyMap<string, TaskType> = new Map<string, TaskType>([
+  ["conversation", parseTaskType("finn:conversation")],
+  ["code_review", parseTaskType("finn:code_review")],
+  ["analysis", parseTaskType("finn:analysis")],
+  ["creative", parseTaskType("finn:creative")],
+  ["summarization", parseTaskType("finn:summarization")],
+  ["admin", parseTaskType("finn:admin")],
+])
+
+/** Default task type for unspecified requests. */
+export const DEFAULT_TASK_TYPE: TaskType = FINN_TASK_TYPES.get("conversation")!
+
+/**
+ * Check whether a TaskType is a registered finn-native type.
+ */
+export function isRegisteredTaskType(taskType: TaskType): boolean {
+  for (const registered of FINN_TASK_TYPES.values()) {
+    if ((registered as string) === (taskType as string)) return true
+  }
+  return false
+}
+
+/**
+ * Legacy string literal → TaskType mapping.
+ * Maps old unnamespaced string literals to their finn-namespaced equivalents.
+ */
+export const LEGACY_TASK_TYPE_MAP: ReadonlyMap<string, TaskType> = new Map<string, TaskType>([
+  ["conversation", parseTaskType("finn:conversation")],
+  ["code_review", parseTaskType("finn:code_review")],
+  ["analysis", parseTaskType("finn:analysis")],
+  ["creative_writing", parseTaskType("finn:creative")],
+  ["summarization", parseTaskType("finn:summarization")],
+  ["admin", parseTaskType("finn:admin")],
+])
+
+/**
+ * Resolve a legacy unnamespaced task type string to a TaskType.
+ * Returns null if the legacy string is not recognized.
+ */
+export function resolveLegacyTaskType(legacy: string): TaskType | null {
+  return LEGACY_TASK_TYPE_MAP.get(legacy) ?? null
 }

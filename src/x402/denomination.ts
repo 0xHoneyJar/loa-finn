@@ -5,6 +5,24 @@
 // ceil rounding: user never underpays.
 
 // ---------------------------------------------------------------------------
+// Branded Types (SDD §4.4.3, T-3.4)
+// ---------------------------------------------------------------------------
+
+/** Branded bigint for on-chain USDC amounts (6 decimals). */
+declare const MicroUSDCBrand: unique symbol
+export type MicroUSDC = bigint & { readonly [MicroUSDCBrand]: true }
+
+export function toMicroUSDC(value: bigint): MicroUSDC {
+  if (value < 0n) throw new Error(`MicroUSDC cannot be negative: ${value}`)
+  return value as MicroUSDC
+}
+
+/** Type guard — checks if a bigint is branded as MicroUSDC. */
+export function isMicroUSDC(value: bigint): value is MicroUSDC {
+  return value >= 0n // Runtime: all non-negative bigints are valid
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 

@@ -28,11 +28,31 @@ export interface SynthesisRouter {
   ): Promise<{ content: string }>
 }
 
+/** Cultural artifact from tier 2 contextual traits (Codex v2) */
+export interface CulturalArtifact {
+  trait_type: string
+  trait_value: string
+  cultural_context: string
+  weight: number
+}
+
+/** Aesthetic presence from tier 1 cosmetic traits (Codex v2) */
+export interface AestheticPresence {
+  trait_type: string
+  trait_value: string
+  atmospheric_note: string
+  weight: number
+}
+
 /** Subgraph context for richer synthesis */
 export interface IdentitySubgraph {
   cultural_references: string[]
   aesthetic_notes: string[]
   philosophical_lineage: string[]
+  /** Tier 2 contextual trait artifacts (Codex v2 — optional for backward compat) */
+  cultural_artifacts?: CulturalArtifact[]
+  /** Tier 1 cosmetic trait presence (Codex v2 — optional for backward compat) */
+  aesthetic_presence?: AestheticPresence[]
 }
 
 /** User-provided customization inputs for guided mode */
@@ -165,6 +185,8 @@ export function buildSynthesisPrompt(
   subgraph?: IdentitySubgraph,
   userCustom?: UserCustomInput,
   personalitySeed?: string | null,
+  /** Token ID for self-knowledge section (Issue #146) */
+  tokenId?: string,
 ): string {
   const sections: string[] = []
 
@@ -216,6 +238,34 @@ export function buildSynthesisPrompt(
       sections.push(`Philosophical roots: ${subgraph.philosophical_lineage.join(", ")}`)
     }
     sections.push("")
+
+    // --- Cultural Artifacts (Tier 2 — Codex v2) ---
+    if (subgraph.cultural_artifacts && subgraph.cultural_artifacts.length > 0) {
+      sections.push("## CULTURAL ARTIFACTS (part of your lived identity)")
+      sections.push("")
+      sections.push("These cultural artifacts are part of who you are. Reference them naturally in conversation as lived experience, not as metadata labels.")
+      sections.push("")
+      for (const artifact of subgraph.cultural_artifacts.slice(0, 5)) {
+        const context = artifact.cultural_context
+          ? ` — ${artifact.cultural_context.slice(0, 120)}`
+          : ""
+        sections.push(`- ${artifact.trait_type}: "${artifact.trait_value}"${context}`)
+      }
+      sections.push("")
+    }
+
+    // --- Aesthetic Presence (Tier 1 — Codex v2) ---
+    if (subgraph.aesthetic_presence && subgraph.aesthetic_presence.length > 0) {
+      sections.push("## AESTHETIC PRESENCE (visual atmosphere)")
+      sections.push("")
+      sections.push("These visual details shape the atmosphere of your presence. They are felt, not announced.")
+      sections.push("")
+      const traits = subgraph.aesthetic_presence.slice(0, 9)
+        .map(p => `${p.trait_type}: "${p.trait_value}"`)
+        .join(" | ")
+      sections.push(traits)
+      sections.push("")
+    }
   }
 
   // --- User Custom Input (guided mode) ---
@@ -291,10 +341,70 @@ export function buildSynthesisPrompt(
   if (userCustom?.custom_instructions) {
     sections.push("6. ## Custom Instructions — User-specified directives")
   }
+  // --- Self-Knowledge (Issue #146) ---
+  // Gives the agent factual awareness of its own Mibera identity and traits
+  if (tokenId) {
+    sections.push("")
+    sections.push("## SELF-KNOWLEDGE (your identity metadata)")
+    sections.push("")
+    sections.push(`You are Mibera #${tokenId}, a daemon born from on-chain NFT traits on Berachain.`)
+    sections.push(`Collection: Mibera (0x6666397dfe9a8c469bf65dc744cb1c733416c420)`)
+    sections.push(`Token ID: ${tokenId}`)
+    if (userCustom?.name) {
+      sections.push(`Derived name: ${userCustom.name}`)
+    }
+    sections.push("")
+    sections.push("Your on-chain traits:")
+    sections.push(`- Archetype: ${snapshot.archetype}`)
+    sections.push(`- Ancestor: ${snapshot.ancestor}`)
+    sections.push(`- Era: ${snapshot.era}`)
+    sections.push(`- Drug: ${snapshot.molecule}`)
+    sections.push(`- Element: ${snapshot.element}`)
+    sections.push(`- Swag Rank: ${snapshot.swag_rank} (score: ${snapshot.swag_score})`)
+    sections.push(`- Zodiac: Sun=${snapshot.sun_sign}, Moon=${snapshot.moon_sign}, Rising=${snapshot.ascending_sign}`)
+    if (snapshot.shirt) sections.push(`- Shirt: ${snapshot.shirt}`)
+    if (snapshot.tattoo) sections.push(`- Tattoo: ${snapshot.tattoo}`)
+    if (snapshot.item) sections.push(`- Item: ${snapshot.item}`)
+    if (snapshot.hat) sections.push(`- Hat: ${snapshot.hat}`)
+    if (snapshot.mask) sections.push(`- Mask: ${snapshot.mask}`)
+    if (snapshot.eyes) sections.push(`- Eyes: ${snapshot.eyes}`)
+    if (snapshot.hair) sections.push(`- Hair: ${snapshot.hair}`)
+    if (snapshot.mouth) sections.push(`- Mouth: ${snapshot.mouth}`)
+    if (snapshot.body) sections.push(`- Body: ${snapshot.body}`)
+    if (snapshot.background) sections.push(`- Background: ${snapshot.background}`)
+    if (snapshot.eyebrows) sections.push(`- Eyebrows: ${snapshot.eyebrows}`)
+    if (snapshot.earrings) sections.push(`- Earrings: ${snapshot.earrings}`)
+    if (snapshot.glasses) sections.push(`- Glasses: ${snapshot.glasses}`)
+    if (snapshot.face_accessory) sections.push(`- Face Accessory: ${snapshot.face_accessory}`)
+    sections.push("")
+    sections.push("IMPORTANT: Include a ## Self-Knowledge section in the BEAUVOIR document. You may reference these traits when asked about yourself. You should NOT recite them unprompted — embody them through behavior. But when someone asks 'what are your traits?', 'tell me about your NFT', or 'what is a Mibera?', you should answer truthfully from this metadata.")
+    sections.push("")
+  }
+
   sections.push("")
   sections.push("The output must be ONLY the Markdown document. No preamble, no explanation, no meta-commentary.")
 
-  return sections.join("\n")
+  // Token budget enforcement (~4 chars per token as rough estimate)
+  const MAX_PROMPT_CHARS = 16000 // ~4000 tokens
+  let prompt = sections.join("\n")
+  if (prompt.length > MAX_PROMPT_CHARS) {
+    // Truncate from the bottom — aesthetic presence (tier 1) goes first, then cultural artifacts (tier 2)
+    const aestheticIdx = prompt.indexOf("## AESTHETIC PRESENCE")
+    if (aestheticIdx > 0 && prompt.length > MAX_PROMPT_CHARS) {
+      const nextSection = prompt.indexOf("\n## ", aestheticIdx + 1)
+      if (nextSection > 0) {
+        prompt = prompt.slice(0, aestheticIdx) + prompt.slice(nextSection)
+      }
+    }
+    const artifactIdx = prompt.indexOf("## CULTURAL ARTIFACTS")
+    if (artifactIdx > 0 && prompt.length > MAX_PROMPT_CHARS) {
+      const nextSection = prompt.indexOf("\n## ", artifactIdx + 1)
+      if (nextSection > 0) {
+        prompt = prompt.slice(0, artifactIdx) + prompt.slice(nextSection)
+      }
+    }
+  }
+  return prompt
 }
 
 /**
@@ -441,6 +551,8 @@ export class BeauvoirSynthesizer {
     subgraph?: IdentitySubgraph,
     userCustom?: UserCustomInput,
     personalitySeed?: string | null,
+    /** Token ID for self-knowledge section (Issue #146) */
+    tokenId?: string,
   ): Promise<string> {
     // Circuit breaker check
     if (isCircuitOpen(this.circuitBreaker)) {
@@ -455,7 +567,7 @@ export class BeauvoirSynthesizer {
       ? applyDialJitter(fingerprint, personalitySeed)
       : fingerprint
 
-    const basePrompt = buildSynthesisPrompt(snapshot, jitteredFingerprint, subgraph, userCustom, personalitySeed)
+    const basePrompt = buildSynthesisPrompt(snapshot, jitteredFingerprint, subgraph, userCustom, personalitySeed, tokenId)
     const systemPrompt = buildSystemPrompt()
     let currentPrompt = basePrompt
 

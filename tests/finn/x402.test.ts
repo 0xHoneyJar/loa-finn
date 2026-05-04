@@ -7,8 +7,17 @@ import { SettlementService } from "../../src/x402/settlement.js"
 import { x402Routes } from "../../src/gateway/x402-routes.js"
 import { AllowlistService } from "../../src/gateway/allowlist.js"
 import { FeatureFlagService } from "../../src/gateway/feature-flags.js"
-import { X402Error, BASE_CHAIN_ID } from "../../src/x402/types.js"
+import { X402Error, BASE_CHAIN_ID, USDC_BASE_ADDRESS } from "../../src/x402/types.js"
+import type { ChainConfig } from "../../src/x402/types.js"
 import type { RedisCommandClient } from "../../src/hounfour/redis/client.js"
+
+/** Test chain config matching mock addresses — avoids dependency on resolveChainConfig() */
+const TEST_CHAIN_CONFIG: ChainConfig = {
+  chainId: BASE_CHAIN_ID,
+  name: "Test Base",
+  usdcAddress: USDC_BASE_ADDRESS,
+  testnet: true,
+}
 
 // ---------------------------------------------------------------------------
 // Mock Redis
@@ -150,12 +159,13 @@ describe("PaymentVerifier", () => {
       redis,
       treasuryAddress: TREASURY,
       verifyEOASignature: async () => true,
+      chainConfig: TEST_CHAIN_CONFIG,
     })
   })
 
   it("verifies valid payment", async () => {
     const auth = createMockAuth()
-    const quote = { max_cost: "61440", quote_id: "q_1" }
+    const quote = { max_cost: "61440", quote_id: "q_1", token_address: USDC_BASE_ADDRESS }
 
     const result = await verifier.verify(
       { quote_id: "q_1", authorization: auth as any, chain_id: BASE_CHAIN_ID },
@@ -169,7 +179,7 @@ describe("PaymentVerifier", () => {
 
   it("rejects insufficient payment", async () => {
     const auth = createMockAuth({ value: "100" }) // way less than 61440
-    const quote = { max_cost: "61440", quote_id: "q_1" }
+    const quote = { max_cost: "61440", quote_id: "q_1", token_address: USDC_BASE_ADDRESS }
 
     await expect(
       verifier.verify(
@@ -183,7 +193,7 @@ describe("PaymentVerifier", () => {
     const auth = createMockAuth({
       valid_before: Math.floor(Date.now() / 1000) - 100, // already expired
     })
-    const quote = { max_cost: "61440", quote_id: "q_1" }
+    const quote = { max_cost: "61440", quote_id: "q_1", token_address: USDC_BASE_ADDRESS }
 
     await expect(
       verifier.verify(
@@ -195,14 +205,14 @@ describe("PaymentVerifier", () => {
 
   it("rejects invalid recipient", async () => {
     const auth = createMockAuth({ to: "0xWRONGADDRESS" })
-    const quote = { max_cost: "61440", quote_id: "q_1" }
+    const quote = { max_cost: "61440", quote_id: "q_1", token_address: USDC_BASE_ADDRESS }
 
     await expect(
       verifier.verify(
         { quote_id: "q_1", authorization: auth as any, chain_id: BASE_CHAIN_ID },
         quote as any,
       ),
-    ).rejects.toThrow("treasury")
+    ).rejects.toThrow("wrong recipient")
   })
 
   it("rejects invalid signature", async () => {
@@ -210,10 +220,11 @@ describe("PaymentVerifier", () => {
       redis,
       treasuryAddress: TREASURY,
       verifyEOASignature: async () => false,
+      chainConfig: TEST_CHAIN_CONFIG,
     })
 
     const auth = createMockAuth()
-    const quote = { max_cost: "61440", quote_id: "q_1" }
+    const quote = { max_cost: "61440", quote_id: "q_1", token_address: USDC_BASE_ADDRESS }
 
     await expect(
       badVerifier.verify(
@@ -225,7 +236,7 @@ describe("PaymentVerifier", () => {
 
   it("detects nonce replay (idempotent)", async () => {
     const auth = createMockAuth()
-    const quote = { max_cost: "61440", quote_id: "q_1" }
+    const quote = { max_cost: "61440", quote_id: "q_1", token_address: USDC_BASE_ADDRESS }
     const proof = { quote_id: "q_1", authorization: auth as any, chain_id: BASE_CHAIN_ID }
 
     // First verification
@@ -243,10 +254,11 @@ describe("PaymentVerifier", () => {
       treasuryAddress: TREASURY,
       verifyEOASignature: async () => false, // EOA fails
       verifyContractSignature: async () => true, // EIP-1271 succeeds
+      chainConfig: TEST_CHAIN_CONFIG,
     })
 
     const auth = createMockAuth()
-    const quote = { max_cost: "61440", quote_id: "q_1" }
+    const quote = { max_cost: "61440", quote_id: "q_1", token_address: USDC_BASE_ADDRESS }
 
     const result = await smartVerifier.verify(
       { quote_id: "q_1", authorization: auth as any, chain_id: BASE_CHAIN_ID },
@@ -363,6 +375,7 @@ describe("x402Routes", () => {
         redis,
         treasuryAddress: TREASURY,
         verifyEOASignature: async () => true,
+        chainConfig: TEST_CHAIN_CONFIG,
       }),
       settlementService: new SettlementService({
         treasuryAddress: TREASURY,
@@ -412,7 +425,7 @@ describe("x402Routes", () => {
     const disabledApp = x402Routes({
       redis,
       quoteService: createQuoteService(redis),
-      paymentVerifier: new PaymentVerifier({ redis, treasuryAddress: TREASURY }),
+      paymentVerifier: new PaymentVerifier({ redis, treasuryAddress: TREASURY, chainConfig: TEST_CHAIN_CONFIG }),
       settlementService: new SettlementService({ treasuryAddress: TREASURY }),
       allowlistService: new AllowlistService({ redis }),
       featureFlagService: flags,

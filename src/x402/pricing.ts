@@ -68,3 +68,44 @@ export function getRequestCost(
 export function resetPricingCache(): void {
   cachedCost = null
 }
+
+// ---------------------------------------------------------------------------
+// Gas Surcharge (SDD §4.4.4, T-3.5)
+// ---------------------------------------------------------------------------
+
+/** Default gas surcharge rate: 5% of inference cost */
+const DEFAULT_GAS_SURCHARGE_RATE = 0.05
+
+/** Maximum gas surcharge: 10000 MicroUSDC = 0.01 USDC */
+const MAX_GAS_SURCHARGE_MICRO = 10_000n
+
+/**
+ * Compute total quote price including gas surcharge.
+ * Formula: total = inferenceCost + min(inferenceCost * rate, cap)
+ *
+ * @param inferenceCostMicro - Inference cost in MicroUSDC
+ * @param gasSurchargeRate - Surcharge rate (default: 0.05 = 5%)
+ * @param maxSurchargeMicro - Maximum surcharge cap (default: 10000 = $0.01)
+ * @returns Total price in MicroUSDC (string for BigInt compatibility)
+ */
+export function computeQuoteWithGas(
+  inferenceCostMicro: bigint,
+  gasSurchargeRate: number = DEFAULT_GAS_SURCHARGE_RATE,
+  maxSurchargeMicro: bigint = MAX_GAS_SURCHARGE_MICRO,
+): string {
+  const surcharge = BigInt(Math.ceil(Number(inferenceCostMicro) * gasSurchargeRate))
+  const cappedSurcharge = surcharge > maxSurchargeMicro ? maxSurchargeMicro : surcharge
+  return (inferenceCostMicro + cappedSurcharge).toString()
+}
+
+/**
+ * Get full request cost including gas surcharge (for X-Price header, AC30g).
+ */
+export function getRequestCostWithGas(
+  tokenId: string,
+  model: string,
+  maxTokens: number,
+): string {
+  const baseCost = BigInt(getRequestCost(tokenId, model, maxTokens))
+  return computeQuoteWithGas(baseCost)
+}

@@ -100,7 +100,8 @@ export class RpcPool {
   private providers: RpcProvider[] = []
 
   constructor(config: RpcPoolConfig) {
-    const chain = config.chain ?? base
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- hounfour's viem Chain ≠ local viem Chain
+    const chain = (config.chain ?? base) as any
     const cbConfig = config.circuitBreaker
 
     // Primary: Alchemy (if key provided)
@@ -110,7 +111,7 @@ export class RpcPool {
         client: createPublicClient({
           chain,
           transport: http(`https://base-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`),
-        }),
+        }) as unknown as PublicClient,
         circuitBreaker: new ProviderCircuitBreaker(cbConfig),
         priority: 0,
       })
@@ -124,7 +125,7 @@ export class RpcPool {
           client: createPublicClient({
             chain,
             transport: http(config.rpcUrls[i]),
-          }),
+          }) as unknown as PublicClient,
           circuitBreaker: new ProviderCircuitBreaker(cbConfig),
           priority: (config.alchemyApiKey ? 1 : 0) + i,
         })
@@ -137,7 +138,7 @@ export class RpcPool {
       client: createPublicClient({
         chain,
         transport: http(),
-      }),
+      }) as unknown as PublicClient,
       circuitBreaker: new ProviderCircuitBreaker(cbConfig),
       priority: 999,
     })

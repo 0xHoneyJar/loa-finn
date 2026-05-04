@@ -9,18 +9,25 @@ export interface LoaResourceLoaderOptions {
   cwd: string
   beauvoirPath: string
   notesPath?: string
+  /** Override system prompt with a pre-resolved personality (Issue #138) */
+  systemPromptOverride?: string
 }
 
 export async function createLoaResourceLoader(
   options: LoaResourceLoaderOptions,
 ): Promise<ResourceLoader> {
-  // Load raw BEAUVOIR.md content for system prompt injection
+  // Load system prompt: use override if provided (per-NFT personality), else read BEAUVOIR.md
   let systemPrompt: string | undefined
-  try {
-    systemPrompt = await readFile(options.beauvoirPath, "utf-8")
-    if (!systemPrompt.trim()) systemPrompt = undefined
-  } catch {
-    // BEAUVOIR.md doesn't exist yet, that's fine
+  if (options.systemPromptOverride) {
+    systemPrompt = options.systemPromptOverride
+    console.log(`[resource-loader] using personality override (${systemPrompt.length} chars, starts: "${systemPrompt.slice(0, 80)}...")`)
+  } else {
+    try {
+      systemPrompt = await readFile(options.beauvoirPath, "utf-8")
+      if (!systemPrompt.trim()) systemPrompt = undefined
+    } catch {
+      // BEAUVOIR.md doesn't exist yet, that's fine
+    }
   }
 
   // Build context from grimoires if NOTES.md exists
@@ -45,6 +52,10 @@ export async function createLoaResourceLoader(
     noPromptTemplates: true,
     noThemes: true,
   })
+
+  // CRITICAL: reload() must be called to initialize internal state from constructor options.
+  // Without this, systemPrompt stays undefined even though systemPromptSource is set.
+  await loader.reload()
 
   return loader
 }

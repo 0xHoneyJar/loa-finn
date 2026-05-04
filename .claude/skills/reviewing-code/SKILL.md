@@ -1,4 +1,24 @@
 ---
+name: review-sprint
+description: Validate sprint implementation against acceptance criteria
+allowed-tools: Read, Grep, Glob, WebFetch, Bash(git diff *), Bash(git log *)
+capabilities:
+  schema_version: 1
+  read_files: true
+  search_code: true
+  write_files: false
+  execute_commands:
+    allowed:
+      - command: "git"
+        args: ["diff", "*"]
+      - command: "git"
+        args: ["log", "*"]
+    deny_raw_shell: true
+  web_access: true
+  user_interaction: false
+  agent_spawn: false
+  task_management: false
+cost-profile: moderate
 parallel_threshold: 3000
 timeout_minutes: 60
 zones:
@@ -313,6 +333,11 @@ Before reviewing:
 5. Read `grimoires/loa/a2a/sprint-N/reviewer.md` for implementation report
 6. Read `grimoires/loa/a2a/sprint-N/engineer-feedback.md` (if exists) for previous feedback
 7. Read actual implementation code—do not trust report alone
+8. If `.claude/scripts/qmd-context-query.sh` exists and `qmd_context.enabled` is not `false` in `.loa.config.yaml`:
+   - Build query from changed file names and sprint goal
+   - Run: `.claude/scripts/qmd-context-query.sh --query "<changed_files> <sprint_goal>" --scope grimoires --budget 1500 --format text`
+   - Include output as advisory context for review (acceptance criteria and code remain primary sources)
+   - If script missing, disabled, or returns empty: proceed normally (graceful no-op)
 </grounding_requirements>
 
 <citation_requirements>

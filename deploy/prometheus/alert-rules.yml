@@ -78,3 +78,62 @@ groups:
         annotations:
           summary: "P95 request latency exceeds 5 seconds"
           description: "The 95th percentile request latency is {{ $value }}s. Check downstream services and database performance."
+
+  - name: finn_wal
+    interval: 30s
+    rules:
+      - alert: WALWriteErrors
+        expr: increase(finn_wal_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: finn
+        annotations:
+          summary: "WAL write errors detected"
+          description: "WAL write errors have been occurring for more than 5 minutes. Error count (5m): {{ $value }}. This may indicate disk issues or WAL corruption — conversation durability is at risk."
+          runbook_url: "https://github.com/0xHoneyJar/loa-finn/wiki/runbooks/wal-write-errors"
+
+      - alert: WALWriteLatencyHigh
+        expr: histogram_quantile(0.99, rate(finn_wal_write_duration_ms_bucket[5m])) > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: finn
+        annotations:
+          summary: "WAL write p99 latency exceeds 100ms"
+          description: "The 99th percentile WAL write latency is {{ $value }}ms. This may indicate disk I/O pressure or storage degradation."
+          runbook_url: "https://github.com/0xHoneyJar/loa-finn/wiki/runbooks/wal-write-latency"
+
+  - name: finn_budget
+    interval: 30s
+    rules:
+      - alert: BudgetNearlyExhausted
+        expr: |
+          (
+            finn_budget_used_total
+            /
+            finn_budget_limit_total
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: finn
+        annotations:
+          summary: "Budget utilization exceeds 90%"
+          description: "Budget usage has exceeded 90% of the configured limit. Current utilization: {{ $value | humanizePercentage }}. Consider increasing budget limits or throttling usage to avoid service disruption."
+          runbook_url: "https://github.com/0xHoneyJar/loa-finn/wiki/runbooks/budget-exhaustion"
+
+  - name: finn_availability
+    interval: 15s
+    rules:
+      - alert: AllInstancesDown
+        expr: up{job="finn"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          team: finn
+          notify: pagerduty
+        annotations:
+          summary: "All Finn instances are down"
+          description: "No Finn instances are reporting as up. The service is completely unavailable. Immediate investigation required."
+          runbook_url: "https://github.com/0xHoneyJar/loa-finn/wiki/runbooks/all-instances-down"

@@ -316,11 +316,13 @@ describe("JTI policy enforcement", () => {
     if (!result.ok) expect(result.code).toBe("JTI_REQUIRED")
   })
 
-  it("namespaces JTI with issuer to prevent cross-issuer collision", () => {
+  it("namespaces JTI with length-prefixed issuer to prevent cross-issuer collision", () => {
     const ns1 = namespaceJti("arrakis", "jti-123")
     const ns2 = namespaceJti("evil", "jti-123")
     expect(ns1).not.toBe(ns2)
-    expect(ns1).toBe("jti:arrakis:jti-123")
+    // Format: jti:{iss.length}:{iss}:{jti} — length prefix prevents canonicalization attacks
+    expect(ns1).toBe("jti:7:arrakis:jti-123")
+    expect(ns2).toBe("jti:4:evil:jti-123")
   })
 })
 

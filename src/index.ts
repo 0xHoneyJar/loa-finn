@@ -1,6 +1,11 @@
 // src/index.ts — loa-finn entry point (SDD §10.2)
 // Boot sequence: config → validate → identity → persistence → recovery → gateway → scheduler → serve
 
+// FormatRegistry is a global singleton — must be first import so all downstream
+// Value.Check calls (store.ts, normalizer, etc.) see registered formats.
+import "./hounfour/typebox-formats.js"
+import { assertFormatsRegistered } from "./hounfour/typebox-formats.js"
+
 import { loadConfig } from "./config.js"
 import { IdentityLoader } from "./agent/identity.js"
 import { createWALManager } from "./persistence/upstream.js"
@@ -30,6 +35,9 @@ import { fileURLToPath } from "node:url"
 async function main() {
   const bootStart = Date.now()
   console.log("[finn] booting loa-finn...")
+
+  // Belt-and-suspenders: verify format registration before any Value.Check path
+  assertFormatsRegistered(["uuid", "date-time"])
 
   // 1. Load config
   const config = loadConfig()
@@ -204,6 +212,111 @@ async function main() {
     console.log("[finn] dlq store: type=in-memory durable=false (redis unavailable)")
   }
 
+  // 6d4. Initialize Goodhart Protection Stack (SDD §3.2, cycle-036 T-1.5)
+  //
+  // Wires 7 Goodhart components into a MechanismConfig for reputation-aware routing.
+  // Non-fatal: init exception → routingState="init_failed" + counter.
+  // Redis unavailable → routingState="disabled" with warning.
+  //
+  // Layered rollback plan:
+  //   1. KillSwitch Redis SET (instant, <1s)
+  //   2. FINN_REPUTATION_ROUTING=disabled env override (requires redeploy, ~5min)
+  //   3. Redis unreachable at boot → defaults to "disabled" (existing behavior)
+  // T-7.3: RoutingState imported from canonical source (router.ts via init.ts re-export)
+  let goodhartConfig: import("./hounfour/goodhart/mechanism-interaction.js").MechanismConfig | undefined
+  let routingState: import("./hounfour/router.js").RoutingState = "disabled"
+  let goodhartMetrics: import("./hounfour/graduation-metrics.js").GraduationMetrics | undefined
+  let goodhartRecoveryScheduler: import("./hounfour/goodhart/init.js").GoodhartRecoveryScheduler | undefined
+  // Shared mutable holder — router reads from this on every request (T-5.2).
+  // Recovery scheduler updates this holder atomically; router picks up changes.
+  const goodhartRuntime: import("./hounfour/goodhart/init.js").GoodhartRuntime = {
+    goodhartConfig: undefined,
+    routingState: "disabled",
+    goodhartMetrics: undefined,
+  }
+  const requestedMode = process.env.FINN_REPUTATION_ROUTING ?? "disabled"
+
+  if (requestedMode !== "disabled" && requestedMode !== "shadow" && requestedMode !== "enabled") {
+    console.warn(`[finn] FINN_REPUTATION_ROUTING="${requestedMode}" is not a recognized value, defaulting to disabled`)
+  }
+
+  if (!process.env.FINN_REPUTATION_ROUTING) {
+    console.warn("[finn] FINN_REPUTATION_ROUTING not set — defaulting to disabled. Set explicitly in deploy config.")
+  }
+
+  // T-7.8: Deduplicated — all Goodhart init logic lives in init.ts
+  if (requestedMode !== "disabled") {
+    const redisClient = redis?.isConnected() ? redis.getClient() : null
+    const initDeps = {
+      redisClient: redisClient ?? null,
+      redisPrefix: process.env.FINN_REDIS_PREFIX ?? "armitage:",
+      redisDb: parseInt(process.env.FINN_REDIS_DB ?? "0", 10),
+      requestedMode,
+    }
+
+    try {
+      const { initGoodhartStack } = await import("./hounfour/goodhart/init.js")
+      const result = await initGoodhartStack(initDeps)
+      const prevState = routingState
+
+      // Sync local vars
+      goodhartConfig = result.goodhartConfig
+      routingState = result.routingState
+      goodhartMetrics = result.goodhartMetrics
+
+      // Sync shared holder for router (T-5.2)
+      goodhartRuntime.goodhartConfig = result.goodhartConfig
+      goodhartRuntime.routingState = result.routingState
+      goodhartRuntime.goodhartMetrics = result.goodhartMetrics
+
+      // Emit state transition event (T-4.6)
+      if (result.routingState !== "disabled") {
+        const { emitRoutingStateTransition } = await import("./hounfour/goodhart/routing-events.js")
+        emitRoutingStateTransition(prevState, result.routingState, "goodhart_init_success")
+      }
+    } catch (err) {
+      console.warn(`[finn] goodhart: init failed (non-fatal): ${(err as Error).message}`)
+      const prevState = routingState
+      routingState = "init_failed"
+      if (goodhartMetrics) {
+        goodhartMetrics.goodhartInitFailed.inc()
+        goodhartMetrics.setRoutingMode("init_failed")
+      }
+      // Sync holder — init_failed state (T-5.2)
+      goodhartRuntime.routingState = "init_failed"
+      goodhartRuntime.goodhartMetrics = goodhartMetrics
+      // Emit state transition event (T-4.6)
+      try {
+        const { emitRoutingStateTransition } = await import("./hounfour/goodhart/routing-events.js")
+        emitRoutingStateTransition(prevState, "init_failed", "goodhart_init_error")
+      } catch { /* routing-events import failure is non-fatal */ }
+
+      // Start recovery scheduler with exponential backoff (T-4.3)
+      try {
+        const { GoodhartRecoveryScheduler } = await import("./hounfour/goodhart/init.js")
+        goodhartRecoveryScheduler = new GoodhartRecoveryScheduler(
+          goodhartRuntime,
+          initDeps,
+          (recovered) => {
+            goodhartRuntime.goodhartConfig = recovered.goodhartConfig
+            goodhartRuntime.routingState = recovered.routingState as RoutingState
+            goodhartRuntime.goodhartMetrics = recovered.goodhartMetrics
+            goodhartConfig = recovered.goodhartConfig
+            routingState = recovered.routingState as RoutingState
+            goodhartMetrics = recovered.goodhartMetrics
+            console.log(`[finn] goodhart recovered: routing state now ${recovered.routingState}`)
+          },
+        )
+        goodhartRecoveryScheduler.start()
+        console.log("[finn] goodhart recovery scheduler started (exponential backoff)")
+      } catch (recoveryErr) {
+        console.warn(`[finn] goodhart recovery scheduler init failed: ${(recoveryErr as Error).message}`)
+      }
+    }
+  }
+
+  console.log(`[finn] routing state resolved: ${routingState} (requested: ${requestedMode})`)
+
   // 6e. Initialize Hounfour multi-model routing (SDD §4, T-15.9)
   let hounfour: import("./hounfour/router.js").HounfourRouter | undefined
   try {
@@ -298,6 +411,7 @@ async function main() {
             scopeMeta, rateLimiter,
             projectRoot: process.cwd(),
             knowledgeRegistry,
+            goodhartRuntime,
           })
 
           // Validate all bindings at startup
@@ -342,7 +456,26 @@ async function main() {
   let s2sSigner: import("./hounfour/s2s-jwt.js").S2SJwtSigner | undefined
   const billingUrl = process.env.ARRAKIS_BILLING_URL
   if (billingUrl && hounfour) {
-    const s2sPrivateKey = process.env.FINN_S2S_PRIVATE_KEY
+    const rawS2sPrivateKey = process.env.FINN_S2S_PRIVATE_KEY
+
+    const decodeBase64Env = (name: string, value: string) => {
+      const normalized = value.replace(/\s+/g, "")
+      const base64Re = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+      if (!base64Re.test(normalized)) {
+        throw new Error(`[finn] ${name} is not valid base64`)
+      }
+      const buf = Buffer.from(normalized, "base64")
+      if (buf.length === 0) {
+        throw new Error(`[finn] ${name} decoded to empty value`)
+      }
+      return buf.toString("utf-8")
+    }
+
+    // Support base64-encoded PEM for env var safety (multiline PEM breaks .env files)
+    const s2sKeyEncoding = (process.env.FINN_S2S_KEY_ENCODING ?? "").toLowerCase()
+    const s2sPrivateKey = rawS2sPrivateKey && s2sKeyEncoding === "base64"
+      ? decodeBase64Env("FINN_S2S_PRIVATE_KEY", rawS2sPrivateKey)
+      : rawS2sPrivateKey
     const s2sJwtSecret = process.env.FINN_S2S_JWT_SECRET
     const rawAlg = process.env.FINN_S2S_JWT_ALG
     const explicitAlg = rawAlg === "ES256" || rawAlg === "HS256" ? rawAlg : undefined
@@ -468,9 +601,140 @@ async function main() {
     console.log("[finn] sidecar mode requested but hounfour not available — skipped")
   }
 
+  // 6e. Initialize personality pipeline (Cycle 040 — Per-NFT Personality)
+  let personalityAppOptions: Record<string, unknown> = {}
+  if (config.personality.enabled && redis?.isConnected()) {
+    try {
+      const { OnChainReader } = await import("./nft/on-chain-reader.js")
+      const { SignalCache } = await import("./nft/signal-cache.js")
+      const { PersonalityStore } = await import("./nft/personality-store.js")
+      const { PersonalityPipelineOrchestrator } = await import("./nft/personality-pipeline.js")
+      const { createSubgraphResolver } = await import("./nft/identity-graph-resolver.js")
+      const { RpcPool } = await import("./x402/rpc-pool.js")
+
+      const { berachain } = await import("viem/chains")
+
+      const redisClient = redis.getClient()
+      const rpcPool = new RpcPool({
+        // Berachain: use configured RPC URL (default: https://rpc.berachain.com)
+        rpcUrls: [config.personality.rpcUrl],
+        chain: berachain,
+      })
+      const onChainReader = new OnChainReader({
+        rpcPool,
+        contractAddress: config.personality.contractAddress,
+      })
+      const signalCache = new SignalCache({ redis: redisClient, onChainReader })
+
+      // Postgres is optional — use Redis-only when Postgres unavailable (Issue #140)
+      let pg: any = null
+      if (finnDb) {
+        const { createPersonalityStorePg } = await import("./nft/personality-store-pg.js")
+        pg = createPersonalityStorePg(finnDb)
+        console.log("[finn] personality pipeline: postgres available (dual-write mode)")
+      } else {
+        console.log("[finn] personality pipeline: postgres unavailable (redis-only mode)")
+      }
+      const personalityStore = new PersonalityStore({ redis: redisClient, pg, onChainReader })
+
+      // BeauvoirSynthesizer requires a SynthesisRouter
+      // Prefer hounfour (multi-model routing), fall back to direct Anthropic API
+      let synthesizer: import("./nft/beauvoir-synthesizer.js").BeauvoirSynthesizer | null = null
+      const { BeauvoirSynthesizer } = await import("./nft/beauvoir-synthesizer.js")
+
+      if (hounfour) {
+        const synthRouter = {
+          invoke: async (agent: string, prompt: string, options?: { temperature?: number; max_tokens?: number }) => {
+            const result = await hounfour.invoke({
+              messages: [{ role: "user", content: prompt }],
+              model: "claude-opus-4-6",
+              temperature: options?.temperature ?? 0.7,
+              maxTokens: options?.max_tokens ?? 2048,
+            })
+            return { content: result.content ?? "" }
+          },
+        }
+        synthesizer = new BeauvoirSynthesizer(synthRouter)
+        console.log("[finn] personality pipeline: synthesis via hounfour")
+      } else if (process.env.ANTHROPIC_API_KEY) {
+        // Direct Anthropic API fallback — no hounfour needed (Issue #140)
+        const synthRouter = {
+          invoke: async (_agent: string, prompt: string, options?: { temperature?: number; max_tokens?: number }) => {
+            const response = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-api-key": process.env.ANTHROPIC_API_KEY!,
+                "anthropic-version": "2023-06-01",
+              },
+              body: JSON.stringify({
+                model: "claude-sonnet-4-5-20250929",
+                max_tokens: options?.max_tokens ?? 2048,
+                temperature: options?.temperature ?? 0.7,
+                messages: [{ role: "user", content: prompt }],
+              }),
+            })
+            if (!response.ok) {
+              throw new Error(`Anthropic API error: ${response.status} ${response.statusText}`)
+            }
+            const data = await response.json() as { content: Array<{ type: string; text: string }> }
+            const text = data.content?.find((b: { type: string }) => b.type === "text")?.text ?? ""
+            return { content: text }
+          },
+        }
+        synthesizer = new BeauvoirSynthesizer(synthRouter)
+        console.log("[finn] personality pipeline: synthesis via direct Anthropic API (sonnet)")
+      }
+
+      if (synthesizer) {
+        const pipeline = new PersonalityPipelineOrchestrator({
+          signalCache,
+          synthesizer,
+          personalityStore: personalityStore,
+          redis: redisClient,
+          collectionSalt: config.personality.collectionSalt,
+          resolveSubgraph: createSubgraphResolver(),
+        })
+
+        const allowedSet = new Set(config.personality.allowedAddresses)
+
+        personalityAppOptions = {
+          personalityProvider: pipeline,
+          agentChatDeps: {
+            personalityProvider: pipeline,
+            generateResponse: async (systemPrompt: string, userMessage: string) => {
+              if (!hounfour) throw new Error("Hounfour not available")
+              const result = await hounfour.invoke({
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: userMessage },
+                ],
+              })
+              return result.content ?? ""
+            },
+          },
+          ownershipGateConfig: {
+            redis: redisClient,
+            readOwner: (tokenId: string) => onChainReader.readOwner(tokenId),
+            ownerCacheTtlSeconds: 60,
+            allowedAddresses: allowedSet.size > 0 ? allowedSet : undefined,
+          },
+        }
+
+        console.log(`[finn] personality pipeline: enabled (contract=${config.personality.contractAddress.slice(0, 10)}..., allowlist=${allowedSet.size} addresses)`)
+      } else {
+        console.log("[finn] personality pipeline: skipped (hounfour not available for synthesis)")
+      }
+    } catch (err) {
+      console.warn(`[finn] personality pipeline: initialization failed (non-fatal): ${(err as Error).message}`)
+    }
+  } else if (config.personality.enabled) {
+    console.log("[finn] personality pipeline: skipped (requires redis)")
+  }
+
   // 7. Create gateway (with executor for sandbox, pool for health stats)
   const ledgerPath = join(config.dataDir, "hounfour", "cost-ledger.jsonl")
-  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient, billingConservationGuard: billingGuard, ledgerPath })
+  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient, billingConservationGuard: billingGuard, ledgerPath, ...personalityAppOptions })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()
@@ -665,6 +929,9 @@ async function main() {
     // Close HTTP server first — stop accepting new connections before
     // killing the pool, so in-flight requests don't hit POOL_SHUTTING_DOWN (SD-014)
     server.close()
+
+    // Stop Goodhart recovery scheduler (T-4.3)
+    if (goodhartRecoveryScheduler) goodhartRecoveryScheduler.stop()
 
     // Stop billing guard recovery timer
     if (billingGuard) billingGuard.stopRecoveryTimer()

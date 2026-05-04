@@ -79,7 +79,9 @@ export class PersonalityService {
     const now = Date.now()
 
     // Detect compatibility mode (Task 3.5)
-    const compatibilityMode: CompatibilityMode = (req as Record<string, unknown>).signals
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const reqAny = req as any
+    const compatibilityMode: CompatibilityMode = reqAny.signals
       ? "signal_v2"
       : "legacy_v1"
 
@@ -97,7 +99,7 @@ export class PersonalityService {
 
     // Sprint 11 Task 11.1: Derive dAMP fingerprint for signal_v2 personalities
     if (compatibilityMode === "signal_v2") {
-      const signals = (req as Record<string, unknown>).signals as SignalSnapshot
+      const signals = reqAny.signals as SignalSnapshot
       try {
         const fingerprint = deriveDAMP(signals, "default")
         personality.damp = fingerprint
@@ -147,9 +149,9 @@ export class PersonalityService {
       try {
         const version = await this.versionService.createVersion(id, {
           beauvoir_md: beauvoirMd,
-          signals: (req as Record<string, unknown>).signals as NFTPersonality["signals"] ?? null,
-          damp: (req as Record<string, unknown>).damp as NFTPersonality["damp"] ?? null,
-          authored_by: (req as Record<string, unknown>).authored_by as string ?? "system",
+          signals: reqAny.signals as NFTPersonality["signals"] ?? null,
+          damp: reqAny.damp as NFTPersonality["damp"] ?? null,
+          authored_by: reqAny.authored_by as string ?? "system",
         })
         personality.version_id = version.version_id
         personality.previous_version_id = null
@@ -458,7 +460,7 @@ export class PersonalityService {
  * signal-era fields. Handles legacy records that predate the signal_v2 schema.
  */
 export function decodePersonality(raw: Record<string, unknown>): NFTPersonality {
-  const p = raw as NFTPersonality
+  const p = raw as unknown as NFTPersonality
   // Normalize undefined → null for signal-era fields
   if (p.signals === undefined) p.signals = null
   if (p.damp === undefined) p.damp = null

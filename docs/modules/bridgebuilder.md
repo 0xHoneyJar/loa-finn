@@ -52,7 +52,7 @@ R2-backed distributed lease. Uses `putIfAbsent` to claim, `putIfMatch` (with ETa
 ## Architecture
 
 ```
-railway.toml (cron: 30min)
+cron schedule (30min)
   └─→ npm run bridgebuilder
         └─→ entry.ts
               ├─→ R2Client.putIfAbsent (claim lease)
@@ -76,7 +76,7 @@ railway.toml (cron: 30min)
 ## Deployment
 
 <!-- provenance: OPERATIONAL -->
-Deployed via Railway (`railway.toml`) as a cron job running every 30 minutes. Can also run locally:
+Deployed as a cron job running every 30 minutes. Can also run locally:
 
 ```bash
 npm run bridgebuilder

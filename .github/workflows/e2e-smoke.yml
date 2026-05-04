@@ -13,33 +13,35 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Skip for forked PRs — they can't access repo secrets
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork != true
 
     steps:
       - name: Checkout loa-finn
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Validate ARRAKIS_CHECKOUT_TOKEN
-        env:
-          TOKEN: ${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}
+      - name: Check cross-repo token
+        id: check-token
         run: |
-          if [[ -z "$TOKEN" ]]; then
-            echo "::error::ARRAKIS_CHECKOUT_TOKEN secret not configured. See repo Settings → Secrets. Required for cross-repo arrakis checkout."
-            exit 1
+          if [ -n "${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "::warning::ARRAKIS_CHECKOUT_TOKEN not available — skipping e2e-smoke cross-repo steps"
           fi
 
       - name: Checkout arrakis
-        uses: actions/checkout@v4
+        if: steps.check-token.outputs.available == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: 0xHoneyJar/arrakis
           path: arrakis
           token: ${{ secrets.ARRAKIS_CHECKOUT_TOKEN }}
 
       - name: Build and start E2E stack
+        if: steps.check-token.outputs.available == 'true'
         run: docker compose -f tests/e2e/docker-compose.e2e.yml up -d --build
 
       - name: Wait for services healthy
+        if: steps.check-token.outputs.available == 'true'
         run: |
           echo "Waiting for services..."
           for i in $(seq 1 30); do
@@ -56,20 +58,21 @@ jobs:
           exit 1
 
       - name: Run smoke test
+        if: steps.check-token.outputs.available == 'true'
         run: ./tests/e2e/smoke-test.sh
 
       - name: Collect logs on failure
-        if: failure()
+        if: failure() && steps.check-token.outputs.available == 'true'
         run: docker compose -f tests/e2e/docker-compose.e2e.yml logs --no-color > e2e-logs.txt
 
       - name: Upload logs artifact
-        if: failure()
-        uses: actions/upload-artifact@v4
+        if: failure() && steps.check-token.outputs.available == 'true'
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: e2e-logs
           path: e2e-logs.txt
           retention-days: 7
 
       - name: Teardown
-        if: always()
+        if: always() && steps.check-token.outputs.available == 'true'
         run: docker compose -f tests/e2e/docker-compose.e2e.yml down -v

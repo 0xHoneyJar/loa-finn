@@ -1,92 +1,37 @@
 {
-  "plan_id": "plan-20260503-cycle032-substrate-runtime",
-  "branch": "feature/cycle-2-substrate-runtime",
+  "plan_id": "plan-20260228-c038",
+  "branch": "feature/hounfour-v830-upgrade",
   "state": "JACKED_OUT",
   "timestamps": {
-    "started": "2026-05-03T17:50:00Z",
-    "last_activity": "2026-05-03T20:42:00Z"
+    "started": "2026-02-28T16:10:00Z",
+    "last_activity": "2026-02-28T20:05:00Z"
   },
   "sprints": {
-    "total": 7,
-    "completed": 7,
+    "total": 5,
+    "completed": 5,
     "current": null,
     "list": [
-      {
-        "id": "sprint-1",
-        "global_id": 126,
-        "status": "completed",
-        "label": "Loader Scaffolding",
-        "tasks": 5,
-        "cycles": 1
-      },
-      {
-        "id": "sprint-2",
-        "global_id": 127,
-        "status": "completed",
-        "label": "Runtime Composition",
-        "tasks": 4,
-        "cycles": 1
-      },
-      {
-        "id": "sprint-3",
-        "global_id": 128,
-        "status": "completed",
-        "label": "ModelRunner Layer + Tag Identity Bridge (PAIR-POINT)",
-        "tasks": 4,
-        "cycles": 1
-      },
-      {
-        "id": "sprint-4",
-        "global_id": 129,
-        "status": "completed",
-        "label": "EventWriter Layer",
-        "tasks": 3,
-        "cycles": 1
-      },
-      {
-        "id": "sprint-5",
-        "global_id": 130,
-        "status": "completed",
-        "label": "Sandbox Bridge (Wire-Up)",
-        "tasks": 3,
-        "cycles": 1
-      },
-      {
-        "id": "sprint-6",
-        "global_id": 131,
-        "status": "completed",
-        "label": "CLI + Programmatic API (ALEXANDER craft)",
-        "tasks": 4,
-        "cycles": 1
-      },
-      {
-        "id": "sprint-7",
-        "global_id": 132,
-        "status": "completed",
-        "label": "E2E Smoke + Doctrine §13 + Memory",
-        "tasks": 3,
-        "cycles": 1
-      }
+      {"id": "sprint-1", "status": "completed", "cycles": 1},
+      {"id": "sprint-2", "status": "completed", "cycles": 1},
+      {"id": "sprint-3", "status": "completed", "cycles": 1},
+      {"id": "sprint-4", "status": "completed", "cycles": 1},
+      {"id": "sprint-5", "status": "completed", "cycles": 1}
     ]
   },
   "options": {
-    "from": 1,
-    "to": 7,
+    "from": 4,
+    "to": 5,
     "max_cycles": 20,
-    "timeout_hours": 8,
-    "consolidate_pr": true
+    "timeout_hours": 8
   },
   "metrics": {
-    "total_cycles": 7,
+    "total_cycles": 3,
     "total_files_changed": 25,
-    "total_findings_fixed": 9
+    "total_findings_fixed": 2
   },
-  "cycle": "cycle-032",
-  "completion": {
-    "completed_at": "2026-05-03T20:42:00Z",
-    "summary": "Cycle-032 substrate-runtime: 7/7 sprints. 110/111 substrate tests pass across 10 files (1 marker skip when construct artifacts absent). Substrate module typecheck-clean. PR #157.",
-    "tests_pass": 110,
-    "tests_total": 111,
-    "next": "/bridgebuilder-review then operator un-draft + janitooor approval"
+  "bridge": {
+    "bridge_id": "bridge-20260228-c038",
+    "iteration": 2,
+    "flatlined": true
   }
 }

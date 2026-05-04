@@ -17,6 +17,14 @@ import type {
   VerifyRequest,
   VerifyResponse,
   PaymentCallback,
+  X402InvokeRequest,
+  X402InvokeResponse,
+  X402QuoteResponse,
+  WalletNftsResponse,
+  ToggleFlagRequest,
+  ToggleFlagResponse,
+  GetFlagsResponse,
+  AllowlistRequest,
 } from "./types.js"
 
 // ---------------------------------------------------------------------------
@@ -202,6 +210,141 @@ export class FinnClient {
     // Auto-store session token
     this.sessionToken = response.token
     return response
+  }
+
+  // -------------------------------------------------------------------------
+  // x402 Invoke (T3.4)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Request an x402 quote without payment.
+   * Returns the quote from the 402 response.
+   */
+  async getX402Quote(request: X402InvokeRequest): Promise<X402QuoteResponse> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/x402/invoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    })
+
+    if (res.status !== 402) {
+      await this.throwApiError(res)
+    }
+
+    return res.json() as Promise<X402QuoteResponse>
+  }
+
+  /**
+   * Send an x402 invoke request with payment proof.
+   * The xPayment parameter is the JSON-stringified payment proof.
+   */
+  async x402Invoke(request: X402InvokeRequest, xPayment: string): Promise<X402InvokeResponse> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/x402/invoke`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Payment": xPayment,
+      },
+      body: JSON.stringify(request),
+    })
+
+    if (!res.ok) {
+      await this.throwApiError(res)
+    }
+
+    return res.json() as Promise<X402InvokeResponse>
+  }
+
+  /**
+   * Send via /api/v1/pay/chat alias (identical to x402Invoke).
+   */
+  async payChat(request: X402InvokeRequest, xPayment?: string): Promise<X402InvokeResponse | X402QuoteResponse> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (xPayment) {
+      headers["X-Payment"] = xPayment
+    }
+
+    const res = await this._fetch(`${this.baseUrl}/api/v1/pay/chat`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(request),
+    })
+
+    if (res.status === 402) {
+      return res.json() as Promise<X402QuoteResponse>
+    }
+
+    if (!res.ok) {
+      await this.throwApiError(res)
+    }
+
+    return res.json() as Promise<X402InvokeResponse>
+  }
+
+  // -------------------------------------------------------------------------
+  // Identity (T3.4)
+  // -------------------------------------------------------------------------
+
+  /** Resolve all NFTs for a wallet address. */
+  async getWalletNfts(wallet: string): Promise<WalletNftsResponse> {
+    const res = await this._fetch(
+      `${this.baseUrl}/api/identity/wallet/${encodeURIComponent(wallet)}/nfts`,
+      { method: "GET", headers: { "Content-Type": "application/json" } },
+    )
+
+    if (!res.ok) {
+      await this.throwApiError(res)
+    }
+
+    return res.json() as Promise<WalletNftsResponse>
+  }
+
+  // -------------------------------------------------------------------------
+  // Admin (T3.4)
+  // -------------------------------------------------------------------------
+
+  /** Toggle a feature flag (requires admin JWT). */
+  async toggleFlag(request: ToggleFlagRequest): Promise<ToggleFlagResponse> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/admin/feature-flags`, {
+      method: "POST",
+      headers: this.buildSessionHeaders(),
+      body: JSON.stringify(request),
+    })
+
+    if (!res.ok) {
+      await this.throwApiError(res)
+    }
+
+    return res.json() as Promise<ToggleFlagResponse>
+  }
+
+  /** Get all feature flag states (requires admin JWT). */
+  async getFlags(): Promise<GetFlagsResponse> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/admin/feature-flags`, {
+      method: "GET",
+      headers: this.buildSessionHeaders(),
+    })
+
+    if (!res.ok) {
+      await this.throwApiError(res)
+    }
+
+    return res.json() as Promise<GetFlagsResponse>
+  }
+
+  /** Manage beta allowlist (requires admin JWT). */
+  async manageAllowlist(request: AllowlistRequest): Promise<Record<string, unknown>> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/admin/allowlist`, {
+      method: "POST",
+      headers: this.buildSessionHeaders(),
+      body: JSON.stringify(request),
+    })
+
+    if (!res.ok) {
+      await this.throwApiError(res)
+    }
+
+    return res.json() as Promise<Record<string, unknown>>
   }
 
   // -------------------------------------------------------------------------

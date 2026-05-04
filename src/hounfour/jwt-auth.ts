@@ -10,14 +10,60 @@ import type { JtiReplayGuard } from "./jti-replay.js"
 import { deriveJtiTtl } from "./jti-replay.js"
 import type { PoolId, Tier } from "@0xhoneyjar/loa-hounfour"
 import { parseAccountId, WireBoundaryError } from "./wire-boundary.js"
+import { PROTOCOL_JTI_POLICY } from "./protocol-types.js"
 
-// --- Protocol Constants (matches loa-hounfour JTI_POLICY) ---
+// --- Protocol Constants ---
 
-export const JTI_POLICY = {
+/** Local JTI policy — finn's own requirements per endpoint type. */
+export const LOCAL_JTI_POLICY = {
   invoke: { required: true },
   admin: { required: true },
   s2s_get: { required: false, compensating: "exp <= 60s" },
 } as const
+
+/**
+ * Maximum JTI replay window in seconds (env-configurable ceiling).
+ * Protects tenants from protocol-imposed excessively large windows.
+ * Default: 600s (10 minutes). Override via MAX_JTI_WINDOW_SECONDS env var.
+ */
+export const MAX_JTI_WINDOW_SECONDS = Math.max(
+  30,
+  parseInt(process.env.MAX_JTI_WINDOW_SECONDS ?? "600", 10) || 600,
+)
+
+/**
+ * Effective JTI policy — merges local and protocol policies.
+ * `required` = OR of local and protocol (stricter wins).
+ * `byok` entry adopted from protocol (bounded-use JTI for BYOK endpoints).
+ */
+export const EFFECTIVE_JTI_POLICY = {
+  invoke: {
+    required: LOCAL_JTI_POLICY.invoke.required || PROTOCOL_JTI_POLICY.invoke.required,
+  },
+  admin: {
+    required: LOCAL_JTI_POLICY.admin.required || PROTOCOL_JTI_POLICY.admin.required,
+  },
+  s2s_get: {
+    required: LOCAL_JTI_POLICY.s2s_get.required || PROTOCOL_JTI_POLICY.s2s_get.required,
+    compensating: PROTOCOL_JTI_POLICY.s2s_get.compensating,
+  },
+  byok: PROTOCOL_JTI_POLICY.byok,
+} as const
+
+// Log WARNING if protocol replay window would exceed local MAX_TTL by >2x
+// (checked at module load — informational only, does not block startup)
+{
+  const LOCAL_MAX_TTL = 7200
+  if (MAX_JTI_WINDOW_SECONDS > LOCAL_MAX_TTL * 2) {
+    console.warn(
+      `[jwt-auth] WARNING: MAX_JTI_WINDOW_SECONDS (${MAX_JTI_WINDOW_SECONDS}) exceeds ` +
+      `local MAX_TTL_SEC (${LOCAL_MAX_TTL}) by >2x — replay cache memory impact may be significant`,
+    )
+  }
+}
+
+/** @deprecated Use EFFECTIVE_JTI_POLICY — kept for backward compatibility */
+export const JTI_POLICY = LOCAL_JTI_POLICY
 
 export const AUDIENCE_MAP = {
   invoke: "loa-finn",
@@ -25,7 +71,7 @@ export const AUDIENCE_MAP = {
   s2s: "arrakis",
 } as const
 
-export type EndpointType = "invoke" | "admin" | "s2s"
+export type EndpointType = "invoke" | "admin" | "s2s" | "byok"
 
 // --- Interfaces ---
 
@@ -264,9 +310,10 @@ export function namespaceJti(iss: string, jti: string): string {
 // --- JTI Requirement ---
 
 export function isJtiRequired(endpointType: EndpointType): boolean {
-  if (endpointType === "invoke") return JTI_POLICY.invoke.required
-  if (endpointType === "admin") return JTI_POLICY.admin.required
-  return JTI_POLICY.s2s_get.required
+  if (endpointType === "invoke") return EFFECTIVE_JTI_POLICY.invoke.required
+  if (endpointType === "admin") return EFFECTIVE_JTI_POLICY.admin.required
+  if (endpointType === "byok") return EFFECTIVE_JTI_POLICY.byok.required
+  return EFFECTIVE_JTI_POLICY.s2s_get.required
 }
 
 // --- Audience Resolution ---
@@ -439,9 +486,10 @@ export async function validateJWT(
   }
 
   // 7. JTI replay check with per-issuer namespace
+  //    Use MAX_JTI_WINDOW_SECONDS as TTL ceiling (effective protocol-merged window)
   if (replayGuard && claims!.jti) {
     const namespacedJti = namespaceJti(claims!.iss, claims!.jti)
-    const ttlSec = deriveJtiTtl(claims!.exp)
+    const ttlSec = deriveJtiTtl(claims!.exp, undefined, MAX_JTI_WINDOW_SECONDS)
     const isReplay = await replayGuard.checkAndStore(namespacedJti, ttlSec)
     if (isReplay) {
       return { ok: false, error: "JTI replay detected", code: "JTI_REPLAY_DETECTED" }

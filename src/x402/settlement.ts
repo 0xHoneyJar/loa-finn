@@ -7,6 +7,11 @@
 import type { EIP3009Authorization, SettlementResult } from "./types.js"
 import { X402Error } from "./types.js"
 import { getTracer } from "../tracing/otlp.js"
+import type { SettlementStore } from "./settlement-store.js"
+import { buildIdempotencyKey } from "./settlement-store.js"
+import { resolveChainConfig } from "./types.js"
+import type { ChainConfig } from "./types.js"
+import type { ResilientAuditLogger } from "../hounfour/audit/audit-fallback.js"
 
 // ---------------------------------------------------------------------------
 // Circuit Breaker
@@ -220,4 +225,280 @@ export class SettlementService {
       // Best-effort
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// MerchantRelayer — DynamoDB-backed settlement state machine (SDD §4.4.1, T-3.2)
+// ---------------------------------------------------------------------------
+
+/** Clock skew allowance for validAfter/validBefore window check (30 seconds). */
+const CLOCK_SKEW_SECONDS = 30
+
+/** Default confirmation timeout for on-chain tx (60 seconds, T-4.1). */
+const DEFAULT_CONFIRMATION_TIMEOUT_MS = 60_000
+
+/** Default max concurrent settlements (semaphore). */
+const DEFAULT_MAX_CONCURRENT_SETTLEMENTS = 5
+
+export interface MerchantRelayerDeps {
+  store: SettlementStore
+  settlementService: SettlementService
+  /** Wait for on-chain confirmation. Returns SettlementResult or throws. */
+  waitForConfirmation?: (txHash: string, timeoutMs: number) => Promise<SettlementResult>
+  confirmationTimeoutMs?: number
+  maxConcurrentSettlements?: number
+  /** Optional audit logger for tamper-evident settlement log (T-4.7). */
+  auditLogger?: ResilientAuditLogger
+  /** Chain config override. Defaults to resolveChainConfig() (T-4.1). */
+  chainConfig?: ChainConfig
+}
+
+export interface MerchantRelayerResult {
+  idempotencyKey: string
+  txHash: string
+  status: "confirmed"
+  /** True if this was a cached idempotent replay. */
+  idempotent: boolean
+}
+
+export class MerchantRelayer {
+  private readonly store: SettlementStore
+  private readonly service: SettlementService
+  private readonly waitForConfirmation: MerchantRelayerDeps["waitForConfirmation"]
+  private readonly confirmationTimeoutMs: number
+  private readonly maxConcurrent: number
+  private activeConcurrent = 0
+  private readonly auditLogger?: ResilientAuditLogger
+  private readonly chainConfig: ChainConfig
+
+  constructor(deps: MerchantRelayerDeps) {
+    this.store = deps.store
+    this.service = deps.settlementService
+    this.waitForConfirmation = deps.waitForConfirmation
+    this.confirmationTimeoutMs = deps.confirmationTimeoutMs ?? DEFAULT_CONFIRMATION_TIMEOUT_MS
+    this.maxConcurrent = deps.maxConcurrentSettlements ?? DEFAULT_MAX_CONCURRENT_SETTLEMENTS
+    this.auditLogger = deps.auditLogger
+    this.chainConfig = deps.chainConfig ?? resolveChainConfig()
+  }
+
+  /**
+   * Execute settlement with DynamoDB-backed state machine.
+   *
+   * State transitions:
+   *   (new) → pending → submitted(txHash) → confirmed | reverted | gas_failed
+   *
+   * Idempotent: same nonce returns cached confirmed result.
+   * Bounded concurrency: max N in-flight settlements.
+   */
+  async settle(auth: EIP3009Authorization, quoteId: string, chainId?: number): Promise<MerchantRelayerResult> {
+    const tracer = getTracer("x402")
+    const span = tracer?.startSpan("x402.merchant_relayer.settle")
+
+    try {
+      // 0. Preflight: validate validity window (SDD §4.4.1)
+      const nowSec = Math.floor(Date.now() / 1000)
+      if (nowSec < auth.valid_after - CLOCK_SKEW_SECONDS) {
+        throw new X402Error(
+          `Authorization not yet valid (validAfter=${auth.valid_after}, now=${nowSec})`,
+          "AUTHORIZATION_NOT_YET_VALID",
+          402,
+        )
+      }
+      if (nowSec > auth.valid_before + CLOCK_SKEW_SECONDS) {
+        throw new X402Error(
+          `Authorization expired (validBefore=${auth.valid_before}, now=${nowSec})`,
+          "AUTHORIZATION_EXPIRED",
+          402,
+        )
+      }
+
+      const effectiveChainId = chainId ?? this.chainConfig.chainId
+      const idempotencyKey = buildIdempotencyKey(effectiveChainId, this.chainConfig.usdcAddress, auth.from, auth.nonce)
+      span?.setAttribute("idempotency_key", idempotencyKey)
+
+      // 1. Check existing state
+      const existing = await this.store.get(idempotencyKey)
+
+      if (existing) {
+        if (existing.status === "confirmed" && existing.txHash) {
+          // Idempotent replay — return cached result (AC30c)
+          return { idempotencyKey, txHash: existing.txHash, status: "confirmed", idempotent: true }
+        }
+        if (existing.status === "reverted") {
+          throw new X402Error(
+            `Settlement previously reverted: ${existing.revertReason ?? "unknown"}`,
+            "SETTLEMENT_FAILED",
+            402,
+          )
+        }
+        if (existing.status === "gas_failed") {
+          throw new X402Error(
+            "Settlement previously failed due to insufficient gas",
+            "RELAYER_UNAVAILABLE",
+            503,
+          )
+        }
+        if (existing.status === "submitted" && existing.txHash) {
+          // Resume: wait for confirmation on existing tx
+          return this.resumeSettlement(idempotencyKey, existing.txHash, span)
+        }
+        // pending = another process is handling it — treat as in-flight
+        if (existing.status === "pending") {
+          throw new X402Error(
+            "Settlement already in progress",
+            "SETTLEMENT_IN_PROGRESS",
+            409,
+          )
+        }
+      }
+
+      // 2. Bounded concurrency check (AC30e)
+      if (this.activeConcurrent >= this.maxConcurrent) {
+        throw new X402Error(
+          `Settlement queue full (${this.activeConcurrent}/${this.maxConcurrent})`,
+          "RELAYER_BUSY",
+          503,
+        )
+      }
+
+      // 3. Claim pending slot via conditional write
+      const claimed = await this.store.claimPending(idempotencyKey, quoteId)
+      if (!claimed) {
+        // Race condition: another process claimed it
+        throw new X402Error(
+          "Settlement already in progress (race)",
+          "SETTLEMENT_IN_PROGRESS",
+          409,
+        )
+      }
+
+      this.activeConcurrent++
+      // Audit: settlement claimed (best-effort, never blocks settlement)
+      void this.auditLogger?.log("settlement_claimed", {
+        idempotencyKey, quoteId, from: auth.from, nonce: auth.nonce, chainId: effectiveChainId,
+      })
+      try {
+        // 4. Submit on-chain
+        const result = await this.service.settle(auth, quoteId)
+        span?.setAttribute("tx_hash", result.tx_hash)
+
+        // 5. Update state to submitted
+        await this.store.update(idempotencyKey, {
+          status: "submitted",
+          txHash: result.tx_hash,
+        })
+
+        // 6. Wait for confirmation (AC30b: inference only after receipt confirmed)
+        if (this.waitForConfirmation) {
+          try {
+            await this.waitForConfirmation(result.tx_hash, this.confirmationTimeoutMs)
+            await this.store.update(idempotencyKey, { status: "confirmed" })
+          } catch (err) {
+            // Timeout = tx still pending — 503 Retry-After (AC30f)
+            if (isTimeoutError(err)) {
+              throw new X402Error(
+                "Settlement confirmation timeout — transaction still pending",
+                "SETTLEMENT_TIMEOUT",
+                503,
+              )
+            }
+            // Gas failure (AC30d)
+            if (isGasError(err)) {
+              await this.store.update(idempotencyKey, { status: "gas_failed" })
+              throw new X402Error(
+                "Settlement failed: insufficient relayer gas",
+                "RELAYER_UNAVAILABLE",
+                503,
+              )
+            }
+            // Reverted
+            await this.store.update(idempotencyKey, {
+              status: "reverted",
+              revertReason: err instanceof Error ? err.message : String(err),
+            })
+            throw new X402Error(
+              `Settlement reverted: ${err instanceof Error ? err.message : String(err)}`,
+              "SETTLEMENT_FAILED",
+              402,
+            )
+          }
+        } else {
+          // No confirmation waiter — mark confirmed optimistically
+          await this.store.update(idempotencyKey, { status: "confirmed" })
+        }
+
+        // Audit: settlement confirmed
+        void this.auditLogger?.log("settlement_confirmed", {
+          idempotencyKey, txHash: result.tx_hash, quoteId, chainId: effectiveChainId,
+        })
+        return {
+          idempotencyKey,
+          txHash: result.tx_hash,
+          status: "confirmed",
+          idempotent: false,
+        }
+      } finally {
+        this.activeConcurrent--
+      }
+    } finally {
+      span?.end()
+    }
+  }
+
+  private async resumeSettlement(
+    idempotencyKey: string,
+    txHash: string,
+    span?: { setAttribute(key: string, value: string): void },
+  ): Promise<MerchantRelayerResult> {
+    span?.setAttribute("resume", "true")
+
+    if (this.waitForConfirmation) {
+      try {
+        await this.waitForConfirmation(txHash, this.confirmationTimeoutMs)
+        await this.store.update(idempotencyKey, { status: "confirmed" })
+      } catch (err) {
+        if (isTimeoutError(err)) {
+          throw new X402Error(
+            "Settlement confirmation timeout on resume",
+            "SETTLEMENT_TIMEOUT",
+            503,
+          )
+        }
+        throw new X402Error(
+          `Settlement resume failed: ${err instanceof Error ? err.message : String(err)}`,
+          "SETTLEMENT_FAILED",
+          402,
+        )
+      }
+    } else {
+      await this.store.update(idempotencyKey, { status: "confirmed" })
+    }
+
+    return { idempotencyKey, txHash, status: "confirmed", idempotent: false }
+  }
+
+  /** Current number of in-flight settlements. */
+  get activeSettlements(): number {
+    return this.activeConcurrent
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Error Classification Helpers
+// ---------------------------------------------------------------------------
+
+function isTimeoutError(err: unknown): boolean {
+  if (err instanceof Error) {
+    return err.message.includes("timeout") || err.message.includes("TIMEOUT")
+  }
+  return false
+}
+
+function isGasError(err: unknown): boolean {
+  if (err instanceof Error) {
+    return err.message.includes("insufficient funds") ||
+      err.message.includes("gas") ||
+      err.message.includes("INSUFFICIENT_FUNDS")
+  }
+  return false
 }

@@ -38,6 +38,11 @@ else
     exit 6
 fi
 
+# Source security library (for write_curl_auth_config)
+if [[ -f "$SCRIPT_DIR/lib-security.sh" ]]; then
+    source "$SCRIPT_DIR/lib-security.sh"
+fi
+
 # =============================================================================
 # Exit Codes
 # =============================================================================
@@ -114,10 +119,10 @@ fetch_packs() {
     local curl_args=(-s -f)
     local curl_config=""
     if [[ -n "$api_key" ]]; then
-        curl_config=$(mktemp)
-        chmod 600 "$curl_config"
-        echo "header = \"Authorization: Bearer ${api_key}\"" > "$curl_config"
-        curl_args+=(--config "$curl_config")
+        curl_config=$(write_curl_auth_config "Authorization" "Bearer ${api_key}") || true
+        if [[ -n "$curl_config" ]]; then
+            curl_args+=(--config "$curl_config")
+        fi
     fi
 
     local response http_code
@@ -136,6 +141,25 @@ fetch_packs() {
             echo "$response" > "$cache_file"
             echo "$response"
             return 0
+        fi
+    fi
+
+    # Auth-related failure (401/403/502) — retry without auth header
+    # This handles invalid/expired/test API keys gracefully since the
+    # constructs list endpoint is public and doesn't require auth
+    if [[ -n "$api_key" ]] && [[ "$http_code" =~ ^(401|403|502|000)$ || -z "$http_code" ]]; then
+        echo "  Auth failed (HTTP $http_code), retrying without credentials..." >&2
+        response=$(curl -s -f -w "\n%{http_code}" "${registry_url}/constructs?type=pack" 2>/dev/null) || true
+        http_code=$(echo "$response" | tail -n1)
+        response=$(echo "$response" | sed '$d')
+
+        if [[ "$http_code" == "200" ]] && [[ -n "$response" ]]; then
+            if echo "$response" | jq -e '.data' &>/dev/null; then
+                ensure_cache_dir
+                echo "$response" > "$cache_file"
+                echo "$response"
+                return 0
+            fi
         fi
     fi
 
@@ -176,10 +200,10 @@ fetch_pack_info() {
     local curl_args=(-s -f)
     local curl_config=""
     if [[ -n "$api_key" ]]; then
-        curl_config=$(mktemp)
-        chmod 600 "$curl_config"
-        echo "header = \"Authorization: Bearer ${api_key}\"" > "$curl_config"
-        curl_args+=(--config "$curl_config")
+        curl_config=$(write_curl_auth_config "Authorization" "Bearer ${api_key}") || true
+        if [[ -n "$curl_config" ]]; then
+            curl_args+=(--config "$curl_config")
+        fi
     fi
 
     local response http_code
@@ -191,6 +215,20 @@ fetch_pack_info() {
     if [[ "$http_code" == "200" ]] && [[ -n "$response" ]]; then
         echo "$response"
         return 0
+    fi
+
+    # Auth-related failure — retry without auth header
+    # The constructs detail endpoint is public and doesn't require auth
+    if [[ -n "$api_key" ]] && [[ "$http_code" =~ ^(401|403|502|000)$ || -z "$http_code" ]]; then
+        echo "  Auth failed (HTTP $http_code), retrying without credentials..." >&2
+        response=$(curl -s -f -w "\n%{http_code}" "${registry_url}/constructs/${slug}" 2>/dev/null) || true
+        http_code=$(echo "$response" | tail -n1)
+        response=$(echo "$response" | sed '$d')
+
+        if [[ "$http_code" == "200" ]] && [[ -n "$response" ]]; then
+            echo "$response"
+            return 0
+        fi
     fi
 
     # Handle errors gracefully

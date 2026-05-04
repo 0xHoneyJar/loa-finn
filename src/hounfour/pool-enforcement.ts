@@ -24,7 +24,15 @@ import {
   assertValidPoolId,
 } from "./tier-bridge.js"
 import { allowedPoolsForTier } from "../nft/routing-affinity.js"
-import { parsePoolId } from "./wire-boundary.js"
+import { parsePoolId, parseTaskType, isRegisteredTaskType, DEFAULT_TASK_TYPE, resolveLegacyTaskType } from "./wire-boundary.js"
+import {
+  evaluateAccessPolicy,
+  type AccessPolicyContext,
+  type AccessPolicyResult,
+} from "./protocol-types.js"
+import type { TaskType } from "./protocol-types.js"
+import { OPEN_TASK_TYPES_ENABLED } from "./economic-boundary.js"
+import { isTenantAllowlisted } from "./task-type-allowlist.js"
 
 // --- Types (SDD §3.1.1) ---
 
@@ -205,6 +213,289 @@ export function getPoolConfig(): PoolEnforcementConfig {
   }
 }
 
+// --- Access Policy Shadow Evaluation (Task 2.6) ---
+
+/**
+ * Enforcement mode for protocol access policy evaluation.
+ * Rollout ladder: observe → asymmetric → enforce.
+ *
+ *   observe    — Log-only. Protocol result logged, local result always used.
+ *   asymmetric — Protocol-deny overrides local-allow (fail-safe tightening).
+ *                Protocol-allow does NOT override local-deny (no privilege escalation).
+ *   enforce    — Protocol result replaces local result entirely.
+ */
+export type AccessPolicyEnforcementMode = "observe" | "asymmetric" | "enforce"
+
+const VALID_ENFORCEMENT_MODES = new Set<string>(["observe", "asymmetric", "enforce"])
+
+/**
+ * Parse enforcement mode from env var with safe default.
+ * Invalid values fall back to "observe" (safest mode).
+ */
+export const ACCESS_POLICY_ENFORCEMENT_MODE: AccessPolicyEnforcementMode = (() => {
+  const raw = process.env.ECONOMIC_BOUNDARY_ACCESS_POLICY_ENFORCEMENT ?? "observe"
+  if (VALID_ENFORCEMENT_MODES.has(raw)) return raw as AccessPolicyEnforcementMode
+  console.warn(
+    `[pool-enforcement] Invalid ACCESS_POLICY_ENFORCEMENT mode "${raw}", falling back to "observe"`,
+  )
+  return "observe"
+})()
+
+/** Structured divergence log entry for shadow evaluation */
+interface AccessPolicyDivergence {
+  event: "access_policy_divergence"
+  mode: AccessPolicyEnforcementMode
+  tenant_id: string
+  tier: string
+  local_allowed: boolean
+  protocol_allowed: boolean
+  protocol_reason: string
+  action_taken: "local_wins" | "protocol_deny_wins" | "protocol_wins"
+}
+
+/**
+ * Evaluate protocol access policy in shadow mode alongside local enforcement.
+ *
+ * Called AFTER local pool enforcement succeeds. If no access_policy is present
+ * in the claims, this is a no-op (returns localAllowed unchanged).
+ *
+ * @returns Whether the request should proceed (true = allowed).
+ */
+export function evaluateAccessPolicyShadow(
+  claims: JWTClaims,
+  localAllowed: boolean,
+  mode: AccessPolicyEnforcementMode = ACCESS_POLICY_ENFORCEMENT_MODE,
+): boolean {
+  // No access_policy in claims → no protocol evaluation, pass through
+  const accessPolicy = (claims as Record<string, unknown>).access_policy
+  if (accessPolicy == null) return localAllowed
+
+  // Build protocol context from JWT claims
+  const context: AccessPolicyContext = {
+    action: "read", // Default action for API requests
+    timestamp: new Date().toISOString(),
+    role: claims.tier,
+    previously_granted: localAllowed,
+  }
+
+  let protocolResult: AccessPolicyResult | undefined
+  try {
+    protocolResult = evaluateAccessPolicy(accessPolicy as Parameters<typeof evaluateAccessPolicy>[0], context)
+  } catch (err) {
+    // Protocol evaluation failure → fail open in observe/asymmetric, fail closed in enforce
+    console.error("[pool-enforcement] access_policy evaluation error:", err)
+    return mode === "enforce" ? false : localAllowed
+  }
+
+  // Guard: undefined/null result treated same as evaluation error
+  if (protocolResult == null || typeof protocolResult.allowed !== "boolean") {
+    console.error("[pool-enforcement] access_policy evaluation returned invalid result:", protocolResult)
+    return mode === "enforce" ? false : localAllowed
+  }
+
+  // No divergence → pass through (no logging needed)
+  if (protocolResult.allowed === localAllowed) return localAllowed
+
+  // Divergence detected — log and apply mode-specific logic
+  const actionTaken: AccessPolicyDivergence["action_taken"] =
+    mode === "observe"
+      ? "local_wins"
+      : mode === "asymmetric"
+        ? protocolResult.allowed ? "local_wins" : "protocol_deny_wins"
+        : "protocol_wins"
+
+  const entry: AccessPolicyDivergence = {
+    event: "access_policy_divergence",
+    mode,
+    tenant_id: claims.tenant_id,
+    tier: claims.tier,
+    local_allowed: localAllowed,
+    protocol_allowed: protocolResult.allowed,
+    protocol_reason: protocolResult.reason,
+    action_taken: actionTaken,
+  }
+
+  // Graduate log level by divergence severity
+  if (!protocolResult.allowed && localAllowed) {
+    // Protocol would DENY what local allows — security-relevant
+    console.warn("[pool-enforcement]", JSON.stringify(entry))
+  } else {
+    // Protocol would ALLOW what local denies — informational only
+    console.info("[pool-enforcement]", JSON.stringify(entry))
+  }
+
+  switch (mode) {
+    case "observe":
+      return localAllowed
+    case "asymmetric":
+      // Protocol-deny overrides local-allow (tightening)
+      // Protocol-allow does NOT override local-deny (no escalation)
+      return protocolResult.allowed ? localAllowed : false
+    case "enforce":
+      return protocolResult.allowed
+  }
+}
+
+// --- v7.11.0 Feature Flags (SDD §2.2) ---
+
+/** When true, native enforcement geometry replaces expression-based evaluation. Default: false. */
+export const NATIVE_ENFORCEMENT_ENABLED = process.env.NATIVE_ENFORCEMENT_ENABLED === "true"
+
+/** Evaluation geometry: "expression" (default, existing) or "native" (direct evaluator call). */
+export const ENFORCEMENT_GEOMETRY: "expression" | "native" = (() => {
+  const raw = process.env.ENFORCEMENT_GEOMETRY ?? "expression"
+  if (raw === "expression" || raw === "native") return raw
+  console.warn(`[pool-enforcement] Invalid ENFORCEMENT_GEOMETRY="${raw}". Defaulting to "expression".`)
+  return "expression"
+})()
+
+/** Policy for unknown (unregistered, non-allowlisted) task types. SDD mandates deny-by-default. */
+export const UNKNOWN_TASK_TYPE_POLICY: "safe_default" | "deny" = (() => {
+  const raw = process.env.UNKNOWN_TASK_TYPE_POLICY ?? "deny"
+  if (raw === "safe_default" || raw === "deny") return raw
+  console.warn(`[pool-enforcement] Invalid UNKNOWN_TASK_TYPE_POLICY="${raw}". Defaulting to "deny".`)
+  return "deny"
+})()
+
+// --- Native Enforcement Path (SDD §4.4, Task 3.1) ---
+
+/**
+ * Pre-computed lookup tables for O(1) native enforcement.
+ * Built once at module load from the same tier->pool mappings as the expression path.
+ */
+const NATIVE_POOL_LOOKUP: ReadonlyMap<string, ReadonlySet<string>> = (() => {
+  const lookup = new Map<string, Set<string>>()
+  for (const tier of ["free", "pro", "enterprise"] as const) {
+    const pools = getAccessiblePools(tier)
+    lookup.set(tier, new Set(pools))
+  }
+  return lookup
+})()
+
+/**
+ * Native enforcement: direct pool enforcement using pre-computed lookup.
+ * Produces structurally identical PoolEnforcementResult to enforcePoolClaims().
+ * Lower allocation overhead: no intermediate Set per-call for membership tests,
+ * uses pre-built NATIVE_POOL_LOOKUP for O(1) membership.
+ */
+function enforcePoolClaimsNative(
+  claims: JWTClaims,
+  config?: PoolEnforcementConfig,
+): PoolEnforcementResult {
+  const tier = claims.tier
+  const poolSet = NATIVE_POOL_LOOKUP.get(tier)
+
+  if (!poolSet || poolSet.size === 0) {
+    return {
+      ok: false,
+      error: `Tier "${tier}" has no accessible pools`,
+      code: "POOL_ACCESS_DENIED",
+      details: { tier },
+    }
+  }
+
+  // Use getAccessiblePools for resolvedPools array (same order as expression path)
+  // but use poolSet for O(1) membership tests below
+  const resolvedPools = getAccessiblePools(tier)
+
+  // Validate pool_id if present
+  let requestedPool: PoolId | null = null
+  if (claims.pool_id != null && claims.pool_id !== "") {
+    if (!isValidPoolId(claims.pool_id)) {
+      return {
+        ok: false,
+        error: `Unknown pool ID: "${claims.pool_id}"`,
+        code: "UNKNOWN_POOL",
+        details: { pool_id: claims.pool_id, tier },
+      }
+    }
+    if (!poolSet.has(claims.pool_id)) {
+      return {
+        ok: false,
+        error: `Tier "${tier}" cannot access pool "${claims.pool_id}"`,
+        code: "POOL_ACCESS_DENIED",
+        details: { pool_id: claims.pool_id, tier },
+      }
+    }
+    requestedPool = parsePoolId(claims.pool_id)
+  }
+
+  // Detect allowed_pools mismatch (priority: invalid_entry > superset > subset)
+  let mismatch: PoolMismatch | null = null
+  if (claims.allowed_pools && claims.allowed_pools.length > 0) {
+    const claimedSet = new Set(claims.allowed_pools)
+
+    // Check for invalid entries first (highest priority)
+    const invalidEntries = claims.allowed_pools.filter((p) => !isValidPoolId(p))
+    if (invalidEntries.length > 0) {
+      mismatch = { type: "invalid_entry", count: invalidEntries.length, entries: invalidEntries }
+    } else {
+      // Check for superset: entries in allowed_pools NOT in resolvedPools (O(1) via poolSet)
+      const supersetEntries = claims.allowed_pools.filter((p) => !poolSet.has(p))
+      if (supersetEntries.length > 0) {
+        mismatch = { type: "superset", count: supersetEntries.length, entries: supersetEntries }
+      } else if (claimedSet.size < resolvedPools.length) {
+        // Subset: fewer unique pools claimed than tier allows
+        const diff = resolvedPools.length - claimedSet.size
+        mismatch = { type: "subset", count: diff }
+      }
+    }
+
+    // Strict mode: superset escalates to 403
+    if (config?.strictMode && mismatch?.type === "superset") {
+      return {
+        ok: false,
+        error: `Strict mode: allowed_pools claims more pools than tier "${tier}" permits`,
+        code: "POOL_ACCESS_DENIED",
+        details: { tier },
+      }
+    }
+  }
+
+  return { ok: true, resolvedPools, requestedPool, mismatch }
+}
+
+/**
+ * Evaluate pool enforcement using the configured geometry.
+ * Expression path: existing enforcePoolClaims (stable, proven).
+ * Native path: pre-computed lookup tables (lower allocation, O(1) membership).
+ *
+ * Both paths MUST produce structurally identical PoolEnforcementResult.
+ * Task 3.2 enforces this with 1000+ input correctness gate.
+ */
+export function evaluateWithGeometry(
+  claims: JWTClaims,
+  config?: PoolEnforcementConfig,
+): PoolEnforcementResult {
+  if (ENFORCEMENT_GEOMETRY === "native" && NATIVE_ENFORCEMENT_ENABLED) {
+    return enforcePoolClaimsNative(claims, config)
+  }
+  return enforcePoolClaims(claims, config)
+}
+
+/**
+ * Startup self-check: validates native enforcement is available and functional.
+ * Called at boot time when NATIVE_ENFORCEMENT_ENABLED=true.
+ * Throws if native path is misconfigured.
+ */
+export function validateNativeEnforcementAvailable(): void {
+  if (!NATIVE_ENFORCEMENT_ENABLED) return
+
+  // Verify lookup tables are populated
+  if (NATIVE_POOL_LOOKUP.size === 0) {
+    throw new Error("[pool-enforcement] FATAL: Native enforcement enabled but NATIVE_POOL_LOOKUP is empty")
+  }
+
+  // Verify at least the standard tiers exist
+  for (const tier of ["free", "pro", "enterprise"] as const) {
+    if (!NATIVE_POOL_LOOKUP.has(tier)) {
+      throw new Error(`[pool-enforcement] FATAL: Native enforcement missing lookup for tier "${tier}"`)
+    }
+  }
+
+  console.log(`[pool-enforcement] Native enforcement validated: ${NATIVE_POOL_LOOKUP.size} tiers, geometry=${ENFORCEMENT_GEOMETRY}`)
+}
+
 // --- Composed HTTP Middleware: hounfourAuth (SDD §3.1.5) ---
 
 /**
@@ -233,6 +524,44 @@ export function hounfourAuth(
       return c.json(authResult.body, authResult.status)
     }
 
+    // 1.5. Task type gate (v7.11.0, SDD §4.6.4)
+    // Parse task type from header, resolve legacy, validate registration or allowlist
+    let taskType: TaskType = DEFAULT_TASK_TYPE
+    let taskTypeRestricted = false
+
+    if (OPEN_TASK_TYPES_ENABLED) {
+      const rawTaskType = c.req.header("X-Task-Type")
+      if (rawTaskType) {
+        try {
+          taskType = parseTaskType(rawTaskType)
+        } catch {
+          // Try legacy resolution
+          const legacy = resolveLegacyTaskType(rawTaskType)
+          if (legacy) {
+            taskType = legacy
+          } else {
+            return c.json({ error: "Bad Request", code: "INVALID_TASK_TYPE" }, 400)
+          }
+        }
+
+        // Check if the resolved task type is known (registered or allowlisted)
+        const isKnown = isRegisteredTaskType(taskType) ||
+                        isTenantAllowlisted(authResult.context.claims.tenant_id, taskType)
+
+        if (!isKnown) {
+          if (UNKNOWN_TASK_TYPE_POLICY === "deny") {
+            return c.json({ error: "Forbidden", code: "UNKNOWN_TASK_TYPE" }, 403)
+          }
+          // safe_default: allow but restrict
+          taskTypeRestricted = true
+        }
+      }
+    }
+
+    // Set TaskType in Hono context (branded type via module augmentation)
+    c.set("taskType", taskType)
+    c.set("taskTypeRestricted", taskTypeRestricted)
+
     // 2. Pool enforcement (single config snapshot for both enforce + log)
     const poolConfig = getPoolConfig()
     const enforcement = enforcePoolClaims(authResult.context.claims, poolConfig)
@@ -245,7 +574,13 @@ export function hounfourAuth(
       logPoolMismatch(authResult.context.claims, enforcement.mismatch, poolConfig)
     }
 
-    // 4. Set enriched TenantContext
+    // 4. Shadow access policy evaluation (graduated rollout — Task 2.6)
+    const accessAllowed = evaluateAccessPolicyShadow(authResult.context.claims, true)
+    if (!accessAllowed) {
+      return c.json({ error: "Forbidden", code: "ACCESS_POLICY_DENIED" }, 403)
+    }
+
+    // 5. Set enriched TenantContext
     const tenantContext: TenantContext = {
       ...authResult.context,
       // Shallow copy: enforcement result is readonly, TenantContext consumers should not mutate
@@ -281,6 +616,12 @@ export async function validateAndEnforceWsJWT(
 
   if (result.mismatch) {
     logPoolMismatch(ctx.claims, result.mismatch, enforcementConfig)
+  }
+
+  // Shadow access policy evaluation (graduated rollout — Task 2.6)
+  const accessAllowed = evaluateAccessPolicyShadow(ctx.claims, true)
+  if (!accessAllowed) {
+    return { ok: false, reason: "FORBIDDEN", code: "ACCESS_POLICY_DENIED", message: "Forbidden" }
   }
 
   return {

@@ -1,0 +1,183 @@
+name: Build & Push to ECR (Staging)
+
+# Build + test + push Docker image to ECR for Freeside-managed deployment.
+# Deployment is handled by Freeside's deploy-ring.sh (issue #114).
+# Optionally triggers ECS force-new-deployment after push.
+# T-6.3: All actions pinned to commit SHA. T-6.7: pnpm instead of npm.
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag (leave empty to build from HEAD)"
+        required: false
+        type: string
+      force_deploy:
+        description: "Trigger ECS force-new-deployment after push"
+        required: false
+        default: true
+        type: boolean
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: arrakis-staging-loa-finn
+  ECS_CLUSTER: arrakis-staging-cluster
+  ECS_SERVICE: arrakis-staging-finn
+
+jobs:
+  # ===========================================================================
+  # Build + Test
+  # ===========================================================================
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Type check: --noCheck matches Dockerfile behavior (viem type drift
+      # causes ~29 pre-existing TS errors that don't affect runtime).
+      # Strict type checking runs in ci.yml.
+      - name: Compile check
+        run: npx tsc --noCheck --noEmit
+
+      - name: Run tests
+        run: npx vitest run
+
+  # ===========================================================================
+  # Docker Build + ECR Push
+  # ===========================================================================
+  build-and-push:
+    name: Build & Push Docker Image
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build-image.outputs.image }}
+      image_tag: ${{ steps.resolve-tag.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      - name: Resolve image tag
+        id: resolve-tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.resolve-tag.outputs.tag }}
+        run: |
+          docker build \
+            -f deploy/Dockerfile \
+            --label "git.sha=${{ github.sha }}" \
+            --label "git.ref=${{ github.ref }}" \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            .
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # T-7.12: Container vulnerability scanning before push
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        with:
+          image-ref: ${{ steps.build-image.outputs.image }}
+          format: "table"
+          exit-code: "1"
+          severity: "HIGH,CRITICAL"
+          output: "trivy-results.txt"
+
+      - name: Upload Trivy scan results
+        if: always()
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: trivy-scan-results
+          path: trivy-results.txt
+          retention-days: 30
+
+      - name: Push Docker image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.resolve-tag.outputs.tag }}
+        run: |
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+  # ===========================================================================
+  # Optional: Trigger ECS Redeployment
+  # ===========================================================================
+  # Finn is deployed by Freeside's deploy-ring.sh (6-phase orchestrator).
+  # This job optionally triggers a force-new-deployment to pull the latest image.
+  # Full health gating and rollback are handled by Freeside's deploy pipeline.
+  force-deploy:
+    name: Trigger ECS Redeployment
+    needs: build-and-push
+    if: ${{ inputs.force_deploy }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Force new deployment
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment \
+            --query 'service.deployments[0].{status:status,desired:desiredCount,running:runningCount}' \
+            --output table
+
+      - name: Wait for service stability
+        run: |
+          echo "Waiting for ECS service to stabilize (up to 5 min)..."
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }} || {
+            echo "::warning::Service did not stabilize within timeout. Check ECS console."
+            exit 1
+          }
+          echo "Service stable."
+
+      - name: Summary
+        run: |
+          echo "## Staging Build & Deploy Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`${{ needs.build-and-push.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster:** ${{ env.ECS_CLUSTER }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service:** ${{ env.ECS_SERVICE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deploy:** Freeside-managed (Cloud Map internal)" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,33 @@
+{
+  "verdict": "APPROVED",
+  "summary": "The remaining transport-factory contradiction is resolved and the prior four blocking issues remain fixed, with no new truly blocking problems introduced.",
+  "previous_issues_status": [
+    {
+      "original_issue": "Ambiguous Goodhart control-flow across disabled/shadow/enabled and failure states (\"called on every routing decision\" vs graceful degradation)",
+      "status": "fixed",
+      "notes": "The 4-state routing table (disabled/shadow/enabled/init_failed) is still present and consistent with AC2/AC4/AC5, so invocation vs usage and failure fallback remain unambiguous and testable."
+    },
+    {
+      "original_issue": "ECS staging host-based routing may be impossible without explicit HTTPS listener + ACM cert coverage + Route53 record type",
+      "status": "fixed",
+      "notes": "FR-4 still explicitly requires an HTTPS 443 listener rule, ACM coverage for the required subdomain pattern, and a Route53 ALIAS record; AC12 requires valid TLS. No regression."
+    },
+    {
+      "original_issue": "Contradiction between DixieStubTransport being hardcoded vs selected via DIXIE_BASE_URL",
+      "status": "fixed",
+      "notes": "FR-1 component table now states “Transport factory” with the same selection logic as AC6 and the Transport Factory section. Scope/Out-of-scope are aligned: factory implemented (stub+HTTP) but staging keeps DIXIE_BASE_URL unset so stub is used. Implementation notes also match (createDixieTransport(...)). This removes the non-implementable contradiction."
+    },
+    {
+      "original_issue": "CI E2E fix risk of false-green by creating empty dirs without defining required fixtures/behavior",
+      "status": "fixed",
+      "notes": "The PRD still requires minimal fixtures (.gitkeep), conditional/optional oracle directories, and AC19 graceful degradation when corpus is absent. No new ambiguity introduced."
+    },
+    {
+      "original_issue": "NFR performance targets not measurable / unclear whether S3/Redis are on request path",
+      "status": "fixed",
+      "notes": "Request-path constraints remain explicit (no synchronous S3; Redis best-effort with timeouts) and the p95 measurement method via routing duration histogram on staging remains defined."
+    }
+  ],
+  "new_blocking_concerns": [],
+  "iteration": 3
+}

@@ -1,0 +1,447 @@
+/* ==========================================================================
+   personality.css — Archetype Palettes, Element Animations, Component Hooks
+   loa-finn: NFT-powered AI agent platform
+   4 archetypes x 4 elements personality theming system
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Default Personality Properties (fallback when no archetype set)
+   -------------------------------------------------------------------------- */
+
+:root {
+  --accent: #6366f1;
+  --accent-bg: #1e1b4b;
+  --accent-dark: #4338ca;
+  --accent-glow: rgba(99, 102, 241, 0.3);
+}
+
+/* --------------------------------------------------------------------------
+   2. Archetype Palettes — [data-archetype] on <html> or <body>
+   -------------------------------------------------------------------------- */
+
+/* Freetekno — greens: underground, organic, diy */
+[data-archetype="freetekno"] {
+  --accent: #4ade80;
+  --accent-bg: #1a472a;
+  --accent-dark: #166534;
+  --accent-glow: rgba(74, 222, 128, 0.3);
+  --accent-text: #bbf7d0;
+  --accent-border: #22633480;
+  --accent-surface: #14332080;
+}
+
+/* Milady — purples: ethereal, networked, post-ironic */
+[data-archetype="milady"] {
+  --accent: #c084fc;
+  --accent-bg: #3b1a47;
+  --accent-dark: #581c87;
+  --accent-glow: rgba(192, 132, 252, 0.3);
+  --accent-text: #e9d5ff;
+  --accent-border: #581c8780;
+  --accent-surface: #2e1a3a80;
+}
+
+/* Chicago/Detroit — oranges: industrial, soulful, mechanical */
+[data-archetype="chicago_detroit"] {
+  --accent: #fb923c;
+  --accent-bg: #472e1a;
+  --accent-dark: #9a3412;
+  --accent-glow: rgba(251, 146, 60, 0.3);
+  --accent-text: #fed7aa;
+  --accent-border: #9a341280;
+  --accent-surface: #38241480;
+}
+
+/* Acid House — blues: hypnotic, digital, euphoric */
+[data-archetype="acidhouse"] {
+  --accent: #38bdf8;
+  --accent-bg: #1a3847;
+  --accent-dark: #075985;
+  --accent-glow: rgba(56, 189, 248, 0.3);
+  --accent-text: #bae6fd;
+  --accent-border: #07598580;
+  --accent-surface: #142e3d80;
+}
+
+/* --------------------------------------------------------------------------
+   3. Element Animations — [data-element] on <html> or <body>
+   -------------------------------------------------------------------------- */
+
+/* Fire — warm pulse: intense, flickering energy */
+@keyframes fire-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px var(--accent-glow),
+                0 0 16px rgba(239, 68, 68, 0.1);
+  }
+  25% {
+    box-shadow: 0 0 12px var(--accent-glow),
+                0 0 24px rgba(251, 146, 60, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 16px var(--accent-glow),
+                0 0 32px rgba(239, 68, 68, 0.2);
+  }
+  75% {
+    box-shadow: 0 0 10px var(--accent-glow),
+                0 0 20px rgba(251, 146, 60, 0.12);
+  }
+}
+
+[data-element="fire"] .personality-card,
+[data-element="fire"] .reputation-badge,
+[data-element="fire"] .chat-bubble {
+  animation: fire-pulse 3s ease-in-out infinite;
+}
+
+[data-element="fire"] .personality-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    45deg,
+    rgba(239, 68, 68, 0.2),
+    rgba(251, 146, 60, 0.15),
+    transparent,
+    rgba(239, 68, 68, 0.1)
+  );
+  z-index: -1;
+  animation: fire-pulse 3s ease-in-out infinite;
+}
+
+/* Water — cool ripple: fluid, calming, rhythmic */
+@keyframes water-ripple {
+  0% {
+    box-shadow: 0 0 0 0 var(--accent-glow),
+                0 0 0 0 rgba(56, 189, 248, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent,
+                0 0 0 12px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-glow),
+                0 0 0 0 rgba(56, 189, 248, 0.1);
+  }
+}
+
+@keyframes water-shimmer {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+[data-element="water"] .personality-card,
+[data-element="water"] .reputation-badge,
+[data-element="water"] .chat-bubble {
+  animation: water-ripple 4s ease-in-out infinite;
+}
+
+[data-element="water"] .personality-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    120deg,
+    transparent 30%,
+    rgba(56, 189, 248, 0.06) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: water-shimmer 6s ease-in-out infinite;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Air — subtle drift: light, floating, transient */
+@keyframes air-drift {
+  0%, 100% {
+    transform: translateY(0) translateX(0);
+  }
+  25% {
+    transform: translateY(-2px) translateX(1px);
+  }
+  50% {
+    transform: translateY(-1px) translateX(-1px);
+  }
+  75% {
+    transform: translateY(1px) translateX(2px);
+  }
+}
+
+@keyframes air-glow {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+[data-element="air"] .personality-card,
+[data-element="air"] .reputation-badge,
+[data-element="air"] .chat-bubble {
+  animation: air-drift 8s ease-in-out infinite;
+}
+
+[data-element="air"] .personality-card::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 1px solid var(--accent-glow);
+  animation: air-glow 5s ease-in-out infinite;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Earth — grounded gradient shift: stable, deep, enduring */
+@keyframes earth-gradient {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  33% {
+    background-position: 50% 100%;
+  }
+  66% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes earth-settle {
+  0%, 100% {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4),
+                0 0 4px var(--accent-glow);
+  }
+}
+
+[data-element="earth"] .personality-card,
+[data-element="earth"] .reputation-badge,
+[data-element="earth"] .chat-bubble {
+  animation: earth-settle 6s ease-in-out infinite;
+}
+
+[data-element="earth"] .personality-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    160deg,
+    var(--accent-surface),
+    transparent,
+    var(--accent-surface)
+  );
+  background-size: 200% 200%;
+  animation: earth-gradient 10s ease-in-out infinite;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   4. Reduced Motion — Respect user preference
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  [data-element="fire"] .personality-card,
+  [data-element="fire"] .reputation-badge,
+  [data-element="fire"] .chat-bubble,
+  [data-element="water"] .personality-card,
+  [data-element="water"] .reputation-badge,
+  [data-element="water"] .chat-bubble,
+  [data-element="air"] .personality-card,
+  [data-element="air"] .reputation-badge,
+  [data-element="air"] .chat-bubble,
+  [data-element="earth"] .personality-card,
+  [data-element="earth"] .reputation-badge,
+  [data-element="earth"] .chat-bubble {
+    animation: none;
+  }
+
+  [data-element="fire"] .personality-card::before,
+  [data-element="water"] .personality-card::before,
+  [data-element="air"] .personality-card::before,
+  [data-element="earth"] .personality-card::before {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   5. Component Hook — .personality-card
+   -------------------------------------------------------------------------- */
+
+.personality-card {
+  position: relative;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border, var(--accent-dark));
+  border-radius: var(--radius-lg, 12px);
+  padding: var(--space-5, 1.5rem);
+  color: var(--accent-text, var(--color-text, #e0e0e0));
+  overflow: hidden;
+  transition: border-color var(--transition-base, 250ms ease),
+              box-shadow var(--transition-base, 250ms ease);
+}
+
+.personality-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.personality-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 0.75rem);
+  margin-bottom: var(--space-4, 1rem);
+}
+
+.personality-card__avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full, 9999px);
+  border: 2px solid var(--accent);
+  object-fit: cover;
+}
+
+.personality-card__name {
+  font-size: var(--text-lg, 1.125rem);
+  font-weight: var(--weight-semibold, 600);
+  color: var(--accent);
+}
+
+.personality-card__archetype {
+  font-size: var(--text-xs, 0.75rem);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-text, var(--color-text-muted));
+  opacity: 0.8;
+}
+
+/* --------------------------------------------------------------------------
+   6. Component Hook — .reputation-badge
+   -------------------------------------------------------------------------- */
+
+.reputation-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
+  background: var(--accent-surface, var(--accent-bg));
+  border: 1px solid var(--accent-border, var(--accent-dark));
+  border-radius: var(--radius-full, 9999px);
+  font-size: var(--text-sm, 0.875rem);
+  font-weight: var(--weight-medium, 500);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.reputation-badge__score {
+  font-weight: var(--weight-bold, 700);
+  font-variant-numeric: tabular-nums;
+}
+
+.reputation-badge__tier {
+  font-size: var(--text-xs, 0.75rem);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.8;
+}
+
+.reputation-badge--highlight {
+  background: var(--accent-dark);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+/* --------------------------------------------------------------------------
+   7. Component Hook — .chat-bubble
+   -------------------------------------------------------------------------- */
+
+.chat-bubble {
+  position: relative;
+  max-width: 80%;
+  padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+  border-radius: var(--radius-lg, 12px);
+  line-height: var(--leading-normal, 1.6);
+  word-break: break-word;
+}
+
+/* Incoming message: agent speaking */
+.chat-bubble--agent {
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border, var(--accent-dark));
+  color: var(--accent-text, var(--color-text));
+  border-bottom-left-radius: var(--radius-sm, 4px);
+  align-self: flex-start;
+}
+
+/* Outgoing message: user speaking */
+.chat-bubble--user {
+  background: var(--color-surface, #1e1e1e);
+  border: 1px solid var(--color-border, #2a2a2a);
+  color: var(--color-text, #e0e0e0);
+  border-bottom-right-radius: var(--radius-sm, 4px);
+  align-self: flex-end;
+}
+
+.chat-bubble__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  margin-bottom: var(--space-1, 0.25rem);
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-text-faint, #666666);
+}
+
+.chat-bubble__sender {
+  font-weight: var(--weight-medium, 500);
+  color: var(--accent);
+}
+
+.chat-bubble__timestamp {
+  opacity: 0.6;
+}
+
+/* --------------------------------------------------------------------------
+   8. Accent Utility Classes
+   -------------------------------------------------------------------------- */
+
+.accent-text {
+  color: var(--accent);
+}
+
+.accent-bg {
+  background-color: var(--accent-bg);
+}
+
+.accent-border {
+  border-color: var(--accent);
+}
+
+.accent-glow {
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+
+/* Accent gradient for hero sections or dividers */
+.accent-gradient {
+  background: linear-gradient(
+    135deg,
+    var(--accent-dark),
+    var(--accent),
+    var(--accent-dark)
+  );
+}
+
+.accent-gradient-text {
+  background: linear-gradient(135deg, var(--accent), var(--accent-text, var(--accent)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}

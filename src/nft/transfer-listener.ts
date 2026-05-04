@@ -54,6 +54,8 @@ export interface TransferListenerConfig {
   onError?: (error: Error) => void
   /** Optional callback when listener reconnects */
   onReconnect?: (attempt: number) => void
+  /** Additional cache invalidation callbacks (Cycle 040, Sprint 3 T-3.3) */
+  onTransferInvalidate?: (tokenId: string) => Promise<void>
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +170,19 @@ export class TransferListener {
 
     // Invalidate the owner cache so the next read fetches fresh on-chain data
     invalidateOwnerCache(this.collection, tokenIdStr)
+
+    // Invalidate personality + signal caches (Cycle 040, Sprint 3 T-3.3)
+    if (this.config.onTransferInvalidate) {
+      this.config.onTransferInvalidate(tokenIdStr).catch((err) => {
+        console.error(JSON.stringify({
+          metric: "finn.transfer_listener",
+          stage: "cache_invalidation",
+          token_id: tokenIdStr,
+          error: (err as Error).message,
+          severity: "warn",
+        }))
+      })
+    }
 
     // Fire optional callback
     if (this.config.onTransfer) {

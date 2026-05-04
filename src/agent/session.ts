@@ -17,6 +17,8 @@ export interface LoaSessionOptions {
   config: FinnConfig
   executor?: SandboxExecutor
   existingSessionId?: string
+  /** Override system prompt with per-NFT personality (Issue #138) */
+  systemPromptOverride?: string
 }
 
 export interface LoaSession {
@@ -25,16 +27,17 @@ export interface LoaSession {
 }
 
 export async function createLoaSession(options: LoaSessionOptions): Promise<LoaSession> {
-  const { config, executor, existingSessionId } = options
+  const { config, executor, existingSessionId, systemPromptOverride } = options
 
   // Ensure session directory exists
   mkdirSync(config.sessionDir, { recursive: true })
 
-  // Create resource loader with Loa identity
+  // Create resource loader with Loa identity (or per-NFT personality override)
   const resourceLoader = await createLoaResourceLoader({
     cwd: process.cwd(),
     beauvoirPath: config.beauvoirPath,
     notesPath: "grimoires/loa/NOTES.md",
+    systemPromptOverride,
   })
 
   // Resolve the model

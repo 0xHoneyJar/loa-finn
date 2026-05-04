@@ -29,6 +29,7 @@ export interface RedisCommandClient {
   get(key: string): Promise<string | null>
   set(key: string, value: string, ...args: (string | number)[]): Promise<string | null>
   del(...keys: string[]): Promise<number>
+  incr(key: string): Promise<number>
   incrby(key: string, increment: number): Promise<number>
   incrbyfloat(key: string, increment: number): Promise<string>
   expire(key: string, seconds: number): Promise<number>

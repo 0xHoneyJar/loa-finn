@@ -98,14 +98,22 @@ declare -A MODE_TO_AGENT=(
 # provider:model-id format. This maps legacy names to model-invoke format.
 declare -A MODEL_TO_ALIAS=(
     ["gpt-5.2"]="openai:gpt-5.2"
-    ["gpt-5.2-codex"]="openai:gpt-5.2-codex"
     ["gpt-5.3-codex"]="openai:gpt-5.3-codex"
+    ["gpt-5.2-codex"]="openai:gpt-5.3-codex"    # Backward compat alias
     ["opus"]="anthropic:claude-opus-4-6"
     ["claude-opus-4.6"]="anthropic:claude-opus-4-6"
     ["claude-opus-4.5"]="anthropic:claude-opus-4-6"
+    ["claude-opus-4-5"]="anthropic:claude-opus-4-6"    # Hyphenated → current
+    ["claude-opus-4.1"]="anthropic:claude-opus-4-6"    # Legacy → current
+    ["claude-opus-4-1"]="anthropic:claude-opus-4-6"    # Legacy hyphenated → current
+    ["claude-opus-4.0"]="anthropic:claude-opus-4-6"    # Legacy → current
+    ["claude-opus-4-0"]="anthropic:claude-opus-4-6"    # Legacy hyphenated → current
     ["gemini-2.0"]="google:gemini-2.0-flash"
     ["gemini-2.5-flash"]="google:gemini-2.5-flash"
     ["gemini-2.5-pro"]="google:gemini-2.5-pro"
+    ["gemini-3-flash"]="google:gemini-3-flash"
+    ["gemini-3-pro"]="google:gemini-3-pro"
+    ["gemini-3.1-pro"]="google:gemini-3.1-pro-preview"
 )
 
 # =============================================================================
@@ -161,7 +169,8 @@ Compatibility shim (v2.0.0) — routes through model-invoke when
 hounfour.flatline_routing is enabled, otherwise uses legacy adapter.
 
 Models:
-  gpt-5.2, gpt-5.2-codex    OpenAI GPT-5.2 variants
+  gpt-5.2                    OpenAI GPT-5.2
+  gpt-5.3-codex              OpenAI GPT-5.3 Codex
   opus, claude-opus-4.6      Claude Opus 4.6
   (Full model list depends on routing path)
 

@@ -13,6 +13,8 @@ import {
   tierHasAccess,
 } from "@0xhoneyjar/loa-hounfour"
 import { HounfourError } from "./errors.js"
+import { mapUnknownTaskTypeToRoutingKey, type NFTRoutingKey } from "./nft-routing-config.js"
+import type { ReputationQueryFn } from "./types.js"
 
 // --- Validation ---
 
@@ -50,8 +52,12 @@ export function assertTierAccess(tier: Tier, poolId: PoolId): void {
  * Resolve the best pool for a tenant request.
  *
  * Resolution order:
- * 1. NFT/personality preferences for the given task type (if valid pool)
- * 2. Tier default pool (from loa-hounfour TIER_DEFAULT_POOL)
+ * 1. Map `taskType` through `mapUnknownTaskTypeToRoutingKey()` to get an NFTRoutingKey.
+ *    Protocol TaskTypes (code_review, creative_writing, analysis, summarization, general,
+ *    unspecified) are mapped to internal routing keys (code, chat, analysis, default).
+ *    Unknown strings map to "default" with a redacted console.warn.
+ * 2. Look up NFT/personality preferences using the mapped routing key (if valid pool).
+ * 3. Fall back to tier default pool (from loa-hounfour TIER_DEFAULT_POOL).
  *
  * Invalid preference pool IDs are silently skipped (fall through to tier default).
  * This prevents NFT misconfigurations from breaking routing entirely.
@@ -62,12 +68,14 @@ export function resolvePool(
   nftPreferences?: Record<string, string>,
 ): PoolId {
   // 1. NFT-specific preferences for this task type
-  if (nftPreferences && taskType) {
-    const preferred = nftPreferences[taskType]
+  // Map protocol TaskType to internal routing key for NFT preference lookup
+  const routingKey = taskType ? mapUnknownTaskTypeToRoutingKey(taskType) : undefined
+  if (nftPreferences && routingKey) {
+    const preferred = nftPreferences[routingKey]
     if (preferred && isValidPoolId(preferred)) {
       return preferred
     }
-    // Also try "default" key if task-specific preference not found
+    // Also try "default" key if routing-key-specific preference not found
     const defaultPreferred = nftPreferences["default"]
     if (!preferred && defaultPreferred && isValidPoolId(defaultPreferred)) {
       return defaultPreferred
@@ -76,6 +84,103 @@ export function resolvePool(
 
   // 2. Tier default from loa-hounfour canonical mapping
   return TIER_DEFAULT_POOL[tier]
+}
+
+/**
+ * Resolve pool with reputation-weighted parallel scoring (SDD §4.2.3, T-2.6).
+ *
+ * When `reputationQuery` is provided AND the tier has access to multiple pools,
+ * all accessible pools are scored in parallel via `Promise.allSettled()` with
+ * a two-level timeout: 200ms shared deadline + 100ms per-query, composed via
+ * `AbortSignal.any()` (Node 22+).
+ *
+ * Score handling:
+ * - `null` = no signal (skip candidate)
+ * - `NaN` or out-of-range = treated as `null`
+ * - Scores are clamped to [0, 1] before comparison
+ * - Rejected promises (timeouts, errors) = null
+ *
+ * Tie-breaking: equal reputation scores → preserve existing deterministic order
+ * (tier default pool wins).
+ *
+ * Falls back to `resolvePool` when:
+ * - `reputationQuery` is not provided
+ * - All candidates return `null`/invalid scores
+ * - Tier has only one accessible pool
+ */
+export async function resolvePoolWithReputation(
+  tier: Tier,
+  nftId: string,
+  taskType?: string,
+  nftPreferences?: Record<string, string>,
+  reputationQuery?: ReputationQueryFn,
+): Promise<PoolId> {
+  // Without reputation query, delegate to sync resolvePool (zero behavioral change)
+  if (!reputationQuery) {
+    return resolvePool(tier, taskType, nftPreferences)
+  }
+
+  const accessiblePools = TIER_POOL_ACCESS[tier]
+
+  // Single pool — no scoring needed
+  if (accessiblePools.length <= 1) {
+    return resolvePool(tier, taskType, nftPreferences)
+  }
+
+  const routingKey: NFTRoutingKey = taskType
+    ? mapUnknownTaskTypeToRoutingKey(taskType)
+    : "default"
+
+  // Shared deadline: 200ms wall-clock (AC14, AC16a)
+  const controller = new AbortController()
+  const deadline = setTimeout(() => controller.abort(), 200)
+
+  try {
+    const results = await Promise.allSettled(
+      accessiblePools.map(async (poolId) => {
+        // Per-query timeout: 100ms (races against shared 200ms deadline) (AC15)
+        const perQueryController = new AbortController()
+        const perQueryTimeout = setTimeout(() => perQueryController.abort(), 100)
+
+        // AbortSignal.any() (Node 22+): avoids listener accumulation
+        const composedSignal = AbortSignal.any([controller.signal, perQueryController.signal])
+
+        try {
+          const score = await reputationQuery(
+            { nftId, poolId, routingKey },
+            { signal: composedSignal },
+          )
+          return { poolId, score }
+        } finally {
+          clearTimeout(perQueryTimeout)
+        }
+      })
+    )
+
+    // Find best from fulfilled results
+    let bestPool: PoolId | null = null
+    let bestScore = -1
+
+    for (const result of results) {
+      if (result.status !== "fulfilled") continue // Rejected = null (AC16)
+
+      const { poolId, score } = result.value
+      if (score === null || score === undefined || !Number.isFinite(score)) continue
+
+      const clamped = Math.max(0, Math.min(1, score))
+      if (clamped > bestScore) {
+        bestScore = clamped
+        bestPool = poolId
+      }
+    }
+
+    if (bestPool !== null) return bestPool
+
+    // All candidates returned null/invalid — deterministic fallback
+    return resolvePool(tier, taskType, nftPreferences)
+  } finally {
+    clearTimeout(deadline)
+  }
 }
 
 /**

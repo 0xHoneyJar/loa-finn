@@ -1,379 +1,426 @@
-# PRD: Substrate Runtime — Effect Loader + Worker-Thread Sandbox + EventStore Bridge
+# PRD: Per-NFT Personality — Pipeline Wiring + Scale-Out Design
 
-> **Version**: 1.2.0
-> **Date**: 2026-05-03
-> **Author**: @zksoju + Claude Opus 4.7 (1M context)
-> **Status**: Draft (iteration 3 — applies Codex iteration-2 review: HIGH sandbox-claim narrowing + 4 MEDIUM sharpening)
-> **Cycle**: cycle-032 (operator-naming: cycle-2 substrate-runtime)
-> **Build Doc** (ground truth): `grimoires/loa/specs/cycle-2-substrate-runtime-build.md` — 639 lines · OSTROM-led architecture + ALEXANDER craft for CLI + BARTH scope cuts
-> **Codebase Survey**: `grimoires/loa/specs/cycle-2-substrate-runtime-codebase-survey.md` — 5 load-bearing findings about loa-finn's existing sandbox + worker-pool + EventStore primitives
-> **Landscape Report**: `grimoires/loa/specs/cycle-2-substrate-runtime-landscape.md` — Effect-TS ManagedRuntime · Kafka client (CJSK) · 3-tier isolation recommendations
-> **Predecessor**: cycle-031 "Adaptive Intelligence" (sprints 124-125, merged to main as PR #92, 2026-02-21)
-> **Companion cycle (shipped)**: cycle-1 substrate-integration (2026-05-03 PM · 3 PRs · construct-lore-essay-grader instance-1 published · doctrine §12 written)
-> **Doctrine**: `~/vault/wiki/concepts/substrate-mental-model-for-product-builders.md` §12 (cycle-1 first-execution corrections + operator's "constructs are agents" reframe)
-> **Spike**: `scripts/substrate-spike.mjs` ✅ GREEN at 14.58ms cold-start — worker_threads can dynamic-import absolute file:// URLs, call default exports, await async exports. The load-bearing primitive holds.
-> **Cross-model review history**:
-> - Iteration 1 (`prd-cycle032-findings-1.json`): 6 MEDIUM + 1 LOW + 1 PRAISE; DECISION_NEEDED resolved as **Option A** (worker-side runtime + parent-bridge proxies) — see FR-5.
-> - Iteration 2 (`prd-cycle032-findings-2.json`): 1 HIGH (sandbox-claim overreach) + 4 MEDIUM (Effect placement, lifecycle, serialization contract, JWT cache state-awareness). All applied in this v1.2.0.
-
----
-
-## 0. Why This Cycle Exists
-
-Cycle-1 (substrate-integration) shipped the **substrate ABI** at the contract layer:
-- `@freeside-quests/protocol` — Effect Schema for `SubstrateStepSubmission` / `SubstrateStepVerdict` (contract version 1.0.0, frozen)
-- `construct-lore-essay-grader` — instance-1 of `type: substrate-construct` (BORGES persona, 3 grading dimensions, pure Effect program)
-- `construct-base/schemas/construct.schema.json` — JSON Schema accepts `type: substrate-construct`
-- `loa-constructs/packages/shared/src/validation.ts` — Zod manifest schema with `superRefine`
-- `@freeside-quests/engine` — `dispatchEssayQuest` Plane-3 bridging logic (in-process via direct `Effect.runPromise`)
-
-What cycle-1 did NOT ship — and what cycle-1's doctrine §12.1 correction #5 named explicitly: *"the substrate-construct runtime layer is genuinely aspirational at the framework level."*
-
-**Cycle-032 makes the runtime real.** A loader living in loa-finn that takes a construct slug + an input, finds the pack on the filesystem, dynamic-imports the Effect entry, composes the right Layer (with concrete impls for declared Requirements), runs the Effect program **inside a worker_threads sandbox via parent-bridge proxies** (per Option A — see FR-5), and returns the typed verdict to the caller.
-
-This closes the operator-named gap. After cycle-032, substrate-constructs are end-to-end executable inside loa-finn, not aspirational.
+**Status:** Draft
+**Author:** Jani + Claude
+**Date:** 2026-03-26
+**Cycle:** 040
+**References:** [Issue #132](https://github.com/0xHoneyJar/loa-finn/issues/132) · [Issue #133](https://github.com/0xHoneyJar/loa-finn/issues/133) (Soft Launch Checklist) · [Issue #131](https://github.com/0xHoneyJar/loa-finn/issues/131) (Critical Path)
 
 ---
 
 ## 1. Problem Statement
 
-The substrate ABI is defined but unrunnable inside loa-finn. A construct authored as an Effect program (`(input: I) => Effect<O, E, R>` shape, with declared `requirements[].tag` Effect Tags) cannot today be loaded from a filesystem pack and invoked inside loa-finn's existing sandbox. The protocol Schema, the manifest contract, and the first instance pack all exist — but no loader bridges them to execution.
+The finnNFT personality engine is 85% built across 68 files (~18K lines in `src/nft/`). The DAMP-96 derivation engine, BEAUVOIR synthesizer, anti-narration framework, on-chain reader, signal cache, personality store, name derivation, and experience engine all exist as working code. However, **none of this is connected to the chat session flow**. Users currently interact with 4 generic static personalities loaded from `config/personalities.json` via `StaticPersonalityLoader`.
 
-**Operator value**: the gap blocks the operator's own composition pattern (substrate-constructs as deployable agents) from materializing. Until loa-finn can load + run a substrate-construct end-to-end, every new construct stays a paper artifact.
+The gap is the "last mile" — wiring existing components into a pipeline triggered by session creation: `tokenId → on-chain read → DAMP-96 derivation → BEAUVOIR synthesis → personality injection`. Additionally, the identity graph (`identity-graph.ts`) and experience engine (`experience-engine.ts`) are fully implemented but never invoked.
 
-**Engineering value**: the runtime layer is the load-bearing seam between three existing systems (sandbox, hounfour cheval-invoker, EventStore writer). Wiring it correctly is what makes future substrate-constructs (without LLMs, with custom Tags, with Kafka-backed event streams in Phase 3) cheap to ship.
+This cycle delivers the soft launch: 5-10 team members chatting with distinct, on-chain-derived agent personalities. It also documents the scale-out architecture for 100K+ NFTs.
+
+> Sources: Issue #132 (full spec), Code analysis of `src/nft/` (68 files), `agent-chat.ts` session flow, `config/personalities.json` (4 static entries)
 
 ---
 
-## 2. Functional Requirements
+## 2. Goals & Success Metrics
 
-### FR-1 · Loader (`src/substrate/loader.ts` + `jwt-validator.ts` + `types.ts`)
+### 2.1 Business Objectives
 
-**Goal**: at startup, scan `.loa.config.yaml#substrate.constructs_dir` (default `~/.loa/constructs/packs/`) for directories containing `construct.yaml` with `type: substrate-construct`. For each:
+- **Soft launch ready**: 5-10 team members chatting with distinct dNFT agents on production
+- **Product thesis validated**: "The art and the agent are the same thing expressed in different modalities" — on-chain traits produce personality
+- **Scale-out architecture designed**: Caching, batch derivation, and degradation patterns documented for 100K+ NFTs
 
-1. Read + parse `construct.yaml`
-2. Validate against `@loa-constructs/shared` Zod schema (the just-merged loa-constructs#223 `superRefine`)
-3. Validate JWT license at `.license.json` (RS256 · per `.claude/protocols/constructs-integration.md` in loa-constructs)
-4. Resolve `executable.entry` to absolute path under pack root (realpath canonicalization to prevent traversal)
-5. Lazy: defer `import(pathToFileURL(entry))` to first invocation (memoized)
-6. Add to in-memory registry
+### 2.2 Quantitative Success Criteria
 
-**Failure modes** (all typed):
-- `ManifestParseError` — yaml malformed
-- `ManifestValidationError` — Zod schema rejected (with issues array)
-- `LicenseError` — JWT missing / invalid / expired beyond grace period
-- `EntryResolutionError` — `executable.entry` path traversal or missing file
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| DAMP fingerprint distinctiveness | Cosine similarity < 0.7 between any two agents | `src/nft/eval/distinctiveness.ts` |
+| BEAUVOIR synthesis latency | < 10s per generation (Opus) | Circuit breaker telemetry |
+| Streaming response start | < 3s for cached personalities | Gateway latency metrics |
+| Anti-narration violation rate | 0% on generated BEAUVOIR docs | `validateAntiNarration()` assertions |
+| Cache hit rate (soft launch) | 100% for pre-computed demo IDs | Redis cache metrics |
 
-**JWT validation/cache contract** (state-aware · per Codex iteration-2 review #5 · invariant 6):
+### 2.3 Qualitative Success Criteria
 
-The cache holds two distinct result states. Cache key for both: `(license.fingerprint, license.kid)`.
+| Criteria | Validation |
+|----------|------------|
+| Team members rate personality quality 4+/5 | Post-chat feedback during soft launch |
+| Users can distinguish agents by conversation alone | Blind test: guess which archetype from conversation |
+| Personality feels "alive", not templated | Subjective team assessment |
 
-| License state | Validation result returned | Cache TTL | Re-check on read |
-|---|---|---|---|
-| `valid` (now < exp · nbf ≤ now) | `{status: "valid", license}` | `min(exp - now, 1h)` | exp + nbf vs current clock — reject if drift |
-| `grace` (exp ≤ now < exp + tier.grace_seconds) | `{status: "validatedWithGrace", license, graceUntil}` | `min((exp + grace) - now, 1h)` | exp + grace vs current clock — reject if beyond grace |
-| `expired` (now ≥ exp + tier.grace_seconds) | `LicenseError("expired beyond grace")` | not cached | n/a |
-| `not-yet-valid` (nbf > now) | `LicenseError("license not yet valid")` | not cached | n/a |
+> Sources: Issue #133 "Wow Criteria", Phase 2 interview
 
-Tier grace per cycle-1 contract: individual 24h · pro 24h · team 72h · enterprise 168h.
+---
 
-**Required fake-clock test matrix** (gates Sprint 1 close):
+## 3. User & Stakeholder Context
 
-| Test | Setup | Expected |
-|---|---|---|
-| valid | `now < exp` | returns `{status: "valid"}`; cached |
-| not-yet-valid | `nbf > now` (license uses `nbf`) | `LicenseError`; not cached |
-| expired-within-grace | `exp ≤ now < exp + grace` | returns `{status: "validatedWithGrace"}`; cached with grace TTL |
-| expired-beyond-grace | `now ≥ exp + grace` | `LicenseError`; not cached |
-| key-rotation | cached entry with old `kid`; license now signed with new `kid` | cache miss → re-validate against new key |
-| LOA_OFFLINE cached-key-present cached-result-valid | offline mode, cache populated, result still inside TTL | returns cached `{status: "valid"}`; no resolver call |
-| LOA_OFFLINE cached-key-present cached-result-stale | offline mode, cache populated, TTL expired but exp+grace not | re-validates against cached public key (no resolver call); returns `{status: "validatedWithGrace"}` if applicable |
-| LOA_OFFLINE no-cached-key | offline mode, public key never fetched | `LicenseError("offline mode: no cached key for kid=X")`; no resolver call |
-| LOA_OFFLINE cached-result-beyond-grace | offline mode, cache stale beyond grace | `LicenseError("expired beyond grace")`; no resolver call |
+### 3.1 Primary Persona: finnNFT Holder
 
-**Reversibility**: loader is pure (returns map · no global state · no side effects beyond fs reads). Replaceable without touching invocation path.
+- **Access**: Connects wallet, SIWE authentication
+- **Interaction**: Web chat at `/chat/{tokenId}`, Discord `/agent` command
+- **Ownership model**: Own NFT only — `on-chain-reader.ts:readOwner(tokenId)` must match SIWE wallet
+- **Soft launch scope**: 5-10 allowlisted team members (`CHAT_ALLOWED_ADDRESSES`)
 
-### FR-2 · Runtime composition (`src/substrate/runtime.ts`)
+### 3.2 Stakeholders
 
-**Goal**: per loaded construct, compose the Effect Layer from declared `requirements[].tag`. Use `ManagedRuntime.make(layer)` to build a runtime. The runtime composition happens **worker-side** (per FR-5 · Option A); FR-2 specifies the composition contract regardless of where it runs.
+| Stakeholder | Interest | Involvement |
+|-------------|----------|-------------|
+| @janitooor | Primary maintainer, PR reviewer | Approval on all implementation |
+| Team members | Soft launch testers | Quality feedback on personality distinctiveness |
 
-**Capability rule** (per Codex review #2 · invariant 8 sharpening):
+> Sources: Issue #133 Gate 5 (access control), Phase 3 interview
 
-The Layer the runtime composes contains exactly these services:
+---
 
-| Service Tag | Source | Capability classification |
-|---|---|---|
-| `ModelRunner` | FR-3 layer | **Capability-bound** — MUST appear in `construct.yaml#requirements[].tag` to be provided |
-| `EventWriter` | FR-4 layer | **Capability-bound** — MUST appear in `construct.yaml#requirements[].tag` to be provided |
-| `Logger` | Effect default | **Ambient (exempt allowlist)** — provided unconditionally; no I/O capability (writes to host stderr, not user-controllable channels) |
-| `Clock` | Effect default | **Ambient (exempt allowlist)** — provided unconditionally; pure (read-only wall clock); no capability that could be smuggled |
+## 4. Functional Requirements
 
-**Ambient allowlist invariant**: ONLY `Logger` and `Clock` are ambient. Adding any service to the ambient set requires a doctrine-level amendment + re-review of invariant 8. The loader MUST NOT inject any Tag outside `{ModelRunner, EventWriter, Logger, Clock}`. Any unknown Tag declared in `requirements[]` → `UnknownRequirementError` at runtime construction.
+### FR-1: End-to-End Pipeline Wiring
 
-**Lifecycle model** (per-worker per-construct cache + dispose-broadcast — per Codex iteration-2 review #3):
-
-- **Cache scope**: each worker_thread maintains its own `Map<slug, ManagedRuntime>`. The interactive lane has 2 workers; on first invoke of construct X in worker N, runtime N composes X's Layer + creates the ManagedRuntime, caches by slug. Subsequent invokes of X in worker N reuse the cached runtime (no Layer reconstruction).
-- **Routing**: NO sticky routing by slug. WorkerPool's existing per-session fair scheduling decides which worker handles a given invoke. Either worker may compose any construct's runtime independently. Trade-off: 2× Layer construction cost on first cross-worker invoke; benefit: WorkerPool scheduling stays unchanged.
-- **Dispose triggers**: parent broadcasts `{type:"dispose-runtime", slug}` to ALL workers when (a) JWT TTL expires for that construct, OR (b) `.loa.config.yaml` reload removes/changes the construct entry. Each worker drops the cached runtime + calls `runtime.dispose()`.
-- **Lifecycle test (gates Sprint 2 close)**: spin up 2 workers, invoke construct X in both, verify each worker built a runtime independently; trigger dispose broadcast, verify both workers dropped their cached runtime; invoke again, verify recomposition.
-
-NOT per-invocation: Layer construction is expensive (cycle-1 doctrine §12).
-
-### FR-3 · ModelRunner Layer (`src/substrate/model-runner-layer.ts`)
-
-**Goal**: build an Effect Layer that provides the `ModelRunner` Tag. The Layer's `complete()` impl, when called inside the worker, sends a parent-bridge message (per FR-5 protocol); the parent invokes `src/hounfour/cheval-invoker.ts` and posts the result back. Worker-side, the Effect program awaits the parent reply transparently.
-
-**Cross-pack Tag identity contract** (per Codex review #6 · the load-bearing integration point):
-
-The construct's Effect program (e.g., `gradeLoreEssay` in `construct-lore-essay-grader/src/grader.ts`) declares its required Tag as `Context.Tag("ModelRunner")<ModelRunner, {...}>()`. The loader's Layer MUST provide a Tag that matches it across the cross-pack boundary. The contract:
-
-| Element | Required value | Notes |
-|---|---|---|
-| **Context.Tag key string** | `"ModelRunner"` (exact, case-sensitive) | Effect's tag-matching is by string identifier |
-| **Service interface** | `{ complete: (params: { systemPrompt: string; userMessage: string }) => Effect.Effect<string, ModelRunnerError> }` | Field names + types must match what the construct declares |
-| **Error shape** | `class ModelRunnerError { readonly _tag = "ModelRunnerError"; constructor(readonly reason: string, readonly cause?: unknown) {} }` | `_tag` discriminator MUST be `"ModelRunnerError"` to match construct's pattern-matching |
-
-**Required Sprint 3 integration test** (gates Sprint 3 close):
-- Import `gradeLoreEssay` from local file path resolution to `~/Documents/GitHub/construct-lore-essay-grader/src/grader.ts`
-- Provide loader-built `ModelRunner` Layer with mocked cheval response
-- Verify the Effect resolves to a typed `LoreEssayOutput` (no Tag-not-provided errors)
-- Verify error path: when cheval throws, the Effect fails with the construct's expected `ModelRunnerError` shape
-
-### FR-4 · EventWriter Layer (`src/substrate/event-writer-layer.ts`)
-
-**Goal**: build an Effect Layer that provides the `EventWriter` Tag. The Layer's `publish()` impl, when called inside the worker, sends a parent-bridge message (per FR-5 protocol); the parent invokes the existing EventStore append-only writer (`src/events/writer.ts`) and posts the result back. Subject naming follows `{aggregate}.{noun}.{verb}` convention. Envelope fields per `src/events/types.ts` (event_id, event_type, timestamp, correlation_id, sequence, checksum, schema_version, payload).
-
-**Tag identity contract** (same shape as FR-3):
-- Context.Tag key string: `"EventWriter"` (exact)
-- Service interface: `{ publish: (subject: string, payload: unknown) => Effect.Effect<void, EventWriterError> }`
-- Error shape: `class EventWriterError { readonly _tag = "EventWriterError"; constructor(readonly reason: string, readonly cause?: unknown) {} }`
-
-**Cycle-032 ships ONLY the EventStore impl.** Per Codex review #4 + §4 BARTH cut:
-- NO `kafka.enabled` config branch in the loader
-- NO `KafkaWriter` factory or class shipped
-- NO Kafka consumer
-- NO `@confluentinc/kafka-javascript` (or kafkajs) dependency added in this cycle
-- The Layer interface stays transport-agnostic so Phase 3 can swap implementations without changing consumers — but Phase 3 work is its own cycle
-
-### FR-5 · Sandbox bridge (`src/substrate/sandbox-bridge.ts` + `src/substrate/worker-runtime.ts` (NEW) + minor `src/agent/sandbox-worker.ts` envelope-handling additions)
-
-**Architectural decision (resolved)**: **Option A — worker-side runtime + parent-bridge proxies for capability-bound services.** This matches build doc §7 data-flow diagram. Sprint plan Task 5.2 OPEN QUESTION is closed by this PRD.
-
-**Module ownership** (per Codex iteration-2 review #2 · respects §4 BARTH cut "no Effect-TS adoption in src/agent"):
-
-| File | Imports Effect? | Responsibility |
-|---|---|---|
-| `src/agent/sandbox-worker.ts` (modified) | ❌ NO | Receives `{type:"substrate-invoke", ...}` envelope. Validates `modPath` against jail. Validates envelope shape. Delegates to `src/substrate/worker-runtime.ts` for everything else. |
-| `src/substrate/worker-runtime.ts` (NEW) | ✅ YES (Effect lives here) | Imports the construct's Effect entry. Composes Layer (FR-2 capability rule). Creates ManagedRuntime + holds the per-worker per-construct cache (FR-2 lifecycle). Runs `runtime.runPromise(program(input))`. Marshals result envelope back. |
-| `src/substrate/sandbox-bridge.ts` (NEW) | ❌ NO Effect (parent uses Promise-based runtime) | Parent-side dispatcher. Maps WorkerPool messages → cheval-invoker / EventStore calls → posts results back. |
-
-This containment satisfies §4 BARTH cut: Effect-TS lives in `src/substrate/` only. `src/agent/sandbox-worker.ts` stays Effect-free.
-
-**Execution model**:
+**When** a user creates a chat session with a `tokenId`, **the system shall** resolve personality through this pipeline:
 
 ```
-Parent process                              Worker thread (sandboxed)
-─────────────                               ─────────────────────────
-sandbox-bridge.ts (NEW · no Effect):        sandbox-worker.ts (modified · no Effect):
-  bridgeInvoke(loaded, runtimeOpts, input)    1. Receive {type:"substrate-invoke", ...}
-    → WorkerPool.exec({                       2. Validate modPath against jail
-         type: "substrate-invoke",                + envelope shape
-         modPath: loaded.entryPath,           3. Delegate to worker-runtime.ts:
-         exportName: ...,                            ↓
-         input,                              worker-runtime.ts (NEW · Effect lives here):
-         runtimeOpts: {agentId, ...}          4. import(pathToFileURL(modPath))
-       }, "interactive")                      5. Compose Layer worker-side:
-                                                   - ModelRunner Layer →
-  ← {type:"result", jobId, result}                  proxies via postMessage(modelrunner.req)
-                                                 - EventWriter Layer →
-                                                   proxies via postMessage(eventwriter.req)
-                                                 - Logger / Clock: Effect defaults
-                                              6. ManagedRuntime.make(layer) + cache by slug
-                                              7. runtime.runPromise(program(input))
-                                              8. postMessage({type:"result", jobId, result})
-
-Parent handles bridge requests:
-  on(modelrunner.req):
-    → chevalInvoke(req.completionRequest)
-    → postMessage(modelrunner.res, jobId, ...)
-  on(eventwriter.req):
-    → eventStore.append(req.envelope)
-    → postMessage(eventwriter.res, jobId, ...)
+Session creation (agent-chat.ts)
+  → Verify ownership: readOwner(tokenId) == SIWE wallet
+  → Check cache: PersonalityStore.get(tokenId) → Redis → Postgres
+  → Cache miss: OnChainReader.readSignals(tokenId)
+  → Signal derivation: buildSignalSnapshot() → deriveDAMP()
+  → Identity graph: KnowledgeGraphLoader.extractSubgraph()
+  → BEAUVOIR synthesis: BeauvoirSynthesizer.synthesize() [Opus]
+  → Store: PersonalityStore.write() [Redis + Postgres dual-write]
+  → Resolve: resolvePersonalityPrompt() → inject into system prompt
 ```
 
-**Bridge serialization contract** (structured-clone-safe · per Codex iteration-2 review #4):
+**Integration points** (existing code to wire):
+- `src/nft/on-chain-reader.ts` → `readSignals(tokenId)` returns `SignalSnapshot`
+- `src/nft/signal-engine.ts` → `buildSignalSnapshot()` constructs full signal
+- `src/nft/damp.ts` → `deriveDAMP(snapshot)` returns `DAMPFingerprint` (96 dials)
+- `src/nft/identity-graph.ts` → `extractSubgraph(archetype, ancestor, era, element)` returns `SynthesisSubgraph`
+- `src/nft/beauvoir-synthesizer.ts` → `synthesize(fingerprint, signals, subgraph)` returns BEAUVOIR.md
+- `src/nft/personality-resolver.ts` → `resolvePersonalityPrompt()` wraps in `<system-personality>` delimiters
+- `src/nft/personality-context.ts` → `buildPersonalityContext()` creates protocol v4.5 context
+- `src/nft/name-derivation.ts` → `nameKDF(signals)` returns canonical agent name
 
-Worker messages cross the parent↔worker boundary via Node's `postMessage`, which uses the HTML structured-clone algorithm — NOT JSON serialization. The bridge contract:
+**Concurrency control (SKP-004):** The pipeline MUST use a per-token distributed lock (Redis `SET NX` with expiry) to prevent duplicate Opus synthesis for the same tokenId. Concurrent requests for the same token wait on the lock rather than triggering parallel synthesis. Writes use compare-and-swap by content hash to prevent last-writer-wins corruption.
 
-| Field | Allowed types | Schema |
-|---|---|---|
-| Envelope `type` | string discriminator | `Schema.Literal("substrate-invoke" \| "result" \| "modelrunner.req" \| "modelrunner.res" \| "eventwriter.req" \| "eventwriter.res" \| "dispose-runtime")` |
-| Envelope `jobId` | string (UUID) | `Schema.UUID` |
-| Envelope `payload` | structured-clone-safe data: plain objects, arrays, strings, numbers, booleans, null, undefined, Date, RegExp, Map, Set, ArrayBuffer, typed arrays | `Schema.Unknown` validated per `type` discriminant (see schemas below) |
+**Dual-write consistency (SKP-003):** Postgres is the source of truth. Write order: Postgres first (with idempotency key), then Redis cache. On read, if Redis and Postgres disagree (content hash mismatch), perform read-repair from Postgres. Store `personality_version` / `content_hash` in both stores for mismatch detection.
 
-**Forbidden in messages** (rejected at envelope-validation):
-- Function objects (closures cannot cross worker boundary)
-- Live Effect services or Layers (Effect runtime is worker-local; no live runtime crosses)
-- Live Promises (use jobId-based async correlation instead)
-- DOM nodes
-- New MessagePort or MessageChannel transferred (only the implicit parent↔worker channel is allowed; any additional MessagePort → reject)
+**BEAUVOIR sanitization (SKP-008):** Generated BEAUVOIR content MUST be sanitized before storage: strip/escape `<system-personality>` delimiter tokens and any system-role directives. Validate against allowed sections/headers and enforce length limits. The anti-narration validator already catches some adversarial patterns; add delimiter-specific checks.
 
-**Type-specific payload schemas** (gates Sprint 5 close):
-- `substrate-invoke.payload`: `{modPath: string, exportName: string, input: unknown, runtimeOpts: {agentId, tenantId, poolId, modelId, tier}}`
-- `result.payload`: validated against `SubstrateStepVerdict` (cycle-1 protocol contract version 1.0.0)
-- `modelrunner.req.payload`: `{completionRequest: <CompletionRequest TypeBox>}`
-- `modelrunner.res.payload`: `{text: string} | {error: ModelRunnerError}`
-- `eventwriter.req.payload`: `{envelope: <EventEnvelope per src/events/types.ts>}`
-- `eventwriter.res.payload`: `{ok: true} | {error: EventWriterError}`
-- `dispose-runtime.payload`: `{slug: string}`
+**WebSocket loading sequence (IMP-002):** For cold-cache resolution (up to 20s), the WebSocket MUST send a structured loading state frame: `{ "type": "personality_loading", "stage": "on_chain_read|damp_derivation|synthesis|caching", "progress_percent": N }`. Client renders a loading indicator until `{ "type": "personality_ready", "agent_name": "...", "archetype": "..." }` is received.
 
-**Note**: Effect Schema's `Schema.Date`, `Schema.MapFromSelf`, `Schema.SetFromSelf`, etc. handle structured-clone-safe types in payload schemas. JSON-serialization is NOT the contract; the worker thread's runtime is Node, and structured-clone is the native channel.
+**Experience engine ordering (IMP-005):** Drift is applied at read-time, NOT during synthesis. The canonical order is: `birth_fingerprint` (immutable) + `stored_drift_offsets` (versioned, Postgres) = `effective_fingerprint` (computed). Synthesis uses the `effective_fingerprint`. Drift offsets are updated asynchronously post-session via atomic Postgres transaction with optimistic concurrency.
 
-**Acceptance tests** (per FR-5 + iteration-2 HIGH narrowing):
-- `sandbox-bridge.integration.test.ts`: substrate invocation runs in interactive lane (worker 1 or 2 occupied during invoke)
-- **modPath jail enforced**: loader/sandbox-worker rejects `substrate-invoke` envelope with `modPath` outside the realpath-canonicalized packs dir → `EntryResolutionError` / envelope-validation error
-- **Bridge capability bounds enforced**: a construct that did NOT declare `EventWriter` in its `requirements[]` cannot trigger an `eventwriter.req` from inside its Effect program — the runtime's Layer composition (FR-2 capability rule) makes the Tag literally unavailable
-- Worker survives + accepts next invocation after first completes
-- Structured-clone enforcement: attempt to send a function in a bridge envelope → envelope validation fails
-- ModelRunner parent-bridge round-trip: worker calls `runner.complete(...)`, parent receives proxy request, returns mocked response, worker resolves Effect
+**Acceptance criteria**:
+- A tokenId in the WebSocket query produces a personality derived from on-chain traits, not from static config
+- Ownership verification rejects non-owners with appropriate error
+- Pipeline completes within 20s on cold cache, <1s on warm cache
+- Concurrent requests for same tokenId do not trigger duplicate synthesis
+- Postgres is always consistent; Redis may lag but self-heals via read-repair
+- Generated BEAUVOIR content cannot break out of system-personality delimiters
 
-**What `trust:internal` does NOT enforce** (HONEST SCOPE per iteration-2 HIGH finding):
+> Sources: Issue #132 Sprint 1, Flatline SKP-004 (HIGH:760), SKP-003 (HIGH:770), SKP-008 (CRITICAL:940), IMP-002, IMP-005
 
-`trust:internal` (this cycle's only tier) protects two things:
-1. **modPath realpath containment** — a construct can only be loaded from inside the configured packs dir
-2. **Bridge capability bounds** — a construct's Effect program can only call services declared in its `requirements[]`
+### FR-2: Identity Graph Integration
 
-`trust:internal` does NOT block direct Node built-in access from inside imported construct code. A construct that imports `node:fs` and calls `fs.readFileSync('/etc/hosts')` will succeed — Node `worker_threads` share the host's permissions; `worker_threads` is a thread-isolation primitive, not an OS-level sandbox. **The mitigation at `trust:internal` is build-time trust, not runtime isolation**: substrate-constructs at this tier are first-party / vetted; misbehavior is a build-time review failure, not a runtime defense failure.
+**The system shall** inject cultural references, aesthetic preferences, and philosophical foundations from the identity graph into the BEAUVOIR synthesis prompt.
 
-Hardening this gap (process-level isolation, `node --experimental-permission`, `isolated-vm`, subprocess+microVM) is `trust:vendor` and `trust:untrusted` work — explicitly deferred per §4 BARTH cut.
+**Current state**: `identity-graph.ts` (483 lines) has `extractSubgraph()`, `resolveCulturalReferences()`, `resolveAestheticPreferences()`, `resolvePhilosophicalFoundations()` — all implemented. `buildSynthesisPrompt()` has slots for this data but receives empty inputs.
 
-**Pre-Sprint-5 operator pair-point**: ✅ **RESOLVED** by this PRD revision (Option A — worker-side runtime + parent-bridge proxies, per the module ownership table above + the structured-clone-safe bridge contract above). Sprint 5 author proceeds with this protocol; further changes require re-review.
+**Task**: Wire `KnowledgeGraphLoader.extractSubgraph()` output into `BeauvoirSynthesizer.buildSynthesisPrompt()` so the synthesis prompt includes:
+- Cultural references from ancestor's codex neighborhood (hop depth = 2)
+- Aesthetic notes from archetype affinity
+- Philosophical lineage from era + element nodes
 
-### FR-6 · CLI surface + programmatic API (`src/substrate/cli.ts` + `index.ts`)
+**Acceptance criteria**:
+- Generated BEAUVOIR docs reference cultural context appropriate to the ancestor
+- Two agents with different ancestors produce visibly different cultural grounding
 
-**Goal**: expose `loa-finn substrate-construct invoke <slug> --input <file>` for operator dev/debug, and `Substrate.invoke(slug, input)` programmatic API for cycle-3 freeside-quests/apps/api consumers.
+> Sources: Code analysis (`identity-graph.ts:483`, `beauvoir-synthesizer.ts:511`)
 
-**ALEXANDER craft (CLI surface only)**:
-- **stdout**: JSON only, machine-parseable, matches `SubstrateStepVerdict` Effect Schema
-- **stderr**: human progress (≤80 char width, `Loading...` / `Composing...` / `Invoking...` prefixes)
-- **color-as-information**: ONLY status. APPROVED green, REJECTED red, NEEDS_HUMAN yellow. Confidence numerics stay default-foreground.
-- **monospace numerics**: `tabular-nums` (terminal-equivalent: align right)
-- **silence**: NO emoji, NO progress bars, NO decorative animation
-- **exit codes**: 0 APPROVED · 1 REJECTED · 2 NEEDS_HUMAN · 3+ system error
+### FR-3: Experience Engine Wiring
 
-For the `Substrate.invoke()` programmatic API: NO craft applies. The TYPES are the API.
+**The system shall** track interactions per personality and apply gradual dial drift over time.
 
-### FR-7 · End-to-end test + doctrine update
+**Current state**: `experience-engine.ts` (322 lines) fully implements:
+- Epoch triggers after N interactions
+- Per-dial exponential decay with 30-day half-life
+- Drift formula: `impact * exp(-ln(2)/30 * age_days)`
+- Clamping: ±0.5% per epoch, ±5% cumulative from birth values
+- `experience-accumulator.ts`, `experience-rebase.ts`, `experience-config.ts` all implemented
 
-**Goal**: prove cycle-032 ships green with a real construct + mocked LLM.
+**Task**: Wire experience engine into personality resolution path:
+- After each session, increment interaction counter
+- On epoch trigger, compute dial drift from accumulated interactions
+- Apply drift offsets during `resolvePersonalityPrompt()` before synthesis
+- Store experience state in Redis/Postgres
 
-**Test**: `src/substrate/__tests__/e2e.test.ts`:
-1. Loader scans a fixture packs dir
-2. Finds `construct-lore-essay-grader` (symlinked or copied to fixture)
-3. Builds runtime with `TestModelRunner` Layer (canned response — replaces parent-bridge cheval-invoker proxy in test mode)
-4. CLI invokes with a sample essay
-5. Verdict returned · matches expected
+**Acceptance criteria**:
+- Interaction count tracked per tokenId
+- After N interactions (configurable epoch size), personality dials shift within ±0.5% bounds
+- Cumulative drift never exceeds ±5% from birth values
 
-**Doctrine §13**: write to `~/vault/wiki/concepts/substrate-mental-model-for-product-builders.md` §13 "Cycle-2 substrate-runtime first execution learnings". What was proven (loader · ManagedRuntime per construct worker-side · Tag-identity bridging · parent-bridge proxy pattern · sandbox compatible). What was deferred (Kafka transport · vendor/untrusted tiers · per-invocation introspection).
+> Sources: Code analysis (`experience-engine.ts`, `experience-types.ts`, `experience-accumulator.ts`)
 
-**Memory entry**: extend cycle-1 memory entry with cycle-2 sub-section OR write new memory file under `grimoires/loa/memory/`.
+### FR-4: Pre-Computed Demo Personalities
 
----
+**The system shall** support pre-computing personality derivations for known tokenIds.
 
-## 3. Non-Functional Requirements (Invariants — OSTROM)
+**Task**: Create a script/command that:
+1. Takes a list of tokenIds (or reads from config)
+2. Runs the full pipeline: on-chain read → DAMP → identity graph → BEAUVOIR synthesis → cache write
+3. Validates anti-narration on each generated BEAUVOIR
+4. Reports distinctiveness scores between all generated personalities
 
-These MUST NOT change during cycle-032. Cycle-1 sealed several at the contract layer; cycle-032 must respect them:
+**For soft launch**: Use test/mock tokenIds initially, swap for real team-owned IDs before launch.
 
-1. **Effect-program construct contract**: `(input: I) => Effect<O, E, R>` where `I` and `O` are Effect Schemas declared in `executable.protocol.input/output` and `R` is the union of declared `requirements[].tag` Effect Tags. *Cycle-1 sealed; cycle-032 must not change.*
+**Acceptance criteria**:
+- 5 personalities pre-computed and cached
+- All pass anti-narration validation
+- Pairwise cosine similarity < 0.7
 
-2. **`construct.yaml` manifest schema**: `type: substrate-construct` requires `executable.entry`, `executable.export`, `executable.protocol.input`, `executable.protocol.output`, `runtime.engine`. *Loader trusts the schema; doesn't add new required fields without amendment to construct-base + loa-constructs.*
+> Sources: Issue #132 Sprint 3, Phase 5 interview
 
-3. **Hounfour CompletionRequest/Result contract** (TypeBox): agent-network wire format. *Loader's ModelRunner parent-bridge handler wraps `cheval-invoker.ts` — does NOT modify the wire format.*
+### FR-5: Chat Metadata — Name & Archetype
 
-4. **Sandbox + worker-pool isolation** (HONEST SCOPE per Codex iteration-2 review HIGH): `ToolSandbox.execute()` + worker_threads + realpath-canonicalized modPath jail (loader-level) + bridge capability bounds (runtime-level). *Substrate-constructs RIDE this; loader does NOT bypass. Per FR-5 Option A: runtime + Layer composition + Effect program execution all happen worker-side; only structured-clone-safe data crosses the worker boundary via the typed bridge.* **What this cycle's `trust:internal` tier does NOT enforce**: direct Node built-in access (e.g., `import("node:fs")`) from inside imported construct code. `worker_threads` is a thread-isolation primitive, not an OS-level sandbox. Mitigation at `trust:internal` is build-time vetting (constructs are first-party); runtime isolation against built-ins is `trust:vendor`/`trust:untrusted` work, deferred per §4. See FR-5 "What `trust:internal` does NOT enforce" for the full scope statement.
+**The system shall** expose the agent's derived name and archetype in API response metadata and chat page UX.
 
-5. **EventStore append-only contract** (`src/events/writer.ts` + `src/events/types.ts` · per codebase survey §4 · NOT `src/persistence/` which holds WAL+r2-sync+git-sync): substrate-constructs publish via the existing EventWriter interface (parent-bridged from worker per FR-5). *Kafka becomes a parallel adapter (Phase 3); EventStore stays as fallback / dev impl.*
+**loa-finn (API)**:
+- Include `agent_name` (from `nameKDF()`), `archetype`, `era` in session creation response
+- Include in WebSocket personality metadata frame
 
-6. **JWT licensing** (per `.claude/protocols/constructs-integration.md` in loa-constructs): RS256 validation at load-time, cached refresh per FR-1 contract (cache by `(fingerprint, kid)`, TTL `min(exp-now, 1h)`, recheck exp/nbf on cached read, reject beyond tier grace). *Loader uses the SAME validation flow as existing skill-pack loader.*
+**loa-freeside (UX)**:
+- Update `chat-page.routes.ts` to display agent name instead of generic "Agent Chat"
+- Show archetype/era as flavor text
+- Optionally show tarot card or zodiac as visual flair
 
-7. **Substrate-step protocol contract version 1.0.0**: `SubstrateStepSubmission/Verdict` shapes are frozen. *Loader does NOT extend or wrap them; it transports them.*
+**Acceptance criteria**:
+- Chat page shows derived agent name (e.g., "Kael Tempest" not "Agent #1")
+- Archetype visible as secondary metadata
 
-8. **Capability-bounded Layer principle** (sharpened per FR-2 capability rule): a construct can only do what its declared Requirements allow. The Tag set IS the capability set, with one exception: `Logger` and `Clock` are ambient (exempt allowlist) because they have no I/O capability and are required for Effect to function. **No other Tag may be added to the ambient set without doctrine amendment + invariant-8 re-review.** Loader MUST NOT inject Tags the construct didn't declare beyond `{Logger, Clock}`.
+> Sources: Issue #132 Sprint 3 Task 3.4, Phase 3/6 interview
 
----
+### FR-6: Centralized Ownership Verification Gate
 
-## 4. Out of Scope (BARTH cuts — explicit)
+**When** a user attempts to create a chat session via ANY entry point (HTTP, WebSocket, Discord, or future paths), **the system shall** verify NFT ownership through a single centralized function:
 
-Each of these is deferred. Naming them prevents scope creep mid-cycle:
+```
+verifyOwnership(tokenId, wallet) → centralized service function
+  → On-chain ownerOf() call (NOT cached for auth decisions)
+  → Match against SIWE-authenticated wallet address
+  → Allow if match, reject with 403 if mismatch
+  → Short TTL owner cache (60s max) for repeated checks within same session
+```
 
-- ❌ **Kafka cluster setup, KafkaWriter Layer, Kafka consumer, kafka.enabled config branch, `@confluentinc/kafka-javascript` dependency** — `event-writer-layer.ts` ships ONLY the EventStore impl. Kafka work is Optional Sprint 8 / Phase 3 (its own cycle).
-- ❌ **OS-level / process-level isolation of construct code from Node built-ins** (per Codex iteration-2 review HIGH) — substrate-constructs at `trust:internal` can directly `import("node:fs")` etc. The mitigation is build-time trust (constructs are first-party / vetted), NOT runtime isolation. Hardening this requires `node --experimental-permission`, `isolated-vm`, or subprocess+microVM — all `trust:vendor`/`trust:untrusted` work.
-- ❌ **`trust:vendor` and `trust:untrusted` isolation tiers** — only `trust:internal` ships (worker_threads + capability-bounded Layer + parent-bridge proxies). isolated-vm + subprocess+microVM are Phase 3.
-- ❌ **Per-invocation JWT introspection** — load-time RS256 + cached TTL (per FR-1 contract) is sufficient. Threat model justification gates the upgrade.
-- ❌ **Construct-creation tooling** — operators author `construct.yaml` + `src/grader.ts` by hand. Templating is its own cycle.
-- ❌ **cubquests-interface integration** — separate cycle (cycle-1 §12.4 deferred work).
-- ❌ **Real-LLM ModelRunner** — `TestModelRunner` suffices for sprint 7 e2e. `AnthropicModelRunner` is its own micro-cycle (1-2hr).
-- ❌ **No new Effect-TS adoption in `src/agent` or `src/hounfour`** — Effect lives in `src/substrate/` only. Promise-based runtime stays.
-- ❌ **No multi-construct composition recipe** — single-construct invocation only. loa-compositions YAML chaining is operator's §10b four-tier "composition" layer · its own future work.
-- ❌ **No `registry.constructs.network` publishing** — substrate-constructs install via filesystem pack OR via the existing `/loa constructs install` command (unchanged for this cycle).
-- ❌ **No additional ambient Effect services beyond Logger and Clock** — adding any Tag to the ambient allowlist is a doctrine amendment, not in-cycle work.
+**Centralization requirement (SKP-001):** All session creation paths MUST route through a single `verifyOwnership()` function. Deny-by-default: if tokenId is present but ownership not validated, reject. Integration tests MUST cover every entry point.
 
----
+**Ownership cache TTL (SKP-002):** Ownership data MUST NOT use the 24h signal cache. Auth-layer ownership uses a separate 60s TTL cache. On NFT transfer, `transfer-listener.ts` invalidates immediately. Store `blockNumber` with ownership reads for staleness detection.
 
-## 5. Success Criteria (Verify checklist for cycle-032 close)
+**Active-session transfer behavior (IMP-004):** If ownership changes during an active session, the current session completes but no new sessions are allowed for the old owner. Transfer invalidation is eventual (within 60s TTL) for in-flight sessions.
 
-After Sprint 7 ships, each item must be verifiable by the named test or artifact (per Codex review #7):
+**Acceptance criteria**:
+- Non-owners receive 403 with clear error message on ALL entry points
+- Ownership check uses 60s TTL cache (NOT 24h signal cache)
+- Transfer events invalidate ownership cache immediately
+- Soft launch: also checks `CHAT_ALLOWED_ADDRESSES` allowlist
+- Integration tests cover HTTP, WebSocket, and any other session creation paths
 
-| # | Criterion | Verifying test/artifact |
-|---|---|---|
-| 5.1 | Loader scans `.loa.config.yaml#substrate.constructs_dir` and finds `construct-lore-essay-grader` | `loader.test.ts` — fixture packs dir + assert registry contains slug |
-| 5.2 | Loader validates manifest against just-merged loa-constructs Zod schema · rejects bad manifests | `loader.test.ts` — bad-manifest fixtures (missing `executable.entry`, missing `runtime.engine`, etc.) → assert `ManifestValidationError` |
-| 5.3 | Loader validates JWT license · respects grace periods (FR-1 cache contract) | `jwt-validator.test.ts` — fake-clock test matrix (valid, not-yet-valid, expired-within-grace, expired-beyond-grace, key-rotation, LOA_OFFLINE=1) |
-| 5.4 | Runtime composes Layer with capability-bounded Tags only (FR-2 capability rule) | `runtime.test.ts` — assert undeclared Tag throws `UnknownRequirementError`; assert ambient set is `{Logger, Clock}` only |
-| 5.5 | ModelRunner Layer correctly wraps cheval-invoker via parent-bridge | `model-runner-layer.test.ts` (unit, mocked bridge) + Sprint 3 integration test importing `gradeLoreEssay` |
-| 5.6 | EventWriter Layer correctly wraps EventStore via parent-bridge | `event-writer-layer.test.ts` — assert envelope matches `src/events/types.ts` shape (event_id/event_type/timestamp/correlation_id/sequence/checksum/schema_version/payload) |
-| 5.7 | Substrate invocation runs inside worker_threads sandbox (filesystem jail enforced) | `sandbox-bridge.integration.test.ts` — fixture construct attempts `fs.readFileSync('/etc/hosts')` → assert error |
-| 5.8 | Structured-clone invariant enforced (FR-5) | `sandbox-bridge.test.ts` — attempt to send Function in bridge message → assertion fires; envelope schema validation passes/fails as expected |
-| 5.9 | CLI command `loa-finn substrate-construct invoke <slug>` returns typed verdict | `cli.test.ts` — exec subprocess, capture stdout JSON, parse against `SubstrateStepVerdict` schema; assert exit codes (0/1/2/3+) per status |
-| 5.10 | Programmatic API `Substrate.invoke()` returns typed verdict | covered by `e2e.test.ts` |
-| 5.11 | End-to-end test: real `construct-lore-essay-grader` pack + `TestModelRunner` + verdict matches expected | `e2e.test.ts` — see FR-7 |
-| 5.12 | Doctrine §13 cycle-2 first-execution-learnings filled in | File assertion: `~/vault/wiki/concepts/substrate-mental-model-for-product-builders.md` contains heading `## §13 · Cycle-2 substrate-runtime first execution learnings` with content (not just placeholder) |
-| 5.13 | Memory entry shipped | File assertion: new file under `grimoires/loa/memory/` named `project_substrate_layer_runtime_cycle_002_shipped.md` (or similar) exists with non-empty content |
-| 5.14 | Kafka adapter NOT shipped (BARTH cut held — Phase 3) | `git diff main..HEAD -- src/substrate/` does NOT contain `KafkaWriter`, `kafka.enabled`, `kafkajs`, `@confluentinc/kafka-javascript`; `package.json` does NOT add Kafka deps |
+> Sources: Issue #133 Gate 5, Flatline SKP-001 (CRITICAL:910), SKP-002 (CRITICAL:880), IMP-004 (HIGH_CONSENSUS)
 
-**Optional V1.5 deferred**:
-- Kafka adapter + consumer (`@confluentinc/kafka-javascript`)
-- `AnthropicModelRunner` Layer (real LLM smoke)
-- cubquests-interface `OffchainStepConfig.verificationType` `"construct"` integration
-- `trust:vendor` isolation tier
+### FR-7: Fallback & Degradation Chain
 
----
+**If** any pipeline stage fails, **the system shall** degrade gracefully:
 
-## 6. Coordination & Operator Pair-Points
+| Failure | Fallback |
+|---------|----------|
+| On-chain read fails | Use cached signals if available, else reject |
+| DAMP derivation fails | Should not fail (pure function), but reject if input invalid |
+| Identity graph load fails | Synthesize without cultural grounding (empty subgraph) |
+| BEAUVOIR synthesis fails (circuit breaker open) | Use cached BEAUVOIR if available, else use static fallback |
+| Redis unavailable | Fall through to Postgres, then on-chain |
 
-**Persona**: OSTROM leads (substrate runtime is structural, not visual). ALEXANDER on standby for CLI craft (§5.6 / FR-6 only). BARTH on standby for scope cuts.
+**Acceptance criteria**:
+- No pipeline failure produces an unhandled error
+- Degradation logged with severity for monitoring
+- Static fallback (`config/personalities.json`) is the last resort, never the default
 
-**Sprint cadence**: 7 sprints serial. Each 1-3 hours. Sprint 5 sandbox spike was the load-bearing gate — already GREEN (`scripts/substrate-spike.mjs`).
-
-**Operator pair-points** (per build doc §13 + Codex review #1 addition):
-
-| Gate | Status | Description |
-|------|--------|-------------|
-| Pre-Sprint-1 | ✅ resolved | Loader directory location confirmed: `src/substrate/` |
-| Mid-Sprint-3 | 🟡 PAIR-POINT | ModelRunner Tag identity bridge (cross-pack Tag matching) — review the integration test importing real `gradeLoreEssay` before merging Sprint 3 |
-| **Pre-Sprint-5** | ✅ **resolved by this PRD** | Runtime placement decided: **Option A — worker-side runtime + parent-bridge proxies**. See FR-5 for protocol. Further changes require re-review. |
-| Pre-Sprint-7 | 🟡 PAIR-POINT | E2E test fixture choice (real `construct-lore-essay-grader` OR simplified test pack) |
-| Post-Sprint-7 | 🟡 PAIR-POINT | Doctrine §13 draft review |
-
-**Branches**: feature branch per sprint (`feat/substrate-runtime-sprint-N-<slug>`). PRs gated on tests + Bridgebuilder review.
-
-**No merge to main without**: loader + runtime + ModelRunner + EventWriter + sandbox-bridge + CLI all green individually + e2e green.
-
-**Cross-repo (read-only this cycle)**:
-- `loa-constructs` — for `construct.yaml` schema validation reference
-- `construct-lore-essay-grader` — the e2e test fixture (instance-1)
-- `construct-base` — JSON Schema reference
+> Sources: Code analysis (circuit breaker in `beauvoir-synthesizer.ts`, `personality-provider-chain.ts` fallback order)
 
 ---
 
-*Drafted 2026-05-03 PM (v1.0.0). Iteration 2 (v1.1.0) applies cross-model review findings: Option A architectural decision for runtime placement, JWT cache contract pinning, Tag-identity precision, structured-clone invariant, ambient-allowlist clarification, Kafka scope discipline, observable success criteria. Build doc remains canonical for code samples and detailed component specs.*
+## 5. Technical & Non-Functional Requirements
+
+### 5.1 Performance
+
+| Metric | Target |
+|--------|--------|
+| Cached personality resolution | < 100ms |
+| Cold cache (on-chain + synthesis) | < 20s (with loading state) |
+| Pre-computed personality load | < 50ms |
+| Streaming response start | < 3s after personality resolved |
+
+### 5.2 Synthesis Model
+
+- **Model**: Claude Opus for BEAUVOIR generation
+- **Rationale**: Highest personality depth and nuance for the "wow" factor
+- **Cost**: One-time per personality (cached after generation)
+
+### 5.3 Caching Architecture
+
+| Layer | Store | TTL | Purpose |
+|-------|-------|-----|---------|
+| Signal cache | Redis | 24h | On-chain signal snapshots |
+| Personality store | Redis + Postgres | 1h / permanent | BEAUVOIR docs + DAMP fingerprints |
+| R2 backup | S3-compatible | Permanent | BEAUVOIR.md versioned backup |
+| Identity graph cache | Redis | 24h | Codex subgraphs |
+
+**Already built**: `signal-cache.ts`, `personality-store.ts`, `identity-graph.ts:IdentityGraphCache`
+
+### 5.4 Security
+
+- Ownership verification via on-chain `ownerOf()` before session creation
+- Anti-narration validation (7 constraints) on every BEAUVOIR generation
+- Temporal voice domain checking per era
+- SIWE + JWT auth chain (existing)
+- Soft launch allowlist (`CHAT_ALLOWED_ADDRESSES`)
+
+### 5.5 Scale-Out Design (Architecture Documentation)
+
+Document (not implement) the following patterns for 100K+ NFTs:
+
+1. **Batch derivation**: Pre-compute DAMP fingerprints for all minted tokenIds during off-peak hours
+2. **Cache warming**: Proactive synthesis for frequently accessed agents (top 1000 by interaction count)
+3. **Synthesis queue**: Rate-limited BEAUVOIR generation to prevent Opus API burst
+4. **Degradation tiers**: Full personality → cached BEAUVOIR → generic archetype template → static fallback
+5. **Transfer invalidation**: `transfer-listener.ts` already exists — document integration with cache invalidation
+
+> Sources: Phase 5 interview, `transfer-listener.ts` (231 lines, implemented)
+
+---
+
+## 6. Scope & Prioritization
+
+### 6.1 In Scope (This Cycle)
+
+| Priority | Feature | Repos |
+|----------|---------|-------|
+| P0 | FR-1: Pipeline wiring (tokenId → personality → session) | loa-finn |
+| P0 | FR-6: Ownership verification gate | loa-finn |
+| P0 | FR-7: Fallback & degradation chain | loa-finn |
+| P1 | FR-2: Identity graph integration into synthesis | loa-finn |
+| P1 | FR-3: Experience engine wiring | loa-finn |
+| P1 | FR-4: Pre-computed demo personalities (5 test tokenIds) | loa-finn |
+| P2 | FR-5: Chat metadata — name & archetype display | loa-finn + loa-freeside |
+| P2 | Scale-out architecture documentation | loa-finn (docs) |
+
+### 6.2 Explicitly Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Governance/DAO voting enforcement | Post-launch feature, governance_model field exists but enforcement deferred |
+| Routing affinity enforcement in hounfour | Partial wire exists, not needed for soft launch |
+| Agent mode switching endpoint | Post-launch personalization feature |
+| Flatline review integration for synthesis | Quality gate, not critical path |
+| Discord bot personality integration | Separate work track in loa-freeside |
+| Eval harness integration into CI | Quality tooling, not launch-blocking |
+| Personality versioning UI | API-level versioning exists, UI deferred |
+
+### 6.3 Cross-Repo Work
+
+| Repo | Work | Effort |
+|------|------|--------|
+| **loa-finn** | Pipeline wiring, identity graph, experience engine, demo personalities | Primary dev work |
+| **loa-freeside** | Chat page: display agent name/archetype from API metadata | Light UX update |
+
+> Sources: Phase 6 interview, Issue #132 Sprint breakdown
+
+---
+
+## 7. Risks & Dependencies
+
+### 7.1 Technical Risks
+
+| Risk | Severity | Likelihood | Mitigation |
+|------|----------|------------|------------|
+| Opus synthesis latency (10s+) blocks first session | High | Medium | Pre-compute for known IDs, loading state for cold cache |
+| On-chain reader RPC failures (rate limits, network) | Medium | Medium | Circuit breaker + fallback chain (cache → Postgres → static) |
+| Anti-narration false positives rejecting valid BEAUVOIR | Medium | Low | Retry loop (2 retries) with violation feedback already built |
+| Identity graph missing codex data for some combos | Low | Low | `extractSubgraph()` returns empty subgraph gracefully |
+| Experience engine drift accumulating incorrectly | Medium | Low | ±5% cumulative clamp, rebase mechanism exists |
+| Cross-repo coordination overhead (finn + freeside) | Low | Medium | API contract first, UX second |
+
+### 7.2 Dependencies
+
+| Dependency | Status | Risk |
+|------------|--------|------|
+| `ANTHROPIC_API_KEY` configured for Opus | Available in production secrets | None |
+| Redis for personality caching | Running in staging + production | None |
+| RPC endpoint for finnNFT contract | Configured via `ALCHEMY_API_KEY` | Rate limit risk at scale |
+| IPFS gateway for metadata | Configured in `on-chain-reader.ts` | Latency risk |
+| 5 test tokenIds for demo | To be created with mock on-chain data | Low |
+| Postgres for dual-write | Running, schema needs personality tables | Migration required |
+
+### 7.3 Assumptions
+
+1. **[ASSUMPTION]** `BeauvoirSynthesizer.buildSynthesisPrompt()` handles all 12 DAMP categories adequately — enrichment needs identity graph wiring, not prompt restructuring. **If wrong**: Sprint 2 scope expands.
+2. **[ASSUMPTION]** Experience engine wiring doesn't affect synthesis latency — epoch checks are fast, drift computation is pure math. **If wrong**: Experience engine needs async processing path.
+3. **[ASSUMPTION]** `agent-chat.ts` is the sole session creation path. **If wrong**: Discord and other entry points need the same pipeline wiring.
+
+> Sources: Phase 7 interview, code analysis
+
+---
+
+## 8. Appendix: Existing Code Inventory
+
+### 8.1 Pipeline Components (All in `src/nft/`)
+
+| Component | File | Lines | Status |
+|-----------|------|-------|--------|
+| Signal types & constants | `signal-types.ts` | 308 | Complete |
+| Signal engine | `signal-engine.ts` | 391 | Complete |
+| DAMP-96 derivation | `damp.ts` | 305 | Complete |
+| DAMP offset tables | `damp-tables.ts` | 126 | Complete |
+| BEAUVOIR synthesizer | `beauvoir-synthesizer.ts` | 511 | Complete |
+| BEAUVOIR template | `beauvoir-template.ts` | 112 | Complete (fallback) |
+| Anti-narration (7 constraints) | `anti-narration.ts` | 701 | Complete |
+| Temporal voice domain | `temporal-voice.ts` | 206 | Complete |
+| On-chain reader | `on-chain-reader.ts` | 400 | Complete |
+| Signal cache (Redis 24h) | `signal-cache.ts` | 123 | Complete |
+| Personality store (Redis+Pg) | `personality-store.ts` | 228 | Complete |
+| Personality service (CRUD) | `personality.ts` | 1331 | Complete |
+| Personality resolver | `personality-resolver.ts` | 289 | Complete |
+| Personality context (v4.5) | `personality-context.ts` | 248 | Complete |
+| Personality provider chain | `personality-provider-chain.ts` | 62 | Complete |
+| Static personality loader | `static-personality-loader.ts` | 170 | Complete (legacy) |
+| Name derivation (HKDF) | `name-derivation.ts` | 229 | Complete |
+| Identity graph | `identity-graph.ts` | 483 | Complete, **not wired** |
+| Experience engine | `experience-engine.ts` | 322 | Complete, **not wired** |
+| Experience accumulator | `experience-accumulator.ts` | 244 | Complete, **not wired** |
+| Experience config | `experience-config.ts` | 226 | Complete, **not wired** |
+| Experience rebase | `experience-rebase.ts` | 202 | Complete, **not wired** |
+| First contact | `first-contact.ts` | 93 | Complete |
+| Entropy ceremony | `entropy.ts` | 696 | Complete |
+| Transfer listener | `transfer-listener.ts` | 231 | Complete |
+| Codex data loader | `codex-data/loader.ts` | — | Complete |
+
+### 8.2 Current Session Flow (What Changes)
+
+**Before** (static):
+```
+agent-chat.ts → StaticPersonalityLoader → personalities.json → generic prompt
+```
+
+**After** (dynamic):
+```
+agent-chat.ts
+  → verifyOwnership(tokenId, siweWallet)
+  → PersonalityProviderChain.get(tokenId)
+    → PersonalityStore (Redis → Postgres)
+    → [cache miss] OnChainReader.readSignals(tokenId)
+    → deriveDAMP(snapshot)
+    → KnowledgeGraphLoader.extractSubgraph(...)
+    → BeauvoirSynthesizer.synthesize(fingerprint, signals, subgraph) [Opus]
+    → PersonalityStore.write(tokenId, personality) [dual-write]
+    → ExperienceEngine.applyDrift(fingerprint, tokenId) [if epochs accumulated]
+  → resolvePersonalityPrompt(personality)
+  → buildPersonalityContext(personality)
+  → compose system prompt with <system-personality> delimiters
+  → invoke model with personality context
+```

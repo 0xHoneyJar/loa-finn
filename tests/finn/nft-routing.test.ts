@@ -6,7 +6,12 @@ import { describe, it, expect } from "vitest"
 import {
   NFTRoutingCache,
   type NFTRoutingPolicy,
-  type NFTTaskType,
+  type NFTRoutingKey,
+  mapKnownTaskType,
+  mapTaskTypeToRoutingKey,
+  mapUnknownTaskTypeToRoutingKey,
+  KNOWN_TASK_TYPES,
+  type KnownTaskType,
 } from "../../src/hounfour/nft-routing-config.js"
 import {
   resolvePool,
@@ -199,6 +204,80 @@ describe("Per-NFT model routing", () => {
       // But preferences include temperature
       const prefs = cache.getPreferences("bear-001")
       expect(prefs?.temperature).toBe(0.7)
+    })
+  })
+
+  // --- T-2.5: Protocol TaskType mapping + 'unspecified' routing ---
+
+  describe("Protocol TaskType → NFTRoutingKey mapping (AC7)", () => {
+    it("maps all 6 protocol TaskType values to routing keys", () => {
+      expect(mapTaskTypeToRoutingKey("code_review")).toBe("code")
+      expect(mapTaskTypeToRoutingKey("creative_writing")).toBe("chat")
+      expect(mapTaskTypeToRoutingKey("analysis")).toBe("analysis")
+      expect(mapTaskTypeToRoutingKey("summarization")).toBe("analysis")
+      expect(mapTaskTypeToRoutingKey("general")).toBe("default")
+      expect(mapTaskTypeToRoutingKey("unspecified")).toBe("default")
+    })
+
+    it("maps community-defined types (namespace:type) to default", () => {
+      expect(mapTaskTypeToRoutingKey("custom:my-task" as any)).toBe("default")
+    })
+
+    it("mapUnknownTaskTypeToRoutingKey handles non-string inputs", () => {
+      expect(mapUnknownTaskTypeToRoutingKey(null)).toBe("default")
+      expect(mapUnknownTaskTypeToRoutingKey(undefined)).toBe("default")
+      expect(mapUnknownTaskTypeToRoutingKey(42)).toBe("default")
+      expect(mapUnknownTaskTypeToRoutingKey("")).toBe("default")
+    })
+
+    it("mapUnknownTaskTypeToRoutingKey passes through valid routing keys", () => {
+      expect(mapUnknownTaskTypeToRoutingKey("chat")).toBe("chat")
+      expect(mapUnknownTaskTypeToRoutingKey("code")).toBe("code")
+      expect(mapUnknownTaskTypeToRoutingKey("analysis")).toBe("analysis")
+      expect(mapUnknownTaskTypeToRoutingKey("default")).toBe("default")
+    })
+
+    it("'unspecified' routes to default pool through resolvePool", () => {
+      // AC7: 'unspecified' → default routing key → default preference
+      const preferences: Record<string, string> = {
+        chat: "fast-code",
+        code: "fast-code",
+        default: "cheap",
+      }
+      const poolId = resolvePool("enterprise" as Tier, "unspecified", preferences)
+      expect(poolId).toBe("cheap") // 'unspecified' maps to 'default' routing key
+    })
+
+    it("'code_review' routes to code pool through resolvePool", () => {
+      const preferences: Record<string, string> = {
+        code: "fast-code",
+        default: "cheap",
+      }
+      const poolId = resolvePool("enterprise" as Tier, "code_review", preferences)
+      expect(poolId).toBe("fast-code") // 'code_review' maps to 'code' routing key
+    })
+  })
+
+  // --- Bridge Iteration 2: Direct mapKnownTaskType tests (LOW-2) ---
+
+  describe("mapKnownTaskType direct tests", () => {
+    it("maps all known task types directly", () => {
+      expect(mapKnownTaskType("code_review")).toBe("code")
+      expect(mapKnownTaskType("creative_writing")).toBe("chat")
+      expect(mapKnownTaskType("analysis")).toBe("analysis")
+      expect(mapKnownTaskType("summarization")).toBe("analysis")
+      expect(mapKnownTaskType("general")).toBe("default")
+      expect(mapKnownTaskType("unspecified")).toBe("default")
+    })
+
+    it("KNOWN_TASK_TYPES contains all 6 protocol literals", () => {
+      expect(KNOWN_TASK_TYPES).toHaveLength(6)
+      expect(KNOWN_TASK_TYPES).toContain("code_review")
+      expect(KNOWN_TASK_TYPES).toContain("creative_writing")
+      expect(KNOWN_TASK_TYPES).toContain("analysis")
+      expect(KNOWN_TASK_TYPES).toContain("summarization")
+      expect(KNOWN_TASK_TYPES).toContain("general")
+      expect(KNOWN_TASK_TYPES).toContain("unspecified")
     })
   })
 })

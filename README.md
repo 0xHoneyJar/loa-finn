@@ -60,10 +60,10 @@ For GPU-accelerated local models (vLLM + Qwen):
 docker compose -f docker-compose.gpu.yml up
 ```
 
-### Deploy BridgeBuilder (Railway)
+### Run BridgeBuilder
 
 <!-- provenance: CODE-FACTUAL -->
-The `railway.toml` configures automated PR review as a cron job running every 30 minutes (`src/bridgebuilder/entry.ts:1`):
+BridgeBuilder runs as a standalone entry point for automated PR review (`src/bridgebuilder/entry.ts:1`):
 
 ```bash
 npm run bridgebuilder

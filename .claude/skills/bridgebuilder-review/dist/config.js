@@ -18,6 +18,7 @@ const DEFAULTS = {
     excludePatterns: [],
     sanitizerMode: "default",
     maxRuntimeMinutes: 30,
+    reviewMode: "two-pass",
 };
 /**
  * Parse CLI arguments from process.argv.
@@ -80,6 +81,13 @@ export function parseCLIArgs(argv) {
         else if (arg === "--repo-root" && i + 1 < argv.length) {
             args.repoRoot = argv[++i];
         }
+        else if (arg === "--review-mode" && i + 1 < argv.length) {
+            const mode = argv[++i];
+            if (mode !== "two-pass" && mode !== "single-pass") {
+                throw new Error(`Invalid --review-mode value: ${mode}. Must be "two-pass" or "single-pass".`);
+            }
+            args.reviewMode = mode;
+        }
     }
     return args;
 }
@@ -91,9 +99,12 @@ async function autoDetectRepo() {
         const { stdout } = await execFileAsync("git", ["remote", "-v"], {
             timeout: 5_000,
         });
-        // Match first line: origin	git@github.com:owner/repo.git (fetch)
-        // or:               origin	https://github.com/owner/repo.git (fetch)
-        const match = stdout.match(/(?:github\.com)[:/]([^/\s]+)\/([^/\s.]+?)(?:\.git)?\s/);
+        const lines = stdout.split("\n");
+        const ghPattern = /(?:github\.com)[:/]([^/\s]+)\/([^/\s.]+?)(?:\.git)?\s/;
+        // Prefer "origin" remote — avoids picking framework remote alphabetically (#395)
+        const originLine = lines.find((l) => l.startsWith("origin\t") && l.includes("(fetch)"));
+        const targetLine = originLine ?? lines.find((l) => l.includes("(fetch)"));
+        const match = targetLine?.match(ghPattern);
         if (match) {
             return { owner: match[1], repo: match[2] };
         }
@@ -124,11 +135,11 @@ function parseRepoString(s) {
  * Uses a simple key:value parser — no YAML library dependency.
  * Supports scalar values and YAML list syntax (- item).
  */
-async function loadYamlConfig() {
+export async function loadYamlConfig() {
     try {
         const content = await readFile(".loa.config.yaml", "utf-8");
         // Find bridgebuilder section
-        const match = content.match(/^bridgebuilder:\s*\n((?:\s+.+\n?)*)/m);
+        const match = content.match(/^bridgebuilder:\s*\n((?:[ \t]+.+\n?)*)/m);
         if (!match)
             return {};
         const section = match[1];
@@ -207,6 +218,17 @@ async function loadYamlConfig() {
                 case "persona":
                     config.persona = value;
                     break;
+                case "review_mode":
+                    if (value === "two-pass" || value === "single-pass") {
+                        config.review_mode = value;
+                    }
+                    break;
+                case "ecosystem_context_path":
+                    config.ecosystem_context_path = value;
+                    break;
+                case "pass1_cache_enabled":
+                    config.pass1_cache_enabled = value === "true";
+                    break;
             }
         }
         return config;
@@ -238,6 +260,19 @@ export function resolveRepoRoot(cli, env) {
     catch {
         return undefined;
     }
+}
+/**
+ * Resolve pass1Cache.enabled: env > yaml > default (false).
+ * Returns boolean or null if no explicit config.
+ */
+function resolvePass1Cache(_cliArgs, env, yaml) {
+    if (env.BRIDGEBUILDER_PASS1_CACHE === "true")
+        return true;
+    if (env.BRIDGEBUILDER_PASS1_CACHE === "false")
+        return false;
+    if (yaml.pass1_cache_enabled != null)
+        return yaml.pass1_cache_enabled;
+    return null;
 }
 /**
  * Resolve config using 5-level precedence: CLI > env > yaml > auto-detect > defaults.
@@ -350,7 +385,27 @@ export async function resolveConfig(cliArgs, env, yamlConfig) {
             ? { personaFilePath: yaml.persona_path }
             : {}),
         ...(cliArgs.forceFullReview ? { forceFullReview: true } : {}),
+        ...(yaml.ecosystem_context_path != null
+            ? { ecosystemContextPath: yaml.ecosystem_context_path }
+            : {}),
+        ...(resolvePass1Cache(cliArgs, env, yaml) != null
+            ? { pass1Cache: { enabled: resolvePass1Cache(cliArgs, env, yaml) } }
+            : {}),
+        reviewMode: cliArgs.reviewMode ??
+            (env.LOA_BRIDGE_REVIEW_MODE === "two-pass" || env.LOA_BRIDGE_REVIEW_MODE === "single-pass"
+                ? env.LOA_BRIDGE_REVIEW_MODE
+                : undefined) ??
+            yaml.review_mode ??
+            DEFAULTS.reviewMode,
     };
+    // Track reviewMode provenance
+    const reviewModeSource = cliArgs.reviewMode
+        ? "cli"
+        : env.LOA_BRIDGE_REVIEW_MODE === "two-pass" || env.LOA_BRIDGE_REVIEW_MODE === "single-pass"
+            ? "env"
+            : yaml.review_mode
+                ? "yaml"
+                : "default";
     const provenance = {
         repos: reposSource,
         model: modelSource,
@@ -358,6 +413,7 @@ export async function resolveConfig(cliArgs, env, yamlConfig) {
         maxInputTokens: maxInputTokensSource,
         maxOutputTokens: maxOutputTokensSource,
         maxDiffBytes: maxDiffBytesSource,
+        reviewMode: reviewModeSource,
     };
     return { config, provenance };
 }
@@ -397,6 +453,7 @@ export function formatEffectiveConfig(config, provenance) {
         `max_output_tokens=${config.maxOutputTokens}${outputSrc}, ` +
         `max_diff_bytes=${config.maxDiffBytes}${diffSrc}, ` +
         `dry_run=${config.dryRun}${drySrc}, sanitizer_mode=${config.sanitizerMode}${prFilter}` +
-        `${personaInfo}${excludeInfo}`);
+        `${personaInfo}${excludeInfo}` +
+        `, review_mode=${config.reviewMode}${p ? ` (${p.reviewMode})` : ""}`);
 }
 //# sourceMappingURL=config.js.map

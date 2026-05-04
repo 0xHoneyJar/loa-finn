@@ -1,5 +1,5 @@
 {
-  "name": "@honeyjar/finn-sdk",
+  "name": "@0xhoneyjar/loa-finn-sdk",
   "version": "0.1.0",
   "description": "TypeScript SDK for the Finn Agent API",
   "type": "module",

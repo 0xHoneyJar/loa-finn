@@ -1,0 +1,7 @@
+{
+  "prometheusUrl": "http://localhost:9090",
+  "prometheusJobName": "finn",
+  "redisUrl": "redis://localhost:6379",
+  "adminEndpoint": "http://localhost:3000/admin",
+  "evaluationWindowHours": 72
+}

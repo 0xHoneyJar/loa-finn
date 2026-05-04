@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Get Started — Finn</title>
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/personality.css">
+  <link rel="stylesheet" href="/css/onboarding.css">
+</head>
+<body>
+  <div class="onboarding-container">
+    <!-- Progress -->
+    <div class="progress-bar">
+      <div class="progress-step active" data-step="1">1</div>
+      <div class="progress-line"></div>
+      <div class="progress-step" data-step="2">2</div>
+      <div class="progress-line"></div>
+      <div class="progress-step" data-step="3">3</div>
+      <div class="progress-line"></div>
+      <div class="progress-step" data-step="4">4</div>
+      <div class="progress-line"></div>
+      <div class="progress-step" data-step="5">5</div>
+    </div>
+
+    <!-- Step 1: Connect Wallet -->
+    <section id="step-1" class="step active">
+      <h1>Connect Your Wallet</h1>
+      <p class="step-description">Sign in with your Ethereum wallet to get started.</p>
+      <div class="wallet-options">
+        <button id="btn-metamask" class="btn btn-wallet">
+          <span class="wallet-icon">🦊</span>
+          MetaMask
+        </button>
+        <button id="btn-injected" class="btn btn-wallet">
+          <span class="wallet-icon">💎</span>
+          Other Wallet
+        </button>
+        <button class="btn btn-wallet btn-disabled" disabled title="Coming soon">
+          <span class="wallet-icon">🔗</span>
+          WalletConnect
+          <span class="badge-soon">Soon</span>
+        </button>
+      </div>
+      <p id="wallet-error" class="error-text hidden"></p>
+    </section>
+
+    <!-- Step 2: NFT Gallery -->
+    <section id="step-2" class="step hidden">
+      <h1>Select Your NFT</h1>
+      <p class="step-description">Choose which NFT becomes your AI agent.</p>
+      <div id="nft-gallery" class="nft-gallery">
+        <div class="loading-spinner">Scanning your wallet...</div>
+      </div>
+      <p id="no-nfts" class="info-text hidden">No eligible NFTs found. You need a finn NFT to continue.</p>
+    </section>
+
+    <!-- Step 3: Personality Preview -->
+    <section id="step-3" class="step hidden">
+      <h1>Meet Your Agent</h1>
+      <p class="step-description">Your NFT's personality has been generated.</p>
+      <div id="personality-preview" class="personality-preview">
+        <personality-card id="preview-card"></personality-card>
+      </div>
+      <button id="btn-accept-personality" class="btn btn-primary btn-lg">Looks Good</button>
+    </section>
+
+    <!-- Step 4: Credits -->
+    <section id="step-4" class="step hidden">
+      <h1>Add Credits</h1>
+      <p class="step-description">Credits power your conversations. Choose a pack or skip for now.</p>
+      <div class="credit-packs">
+        <div class="credit-pack" data-pack="starter">
+          <h3>Starter</h3>
+          <div class="pack-price">$5</div>
+          <div class="pack-amount">500 messages</div>
+        </div>
+        <div class="credit-pack featured" data-pack="explorer">
+          <div class="pack-badge">Popular</div>
+          <h3>Explorer</h3>
+          <div class="pack-price">$15</div>
+          <div class="pack-amount">2,000 messages</div>
+        </div>
+        <div class="credit-pack" data-pack="power">
+          <h3>Power User</h3>
+          <div class="pack-price">$40</div>
+          <div class="pack-amount">6,000 messages</div>
+        </div>
+      </div>
+      <button id="btn-skip-credits" class="btn btn-link">Skip for now</button>
+    </section>
+
+    <!-- Step 5: First Message -->
+    <section id="step-5" class="step hidden">
+      <h1>Say Hello</h1>
+      <p class="step-description">Send your first message to your agent.</p>
+      <div class="suggested-prompts">
+        <button class="btn btn-prompt" data-prompt="Tell me about yourself.">Tell me about yourself</button>
+        <button class="btn btn-prompt" data-prompt="What can you help me with?">What can you help me with?</button>
+        <button class="btn btn-prompt" data-prompt="What's your personality like?">What's your personality like?</button>
+      </div>
+      <div class="custom-prompt">
+        <textarea id="first-message" placeholder="Or type your own message..." rows="2"></textarea>
+        <button id="btn-send-first" class="btn btn-primary">Send & Start Chatting</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="/js/personality-card.js"></script>
+  <script src="/agent/wallet.js"></script>
+  <script src="/js/onboarding.js"></script>
+</body>
+</html>

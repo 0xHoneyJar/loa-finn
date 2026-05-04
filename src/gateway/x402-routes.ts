@@ -41,9 +41,8 @@ async function checkRateLimit(
 ): Promise<boolean> {
   const key = `x402:rate:${walletAddress.toLowerCase()}`
   const count = await redis.incrby(key, 1)
-  if (count === 1) {
-    await redis.expire(key, 3600) // 1 hour window
-  }
+  // Always set TTL — idempotent, prevents orphaned keys from INCRBY/EXPIRE race
+  await redis.expire(key, 3600) // 1 hour window
   return count <= X402_RATE_LIMIT_PER_HOUR
 }
 
@@ -51,11 +50,12 @@ async function checkRateLimit(
 // Routes
 // ---------------------------------------------------------------------------
 
-export function x402Routes(deps: X402RouteDeps): Hono {
-  const app = new Hono()
-
-  // POST /api/v1/x402/invoke
-  app.post("/invoke", async (c) => {
+/**
+ * Create a standalone x402 invoke handler for reuse across routes.
+ * Used by both /api/v1/x402/invoke (canonical) and /api/v1/pay/chat (alias).
+ */
+export function createX402InvokeHandler(deps: X402RouteDeps) {
+  return async (c: import("hono").Context) => {
     // 1. Check feature flag
     const x402Enabled = await deps.featureFlagService.isEnabled("x402")
     if (!x402Enabled) {
@@ -63,12 +63,17 @@ export function x402Routes(deps: X402RouteDeps): Hono {
     }
 
     // 2. Parse request body
-    const body = await c.req.json<{
+    let body: {
       model?: string
       max_tokens?: number
-      prompt: string
+      prompt?: string
       nft_id?: string
-    }>()
+    }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "Invalid JSON body", code: "INVALID_REQUEST" }, 400)
+    }
 
     // Reject nft_id — x402 is generic system prompt only (Task 8.4)
     if (body.nft_id) {
@@ -78,7 +83,7 @@ export function x402Routes(deps: X402RouteDeps): Hono {
       }, 400)
     }
 
-    if (!body.prompt) {
+    if (typeof body.prompt !== "string" || body.prompt.trim().length === 0) {
       return c.json({ error: "prompt is required", code: "INVALID_REQUEST" }, 400)
     }
 
@@ -108,11 +113,15 @@ export function x402Routes(deps: X402RouteDeps): Hono {
     }
 
     // 4. Parse payment proof
-    let proof
+    let proof: { quote_id?: string; authorization?: { from?: string }; [key: string]: unknown }
     try {
       proof = JSON.parse(paymentHeader)
     } catch {
       return c.json({ error: "Invalid X-Payment header format", code: "INVALID_PAYMENT" }, 400)
+    }
+
+    if (!proof?.quote_id || typeof proof.quote_id !== "string") {
+      return c.json({ error: "Payment must include a valid quote_id", code: "INVALID_PAYMENT" }, 400)
     }
 
     // 5. Allowlist check (during beta, unless x402:public is ON)
@@ -133,16 +142,20 @@ export function x402Routes(deps: X402RouteDeps): Hono {
       }
     }
 
-    // 6. Rate limit
+    // 5b. Require wallet address unconditionally (needed for rate limiting + settlement)
     const walletAddress = proof.authorization?.from
-    if (walletAddress) {
-      const withinLimit = await checkRateLimit(deps.redis, walletAddress)
-      if (!withinLimit) {
-        return c.json({
-          error: `Rate limit exceeded: ${X402_RATE_LIMIT_PER_HOUR} requests per hour`,
-          code: "RATE_LIMITED",
-        }, 429)
-      }
+    if (!walletAddress) {
+      return c.json({ error: "Payment proof must include authorization.from", code: "INVALID_PAYMENT" }, 400)
+    }
+
+    // 6. Rate limit
+    const withinLimit = await checkRateLimit(deps.redis, walletAddress)
+    if (!withinLimit) {
+      c.header("Retry-After", "3600")
+      return c.json({
+        error: `Rate limit exceeded: ${X402_RATE_LIMIT_PER_HOUR} requests per hour`,
+        code: "RATE_LIMITED",
+      }, 429)
     }
 
     // 7. Retrieve quote
@@ -199,7 +212,14 @@ export function x402Routes(deps: X402RouteDeps): Hono {
       }
       throw e
     }
-  })
+  }
+}
+
+export function x402Routes(deps: X402RouteDeps): Hono {
+  const app = new Hono()
+
+  // POST /api/v1/x402/invoke — canonical endpoint
+  app.post("/invoke", createX402InvokeHandler(deps))
 
   return app
 }

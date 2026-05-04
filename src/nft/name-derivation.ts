@@ -124,6 +124,50 @@ function buildCorpus(): NameCorpus {
 }
 
 // ---------------------------------------------------------------------------
+// Ancestor Alias Map — on-chain names → corpus ancestor IDs
+// ---------------------------------------------------------------------------
+
+/** Map on-chain ancestor trait values to corpus keys (Mibera codex PR #48) */
+const ANCESTOR_ALIAS: Record<string, string> = {
+  // Direct matches (on-chain name matches corpus key)
+  cypherpunk: "cypherpunk",
+  // On-chain → corpus mapping
+  buddhist: "buddhist_monk",
+  greek: "greek_philosopher",
+  "irish-druids": "celtic_druid",
+  japanese: "japanese_aesthetic",
+  chinese: "confucian_scholar",
+  hindu: "vedic_rishi",
+  indian: "vedic_rishi",
+  sufis: "sufi_mystic",
+  haitian: "vodou_priestess",
+  ethiopian: "afrofuturist",
+  "native-american": "navajo_singer",
+  nepal: "tantric_adept",
+  mongolian: "shamanic_healer",
+  aboriginal: "aboriginal_elder",
+  mayan: "mayan_astronomer",
+  thai: "buddhist_monk",
+  polynesian: "shamanic_healer",
+  gabon: "shamanic_healer",
+  arabs: "sufi_poet",
+  turkish: "sufi_mystic",
+  turkey: "sufi_mystic",
+  palestinian: "sufi_poet",
+  "orthodox-jew": "hermetic_magician",
+  rastafarians: "afrofuturist",
+  punjabi: "vedic_rishi",
+  pythia: "pythagorean",
+  sami: "shamanic_healer",
+  satanist: "cynical_philosopher",
+  sicanje: "celtic_druid",
+  stonewall: "situationist",
+  traveller: "rave_shaman",
+  ballroom: "afrofuturist",
+  "bong-bear": "rave_shaman",
+}
+
+// ---------------------------------------------------------------------------
 // NameKDF — Deterministic Name Derivation Function
 // ---------------------------------------------------------------------------
 
@@ -159,8 +203,9 @@ export function nameKDF(
   hmac.update(keyMaterial)
   const digest = hmac.digest()
 
-  // Look up corpus for this archetype×ancestor pair
-  const corpusKey = `${archetype}:${ancestor}`
+  // Map on-chain ancestor names to corpus ancestor IDs
+  const resolvedAncestor = ANCESTOR_ALIAS[ancestor.toLowerCase()] ?? ancestor
+  const corpusKey = `${archetype}:${resolvedAncestor}`
   const candidates = CORPUS[corpusKey]
 
   if (!candidates || candidates.length === 0) {

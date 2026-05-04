@@ -184,6 +184,47 @@ export function extractSubgraph(
     collectedNodeIds.add(elementId)
     collectNeighbors(graph, elementId, collectedNodeIds, collectedEdges)
 
+    // Tier 2 contextual traits — seed if present in v2 snapshot (Codex v2)
+    const tier2Traits: Array<[string, string | null | undefined]> = [
+      ["shirt", signals.shirt],
+      ["tattoo", signals.tattoo],
+      ["item", signals.item],
+      ["hat", signals.hat],
+      ["mask", signals.mask],
+    ]
+    for (const [traitType, traitValue] of tier2Traits) {
+      if (traitValue) {
+        const nodeId = `${traitType}:${traitValue.toLowerCase().replace(/\s+/g, "_")}`
+        if (graph.nodes.has(nodeId)) {
+          collectedNodeIds.add(nodeId)
+          collectNeighbors(graph, nodeId, collectedNodeIds, collectedEdges)
+        }
+      }
+    }
+
+    // Tier 1 cosmetic traits — seed if present (Codex v2)
+    const tier1Traits: Array<[string, string | null | undefined]> = [
+      ["eyes", signals.eyes],
+      ["hair", signals.hair],
+      ["mouth", signals.mouth],
+      ["eyebrows", signals.eyebrows],
+      ["earrings", signals.earrings],
+      ["glasses", signals.glasses],
+      ["face_accessory", signals.face_accessory],
+      ["body", signals.body],
+      ["background", signals.background],
+    ]
+    for (const [traitType, traitValue] of tier1Traits) {
+      if (traitValue) {
+        const nodeId = `${traitType}:${traitValue.toLowerCase().replace(/\s+/g, "_")}`
+        if (graph.nodes.has(nodeId)) {
+          collectedNodeIds.add(nodeId)
+          // Only 1-hop for cosmetic traits (lighter touch)
+          collectNeighbors(graph, nodeId, collectedNodeIds, collectedEdges)
+        }
+      }
+    }
+
     // Create derived edges from codex tables
     // molecule -> tarot (from molecule-tarot-bijection)
     if (signals.molecule && signals.tarot) {
@@ -355,11 +396,31 @@ export function resolvePhilosophicalFoundations(
 // Synthesis Subgraph Conversion (Sprint 11 Task 11.2)
 // ---------------------------------------------------------------------------
 
+/** Cultural artifact from tier 2 contextual traits (Codex v2) */
+export interface CulturalArtifact {
+  trait_type: string
+  trait_value: string
+  cultural_context: string
+  weight: number
+}
+
+/** Aesthetic presence from tier 1 cosmetic traits (Codex v2) */
+export interface AestheticPresence {
+  trait_type: string
+  trait_value: string
+  atmospheric_note: string
+  weight: number
+}
+
 /** Simplified subgraph format consumed by BeauvoirSynthesizer */
 export interface SynthesisSubgraph {
   cultural_references: string[]
   aesthetic_notes: string[]
   philosophical_lineage: string[]
+  /** Tier 2 contextual trait artifacts with codex cultural context (Codex v2) */
+  cultural_artifacts: CulturalArtifact[]
+  /** Tier 1 cosmetic trait presence for atmospheric grounding (Codex v2) */
+  aesthetic_presence: AestheticPresence[]
 }
 
 /**
@@ -414,10 +475,40 @@ export function toSynthesisSubgraph(
     }
   }
 
+  // Tier 2 cultural artifacts — nodes matching contextual trait types (Codex v2)
+  const TIER2_TYPES = new Set(["shirt", "tattoo", "item", "hat", "mask"])
+  const culturalArtifacts: CulturalArtifact[] = []
+  for (const node of subgraph.nodes) {
+    if (TIER2_TYPES.has(node.type)) {
+      culturalArtifacts.push({
+        trait_type: node.type,
+        trait_value: node.label,
+        cultural_context: (node.properties?.context as string) ?? "",
+        weight: 2.0,
+      })
+    }
+  }
+
+  // Tier 1 aesthetic presence — nodes matching cosmetic trait types (Codex v2)
+  const TIER1_TYPES = new Set(["eyes", "hair", "mouth", "eyebrows", "earrings", "glasses", "face_accessory", "body", "background"])
+  const aestheticPresenceList: AestheticPresence[] = []
+  for (const node of subgraph.nodes) {
+    if (TIER1_TYPES.has(node.type)) {
+      aestheticPresenceList.push({
+        trait_type: node.type,
+        trait_value: node.label,
+        atmospheric_note: (node.properties?.context as string) ?? "",
+        weight: 1.0,
+      })
+    }
+  }
+
   return {
     cultural_references: [...culturalRefs],
     aesthetic_notes: [...aestheticNotes],
     philosophical_lineage: [...philosophicalLineage],
+    cultural_artifacts: culturalArtifacts,
+    aesthetic_presence: aestheticPresenceList,
   }
 }
 

@@ -1,6 +1,23 @@
-[flatline] Execution mode: hitl (reason: Simstim workflow active (.run/simstim-state.json state=RUNNING))
-[flatline] Document: grimoires/loa/sdd.md
-[flatline] Phase: sdd
-[flatline] Mode: hitl
-[flatline] Timeout: 300s
-[flatline] Budget: 300 cents
+{
+  "phase": "sdd",
+  "document": "grimoires/loa/sdd.md",
+  "timestamp": "2026-02-28T14:10:00Z",
+  "status": "skipped",
+  "reason": "Anthropic API circuit breaker open — Opus review + skeptic calls failed after 4 retries each (2 attempts). GPT-5.3-Codex calls succeeded but single-model results insufficient for cross-model consensus.",
+  "fallback_validation": {
+    "gpt_review": {
+      "iterations": 3,
+      "verdict": "APPROVED",
+      "findings": "grimoires/loa/a2a/gpt-review/sdd-findings-3.json",
+      "blocking_issues_resolved": 6
+    }
+  },
+  "consensus_summary": {
+    "high_consensus_count": 0,
+    "disputed_count": 0,
+    "low_value_count": 0,
+    "blocker_count": 0,
+    "model_agreement_percent": 0,
+    "models": 0
+  }
+}

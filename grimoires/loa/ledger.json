@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-032",
+  "current_cycle": "cycle-040",
   "cycles": [
     {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -1237,8 +1237,10 @@
     },
     {
       "label": "Adaptive Intelligence — Quality Governance & Reputation Bootstrap",
-      "status": "completed",
+      "status": "archived",
       "started": "2026-02-21T12:00:00Z",
+      "archived": "2026-02-21T18:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-21-adaptive-intelligence-complete",
       "prd": "grimoires/loa/prd.md",
       "sdd": "grimoires/loa/sdd.md",
       "sprint_plan": "grimoires/loa/sprint.md",
@@ -1263,7 +1265,411 @@
       ]
     },
     {
-      "label": "Substrate Runtime — Effect Loader + Worker-Thread Sandbox + EventStore Bridge",
+      "label": "Protocol Convergence v7.9.2 — Full Adoption",
+      "status": "archived",
+      "started": "2026-02-23T12:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Issue #66 Sprint A. loa-hounfour v7.0.0 → v7.9.2. PRD v1.1.0: GPT-5.2 APPROVED (iteration 2, 7 blocking issues resolved). SDD v1.0.0: GPT-5.2 APPROVED + Flatline APPROVED. Sprint v1.0.0: GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Sprint v1.1.0 (Sprints 4-5): GPT-5.2 APPROVED (iteration 2, 5 blocking issues resolved). Sprint v1.2.0 (Sprint 6): GPT-5.2 APPROVED (iteration 2, 4 findings resolved — ADR location, test-count consistency, BudgetEpoch log-only, timeout backward-compat).",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 126,
+          "label": "Bump + Clean + Vectors",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 127,
+          "label": "Type System + Vocabulary + Handshake",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 128,
+          "label": "Decision Engine + Choreography",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 129,
+          "label": "Economic Boundary Hardening",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 130,
+          "label": "Test Depth + Dynamic Reputation Foundation",
+          "status": "completed",
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-6",
+          "global_id": 131,
+          "label": "Merge Readiness + Governance Documentation",
+          "status": "completed",
+          "tasks": 5
+        }
+      ],
+      "archived": "2026-02-25T15:30:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-25-protocol-convergence-v792-complete"
+    },
+    {
+      "label": "Hounfour v8.2.0 Upgrade — Commons Protocol + ModelPerformance",
+      "status": "archived",
+      "started": "2026-02-25T10:00:00Z",
+      "archived": "2026-02-26T00:30:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-26-hounfour-v820-upgrade",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Cycle-033. loa-hounfour v7.9.2 → v8.2.0. PRD v1.1.0: GPT-5.2 APPROVED. SDD v1.1.0: GPT-5.2 APPROVED. Sprint v1.3.0: GPT-5.2 APPROVED (iteration 2, 4 blocking issues resolved). Sprints 1-4 implemented via PR #107. Sprints 5-6: Commons Conservation + Autopoietic Instrumentation (PR #412). Bridgebuilder Deep Review posted. 2 post-review fixes (strict ISO 8601 validator, quarantine impedance docs).",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 132,
+          "label": "Bump + Foundation",
+          "status": "completed",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 133,
+          "label": "Adoption + Forward-Compat",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 134,
+          "label": "Bridgebuilder Excellence",
+          "status": "completed",
+          "tasks": 9
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 135,
+          "label": "Pre-Merge Polish — Deep Review Findings",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 136,
+          "label": "Commons Conservation + Test Health",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-6",
+          "global_id": 137,
+          "label": "Autopoietic Instrumentation + KnownFoo Propagation",
+          "status": "completed",
+          "tasks": 7
+        }
+      ]
+    },
+    {
+      "label": "Loop Closure & Launch Infrastructure — Goodhart Protection, AWS Deployment, x402 Payments",
+      "status": "archived",
+      "started": "2026-02-26T12:00:00Z",
+      "archived": "2026-02-26T17:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-26-loop-closure-launch-infrastructure",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Cycle-034. All 6 sprints completed via PR #108 (draft). 54 tasks, 160 tests, 57 files changed. Goodhart protection engine, reputation query bridge, x402 settlement, tamper-evident audit trail, AWS deployment pipeline, E2E shadow rollout. GPT-5.2 code review: 4 findings on test infra (false positives). PR awaiting merge.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 138,
+          "label": "Goodhart Protection Engine",
+          "status": "completed",
+          "tasks": 10
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 139,
+          "label": "Reputation Query Bridge + Quality Signal",
+          "status": "completed",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 140,
+          "label": "x402 Settlement System",
+          "status": "completed",
+          "tasks": 11
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 141,
+          "label": "Tamper-Evident Audit Trail",
+          "status": "completed",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 142,
+          "label": "AWS Deployment Pipeline",
+          "status": "completed",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-6",
+          "global_id": 143,
+          "label": "E2E Integration + Shadow Rollout",
+          "status": "completed",
+          "tasks": 9
+        }
+      ]
+    },
+    {
+      "label": "Production Activation & Loop Go-Live — Deploy, Wire, Graduate, Verify",
+      "status": "archived",
+      "started": "2026-02-26T17:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprint_plan": "grimoires/loa/sprint.md",
+      "notes": "Cycle-035. Takes cycle-034 mechanisms (Goodhart, reputation bridge, x402, audit trail) from shadow to live. Phases 3-4 from RFC #66 Round 10. Focuses on production deployment, live dixie wiring, shadow graduation, cross-system E2E, x402 mainnet activation.",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 144,
+          "label": "Runtime Infrastructure",
+          "status": "completed",
+          "tasks": 9
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 145,
+          "label": "Admin API + Dixie Transport + Graduation Metrics",
+          "status": "completed",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 146,
+          "label": "Three-Leg E2E Compose + Integration Tests",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 147,
+          "label": "x402 Chain Config + Graduation Script + Sepolia Test",
+          "status": "completed",
+          "tasks": 6
+        }
+      ],
+      "archived": "2026-02-26T06:41:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-26-production-activation-loop-go-live"
+    },
+    {
+      "id": "cycle-036",
+      "label": "Staging Readiness — Goodhart Wiring, ECS Staging, Fly.io Cleanup",
+      "status": "archived",
+      "started": "2026-02-26T12:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 144,
+          "label": "Goodhart Stack Wiring + Router Integration",
+          "status": "completed",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 145,
+          "label": "Fly.io/Railway Cleanup + CI E2E Fixes",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 146,
+          "label": "Terraform + ECS Staging + Deploy Workflow",
+          "status": "completed",
+          "tasks": 8
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 148,
+          "label": "Bridgebuilder Excellence Fixes",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 149,
+          "label": "Staging-Blocking Fixes (Before Activation)",
+          "status": "completed",
+          "tasks": 7,
+          "notes": "Commit e76fb86 — histogram fix, recovery-router sync, ECS health check, KillSwitch key align, shadow metrics dedup, SSM params, tfvars"
+        },
+        {
+          "local_id": "sprint-6",
+          "global_id": 150,
+          "label": "Shadow Traffic Safety (Before First Shadow Traffic)",
+          "status": "completed",
+          "tasks": 9,
+          "notes": "Commit 24c2ddd — prefixed-redis rewrite (eval block, async select, multi-key DEL), timer leak fix, pinned actions, pnpm, S3 bucket scoping, metrics auth, TF backend"
+        },
+        {
+          "local_id": "sprint-7",
+          "global_id": 151,
+          "label": "Excellence & Test Coverage (Before Graduation)",
+          "status": "completed",
+          "tasks": 12,
+          "notes": "Commit 3006a97 — type safety (RoutingState consolidation, as-any removal, holder pattern), 106 tests (router 26, mechanism 22, redis 39), Trivy CI scanning"
+        },
+        {
+          "local_id": "sprint-8",
+          "global_id": 152,
+          "label": "Pre-Merge Polish & CI Fixes",
+          "status": "completed",
+          "tasks": 15,
+          "notes": "15/15 tasks closed. T-8.1-T-8.10 pre-existing (code quality + supply chain). T-8.11 billing lock (external). T-8.12-T-8.15 CI fixes: pnpm migration, SHA pins, path fixes, melange removal."
+        }
+      ],
+      "archived": "2026-02-27T06:29:40Z",
+      "archive_path": "grimoires/loa/archive/2026-02-27-staging-deployment-complete"
+    },
+    {
+      "id": "cycle-037",
+      "label": "Hounfour v9 Contribution + CI Modernization",
+      "status": "archived",
+      "started": "2026-02-27T06:35:22Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprints": [],
+      "archived": "2026-02-27T07:00:00Z",
+      "notes": "PRD posted to hounfour PR #39 as [finn] feedback; implementation owned by hounfour"
+    },
+    {
+      "id": "cycle-038",
+      "label": "Hounfour v8.3.0 Upgrade + CI Standardization",
+      "status": "archived",
+      "started": "2026-02-28T12:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 153,
+          "label": "Pin Bump + Surface Adoption + CI",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 154,
+          "label": "Test-Vector Adoption",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 155,
+          "label": "Behavioral Adoption",
+          "status": "completed",
+          "tasks": 7
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 156,
+          "label": "Protocol Excellence (Bridgebuilder Review)",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 157,
+          "label": "GovernedBilling Production Pathway",
+          "status": "completed",
+          "tasks": 5
+        }
+      ],
+      "archived": "2026-02-28T14:00:00Z",
+      "archive_path": "grimoires/loa/archive/2026-02-28-hounfour-v831-upgrade"
+    },
+    {
+      "id": "cycle-039",
+      "label": "Ground Truth Excellence — Bridgebuilder PR #122 Findings",
+      "status": "active",
+      "started": "2026-02-28T14:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 158,
+          "label": "Foundation — Error Schemas + Failure Modes + Provenance",
+          "status": "pending",
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 159,
+          "label": "Machine-Consumable GT — Contracts YAML",
+          "status": "pending",
+          "tasks": 4
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 160,
+          "label": "Executable Specifications — Property Tests from Invariants",
+          "status": "pending",
+          "tasks": 5
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 161,
+          "label": "GT Immune System — Staleness Detection + Drift Monitoring",
+          "status": "pending",
+          "tasks": 6
+        }
+      ]
+    },
+    {
+      "label": "Per-NFT Personality — Pipeline Wiring + Scale-Out Design",
+      "status": "active",
+      "started": "2026-03-26T11:00:00Z",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 162,
+          "label": "Core Pipeline Wiring",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 163,
+          "label": "Identity Graph + Experience Engine + Metadata",
+          "status": "completed",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 164,
+          "label": "Pre-Compute + Polish + E2E Validation",
+          "status": "completed",
+          "tasks": 5
+        }
+      ]
+    },
+    {
+      "label": "Substrate Runtime — Effect Loader + Worker-Thread Sandbox + EventStore Bridge (operator-named cycle-032)",
       "status": "completed",
       "started": "2026-05-03T17:00:00Z",
       "prd": "grimoires/loa/specs/cycle-2-substrate-runtime-build.md",
@@ -1330,5 +1736,5 @@
       ]
     }
   ],
-  "next_global_sprint_id": 126
+  "next_global_sprint_id": 158
 }
