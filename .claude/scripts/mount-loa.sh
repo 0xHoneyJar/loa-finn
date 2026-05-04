@@ -39,7 +39,7 @@ if [[ -z "${BASH_SOURCE[0]:-}" ]] && [[ -z "${_LOA_MOUNT_REEXEC:-}" ]]; then
   mkdir -p "$_loa_tmpdir/lib"
   _loa_ok=true
   for _f in mount-loa.sh mount-submodule.sh compat-lib.sh; do
-    if ! curl -fsSL -- "$_loa_base/$_f" -o "$_loa_tmpdir/$_f"; then
+    if ! curl -fsSL -o "$_loa_tmpdir/$_f" -- "$_loa_base/$_f"; then
       _loa_ok=false
     fi
   done
@@ -55,7 +55,7 @@ if [[ -z "${BASH_SOURCE[0]:-}" ]] && [[ -z "${_LOA_MOUNT_REEXEC:-}" ]]; then
 
   # Download auxiliary scripts (non-fatal if missing in older versions)
   for _f in bootstrap.sh bash-version-guard.sh lib/symlink-manifest.sh; do
-    curl -fsSL -- "$_loa_base/$_f" -o "$_loa_tmpdir/$_f" 2>/dev/null || true
+    curl -fsSL -o "$_loa_tmpdir/$_f" -- "$_loa_base/$_f" 2>/dev/null || true
   done
   chmod +x "$_loa_tmpdir"/*.sh "$_loa_tmpdir/lib"/*.sh 2>/dev/null || true
 

@@ -37,6 +37,63 @@ export interface BridgebuilderConfig {
     pass1Cache?: {
         enabled: boolean;
     };
+    /** Multi-model review configuration. When enabled, multiple models review in parallel. */
+    multiModel?: MultiModelConfig;
+}
+/** Multi-model provider configuration entry. */
+export interface MultiModelProviderEntry {
+    provider: string;
+    model_id: string;
+    role: "primary" | "reviewer";
+}
+/** Multi-model Bridgebuilder configuration. */
+export interface MultiModelConfig {
+    enabled: boolean;
+    models: MultiModelProviderEntry[];
+    iteration_strategy: "every" | "final" | number[];
+    api_key_mode: "graceful" | "strict";
+    consensus: {
+        enabled: boolean;
+        scoring_thresholds: {
+            high_consensus: number;
+            disputed_delta: number;
+            low_value: number;
+            blocker: number;
+        };
+    };
+    token_budget: {
+        per_model: number | null;
+        total: number | null;
+    };
+    depth: {
+        structural_checklist: boolean;
+        checklist_min_elements: number;
+        permission_to_question: boolean;
+        lore_active_weaving: boolean;
+        /**
+         * Path to the lore patterns YAML file. Used only when
+         * `lore_active_weaving === true`. Defaults to
+         * `grimoires/loa/lore/patterns.yaml` (DEFAULT_LORE_PATH in lore-loader.ts).
+         */
+        lore_path?: string;
+    };
+    cross_repo: {
+        auto_detect: boolean;
+        manual_refs: string[];
+    };
+    rating: {
+        enabled: boolean;
+        timeout_seconds: number;
+        retrospective_command: boolean;
+    };
+    progress: {
+        verbose: boolean;
+    };
+    max_concurrency?: number;
+    cost_rates?: Record<string, {
+        input: number;
+        output: number;
+    }>;
 }
 export interface ReviewItem {
     owner: string;
@@ -176,6 +233,29 @@ export interface EnrichmentOptions {
     truncationContext?: TruncationContext;
     personaMetadata?: PersonaMetadata;
     ecosystemContext?: EcosystemContext;
+    /**
+     * Lore entries passed through to `buildEnrichedSystemPrompt`. Only emitted
+     * in the prompt when `multiModelConfig.depth.lore_active_weaving === true`.
+     * Closes #464 A5 — multi-model enrichment now actually weaves lore.
+     */
+    loreEntries?: LoreEntryRef[];
+    /**
+     * Multi-model config. Required to read the `depth.lore_active_weaving`
+     * flag that gates lore inclusion. Optional for backwards compatibility.
+     */
+    multiModelConfig?: MultiModelConfig;
+}
+/**
+ * Local minimal LoreEntry shape (mirrors `LoreEntry` exported by template.ts).
+ * Avoids a circular type import — types.ts is imported by template.ts.
+ */
+export interface LoreEntryRef {
+    id: string;
+    term: string;
+    short: string;
+    context: string;
+    source?: string;
+    tags?: string[];
 }
 /** Token estimate broken down by component for calibration logging. */
 export interface TokenEstimateBreakdown {

@@ -1,0 +1,409 @@
+// src/substrate/sandbox-bridge.ts — Parent-side substrate-construct dispatcher.
+//
+// Cycle-032 Sprint-5. See PRD FR-5 + SDD §4.7.
+//
+// PARENT-side. NO Effect imports (parent stays Promise-based per PRD §4 BARTH cut).
+// Owns:
+//   - Worker(s) running sandbox-worker.ts (or a substrate-specific entry)
+//   - Bridge response handlers: when worker sends modelrunner.req → call cheval
+//     adapter → post modelrunner.res back. Same for eventwriter.req.
+//   - bridgeInvoke(loaded, runtimeOpts, input) public API
+//   - dispose-runtime broadcast (called when JWT TTL expires or config reload)
+//
+// Architecture note — divergence from existing WorkerPool:
+// Sprint-5 ships a SEPARATE substrate worker pool (not modifying existing
+// `src/agent/worker-pool.ts`). The PRD FR-5 acceptance test mentions running
+// in the "interactive lane (worker 1 or 2 occupied)" — that integration with
+// the existing pool's lane scheduling is a follow-up sprint. For sprint-5,
+// the bridge mechanism + worker-runtime.ts are the load-bearing primitives;
+// pool integration is purely a lifecycle-management concern that doesn't
+// change the API.
+
+import { randomUUID } from "node:crypto"
+import { Worker, type WorkerOptions } from "node:worker_threads"
+import type { LoadedConstruct } from "./types.js"
+import type { ModelInvoker } from "./model-runner-layer.js"
+import { mapErrorToModelRunnerError } from "./model-runner-layer.js"
+import type { EventWriter as EventStoreWriter } from "../events/writer.js"
+import { registerEventStream, type EventStream } from "../events/types.js"
+
+// ── Public surface ──────────────────────────────────────────────────
+
+export interface RuntimeOpts {
+  agentId: string
+  tenantId: string
+  poolId: string
+  modelId: string
+  tier: string
+}
+
+export interface BridgeLogger {
+  info: (msg: string, ctx?: Record<string, unknown>) => void
+  warn: (msg: string, ctx?: Record<string, unknown>) => void
+  error: (msg: string, ctx?: Record<string, unknown>) => void
+}
+
+const NOOP_LOGGER: BridgeLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+}
+
+export interface SandboxBridgeOptions {
+  /** Path to the worker entry script (compiled .js or .mjs). */
+  workerScript: string
+  /** Worker options (env, resourceLimits, etc.) to pass through. */
+  workerOptions?: WorkerOptions
+  /** Bridge handler for ModelRunner proxy requests. Wraps cheval-invoker in production. */
+  modelInvoker: ModelInvoker
+  /** Bridge handler for EventWriter proxy requests. Wraps EventStore in production. */
+  eventWriter: EventStoreWriter
+  /** Stream name for substrate-emitted events. Default: "substrate_invocations". */
+  streamName?: string
+  /**
+   * Per-invocation timeout in milliseconds. If `bridge.invoke()` doesn't see
+   * a `result` envelope from the worker within this window, the Promise
+   * rejects and the inFlight entry is freed. Defaults to 60_000 (60s).
+   * Set to 0 to disable (NOT recommended for production — see Bridgebuilder
+   * review HIGH finding on cycle-032).
+   */
+  invokeTimeoutMs?: number
+  /**
+   * Trusted packs-directory prefixes for worker-side modPath containment.
+   * REQUIRED for production — the worker default-denies any modPath that
+   * doesn't start with one of these prefixes (Bridgebuilder iter-3 HIGH
+   * fix). Pass at construction; merged into `workerOptions.workerData`.
+   * In development with no security model, omit and the worker will reject
+   * all substrate-invoke envelopes with a clear error.
+   */
+  trustedPacksDirs?: string[]
+  /**
+   * Optional structured logger. Defaults to a no-op. Production wires up
+   * pi-coding-agent's logger or similar. Used for: invoke start/end with
+   * jobId+slug, bridge errors, worker exits, dispose calls, stray messages.
+   */
+  logger?: BridgeLogger
+  /**
+   * Optional callback fired when the worker exits unexpectedly (non-zero
+   * code, not during operator-initiated shutdown). Bridgebuilder iter-5
+   * MEDIUM fix: gives the parent application a hook to surface bridge
+   * death to monitoring / alerting / supervisor restart logic. Without
+   * this, the bridge silently becomes unusable until the operator notices
+   * failed invocations.
+   */
+  onWorkerDeath?: (code: number) => void
+}
+
+export interface SandboxBridge {
+  /** Run a construct's program inside a worker_thread sandbox via the bridge. */
+  invoke(loaded: LoadedConstruct, runtimeOpts: RuntimeOpts, input: unknown): Promise<unknown>
+  /** Broadcast dispose-runtime to all workers; drops the cached ManagedRuntime for this slug. */
+  dispose(slug: string): void
+  /** Tear down all workers + reject pending invocations. */
+  shutdown(): Promise<void>
+  /** Visible-for-tests: number of in-flight invocations. */
+  inFlightCount(): number
+  /**
+   * Returns true iff the bridge is accepting new invocations. False after
+   * shutdown() OR after an unexpected worker death (Bridgebuilder iter-5
+   * MEDIUM operational-readiness fix). Production callers should poll or
+   * check before each invoke; failed health is recoverable only by
+   * constructing a fresh bridge.
+   */
+  isHealthy(): boolean
+}
+
+export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
+  const streamName = opts.streamName ?? "substrate_invocations"
+  const invokeTimeoutMs = opts.invokeTimeoutMs ?? 60_000
+  const logger = opts.logger ?? NOOP_LOGGER
+  let cachedStream: EventStream | null = null
+
+  const getStream = (): EventStream => {
+    if (!cachedStream) cachedStream = registerEventStream(streamName)
+    return cachedStream
+  }
+
+  // Single dedicated worker for sprint-5. Multi-worker pool is a follow-up.
+  // Merge trustedPacksDirs into workerData so worker-entry.ts can register
+  // them at boot — Bridgebuilder iter-3 HIGH fix requires explicit, eager
+  // registration (worker default-denies modPath without trusted prefixes).
+  const mergedWorkerOptions: WorkerOptions = {
+    ...(opts.workerOptions ?? {}),
+    workerData: {
+      ...(((opts.workerOptions?.workerData as Record<string, unknown> | undefined) ?? {})),
+      trustedPacksDirs: opts.trustedPacksDirs ?? [],
+    },
+  }
+  const worker = new Worker(opts.workerScript, mergedWorkerOptions)
+  let shutdownRequested = false
+
+  // Map of in-flight top-level invoke jobIds → resolvers (with timeout cleanup)
+  type InvokeResolver = {
+    resolve: (v: unknown) => void
+    reject: (e: unknown) => void
+    /** Cleared on resolve/reject — prevents the timeout from firing afterward. */
+    timer: ReturnType<typeof setTimeout> | null
+    slug: string
+  }
+  const inFlight = new Map<string, InvokeResolver>()
+
+  worker.on("message", async (msg: unknown) => {
+    if (!isObj(msg) || typeof msg.type !== "string") {
+      logger.warn("substrate-bridge: dropped malformed worker message", { msg })
+      return
+    }
+
+    switch (msg.type) {
+      case "result": {
+        const jobId = String(msg.jobId)
+        const pending = inFlight.get(jobId)
+        if (!pending) {
+          logger.warn("substrate-bridge: stray result envelope (no in-flight match)", { jobId })
+          return
+        }
+        if (pending.timer) clearTimeout(pending.timer)
+        inFlight.delete(jobId)
+        logger.info("substrate-bridge: invoke resolved", { jobId, slug: pending.slug })
+        pending.resolve(msg.result)
+        return
+      }
+      case "error": {
+        const jobId = String(msg.jobId)
+        const pending = inFlight.get(jobId)
+        if (!pending) {
+          logger.warn("substrate-bridge: stray error envelope (no in-flight match)", { jobId })
+          return
+        }
+        if (pending.timer) clearTimeout(pending.timer)
+        inFlight.delete(jobId)
+        logger.warn("substrate-bridge: invoke rejected by worker", { jobId, slug: pending.slug, error: msg.error })
+        pending.reject(msg.error)
+        return
+      }
+      case "modelrunner.req": {
+        // Worker is asking us to invoke cheval; respond with text or error.
+        // Bridgebuilder iter-2 #4: skip if the originating top-level invoke
+        // has already settled (timeout/error/shutdown) — avoids wasted
+        // cheval calls that nobody is listening for.
+        const jobId = String(msg.jobId)
+        const topLevelJobId = typeof msg.topLevelJobId === "string" ? msg.topLevelJobId : null
+        if (topLevelJobId && !inFlight.has(topLevelJobId)) {
+          logger.warn("substrate-bridge: skipping modelrunner.req for stale top-level invoke", {
+            jobId,
+            topLevelJobId,
+          })
+          worker.postMessage({
+            type: "modelrunner.res",
+            jobId,
+            error: {
+              _tag: "ModelRunnerError",
+              reason: "unknown",
+              message: `top-level invoke ${topLevelJobId} already settled; bridge proxy skipped`,
+            },
+          })
+          return
+        }
+        // Bridgebuilder iter-4 HIGH fix: minimal shape validation on the
+        // completionRequest before forwarding. Defends against a buggy or
+        // compromised worker emitting a malformed envelope that propagates
+        // unexpected fields into the cheval adapter (confused-deputy class).
+        const completionRequest = msg.completionRequest
+        const shapeError = validateCompletionRequestShape(completionRequest)
+        if (shapeError) {
+          logger.warn("substrate-bridge: rejected modelrunner.req with malformed completionRequest", { jobId, error: shapeError })
+          worker.postMessage({
+            type: "modelrunner.res",
+            jobId,
+            error: { _tag: "ModelRunnerError", reason: "invalid-input", message: shapeError },
+          })
+          return
+        }
+        try {
+          const result = await opts.modelInvoker.complete(completionRequest as never)
+          worker.postMessage({ type: "modelrunner.res", jobId, result: { text: result.content } })
+        } catch (cause) {
+          const wireError = mapErrorToModelRunnerError(cause)
+          logger.warn("substrate-bridge: modelrunner proxy failed", { jobId, reason: wireError.reason, message: wireError.message })
+          worker.postMessage({
+            type: "modelrunner.res",
+            jobId,
+            error: { _tag: wireError._tag, reason: wireError.reason, message: wireError.message },
+          })
+        }
+        return
+      }
+      case "eventwriter.req": {
+        const jobId = String(msg.jobId)
+        const topLevelJobId = typeof msg.topLevelJobId === "string" ? msg.topLevelJobId : null
+        if (topLevelJobId && !inFlight.has(topLevelJobId)) {
+          logger.warn("substrate-bridge: skipping eventwriter.req for stale top-level invoke", {
+            jobId,
+            topLevelJobId,
+          })
+          worker.postMessage({
+            type: "eventwriter.res",
+            jobId,
+            error: {
+              _tag: "EventWriterError",
+              reason: "unknown",
+              message: `top-level invoke ${topLevelJobId} already settled; bridge proxy skipped`,
+            },
+          })
+          return
+        }
+        const envelope = msg.envelope as { subject: string; payload: unknown } | undefined
+        if (!envelope || typeof envelope.subject !== "string") {
+          logger.warn("substrate-bridge: eventwriter envelope invalid", { jobId, envelope })
+          worker.postMessage({
+            type: "eventwriter.res",
+            jobId,
+            error: { _tag: "EventWriterError", reason: "invalid-subject", message: "missing or invalid envelope" },
+          })
+          return
+        }
+        try {
+          await opts.eventWriter.append(getStream(), envelope.subject, envelope.payload, randomUUID())
+          worker.postMessage({ type: "eventwriter.res", jobId, result: { ok: true } })
+        } catch (cause) {
+          const message = cause instanceof Error ? cause.message : String(cause)
+          logger.warn("substrate-bridge: eventwriter append failed", { jobId, subject: envelope.subject, message })
+          worker.postMessage({
+            type: "eventwriter.res",
+            jobId,
+            error: { _tag: "EventWriterError", reason: "append-failed", message },
+          })
+        }
+        return
+      }
+      default: {
+        logger.warn("substrate-bridge: unrecognized worker message type", { type: msg.type })
+        return
+      }
+    }
+  })
+
+  worker.on("error", (err) => {
+    // Reject all in-flight invocations
+    logger.error("substrate-bridge: worker emitted error", { error: err.message })
+    for (const [, pending] of inFlight) {
+      if (pending.timer) clearTimeout(pending.timer)
+      pending.reject(err)
+    }
+    inFlight.clear()
+  })
+
+  worker.on("exit", (code) => {
+    if (!shutdownRequested && code !== 0) {
+      logger.error("substrate-bridge: worker exited unexpectedly — bridge unusable", { code })
+      // Bridgebuilder iter-3 Medium fix: mark shutdownRequested so subsequent
+      // invoke() calls reject fast instead of queueing into a dead worker.
+      // Bridgebuilder iter-5 Medium fix: also fire onWorkerDeath callback so
+      // the parent application can surface the death to monitoring.
+      shutdownRequested = true
+      const err = new Error(`substrate worker exited unexpectedly with code ${code} — bridge no longer accepting invocations`)
+      for (const [, pending] of inFlight) {
+        if (pending.timer) clearTimeout(pending.timer)
+        pending.reject(err)
+      }
+      inFlight.clear()
+      try {
+        opts.onWorkerDeath?.(code ?? -1)
+      } catch (cbErr) {
+        // Don't let a buggy callback re-throw and break the worker-exit handler
+        logger.error("substrate-bridge: onWorkerDeath callback threw", { err: cbErr instanceof Error ? cbErr.message : String(cbErr) })
+      }
+    }
+  })
+
+  return {
+    invoke(loaded, runtimeOpts, input): Promise<unknown> {
+      if (shutdownRequested) {
+        return Promise.reject(new Error("sandbox bridge is shutting down"))
+      }
+      const jobId = randomUUID()
+      const exportName = loaded.manifest.executable?.export
+      if (!exportName) {
+        return Promise.reject(new Error(`construct ${loaded.slug} has no executable.export`))
+      }
+      logger.info("substrate-bridge: invoke start", { jobId, slug: loaded.slug })
+      return new Promise((resolve, reject) => {
+        // Per-invocation timeout (Bridgebuilder HIGH finding fix). Without
+        // this, a hung worker (deadlocked Effect, lost postMessage, parent
+        // crash mid-bridge-proxy) would leak the inFlight entry forever.
+        const timer = invokeTimeoutMs > 0
+          ? setTimeout(() => {
+              if (inFlight.delete(jobId)) {
+                logger.error("substrate-bridge: invoke timed out", { jobId, slug: loaded.slug, invokeTimeoutMs })
+                reject(new Error(`substrate invoke ${jobId} (slug=${loaded.slug}) timed out after ${invokeTimeoutMs}ms`))
+              }
+            }, invokeTimeoutMs)
+          : null
+        inFlight.set(jobId, { resolve, reject, timer, slug: loaded.slug })
+        worker.postMessage({
+          type: "substrate-invoke",
+          jobId,
+          slug: loaded.slug, // Bridgebuilder Medium fix: pass canonical slug for cache key
+          modPath: loaded.entryPath,
+          exportName,
+          input,
+          runtimeOpts,
+          // Codex C1 fix: thread declared capability requirements through to
+          // the worker so createRuntimeForSlug can compose only the layers
+          // the manifest actually requested. Empty array = no bridge caps.
+          // Undefined preserves back-compat (worker treats as "all layers").
+          requirements: loaded.manifest.requirements?.map((r) => r.tag),
+        })
+      })
+    },
+
+    dispose(slug): void {
+      logger.info("substrate-bridge: dispose-runtime", { slug })
+      worker.postMessage({ type: "dispose-runtime", slug })
+    },
+
+    async shutdown(): Promise<void> {
+      logger.info("substrate-bridge: shutdown initiated", { inFlight: inFlight.size })
+      shutdownRequested = true
+      for (const [, pending] of inFlight) {
+        if (pending.timer) clearTimeout(pending.timer)
+        pending.reject(new Error("sandbox bridge shutdown"))
+      }
+      inFlight.clear()
+      await worker.terminate()
+      logger.info("substrate-bridge: shutdown complete", {})
+    },
+
+    inFlightCount: () => inFlight.size,
+    isHealthy: () => !shutdownRequested,
+  }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function isObj(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null
+}
+
+/**
+ * Minimal shape check on completionRequest before we forward to the model
+ * invoker. Returns null if shape OK, otherwise a human-readable error.
+ *
+ * This is a confused-deputy defense (Bridgebuilder iter-4 HIGH): the parent
+ * cannot blindly trust the worker's message — a malformed envelope could
+ * propagate into cheval and trigger unexpected behavior. We require:
+ *   - messages: array
+ *   - metadata: object with agent (string), tenant_id (string), trace_id (string)
+ * Stricter validation (TypeBox/Zod against the full CompletionRequest schema)
+ * is a follow-up; this catches the obvious shape-confusion attacks.
+ */
+function validateCompletionRequestShape(req: unknown): string | null {
+  if (!isObj(req)) return "completionRequest must be an object"
+  if (!Array.isArray(req.messages)) return "completionRequest.messages must be an array"
+  const meta = req.metadata
+  if (!isObj(meta)) return "completionRequest.metadata must be an object"
+  if (typeof meta.agent !== "string") return "completionRequest.metadata.agent must be a string"
+  if (typeof meta.tenant_id !== "string") return "completionRequest.metadata.tenant_id must be a string"
+  if (typeof meta.trace_id !== "string") return "completionRequest.metadata.trace_id must be a string"
+  return null
+}

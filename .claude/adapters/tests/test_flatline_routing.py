@@ -199,7 +199,9 @@ class TestModelInvokeDryRun:
         data = self._dry_run("flatline-reviewer")
         assert data["agent"] == "flatline-reviewer"
         assert data["resolved_provider"] == "openai"
-        assert data["resolved_model"] == "gpt-5.2"
+        # cycle-040 PR #414 migrated the `reviewer` alias from gpt-5.2 → gpt-5.3-codex;
+        # this assertion lagged the config change and was caught during cycle-082 audit.
+        assert data["resolved_model"] == "gpt-5.3-codex"
 
     def test_flatline_scorer_dry_run(self):
         data = self._dry_run("flatline-scorer")
@@ -299,7 +301,7 @@ class TestModelAdapterShim:
         """Legacy model names correctly translate to provider:model-id."""
         tests = [
             ("gpt-5.2", "openai", "gpt-5.2"),
-            ("opus", "anthropic", "claude-opus-4-6"),
+            ("opus", "anthropic", "claude-opus-4-7"),  # cycle-082: retargeted from 4-6
         ]
         for model, expected_provider, expected_model in tests:
             result = self._run_adapter(

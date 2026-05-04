@@ -1,158 +1,101 @@
-# Sprint Plan: Per-NFT Personality — Pipeline Wiring + Scale-Out Design
+# Sprint Plan: Bridge Iter-2 Substrate Hardening (PR #157 fixes)
 
-**Cycle:** 040
-**PRD:** `grimoires/loa/prd.md`
-**SDD:** `grimoires/loa/sdd.md`
-**Date:** 2026-03-26
-**References:** [Issue #132](https://github.com/0xHoneyJar/loa-finn/issues/132) · [Issue #133](https://github.com/0xHoneyJar/loa-finn/issues/133)
+**Cycle:** bridge-iter2-fix
+**Source:** Bridgebuilder review of PR #157 (cycle-032 substrate-runtime), iter-1, 2026-05-04
+**Review ID:** bridgebuilder-20260504T174805-424a
+**PRD/SDD:** `grimoires/loa/prd-cycle-032-substrate-runtime.md` + `grimoires/loa/sdd-cycle-032-substrate-runtime.md` (substrate-runtime context)
+**Findings file:** `.run/bridge-reviews/bridge-20260504-1748-r1-iter1-findings.json`
 
----
+## Scope
 
-## Goals
+Address the 1 HIGH and 5 MEDIUM findings from bridgebuilder iter-1. LOW findings deferred to future iterations. PRAISE findings are validation, no action.
 
-| ID | Goal | Source |
-|----|------|--------|
-| G-1 | Soft launch ready: 5-10 team members chatting with distinct dNFT agents on production | prd.md:L27 |
-| G-2 | Product thesis validated: on-chain traits produce personality | prd.md:L28 |
-| G-3 | Scale-out architecture designed for 100K+ NFTs | prd.md:L29 |
+This is a bridge-fix sprint, not a feature sprint — the goal is to harden the substrate-runtime that's already been built and tested in cycle-032.
 
----
+## Sprint 1: Substrate-Runtime Iter-1 Hardening
 
-## Sprint 1: Core Pipeline Wiring (P0)
+**Goal:** Address all HIGH+MEDIUM findings from bridgebuilder iter-1 review on PR #157.
 
-**Global ID:** 162
-**Goal:** Wire existing pipeline components into `PersonalityPipelineOrchestrator` so tokenId in chat request produces on-chain-derived personality with ownership verification and fallback degradation.
+### Task 1.1: Verify or fix ALS context propagation through cached Layers (F1, HIGH)
 
-### Tasks
+**File:** `src/substrate/worker-runtime.ts` + new test in `src/substrate/__tests__/`
 
-| ID | Task | Files | Goals |
-|----|------|-------|-------|
-| T-1.1 | Create `PersonalityPipelineOrchestrator` implementing `PersonalityProvider` — sequences: cache check → signal resolution → DAMP derivation → BEAUVOIR synthesis → cache write | `src/nft/personality-pipeline.ts` (NEW) | G-1, G-2 |
-| T-1.2 | Wire orchestrator into `PersonalityProviderChain` via `server.ts` — chain: PipelineOrchestrator → PersonalityStore → StaticPersonalityLoader | `personality-provider-chain.ts`, `server.ts` | G-1 |
-| T-1.3 | Centralized `verifyOwnership()` service function + Hono middleware — 60s TTL auth cache (NOT 24h signal cache), deny-by-default, `blockNumber` staleness detection. All session paths MUST route through this. | `src/nft/ownership-gate.ts` (NEW), `agent-chat.ts` | G-1 |
-| T-1.4 | Implement fallback/degradation chain — on-chain fail → reject, graph fail → empty subgraph, synthesis fail → cached BEAUVOIR → static fallback | `personality-pipeline.ts` | G-1 |
-| T-1.5 | Per-token distributed lock (Redis `SET NX`, 30s expiry) for synthesis concurrency control. Dual-write consistency: Postgres first, then Redis. Read-repair on content hash mismatch. | `personality-pipeline.ts` | G-1 |
-| T-1.6 | BEAUVOIR sanitization — strip `<system-personality>` delimiters, system-role directives. Validate against section schema + length limits before storage. | `personality-pipeline.ts` | G-1 |
-| T-1.7 | WebSocket loading state frames — `personality_loading` with stage/progress, then `personality_ready` with metadata | `agent-chat.ts`, WebSocket handler | G-1 |
-| T-1.8 | Unit + integration tests for pipeline (cache hit, cache miss, degradation, concurrency, sanitization) | `tests/finn/personality-pipeline.test.ts` (NEW) | G-1, G-2 |
-| T-1.9 | Ownership gate tests — matching wallet, non-owner 403, allowlist denied, ALL entry points covered | `tests/finn/ownership-gate.test.ts` (NEW) | G-1 |
+**Finding:** Bridge proxy Layers (buildBridgeModelRunnerLayer / buildBridgeEventWriterLayer) call `invocationContext.getStore()` to read topLevelJobId. AsyncLocalStorage propagation through `Effect.tryPromise` + `new Promise(...)` + `port.postMessage(...)` callbacks only works inside the same async chain as `invocationContext.run(...)`. Layers are CACHED in runtimeCache and reused across invokes — second+ invokes may read stale snapshot or null.
 
-### Acceptance Criteria
+**Acceptance criteria:**
+- [ ] New test `als-context-cached-runtime.test.ts` (or similar): two sequential `handleSubstrateInvoke` calls with DIFFERENT `topLevelJobId` values use the SAME cached runtime, then assert that the ModelRunner bridge proxy received the second call's distinct `topLevelJobId` (not the first's, not null).
+- [ ] If the test passes as-is: add a brief comment in `worker-runtime.ts` near the cached Layer construction explaining the ALS-frame invariant relied on.
+- [ ] If the test fails: refactor topLevelJobId threading from ALS to either Effect.FiberRef or explicit Context.with(), keeping the bridge proxy contract identical.
 
-- [x] A tokenId in the chat request produces a personality derived from on-chain traits (not static config)
-- [x] Non-owners receive 403 `OWNERSHIP_REQUIRED` on ALL entry points (HTTP, WS)
-- [x] Non-allowlisted wallets receive 403 `ALLOWLIST_DENIED` during soft launch
-- [x] Ownership uses 60s TTL cache, NOT 24h signal cache
-- [x] Concurrent requests for same tokenId do not trigger duplicate synthesis (singleflight)
-- [ ] Postgres is source of truth; Redis self-heals via read-repair on hash mismatch *(read-repair deferred to Sprint 2)*
-- [x] Generated BEAUVOIR cannot break out of `<system-personality>` delimiters
-- [ ] WebSocket sends loading state frames during cold-cache resolution *(T-1.7 deferred)*
-- [x] Synthesis failure falls back to cached BEAUVOIR, then static config
-- [x] All degradation paths logged with severity
+### Task 1.2: Protect against dispose-vs-invoke race in handleDisposeRuntime (F17, MEDIUM)
 
-### Dependencies
+**File:** `src/substrate/worker-runtime.ts`
 
-None. All pipeline components already exist.
+**Finding:** If `handleSubstrateInvoke` is in flight using `runtimeCache.get(slug)` and concurrently `handleDisposeRuntime(slug)` is called, the runtime is awaited-disposed while still in use. Microtask gap between cache lookup and runtime.runPromiseExit can land dispose between them.
 
-### Risks
+**Acceptance criteria:**
+- [ ] Add a per-slug in-flight invoke counter (Map<string, number>).
+- [ ] `handleSubstrateInvoke` increments before runPromiseExit and decrements (in finally) after.
+- [ ] `handleDisposeRuntime` checks the counter — if > 0, either:
+  - Reject with a typed error `RuntimeBusyError` (preferred — caller decides retry)
+  - OR queue dispose until counter reaches 0
+- [ ] Add unit test that schedules invoke + dispose concurrently and asserts dispose either completes after invoke OR is rejected (no silent disposal of in-flight runtime).
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| On-chain RPC failures in pipeline | Medium | Circuit breaker + fallback chain |
-| Opus synthesis latency (10s+) blocks first session | High | Loading state frames + pre-compute in Sprint 3 |
-| Stale ownership cache after NFT transfer | High | 60s TTL + transfer-listener invalidation (Flatline SKP-002) |
-| Duplicate synthesis on concurrent requests | Medium | Redis SET NX singleflight lock (Flatline SKP-004) |
+### Task 1.3: Eliminate JWT verify-vs-decode parse differential (F10, MEDIUM)
 
----
+**File:** `src/substrate/jwt-validator.ts`
 
-## Sprint 2: Identity Graph + Experience Engine + Metadata (P1)
+**Finding:** After `compactVerify(token, publicKey)` succeeds, the code splits `token.split('.')` and base64-decodes parts[1] manually to extract payload. Verifying one representation and acting on a separately-parsed representation is a parse-differential attack surface (OWASP JWT cheat sheet).
 
-**Global ID:** 163
-**Goal:** Enrich pipeline with cultural context from identity graph, wire experience engine for gradual personality drift, persist experience state, expose agent name/archetype in API responses.
+**Acceptance criteria:**
+- [ ] Use the `payload` returned by `compactVerify` directly instead of manual decode. (`compactVerify` returns `{ payload: Uint8Array, protectedHeader }` — JSON.parse the payload bytes once, no second decode.)
+- [ ] Verify all existing JWT tests pass without modification (correctness invariant).
+- [ ] Remove the manual `.split('.')` + base64-decode block.
 
-### Tasks
+### Task 1.4: Add trustedPacksDir prefix-edge-case unit test (F4, MEDIUM)
 
-| ID | Task | Files | Goals |
-|----|------|-------|-------|
-| T-2.1 | Wire identity graph into pipeline — `extractSubgraph()` → `toSynthesisSubgraph()` → pass to `BeauvoirSynthesizer.synthesize()` as `subgraph` parameter | `personality-pipeline.ts` | G-2 |
-| T-2.2 | Wire experience engine with canonical ordering (IMP-005/SKP-007): drift applied at read-time (`birth_fingerprint + stored_offsets = effective_fingerprint`), NOT during synthesis. Offsets updated async post-session via atomic Postgres transaction with optimistic concurrency. | `personality-pipeline.ts` | G-2 |
-| T-2.3 | Create `finn_experience_snapshots` Postgres table via Drizzle migration — personality_id PK, dial_offsets JSONB, interaction_count, epoch_count | `src/drizzle/schema.ts`, migration | G-2 |
-| T-2.4 | Extend agent-chat response with `agent_name` (nameKDF), `archetype`, `era` metadata | `agent-chat.ts` | G-1, G-2 |
-| T-2.5 | Identity graph integration tests — two agents with different ancestors produce different cultural grounding | `tests/finn/identity-graph-integration.test.ts` (NEW) | G-2 |
-| T-2.6 | Experience engine wiring tests — interaction count tracked, epoch trigger applies drift within bounds, cumulative clamp | `tests/finn/experience-wiring.test.ts` (NEW) | G-2 |
+**File:** `src/substrate/__tests__/worker-runtime-trust.test.ts` (new) or add to existing trust test file
 
-### Acceptance Criteria
+**Finding:** The trailing-separator-guard pattern is correctly applied (`registerTrustedPacksDir` appends `sep`). But there's no explicit test that proves `/trusted/packs-evil/foo.js` is REJECTED when only `/trusted/packs` is registered.
 
-- [x] Generated BEAUVOIR docs include cultural references appropriate to the ancestor
-- [x] Two agents with different ancestors produce visibly different cultural grounding
-- [x] After N interactions, personality dials shift within ±0.5% per epoch, ±5% cumulative
-- [x] Experience state persists across deploys (Postgres-backed)
-- [x] API response includes `agent_name`, `archetype`, and `era` fields
+**Acceptance criteria:**
+- [ ] New unit test: register `/trusted/packs` as trusted, then assert `isModPathTrusted('/trusted/packs-evil/foo.js')` returns false.
+- [ ] Companion test: assert `isModPathTrusted('/trusted/packs/foo.js')` returns true.
+- [ ] Companion test: assert `isModPathTrusted('/trusted/packs')` (the dir itself, no trailing slash) returns false (not a file).
 
-### Dependencies
+### Task 1.5: Add tsc --noEmit precondition to e2e test (F5, MEDIUM)
 
-Sprint 1 (pipeline orchestrator must exist).
+**File:** `src/substrate/__tests__/e2e.integration.test.ts`
 
-### Risks
+**Finding:** beforeAll() catches tsc failures and only verifies worker-entry.js exists, then proceeds. With `--noEmitOnError false`, tsc emits despite type errors, so e2e runs against potentially-broken JS.
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| Identity graph missing codex data for some combos | Low | `extractSubgraph()` returns empty subgraph gracefully |
-| Experience drift accumulation bugs | Medium | ±5% cumulative clamp + rebase mechanism |
+**Acceptance criteria:**
+- [ ] In beforeAll(), add a `tsc --noEmit --project <substrate-tsconfig>` invocation BEFORE the emit-only invocation.
+- [ ] If `tsc --noEmit` exits non-zero, throw an explicit error (don't fall back, don't proceed to file-existence check).
+- [ ] If `tsc --noEmit` passes, proceed with the existing emit-only invocation.
+- [ ] Add a brief comment explaining why the two-step pattern (check-then-emit) is the correct shape.
 
----
+### Task 1.6: Document JWT cached status field semantics (F9, MEDIUM)
 
-## Sprint 3: Pre-Compute + Polish + E2E Validation (P1-P2)
+**File:** `src/substrate/jwt-validator.ts` (the cache hit branch)
 
-**Global ID:** 164
-**Goal:** Pre-compute 5 demo personalities, wire transfer invalidation, document scale-out architecture, validate all PRD goals end-to-end.
+**Finding:** On cache hit, code spreads cached.result.license into a new object with overridden status: `{ ...cached.result.license, status: recheck.status }`. The cached entry itself remains with the ORIGINAL status. Any caller that peeks directly into the cache could see stale status.
 
-### Tasks
+**Acceptance criteria:**
+- [ ] Add a comment near the cache hit branch explaining: "cache.result.status is informational-as-of-cache-write; callers must use the recheck-derived status returned from this function, never reach into cache.result directly."
+- [ ] No code change required — this is documentation-only.
 
-| ID | Task | Files | Goals |
-|----|------|-------|-------|
-| T-3.1 | Create `scripts/precompute-personalities.ts` CLI — takes tokenIds, runs full pipeline per ID, validates anti-narration, reports distinctiveness scores | `scripts/precompute-personalities.ts` (NEW) | G-1 |
-| T-3.2 | Pre-compute 5 demo personalities with test tokenIds — validate all pass anti-narration, pairwise cosine < 0.7 | Script execution | G-1, G-2 |
-| T-3.3 | Wire transfer listener to cache invalidation — on Transfer event: `PersonalityStore.invalidate()` + `SignalCache.invalidate()` | `transfer-listener.ts` | G-1 |
-| T-3.4 | Create scale-out architecture documentation — batch derivation, cache warming, synthesis queue, degradation tiers, transfer invalidation | `docs/scale-out-design.md` (NEW) | G-3 |
-| T-3.5 | End-to-end integration test — cold cache → ownership → on-chain → DAMP → graph → synthesis → cache → warm read | `tests/finn/personality-e2e.test.ts` (NEW) | G-1, G-2 |
+## Definition of Done
 
-### Acceptance Criteria
+- [ ] All 6 tasks in Sprint 1 complete with their acceptance criteria met.
+- [ ] All existing substrate tests still pass (regression check).
+- [ ] New tests added by tasks 1.1, 1.2, 1.4 pass.
+- [ ] Code committed with messages referencing the finding ID (`fix(F1): ...`, `fix(F17): ...`, etc.) for traceability back to bridge iter-1.
+- [ ] No changes outside `src/substrate/` and its `__tests__/` directory.
 
-- [x] 5 personalities pre-computed and cached *(test fixtures; real tokenIds at production wiring)*
-- [x] All 5 pass anti-narration validation (0% violation rate)
-- [x] Pairwise cosine similarity < 0.7 between all 5 demos
-- [x] Transfer listener invalidates both personality and signal caches
-- [x] Scale-out doc covers all 5 patterns from PRD 5.5
-- [x] E2E test covers full cold-cache → warm-cache pipeline flow
+## Notes for Implementer
 
-### Dependencies
-
-Sprint 2 (identity graph wiring, experience engine, metadata).
-
-### Risks
-
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| Opus synthesis latency during pre-computation (~50s for 5) | Medium | Sequential processing is acceptable for 5 IDs |
-| Anti-narration false positives | Low | Retry loop (3 attempts) with violation feedback |
-
----
-
-## Goal Traceability
-
-| Goal | Contributing Tasks | Validation |
-|------|--------------------|------------|
-| G-1: Soft launch ready | T-1.1 through T-1.6, T-2.4, T-3.1, T-3.2, T-3.3, T-3.5 | Sprint 3 AC: 5 personalities cached, pipeline resolves, ownership works |
-| G-2: Product thesis validated | T-1.1, T-1.5, T-2.1 through T-2.6, T-3.2, T-3.5 | Sprint 3 AC: DAMP distinct (cosine < 0.7), BEAUVOIR passes AN, graph enriches synthesis |
-| G-3: Scale-out designed | T-3.4 | Sprint 3 AC: doc covers all 5 patterns |
-
----
-
-## Open Questions
-
-| Question | Owner | Status | Impact |
-|----------|-------|--------|--------|
-| Which 5 team-owned tokenIds for soft launch? | @janitooor | Open | Sprint 3 T-3.2 — using test IDs until resolved |
-| `collectionSalt` for `nameKDF()` in production? | @janitooor | Open | Sprint 2 T-2.4 — needs config value |
-| Experience flush: every epoch or batched? | Engineering | Open | Sprint 2 T-2.3 — recommend every epoch |
+- This is hardening on an already-shipped feature. Prefer minimal, surgical changes over refactors. Don't rewrite what isn't broken.
+- If Task 1.1 reveals that ALS context IS broken (test fails), implement the FiberRef refactor in the same task — don't punt.
+- Keep an eye on the existing test `sandbox-bridge.test.ts` — it asserts back-compat for omitted topLevelJobId, which must remain green.
+- The dispose-vs-invoke counter (Task 1.2) is a performance-neutral safety addition. Don't over-engineer with reactive primitives.
