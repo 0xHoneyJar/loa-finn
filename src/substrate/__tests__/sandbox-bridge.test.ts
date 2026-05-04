@@ -128,6 +128,7 @@ describe("sandbox-bridge invoke protocol", () => {
     expect(mockWorker.posted).toHaveLength(1)
     const sent = mockWorker.posted[0]!
     expect(sent.type).toBe("substrate-invoke")
+    expect(sent.slug).toBe("my-construct") // Bridgebuilder fix: canonical slug in envelope
     expect(sent.modPath).toBe("/abs/my-construct/dist/index.js")
     expect(sent.exportName).toBe("myExport")
     expect(sent.input).toEqual({ hello: "world" })
@@ -336,5 +337,140 @@ describe("dispose / shutdown", () => {
     await expect(
       bridge.invoke(fakeLoaded("y"), { agentId: "", tenantId: "", poolId: "", modelId: "", tier: "" }, null),
     ).rejects.toThrow(/shutting down/)
+  })
+})
+
+// ── Bridgebuilder review fixes (cycle-032 hardening) ────────────────
+
+describe("invoke timeout (Bridgebuilder HIGH fix)", () => {
+  it("rejects with timeout error if worker never sends result envelope", async () => {
+    const bridge = makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: passthroughEventWriter,
+      invokeTimeoutMs: 50, // 50ms timeout for fast test
+    })
+    const loaded = fakeLoaded("hangy")
+    const invokePromise = bridge.invoke(
+      loaded,
+      { agentId: "", tenantId: "", poolId: "", modelId: "", tier: "" },
+      null,
+    )
+    expect(bridge.inFlightCount()).toBe(1)
+
+    // Don't emit a result. Wait for timeout to fire.
+    await expect(invokePromise).rejects.toThrow(/timed out after 50ms/)
+    expect(bridge.inFlightCount()).toBe(0) // inFlight cleaned up
+  })
+
+  it("does NOT timeout when result arrives before deadline", async () => {
+    const bridge = makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: passthroughEventWriter,
+      invokeTimeoutMs: 5_000,
+    })
+    const loaded = fakeLoaded("fast")
+    const invokePromise = bridge.invoke(
+      loaded,
+      { agentId: "", tenantId: "", poolId: "", modelId: "", tier: "" },
+      null,
+    )
+    const sent = mockWorker.posted[0]!
+    mockWorker.emit("message", { type: "result", jobId: sent.jobId, result: { fast: true } })
+    const result = await invokePromise
+    expect(result).toEqual({ fast: true })
+    expect(bridge.inFlightCount()).toBe(0)
+  })
+
+  it("invokeTimeoutMs=0 disables the timeout", async () => {
+    const bridge = makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: passthroughEventWriter,
+      invokeTimeoutMs: 0,
+    })
+    const loaded = fakeLoaded("notimer")
+    const invokePromise = bridge.invoke(
+      loaded,
+      { agentId: "", tenantId: "", poolId: "", modelId: "", tier: "" },
+      null,
+    )
+    // Pre-attach handler so vitest doesn't flag the eventual shutdown rejection
+    const captureShutdownRejection = invokePromise.catch((e: unknown) => e)
+    // Wait longer than any reasonable timeout would have fired
+    await new Promise((r) => setTimeout(r, 100))
+    expect(bridge.inFlightCount()).toBe(1) // still in-flight; no timeout fired
+    await bridge.shutdown()
+    const captured = await captureShutdownRejection
+    expect(captured).toBeInstanceOf(Error)
+  })
+})
+
+describe("worker error event propagation (Bridgebuilder LOW fix)", () => {
+  it("worker.emit('error') rejects all in-flight invocations", async () => {
+    const bridge = makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: passthroughEventWriter,
+    })
+    const loaded = fakeLoaded("z")
+    const invokePromise = bridge.invoke(
+      loaded,
+      { agentId: "", tenantId: "", poolId: "", modelId: "", tier: "" },
+      null,
+    )
+    expect(bridge.inFlightCount()).toBe(1)
+    mockWorker.emit("error", new Error("simulated worker segfault"))
+    await expect(invokePromise).rejects.toThrow(/segfault/)
+    expect(bridge.inFlightCount()).toBe(0)
+  })
+})
+
+describe("structured logging (Bridgebuilder Medium fix)", () => {
+  it("invokes the injected logger on lifecycle events", async () => {
+    const log: Array<{ level: string; msg: string; ctx?: Record<string, unknown> }> = []
+    const logger = {
+      info: (msg: string, ctx?: Record<string, unknown>) => log.push({ level: "info", msg, ctx }),
+      warn: (msg: string, ctx?: Record<string, unknown>) => log.push({ level: "warn", msg, ctx }),
+      error: (msg: string, ctx?: Record<string, unknown>) => log.push({ level: "error", msg, ctx }),
+    }
+    const bridge = makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: passthroughEventWriter,
+      logger,
+    })
+    const loaded = fakeLoaded("logged-construct")
+    const invokePromise = bridge.invoke(
+      loaded,
+      { agentId: "", tenantId: "", poolId: "", modelId: "", tier: "" },
+      null,
+    )
+    const sent = mockWorker.posted[0]!
+    mockWorker.emit("message", { type: "result", jobId: sent.jobId, result: "ok" })
+    await invokePromise
+
+    // Should have logged at least: invoke start + invoke resolved
+    expect(log.some((l) => l.msg.includes("invoke start"))).toBe(true)
+    expect(log.some((l) => l.msg.includes("invoke resolved"))).toBe(true)
+    expect(log.find((l) => l.msg.includes("invoke start"))!.ctx).toMatchObject({ slug: "logged-construct" })
+  })
+
+  it("logs warn on stray result envelope (no in-flight match)", () => {
+    const warnings: Array<{ msg: string; ctx?: Record<string, unknown> }> = []
+    const logger = {
+      info: () => {},
+      warn: (msg: string, ctx?: Record<string, unknown>) => warnings.push({ msg, ctx }),
+      error: () => {},
+    }
+    makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: passthroughEventWriter,
+      logger,
+    })
+    mockWorker.emit("message", { type: "result", jobId: "no-such-job", result: "x" })
+    expect(warnings.some((w) => w.msg.includes("stray result"))).toBe(true)
   })
 })

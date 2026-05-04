@@ -26,7 +26,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { execSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { makeSandboxBridge } from "../sandbox-bridge.js"
@@ -62,20 +62,32 @@ beforeAll(() => {
     "src/substrate/index.ts",
   ]
 
-  execSync(
-    `npx tsc --module NodeNext --moduleResolution NodeNext --target ES2024 ` +
-      `--strict --esModuleInterop --skipLibCheck --resolveJsonModule ` +
-      `--outDir "${tmpDist}" --rootDir src ${substrateFiles.join(" ")}`,
-    { cwd: projectRoot, stdio: "pipe" },
-  )
+  // Run tsc with stderr inherited so compilation errors surface clearly
+  // (Bridgebuilder LOW fix). Previously stdio: "pipe" silently swallowed
+  // tsc errors and produced confusing "cannot find worker-entry.js" downstream.
+  try {
+    execSync(
+      `npx tsc --module NodeNext --moduleResolution NodeNext --target ES2024 ` +
+        `--strict --esModuleInterop --skipLibCheck --resolveJsonModule ` +
+        `--outDir "${tmpDist}" --rootDir src ${substrateFiles.join(" ")}`,
+      { cwd: projectRoot, stdio: ["pipe", "pipe", "inherit"] },
+    )
+  } catch (cause) {
+    throw new Error(
+      `e2e setup: tsc compilation failed (see stderr above). ` +
+        `Cause: ${cause instanceof Error ? cause.message : String(cause)}`,
+    )
+  }
 
   // Compiled worker-entry.js imports `effect` (and chains into hounfour types
   // via type-only imports — runtime imports stay within substrate/). Node
   // resolves bare-specifier imports by walking up the directory tree looking
   // for node_modules. Symlink the project's node_modules into tmpDist root so
   // the compiled workers can resolve their deps.
+  // Bridgebuilder LOW fix: use fs.symlinkSync (portable) instead of `ln -s`
+  // shell call (Windows-incompatible).
   const projectNodeModulesAbs = join(projectRoot, "node_modules")
-  execSync(`ln -s "${projectNodeModulesAbs}" "${join(tmpDist, "node_modules")}"`)
+  symlinkSync(projectNodeModulesAbs, join(tmpDist, "node_modules"), "dir")
 
   workerScript = join(tmpDist, "substrate", "worker-entry.js")
 
@@ -107,9 +119,9 @@ export const gradeText = (input) =>
 
   // node_modules must be reachable from constructDir so that dynamic-import "effect" works
   // — symlink the project's node_modules into the construct dir
+  // Bridgebuilder LOW fix: portable symlinkSync (was `ln -s` shell call).
   const projectNodeModules = join(projectRoot, "node_modules")
-  const linkPath = join(constructDir, "node_modules")
-  execSync(`ln -s "${projectNodeModules}" "${linkPath}"`)
+  symlinkSync(projectNodeModules, join(constructDir, "node_modules"), "dir")
 }, 30_000)
 
 afterAll(() => {
@@ -231,7 +243,7 @@ describe("e2e — real worker_threads + bridge protocol + Effect program", () =>
     }
   }, 30_000)
 
-  it("invoker error propagates back as Effect failure → bridge.invoke rejects", async () => {
+  it("invoker error propagates back as TYPED Effect failure (runPromiseExit Bridgebuilder fix)", async () => {
     const bridge = makeSandboxBridge({
       workerScript,
       modelInvoker: {
@@ -244,9 +256,18 @@ describe("e2e — real worker_threads + bridge protocol + Effect program", () =>
 
     try {
       const loaded = loadedFor("e2e-test-construct", "gradeText")
-      await expect(
-        bridge.invoke(loaded, { agentId: "a", tenantId: "t", poolId: "p", modelId: "m", tier: "pro" }, null),
-      ).rejects.toBeDefined() // bridge.invoke should reject (the Effect failure surfaces)
+      const captured = await bridge
+        .invoke(loaded, { agentId: "a", tenantId: "t", poolId: "p", modelId: "m", tier: "pro" }, null)
+        .then(
+          () => null,
+          (e: unknown) => e,
+        )
+      // Bridgebuilder Medium fix: handleSubstrateInvoke uses runPromiseExit
+      // and serializes the construct's typed error shape via Cause.failureOption.
+      // The rejection should be a structured error envelope (NOT a generic
+      // InvokeError) preserving the construct-side ModelRunnerError shape.
+      expect(captured).toBeTruthy()
+      expect(captured).toMatchObject({ _tag: "ModelRunnerError" })
     } finally {
       await bridge.shutdown()
     }

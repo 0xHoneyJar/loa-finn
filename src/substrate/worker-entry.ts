@@ -33,6 +33,7 @@ port.on("message", async (msg: unknown) => {
       const jobId = String(m.jobId)
       try {
         const payload: SubstrateInvokePayload = {
+          slug: String(m.slug),
           modPath: String(m.modPath),
           exportName: String(m.exportName),
           input: m.input,
