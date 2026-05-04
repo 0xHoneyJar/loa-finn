@@ -346,12 +346,18 @@ export async function handleDisposeRuntime(slug: string): Promise<void> {
     await runtime.dispose()
     runtimeCache.delete(slug)
   }
-  // Evict module-cache entries that belong to this slug
+  // Bridgebuilder iter-4 HIGH fix: collect keys to delete in a separate
+  // pass before mutating. Avoids iterator-mutation interaction with any
+  // concurrent handleSubstrateInvoke that might be writing to
+  // modulePathToSlug between iteration steps. (Map.delete during for...of
+  // is spec-safe per ECMA-262 but the concurrent-write case is subtler.)
+  const keysToEvict: string[] = []
   for (const [modPath, mappedSlug] of modulePathToSlug) {
-    if (mappedSlug === slug) {
-      moduleCache.delete(modPath)
-      modulePathToSlug.delete(modPath)
-    }
+    if (mappedSlug === slug) keysToEvict.push(modPath)
+  }
+  for (const modPath of keysToEvict) {
+    moduleCache.delete(modPath)
+    modulePathToSlug.delete(modPath)
   }
 }
 

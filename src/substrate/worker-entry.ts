@@ -29,12 +29,27 @@ const port = parentPort
 // outside these prefixes are rejected. Parent passes via:
 //   new Worker(script, { workerData: { trustedPacksDirs: ["/abs/packs/"] } })
 const wdAny = workerData as { trustedPacksDirs?: unknown } | null
+let trustedRegisteredCount = 0
 if (wdAny && Array.isArray(wdAny.trustedPacksDirs)) {
   for (const dir of wdAny.trustedPacksDirs) {
     if (typeof dir === "string" && dir.length > 0) {
       registerTrustedPacksDir(dir)
+      trustedRegisteredCount++
     }
   }
+}
+// Bridgebuilder iter-4 LOW fix: surface misconfiguration at startup rather
+// than on first invoke. If no trustedPacksDirs were passed, every
+// substrate-invoke envelope will be rejected by the worker's default-deny
+// path containment check.
+if (trustedRegisteredCount === 0) {
+  // Use stderr (process.stderr.write) so the warning shows up in worker
+  // logs even when consumers haven't wired up a structured logger.
+  process.stderr.write(
+    "[substrate-worker-entry] WARNING: started with 0 trusted packs dirs registered. " +
+      "All substrate-invoke envelopes will be rejected with ModPathTrustError. " +
+      "Pass `workerData.trustedPacksDirs: [...]` when constructing the Worker.\n",
+  )
 }
 
 port.on("message", async (msg: unknown) => {

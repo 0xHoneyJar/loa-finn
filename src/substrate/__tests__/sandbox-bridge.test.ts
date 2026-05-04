@@ -427,6 +427,88 @@ describe("worker error event propagation (Bridgebuilder LOW fix)", () => {
   })
 })
 
+describe("concurrent invocations (Bridgebuilder iter-4 #5 fix)", () => {
+  it("3 concurrent invokes resolve independently with their respective results", async () => {
+    const bridge = makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: passthroughEventWriter,
+    })
+    const loaded = fakeLoaded("c1")
+    const opts = { agentId: "", tenantId: "", poolId: "", modelId: "", tier: "" }
+
+    // Fire 3 concurrent invokes
+    const p1 = bridge.invoke(loaded, opts, { i: 1 })
+    const p2 = bridge.invoke(loaded, opts, { i: 2 })
+    const p3 = bridge.invoke(loaded, opts, { i: 3 })
+
+    expect(bridge.inFlightCount()).toBe(3)
+    expect(mockWorker.posted).toHaveLength(3)
+    const sent = mockWorker.posted as Array<Record<string, unknown>>
+    const jobIds = sent.map((s) => String(s.jobId))
+    expect(new Set(jobIds).size).toBe(3) // unique jobIds
+
+    // Resolve out of order: 3 first, then 1, then 2
+    mockWorker.emit("message", { type: "result", jobId: jobIds[2], result: { id: 3 } })
+    mockWorker.emit("message", { type: "result", jobId: jobIds[0], result: { id: 1 } })
+    mockWorker.emit("message", { type: "result", jobId: jobIds[1], result: { id: 2 } })
+
+    const [r1, r2, r3] = await Promise.all([p1, p2, p3])
+    expect(r1).toEqual({ id: 1 })
+    expect(r2).toEqual({ id: 2 })
+    expect(r3).toEqual({ id: 3 })
+    expect(bridge.inFlightCount()).toBe(0)
+  })
+})
+
+describe("completionRequest shape validation (Bridgebuilder iter-4 HIGH #2 fix)", () => {
+  it("rejects modelrunner.req with missing messages array", async () => {
+    const invokerSpy = vi.fn(passthroughInvoker.complete)
+    makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: { complete: invokerSpy },
+      eventWriter: passthroughEventWriter,
+    })
+    mockWorker.emit("message", {
+      type: "modelrunner.req",
+      jobId: "bad-1",
+      completionRequest: { metadata: { agent: "a", tenant_id: "t", trace_id: "x" } }, // no messages
+    })
+    await new Promise((r) => setImmediate(r))
+    expect(invokerSpy).not.toHaveBeenCalled() // shape check rejected before forwarding
+    const posted = mockWorker.posted.find((p) => p.type === "modelrunner.res")
+    expect(posted!.error).toMatchObject({ _tag: "ModelRunnerError", reason: "invalid-input" })
+  })
+
+  it("rejects modelrunner.req with malformed metadata", async () => {
+    const invokerSpy = vi.fn(passthroughInvoker.complete)
+    makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: { complete: invokerSpy },
+      eventWriter: passthroughEventWriter,
+    })
+    mockWorker.emit("message", {
+      type: "modelrunner.req",
+      jobId: "bad-2",
+      completionRequest: { messages: [], metadata: { agent: "a" } }, // missing tenant_id, trace_id
+    })
+    await new Promise((r) => setImmediate(r))
+    expect(invokerSpy).not.toHaveBeenCalled()
+  })
+
+  it("rejects modelrunner.req with non-object completionRequest", async () => {
+    const invokerSpy = vi.fn(passthroughInvoker.complete)
+    makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: { complete: invokerSpy },
+      eventWriter: passthroughEventWriter,
+    })
+    mockWorker.emit("message", { type: "modelrunner.req", jobId: "bad-3", completionRequest: "not-an-object" })
+    await new Promise((r) => setImmediate(r))
+    expect(invokerSpy).not.toHaveBeenCalled()
+  })
+})
+
 describe("stale-invoke skip on bridge proxies (Bridgebuilder iter-2 #4 fix)", () => {
   it("skips modelrunner.req invocation when topLevelJobId is no longer in-flight", async () => {
     const invokerSpy = vi.fn(passthroughInvoker.complete)

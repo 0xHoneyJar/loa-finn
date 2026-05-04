@@ -248,7 +248,15 @@ async function verifySignatureOnly(
     if (parts.length !== 3) return null
     const [_headerB64, payloadB64, _sigB64] = parts
     const payloadJson = Buffer.from(payloadB64!, "base64url").toString("utf-8")
-    const payload = JSON.parse(payloadJson) as JWTPayload
+    const parsed: unknown = JSON.parse(payloadJson)
+
+    // Bridgebuilder iter-4 Medium fix: explicit structural validation on the
+    // decoded payload before treating it as a JWTPayload. Previously the cast
+    // worked by accident (missing claims compared as undefined !== expected).
+    if (parsed === null || typeof parsed !== "object") return null
+    const payload = parsed as JWTPayload
+    if (typeof payload.iss !== "string") return null
+    if (typeof payload.exp !== "number") return null
 
     // Verify iss/aud match
     if (payload.iss !== expectedIssuer) return null

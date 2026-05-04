@@ -187,7 +187,21 @@ export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
           })
           return
         }
+        // Bridgebuilder iter-4 HIGH fix: minimal shape validation on the
+        // completionRequest before forwarding. Defends against a buggy or
+        // compromised worker emitting a malformed envelope that propagates
+        // unexpected fields into the cheval adapter (confused-deputy class).
         const completionRequest = msg.completionRequest
+        const shapeError = validateCompletionRequestShape(completionRequest)
+        if (shapeError) {
+          logger.warn("substrate-bridge: rejected modelrunner.req with malformed completionRequest", { jobId, error: shapeError })
+          worker.postMessage({
+            type: "modelrunner.res",
+            jobId,
+            error: { _tag: "ModelRunnerError", reason: "invalid-input", message: shapeError },
+          })
+          return
+        }
         try {
           const result = await opts.modelInvoker.complete(completionRequest as never)
           worker.postMessage({ type: "modelrunner.res", jobId, result: { text: result.content } })
@@ -341,4 +355,27 @@ export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
 
 function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null
+}
+
+/**
+ * Minimal shape check on completionRequest before we forward to the model
+ * invoker. Returns null if shape OK, otherwise a human-readable error.
+ *
+ * This is a confused-deputy defense (Bridgebuilder iter-4 HIGH): the parent
+ * cannot blindly trust the worker's message — a malformed envelope could
+ * propagate into cheval and trigger unexpected behavior. We require:
+ *   - messages: array
+ *   - metadata: object with agent (string), tenant_id (string), trace_id (string)
+ * Stricter validation (TypeBox/Zod against the full CompletionRequest schema)
+ * is a follow-up; this catches the obvious shape-confusion attacks.
+ */
+function validateCompletionRequestShape(req: unknown): string | null {
+  if (!isObj(req)) return "completionRequest must be an object"
+  if (!Array.isArray(req.messages)) return "completionRequest.messages must be an array"
+  const meta = req.metadata
+  if (!isObj(meta)) return "completionRequest.metadata must be an object"
+  if (typeof meta.agent !== "string") return "completionRequest.metadata.agent must be a string"
+  if (typeof meta.tenant_id !== "string") return "completionRequest.metadata.tenant_id must be a string"
+  if (typeof meta.trace_id !== "string") return "completionRequest.metadata.trace_id must be a string"
+  return null
 }
