@@ -1264,7 +1264,7 @@
     },
     {
       "label": "Substrate Runtime — Effect Loader + Worker-Thread Sandbox + EventStore Bridge",
-      "status": "active",
+      "status": "completed",
       "started": "2026-05-03T17:00:00Z",
       "prd": "grimoires/loa/specs/cycle-2-substrate-runtime-build.md",
       "sdd": "grimoires/loa/specs/cycle-2-substrate-runtime-build.md",
@@ -1323,9 +1323,9 @@
           "local_id": "sprint-7",
           "global_id": 132,
           "label": "End-to-End Smoke + Doctrine §13",
-          "status": "in_progress",
+          "status": "completed",
           "tasks": 3,
-          "notes": "Doctrine §13 written to ~/vault/wiki/concepts/substrate-mental-model-for-product-builders.md (cycle-2 first-execution learnings: 5 corrections including HIGH sandbox-claim narrowing caught by cross-model review, operator-coined Option A reframe, what shipped, what deferred). Memory entry written to /Users/zksoju/.claude/projects/-Users-zksoju-Documents-GitHub-loa-finn/memory/. DEFERRED: full real-worker e2e (needs dist build OR tsx-aware worker_threads loader); bridge protocol exhaustively verified via mock-worker tests + cross-pack Tag identity via integration test importing built construct-lore-essay-grader."
+          "notes": "3/3 tasks done. Sprint-7 e2e (5 tests) lands as src/substrate/__tests__/e2e.integration.test.ts: full pipeline through real worker_threads (compiles substrate to temp dist, spawns worker, runs synthetic Effect-program construct end-to-end through bridge proxy → cheval → response → resolve). Doctrine §13 + memory entry shipped earlier. Two type-narrowness fixes caught during standalone tsc compile (composeLayer return widening, ManagedRuntime cache cast). 110/111 substrate tests pass. Commit: f06cb74."
         }
       ]
     }

@@ -1,15 +1,15 @@
 {
   "plan_id": "plan-20260503-cycle032-substrate-runtime",
   "branch": "feature/cycle-2-substrate-runtime",
-  "state": "HALTED",
+  "state": "JACKED_OUT",
   "timestamps": {
     "started": "2026-05-03T17:50:00Z",
-    "last_activity": "2026-05-03T19:25:00Z"
+    "last_activity": "2026-05-03T20:42:00Z"
   },
   "sprints": {
     "total": 7,
-    "completed": 6,
-    "current": "sprint-7",
+    "completed": 7,
+    "current": null,
     "list": [
       {
         "id": "sprint-1",
@@ -62,7 +62,7 @@
       {
         "id": "sprint-7",
         "global_id": 132,
-        "status": "in_progress",
+        "status": "completed",
         "label": "E2E Smoke + Doctrine §13 + Memory",
         "tasks": 3,
         "cycles": 1
@@ -77,15 +77,16 @@
     "consolidate_pr": true
   },
   "metrics": {
-    "total_cycles": 6,
-    "total_files_changed": 22,
-    "total_findings_fixed": 7
+    "total_cycles": 7,
+    "total_files_changed": 25,
+    "total_findings_fixed": 9
   },
   "cycle": "cycle-032",
-  "pause": {
-    "reason": "operator-bound autonomous run: 6/7 sprints + sprint-7 doctrine + memory landed; sprint-7 real-worker e2e deferred (build-coupling). PR #157 ready for janitooor review.",
-    "at_sprint": "sprint-7",
-    "next_sprint": "sprint-7-e2e (real-worker test)",
-    "resume_with": "/run-resume OR /implement sprint-7 --partial real-worker-e2e"
+  "completion": {
+    "completed_at": "2026-05-03T20:42:00Z",
+    "summary": "Cycle-032 substrate-runtime: 7/7 sprints. 110/111 substrate tests pass across 10 files (1 marker skip when construct artifacts absent). Substrate module typecheck-clean. PR #157.",
+    "tests_pass": 110,
+    "tests_total": 111,
+    "next": "/bridgebuilder-review then operator un-draft + janitooor approval"
   }
 }
