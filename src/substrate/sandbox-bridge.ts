@@ -146,8 +146,28 @@ export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
         return
       }
       case "modelrunner.req": {
-        // Worker is asking us to invoke cheval; respond with text or error
+        // Worker is asking us to invoke cheval; respond with text or error.
+        // Bridgebuilder iter-2 #4: skip if the originating top-level invoke
+        // has already settled (timeout/error/shutdown) — avoids wasted
+        // cheval calls that nobody is listening for.
         const jobId = String(msg.jobId)
+        const topLevelJobId = typeof msg.topLevelJobId === "string" ? msg.topLevelJobId : null
+        if (topLevelJobId && !inFlight.has(topLevelJobId)) {
+          logger.warn("substrate-bridge: skipping modelrunner.req for stale top-level invoke", {
+            jobId,
+            topLevelJobId,
+          })
+          worker.postMessage({
+            type: "modelrunner.res",
+            jobId,
+            error: {
+              _tag: "ModelRunnerError",
+              reason: "unknown",
+              message: `top-level invoke ${topLevelJobId} already settled; bridge proxy skipped`,
+            },
+          })
+          return
+        }
         const completionRequest = msg.completionRequest
         try {
           const result = await opts.modelInvoker.complete(completionRequest as never)
@@ -165,6 +185,23 @@ export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
       }
       case "eventwriter.req": {
         const jobId = String(msg.jobId)
+        const topLevelJobId = typeof msg.topLevelJobId === "string" ? msg.topLevelJobId : null
+        if (topLevelJobId && !inFlight.has(topLevelJobId)) {
+          logger.warn("substrate-bridge: skipping eventwriter.req for stale top-level invoke", {
+            jobId,
+            topLevelJobId,
+          })
+          worker.postMessage({
+            type: "eventwriter.res",
+            jobId,
+            error: {
+              _tag: "EventWriterError",
+              reason: "unknown",
+              message: `top-level invoke ${topLevelJobId} already settled; bridge proxy skipped`,
+            },
+          })
+          return
+        }
         const envelope = msg.envelope as { subject: string; payload: unknown } | undefined
         if (!envelope || typeof envelope.subject !== "string") {
           logger.warn("substrate-bridge: eventwriter envelope invalid", { jobId, envelope })

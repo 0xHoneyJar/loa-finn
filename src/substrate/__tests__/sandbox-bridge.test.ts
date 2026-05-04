@@ -427,6 +427,99 @@ describe("worker error event propagation (Bridgebuilder LOW fix)", () => {
   })
 })
 
+describe("stale-invoke skip on bridge proxies (Bridgebuilder iter-2 #4 fix)", () => {
+  it("skips modelrunner.req invocation when topLevelJobId is no longer in-flight", async () => {
+    const invokerSpy = vi.fn(passthroughInvoker.complete)
+    makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: { complete: invokerSpy },
+      eventWriter: passthroughEventWriter,
+    })
+    // Simulate a worker emitting modelrunner.req for a top-level jobId that
+    // was never registered (analogous to a stale jobId after timeout cleanup)
+    mockWorker.emit("message", {
+      type: "modelrunner.req",
+      jobId: "sub-stale",
+      topLevelJobId: "ghost-top-level-jobid",
+      completionRequest: { messages: [], options: {}, metadata: { agent: "", tenant_id: "", nft_id: "", trace_id: "x" } },
+    })
+    await new Promise((r) => setImmediate(r))
+    // The cheval invoker should NOT have been called (no wasted LLM call)
+    expect(invokerSpy).not.toHaveBeenCalled()
+    // Bridge should have posted a stale-skip error response back
+    const posted = mockWorker.posted.find((p) => p.type === "modelrunner.res")
+    expect(posted).toBeDefined()
+    expect(posted!.error).toMatchObject({
+      _tag: "ModelRunnerError",
+      reason: "unknown",
+      message: expect.stringMatching(/already settled/i) as unknown as string,
+    })
+  })
+
+  it("skips eventwriter.req invocation when topLevelJobId is no longer in-flight", async () => {
+    const writer = makeMockWriter()
+    makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: writer,
+    })
+    mockWorker.emit("message", {
+      type: "eventwriter.req",
+      jobId: "ew-stale",
+      topLevelJobId: "ghost-top-level-jobid",
+      envelope: { subject: "a.b.c", payload: { x: 1 } },
+    })
+    await new Promise((r) => setImmediate(r))
+    expect(writer.calls).toHaveLength(0) // append never called
+    const posted = mockWorker.posted.find((p) => p.type === "eventwriter.res")
+    expect(posted).toBeDefined()
+    expect(posted!.error).toMatchObject({ _tag: "EventWriterError", reason: "unknown" })
+  })
+
+  it("does NOT skip when topLevelJobId is omitted (back-compat for callers without context threading)", async () => {
+    const invokerSpy = vi.fn(passthroughInvoker.complete)
+    makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: { complete: invokerSpy },
+      eventWriter: passthroughEventWriter,
+    })
+    mockWorker.emit("message", {
+      type: "modelrunner.req",
+      jobId: "sub-no-context",
+      // no topLevelJobId → bridge proceeds (back-compat)
+      completionRequest: { messages: [], options: {}, metadata: { agent: "", tenant_id: "", nft_id: "", trace_id: "x" } },
+    })
+    await new Promise((r) => setImmediate(r))
+    expect(invokerSpy).toHaveBeenCalledOnce()
+  })
+})
+
+// ── helper used above ──────────────────────────────────────────────────
+
+function makeMockWriter(): EventStoreWriter & { calls: Array<{ stream: string; event_type: string; payload: unknown }> } {
+  const calls: Array<{ stream: string; event_type: string; payload: unknown }> = []
+  let sequence = 0
+  return {
+    calls,
+    async append<T>(stream: EventStream, event_type: string, payload: T, correlation_id: string): Promise<EventEnvelope<T>> {
+      calls.push({ stream: String(stream), event_type, payload })
+      sequence++
+      return {
+        event_id: `evt-${sequence}`,
+        stream,
+        event_type,
+        timestamp: Date.now(),
+        correlation_id,
+        sequence,
+        checksum: 0,
+        schema_version: 1,
+        payload,
+      } as unknown as EventEnvelope<T>
+    },
+    async close() {},
+  }
+}
+
 describe("structured logging (Bridgebuilder Medium fix)", () => {
   it("invokes the injected logger on lifecycle events", async () => {
     const log: Array<{ level: string; msg: string; ctx?: Record<string, unknown> }> = []

@@ -33,6 +33,7 @@ port.on("message", async (msg: unknown) => {
       const jobId = String(m.jobId)
       try {
         const payload: SubstrateInvokePayload = {
+          jobId, // threaded into AsyncLocalStorage for bridge proxy correlation
           slug: String(m.slug),
           modPath: String(m.modPath),
           exportName: String(m.exportName),
