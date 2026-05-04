@@ -1283,22 +1283,25 @@
           "local_id": "sprint-2",
           "global_id": 127,
           "label": "Runtime Composition (ManagedRuntime + capability check)",
-          "status": "planned",
-          "tasks": 4
+          "status": "completed",
+          "tasks": 4,
+          "notes": "4/4 tasks. 18/18 runtime.test.ts pass. composeLayer + capability-bounded check + AMBIENT_TAG_KEYS invariant + createConstructRuntime with lazy ManagedRuntime + memoized program + idempotent dispose. Commit: 8825d2c."
         },
         {
           "local_id": "sprint-3",
           "global_id": 128,
           "label": "ModelRunner Layer (cross-pack Tag identity bridge)",
-          "status": "planned",
-          "tasks": 4
+          "status": "completed",
+          "tasks": 4,
+          "notes": "4/4 tasks. 13/13 unit + 3/3 integration tests pass (1 marker skip when construct unavailable). PAIR-POINT GREEN: cross-pack Tag identity verified — construct-lore-essay-grader/dist gradeLoreEssay resolves with loader Layer end-to-end. ModelRunnerError shape aligned to grader.ts canonical contract. Commit: 8825d2c."
         },
         {
           "local_id": "sprint-4",
           "global_id": 129,
           "label": "EventWriter Layer (wraps src/events/writer.ts)",
-          "status": "planned",
-          "tasks": 3
+          "status": "completed",
+          "tasks": 3,
+          "notes": "3/3 tasks. 15/15 event-writer-layer.test.ts pass. validateSubject (3-segment dotted) + buildEventWriterLayer with stream/event_type split (substrate uses constant stream + dotted subject as event_type since cycle-021 EventStream brand requires single-segment underscore_lowercase names). Commit: c2fe15e."
         },
         {
           "local_id": "sprint-5",
