@@ -76,11 +76,29 @@ readonly _MAX_PATTERN_LENGTH=200
 # Auth Management
 # =============================================================================
 
-# Check if OPENAI_API_KEY is available in the environment.
-# Env-only auth: never reads .env files, never calls codex login.
-# Returns: 0 if auth available, 1 otherwise
+# Check if a usable auth path exists for the gpt-review pipeline.
+# Returns 0 if EITHER:
+#   1. OPENAI_API_KEY is set (curl backend can call OpenAI directly)
+#   2. Codex CLI is on PATH (codex backend can route via ChatGPT subscription
+#      — Codex 0.125+ auths via ChatGPT login, no OPENAI_API_KEY required)
+#
+# Without this OR-condition the entire gpt-review pipeline gated on
+# OPENAI_API_KEY even though the route-table's `codex` backend was meant
+# to be a fallback for exactly the case where OPENAI_API_KEY is
+# missing/billing-locked. Cycle-032 hit this: gpt-5.2 was billing-locked
+# 429 → curl backend failed → the OPENAI_API_KEY-only gate at script
+# startup exited before the route table even tried codex.
+#
+# Override: set LOA_REQUIRE_OPENAI_KEY=1 to restore strict OPENAI_API_KEY-only
+# behavior (e.g. for environments that explicitly forbid Codex CLI).
 ensure_codex_auth() {
+  if [[ "${LOA_REQUIRE_OPENAI_KEY:-}" == "1" ]]; then
+    [[ -n "${OPENAI_API_KEY:-}" ]] && return 0 || return 1
+  fi
   if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+    return 0
+  fi
+  if command -v codex &>/dev/null; then
     return 0
   fi
   return 1

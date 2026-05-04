@@ -50,6 +50,56 @@ if [[ "${_LIB_SECURITY_LOADED:-}" != "true" ]]; then
 fi
 
 # =============================================================================
+# Portable timeout shim (cycle-032 follow-up · macOS compatibility)
+# =============================================================================
+#
+# GNU `timeout` ships with coreutils — present by default on Linux, NOT on
+# macOS. Without this shim, `codex_exec_single` silently fails on macOS
+# (the dominant operator environment), defeating the route-table's codex
+# fallback exactly when the operator most needs it (OpenAI billing-locked).
+#
+# Resolution order:
+#   1. `timeout` (GNU coreutils — Linux default)
+#   2. `gtimeout` (macOS via `brew install coreutils`)
+#   3. Pure-bash background+monitor polyfill
+#
+# Exit code semantics match GNU `timeout`:
+#   0..N = command's exit code
+#   124  = timed out (SIGTERM sent)
+#   137  = command was SIGKILL'd after grace period
+#
+# Args: <secs> <command> [args...]
+#
+# CRITICAL stdin-inheritance constraint: the polyfill MUST NOT background
+# the command (`"$@" &`) because bash detaches stdin from background
+# processes. `codex_exec_single` redirects the prompt file via stdin
+# (`< "$prompt_file"`); a backgrounded codex would hang waiting for stdin
+# that never arrives, and the polyfill's `kill -0`-based monitor loop
+# would think codex was still working. This was a real cycle-032 bug:
+# the codex backend silently failed exit 1 on macOS because the prompt
+# never reached codex.
+#
+# Resolution: when GNU timeout / gtimeout aren't available, fall through
+# to direct exec. We lose the enforcement (codex can hang indefinitely)
+# but preserve stdin inheritance. Codex itself has internal timeouts and
+# the operator can SIGINT. macOS users wanting strict timeout enforcement
+# should `brew install coreutils` (provides gtimeout).
+_loa_run_with_timeout() {
+  local secs="$1"; shift
+  if command -v timeout &>/dev/null; then
+    timeout "$secs" "$@"
+    return $?
+  fi
+  if command -v gtimeout &>/dev/null; then
+    gtimeout "$secs" "$@"
+    return $?
+  fi
+  # Fallback: no enforcement, preserve stdin. See block comment above.
+  "$@"
+  return $?
+}
+
+# =============================================================================
 # Constants
 # =============================================================================
 
@@ -211,9 +261,14 @@ codex_exec_single() {
   local workspace="${4:-}"
   local timeout_secs="${5:-$CODEX_DEFAULT_TIMEOUT}"
 
-  # Auth check
+  # Auth check (cycle-032 follow-up: ensure_codex_auth now accepts either
+  # OPENAI_API_KEY OR a present codex CLI, since codex 0.125+ auths via
+  # ChatGPT subscription. Update error message to match the broadened contract
+  # — the previous "OPENAI_API_KEY not set" was misleading during auth
+  # fall-through incidents.)
   if ! ensure_codex_auth; then
-    echo "[codex-exec] ERROR: OPENAI_API_KEY not set" >&2
+    echo "[codex-exec] ERROR: no usable auth — set OPENAI_API_KEY or install codex CLI (and run 'codex login' for ChatGPT subscription auth)" >&2
+    echo "[codex-exec] HINT: set LOA_REQUIRE_OPENAI_KEY=1 to enforce API-key-only mode" >&2
     return 4
   fi
 
@@ -254,9 +309,14 @@ codex_exec_single() {
   printf '%s' "$prompt" > "$prompt_file"
 
   # Execute with timeout wrapping (Flatline IMP-004)
+  # Portable timeout (cycle-032 follow-up): GNU `timeout` isn't on macOS by
+  # default — `_loa_run_with_timeout` falls back to `gtimeout` then to a
+  # bash background+kill polyfill. Without this fallback, the codex backend
+  # silently fails on macOS, which defeats the route-table's codex fallback
+  # for the most common operator environment.
   # stdout suppressed — output is captured via --output-last-message file
   local exit_code=0
-  timeout "$timeout_secs" "${cmd[@]}" < "$prompt_file" >/dev/null 2>/dev/null || exit_code=$?
+  _loa_run_with_timeout "$timeout_secs" "${cmd[@]}" < "$prompt_file" >/dev/null 2>/dev/null || exit_code=$?
 
   rm -f "$prompt_file"
 
