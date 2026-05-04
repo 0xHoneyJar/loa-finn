@@ -16,12 +16,18 @@ source "$SCRIPT_DIR/bootstrap.sh"
 SANITIZER="$SCRIPT_DIR/red-team-sanitizer.sh"
 SCORING_ENGINE="$SCRIPT_DIR/scoring-engine.sh"
 REPORT_GEN="$SCRIPT_DIR/red-team-report.sh"
+MODEL_INVOKE="$SCRIPT_DIR/model-invoke"
+
+# Adapter mode flag (--live or --mock). Resolved once in main() and passed
+# explicitly to every adapter invocation so the mode is never silently
+# defaulted by the adapter itself. See sprint-bug-102.
+ADAPTER_MODE_FLAG=""
 
 # Config
 CONFIG_FILE="$PROJECT_ROOT/.loa.config.yaml"
 ATTACK_SURFACES="$PROJECT_ROOT/.claude/data/attack-surfaces.yaml"
-ATTACK_TEMPLATE="$PROJECT_ROOT/.claude/templates/flatline-red-team.md.template"
-COUNTER_TEMPLATE="$PROJECT_ROOT/.claude/templates/flatline-counter-design.md.template"
+ATTACK_TEMPLATE="$SCRIPT_DIR/../templates/flatline-red-team.md.template"
+COUNTER_TEMPLATE="$SCRIPT_DIR/../templates/flatline-counter-design.md.template"
 GOLDEN_SET="$PROJECT_ROOT/.claude/data/red-team-golden-set.json"
 
 # =============================================================================
@@ -145,6 +151,38 @@ render_counter_template() {
         { print }
     ' "$output_file" > "$tmpwork" && mv "$tmpwork" "$output_file"
     rm -f "$tmpwork"
+}
+
+# =============================================================================
+# Adapter mode resolution
+# =============================================================================
+
+# Decide --live vs --mock once per pipeline run, based on env + config.
+# Live requires: hounfour.flatline_routing: true AND model-invoke executable
+# AND at least one provider API key. Otherwise fall back to mock with a
+# visible warning.
+resolve_adapter_mode() {
+    local routing_enabled=false
+    if [[ "${HOUNFOUR_FLATLINE_ROUTING:-}" == "true" ]]; then
+        routing_enabled=true
+    elif [[ "${HOUNFOUR_FLATLINE_ROUTING:-}" == "false" ]]; then
+        routing_enabled=false
+    elif [[ -f "$CONFIG_FILE" ]]; then
+        local v
+        v=$(yq '.hounfour.flatline_routing // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
+        [[ "$v" == "true" ]] && routing_enabled=true
+    fi
+
+    local has_key=false
+    if [[ -n "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${GOOGLE_API_KEY:-}${GEMINI_API_KEY:-}" ]]; then
+        has_key=true
+    fi
+
+    if [[ "$routing_enabled" == "true" ]] && [[ -x "$MODEL_INVOKE" ]] && [[ "$has_key" == "true" ]]; then
+        echo "--live"
+    else
+        echo "--mock"
+    fi
 }
 
 # =============================================================================
@@ -314,7 +352,8 @@ run_phase1_attacks() {
             --prompt-file "$prompt_file" \
             --output-file "$attacker_output" \
             --budget "$BUDGET_LIMIT" \
-            --timeout "$timeout" 2>/dev/null || {
+            --timeout "$timeout" \
+            "$ADAPTER_MODE_FLAG" 2>/dev/null || {
             log "Phase 1: Model adapter failed, using empty result"
             jq -n '{ attacks: [], summary: "Model adapter failed", models_used: 0, tokens_used: 0 }' > "$result_file"
             PHASE1_MS=$(phase_elapsed_ms "$phase_start")
@@ -381,7 +420,8 @@ run_phase2_validation() {
             --prompt-file "$sanitized_attacks" \
             --output-file "$result_file" \
             --budget "$BUDGET_LIMIT" \
-            --timeout "$timeout" 2>/dev/null || {
+            --timeout "$timeout" \
+            "$ADAPTER_MODE_FLAG" 2>/dev/null || {
             log "Phase 2: Model adapter failed, using unsanitized attacks"
             cp "$sanitized_attacks" "$result_file"
         }
@@ -526,7 +566,8 @@ run_phase4_counter_design() {
                 --prompt-file "$counter_prompt" \
                 --output-file "$result_file" \
                 --budget "$BUDGET_LIMIT" \
-                --timeout 300 2>/dev/null || {
+                --timeout 300 \
+                "$ADAPTER_MODE_FLAG" 2>/dev/null || {
                 log "Phase 4: Model adapter failed"
                 jq '. + {counter_designs: []}' "$consensus_file" > "$result_file"
             }
@@ -605,6 +646,27 @@ main() {
 
     # Initialize budget tracking
     init_budget "$execution_mode" "$budget"
+
+    # Resolve adapter mode (--live or --mock) once per pipeline run so
+    # every phase invocation uses the same mode. Never silently default.
+    ADAPTER_MODE_FLAG=$(resolve_adapter_mode)
+    # Defensive: guarantee a valid flag even if resolve_adapter_mode
+    # produced empty output (e.g., yq failure on malformed config).
+    if [[ "$ADAPTER_MODE_FLAG" != "--live" && "$ADAPTER_MODE_FLAG" != "--mock" ]]; then
+        ADAPTER_MODE_FLAG="--mock"
+    fi
+    log "Adapter mode: $ADAPTER_MODE_FLAG"
+
+    # Surface the mock warning at the pipeline level too, so users who
+    # run the pipeline directly (child stderr is /dev/null on adapter
+    # calls for noise control) still see why output looks like fixture.
+    if [[ "$ADAPTER_MODE_FLAG" == "--mock" ]]; then
+        cat >&2 <<'MOCKNOTE'
+[red-team] NOTE: running in MOCK mode — output is fixture data, not live model
+           analysis. To enable live: hounfour.flatline_routing: true + provider
+           API key (ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY).
+MOCKNOTE
+    fi
 
     # Phase 0: Input sanitization
     local phase0_start

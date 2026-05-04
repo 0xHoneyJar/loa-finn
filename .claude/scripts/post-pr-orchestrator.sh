@@ -44,6 +44,7 @@ readonly TIMEOUT_POST_PR_AUDIT="${TIMEOUT_POST_PR_AUDIT:-600}"    # 10 min
 readonly TIMEOUT_CONTEXT_CLEAR="${TIMEOUT_CONTEXT_CLEAR:-60}"     # 1 min
 readonly TIMEOUT_E2E_TESTING="${TIMEOUT_E2E_TESTING:-1200}"       # 20 min
 readonly TIMEOUT_FLATLINE_PR="${TIMEOUT_FLATLINE_PR:-300}"        # 5 min
+readonly TIMEOUT_BRIDGEBUILDER_REVIEW="${TIMEOUT_BRIDGEBUILDER_REVIEW:-600}"  # 10 min (Amendment 1)
 
 # State machine states
 readonly STATE_PR_CREATED="PR_CREATED"
@@ -53,6 +54,7 @@ readonly STATE_CONTEXT_CLEAR="CONTEXT_CLEAR"
 readonly STATE_E2E_TESTING="E2E_TESTING"
 readonly STATE_FIX_E2E="FIX_E2E"
 readonly STATE_FLATLINE_PR="FLATLINE_PR"
+readonly STATE_BRIDGEBUILDER_REVIEW="BRIDGEBUILDER_REVIEW"
 readonly STATE_READY_FOR_HITL="READY_FOR_HITL"
 readonly STATE_HALTED="HALTED"
 
@@ -422,6 +424,129 @@ phase_flatline_pr() {
 }
 
 # ============================================================================
+# Phase: Bridgebuilder Review (Amendment 1, cycle-053 — Issue #464 Part B)
+# ============================================================================
+#
+# Runs bridge-orchestrator.sh against the current PR, captures findings to
+# .run/bridge-reviews/, and invokes post-pr-triage.sh to classify + act on
+# findings. Feature-flagged off by default.
+#
+# Per HITL design decision (2026-04-13):
+#   - Autonomous mode may auto-dispatch /bug for BLOCKERs (with logged reasoning)
+#   - HIGH findings logged but don't gate
+#   - False positives acceptable during experimentation
+#   - depth=5 (inherit from /run-bridge)
+#   - No budget gating (yet)
+phase_bridgebuilder_review() {
+  log_phase "BRIDGEBUILDER_REVIEW"
+
+  # Feature flag check (default OFF per progressive rollout plan)
+  local enabled
+  enabled=$(yq '.post_pr_validation.phases.bridgebuilder_review.enabled // false' .loa.config.yaml 2>/dev/null || echo "false")
+
+  if [[ "$enabled" != "true" ]]; then
+    log_info "Bridgebuilder review disabled (feature flag off), skipping"
+    "$STATE_SCRIPT" update-phase bridgebuilder_review skipped
+    return 0
+  fi
+
+  "$STATE_SCRIPT" update-phase bridgebuilder_review in_progress
+  update_state "$STATE_BRIDGEBUILDER_REVIEW"
+
+  local depth auto_triage
+  depth=$(yq '.post_pr_validation.phases.bridgebuilder_review.depth // 5' .loa.config.yaml 2>/dev/null || echo "5")
+  auto_triage=$(yq '.post_pr_validation.phases.bridgebuilder_review.auto_triage_blockers // true' .loa.config.yaml 2>/dev/null || echo "true")
+
+  log_info "Bridgebuilder review starting (depth=$depth, auto_triage=$auto_triage)"
+
+  # Resolve PR number from state (stored by phase_post_pr_audit)
+  local pr_number
+  pr_number=$("$STATE_SCRIPT" get pr_number 2>/dev/null || echo "")
+
+  if [[ -z "$pr_number" ]]; then
+    log_info "No PR number in state, skipping Bridgebuilder review"
+    "$STATE_SCRIPT" update-phase bridgebuilder_review skipped
+    return 0
+  fi
+
+  # Kaironic iteration loop (PR #466 v3 lesson): review → triage → convergence
+  # check → (iterate or flatline). Depth is the max iterations before giving up;
+  # convergence short-circuits when FLATLINE is reached.
+  # Demonstrated in PR #466: 3 passes produced HIGH counts 2 → 3 → 0 (flatlined).
+  local max_iters="$depth"
+  local iter=0
+  local convergence_state="KEEP_ITERATING"
+  local convergence_file="$(pwd)/.run/bridge-triage-convergence.json"
+  local review_dir="${LOA_REVIEW_DIR:-$(pwd)/.run/bridge-reviews}"
+
+  while [[ $iter -lt $max_iters ]] && [[ "$convergence_state" != "FLATLINE" ]]; do
+    iter=$((iter + 1))
+    log_info "Bridgebuilder iteration $iter/$max_iters"
+
+    # Run bridge orchestrator with per-iteration timeout
+    local bridge_result=0
+    if [[ -x "${SCRIPT_DIR}/bridge-orchestrator.sh" ]]; then
+      run_with_timeout "$TIMEOUT_BRIDGEBUILDER_REVIEW" \
+        "${SCRIPT_DIR}/bridge-orchestrator.sh" --depth 1 \
+        || bridge_result=$?
+    else
+      log_info "bridge-orchestrator.sh not found, skipping"
+      "$STATE_SCRIPT" update-phase bridgebuilder_review skipped
+      return 0
+    fi
+
+    # Run triage — produces convergence state in .run/bridge-triage-convergence.json
+    if [[ -x "${SCRIPT_DIR}/post-pr-triage.sh" ]]; then
+      local triage_result=0
+      "${SCRIPT_DIR}/post-pr-triage.sh" \
+        --pr "$pr_number" \
+        --auto-triage "$auto_triage" \
+        --review-dir "$review_dir" \
+        || triage_result=$?
+      if [[ $triage_result -ne 0 ]]; then
+        log_info "Triage returned exit=$triage_result (non-fatal)"
+      fi
+    else
+      log_info "post-pr-triage.sh not found; cannot detect convergence — stopping after iter 1"
+      break
+    fi
+
+    # Read convergence state from triage output
+    if [[ -f "$convergence_file" ]]; then
+      convergence_state=$(jq -r '.state // "KEEP_ITERATING"' "$convergence_file" 2>/dev/null || echo "KEEP_ITERATING")
+      local actionable_high
+      actionable_high=$(jq -r '.actionable_high // 0' "$convergence_file" 2>/dev/null || echo "0")
+      log_info "Iteration $iter: state=$convergence_state actionable_high=$actionable_high"
+    fi
+  done
+
+  if [[ "$convergence_state" == "FLATLINE" ]]; then
+    log_success "Kaironic convergence reached after $iter iteration(s) — FLATLINE"
+  else
+    log_info "Max iterations ($max_iters) reached without flatline; continuing with final state"
+  fi
+
+  # Classify outcome
+  case $bridge_result in
+    0)
+      "$STATE_SCRIPT" update-phase bridgebuilder_review completed
+      log_success "Bridgebuilder review complete"
+      return 0
+      ;;
+    124)
+      log_info "Bridgebuilder review timed out after ${TIMEOUT_BRIDGEBUILDER_REVIEW}s, continuing"
+      "$STATE_SCRIPT" update-phase bridgebuilder_review skipped
+      return 0
+      ;;
+    *)
+      log_info "Bridgebuilder review failed (exit: $bridge_result), continuing"
+      "$STATE_SCRIPT" update-phase bridgebuilder_review skipped
+      return 0
+      ;;
+  esac
+}
+
+# ============================================================================
 # Main Orchestration
 # ============================================================================
 
@@ -522,6 +647,17 @@ run_orchestration() {
 
     "$STATE_FLATLINE_PR")
       if [[ "$(get_state)" != "$STATE_HALTED" ]]; then
+        if [[ "$SKIP_BRIDGEBUILDER" != "true" ]]; then
+          phase_bridgebuilder_review || return $?
+        else
+          log_info "Skipping Bridgebuilder review phase (SKIP_BRIDGEBUILDER=true)"
+          "$STATE_SCRIPT" update-phase bridgebuilder_review skipped
+        fi
+      fi
+      ;&  # Fall through
+
+    "$STATE_BRIDGEBUILDER_REVIEW")
+      if [[ "$(get_state)" != "$STATE_HALTED" ]]; then
         update_state "$STATE_READY_FOR_HITL"
         log_success "Post-PR validation complete - READY_FOR_HITL"
         return 0
@@ -558,6 +694,7 @@ main() {
   SKIP_AUDIT="false"
   SKIP_E2E="false"
   SKIP_FLATLINE="false"
+  SKIP_BRIDGEBUILDER="false"
   DRY_RUN="false"
   RESUME="false"
 
@@ -582,6 +719,10 @@ main() {
         ;;
       --skip-flatline)
         SKIP_FLATLINE="true"
+        shift
+        ;;
+      --skip-bridgebuilder)
+        SKIP_BRIDGEBUILDER="true"
         shift
         ;;
       --dry-run)
