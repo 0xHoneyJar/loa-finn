@@ -78,6 +78,7 @@ beforeAll(() => {
         "--module", "NodeNext",
         "--moduleResolution", "NodeNext",
         "--target", "ES2024",
+        "--strict", // F5 (Bridgebuilder iter-1, MEDIUM): match project tsconfig strictness so the precondition catches real type errors instead of false-positive narrowing rejections
         "--esModuleInterop",
         "--skipLibCheck",
         "--resolveJsonModule",
@@ -89,12 +90,30 @@ beforeAll(() => {
       { cwd: projectRoot, stdio: ["pipe", "pipe", "pipe"] },
     )
   } catch (cause) {
-    // tsc may exit non-zero due to type errors in unrelated files even
-    // when emit succeeds. Verify the worker entry artifact exists rather
-    // than blanket-failing on tsc exit code.
+    // F5 (Bridgebuilder iter-1, MEDIUM): tsc may exit non-zero due to type
+    // errors in unrelated files even when emit succeeds. Distinguish
+    // substrate-source type errors (FATAL — substrate code is broken) from
+    // non-substrate type errors (TOLERABLE — emit still produced JS, e.g.
+    // hono module augmentation in src/hounfour/types.ts). Without this
+    // distinction the previous fallback would silently accept broken
+    // substrate JS as long as worker-entry.js existed on disk.
+    const stderr = String((cause as { stderr?: Buffer | string }).stderr ?? "")
+    const stdout = String((cause as { stdout?: Buffer | string }).stdout ?? "")
+    const combinedOutput = stderr + "\n" + stdout
+    const substrateErrors = combinedOutput
+      .split("\n")
+      .filter((line) => /^src\/substrate\/[^\s:]+\.ts.*: error /.test(line))
+
+    if (substrateErrors.length > 0) {
+      throw new Error(
+        `e2e setup: tsc found type errors in substrate sources — emit may produce broken JS. ` +
+          `Substrate errors:\n${substrateErrors.join("\n")}`,
+      )
+    }
+
+    // Non-substrate errors only — verify worker artifact emitted, then proceed.
     const expectedWorker = join(tmpDist, "substrate", "worker-entry.js")
     try {
-      // statSync would throw if missing
       void execFileSync("test", ["-f", expectedWorker])
     } catch {
       throw new Error(

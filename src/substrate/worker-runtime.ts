@@ -146,6 +146,24 @@ type PendingResolvers = {
 const pendingBridgeRequests = new Map<string, PendingResolvers>()
 
 /**
+ * F17 (Bridgebuilder iter-1, MEDIUM): per-slug in-flight invoke counter.
+ *
+ * Closes the dispose-vs-invoke race: if `handleDisposeRuntime(slug)` is
+ * called while a `handleSubstrateInvoke({slug, ...})` is mid-await on
+ * `runtime.runPromiseExit`, the runtime would be disposed under the
+ * in-flight Effect. Worker is single-threaded JS but async — there's a
+ * microtask gap between cache lookup and runPromiseExit's settle.
+ *
+ * Pattern: increment before runPromiseExit, decrement in finally.
+ * handleDisposeRuntime checks the counter; if > 0, defers dispose into
+ * `pendingDispose` and the invoke's finally block triggers dispose when
+ * the counter reaches 0. This is the "ref-count + drain" answer to the
+ * "what happens when someone is using this resource right now?" question.
+ */
+const invokeInFlightCount = new Map<string, number>()
+const pendingDispose = new Set<string>()
+
+/**
  * AsyncLocalStorage threading the top-level invoke jobId through the
  * Effect program's bridge proxy calls (Bridgebuilder iter-2 #4).
  *
@@ -159,6 +177,27 @@ const pendingBridgeRequests = new Map<string, PendingResolvers>()
  * Effect's promise chains transparently, so the bridge proxy Layer factories
  * can read the active topLevelJobId at proxy-call time without explicit
  * plumbing through the Layer constructor.
+ *
+ * F1 (Bridgebuilder iter-1, HIGH) invariant — proven by
+ * als-context-cached-runtime.test.ts: even though the bridge proxy Layers
+ * are CACHED in runtimeCache (built ONCE per slug, reused across many
+ * invokes), the Promise chain from each invoke's
+ * `invocationContext.run({ topLevelJobId }, async () => ... runPromiseExit)`
+ * propagates the active ALS frame through Effect's internals to the
+ * `invocationContext.getStore()` read inside the cached Layer's
+ * `Effect.tryPromise`. Two sequential invokes with different topLevelJobIds
+ * against the same cached runtime correctly read distinct topLevelJobIds.
+ *
+ * The invariant relies on:
+ *  1. Effect's runPromiseExit returning a Promise that resolves through the
+ *     invoking ALS frame (true in effect@3.10.x — verified by the test).
+ *  2. The bridge proxy reading getStore() AT proxy-call time (true: the
+ *     getStore() call is inside the `try` block of Effect.tryPromise, which
+ *     runs only when the proxy is invoked, NOT at Layer construction time).
+ *
+ * If either invariant breaks (e.g., effect rev that schedules tryPromise
+ * outside the originating ALS frame, OR refactor that hoists getStore()
+ * into the Layer factory), the regression test will fail loud.
  */
 const invocationContext = new AsyncLocalStorage<{ topLevelJobId: string }>()
 
@@ -308,8 +347,29 @@ export async function handleSubstrateInvoke(
     // when the Effect fails. runPromise force-casts the error channel to
     // `never` and surfaces failures as untyped rejections — Bridgebuilder
     // flagged this as a Medium quality issue at cycle-032.
+    //
+    // F17 (Bridgebuilder iter-1, MEDIUM): bracket runPromiseExit with
+    // in-flight counter increment/decrement so handleDisposeRuntime can
+    // see if invokes are in progress for this slug. Decrement happens in
+    // the finally block AFTER runPromiseExit settles; if a dispose was
+    // deferred for this slug, drain it now.
+    invokeInFlightCount.set(slug, (invokeInFlightCount.get(slug) ?? 0) + 1)
     const effect = (program as (input: unknown) => Effect.Effect<unknown, unknown, unknown>)(payload.input)
-    const exit = await runtime.runPromiseExit(effect as Effect.Effect<unknown, unknown, never>)
+    let exit
+    try {
+      exit = await runtime.runPromiseExit(effect as Effect.Effect<unknown, unknown, never>)
+    } finally {
+      const after = (invokeInFlightCount.get(slug) ?? 1) - 1
+      if (after <= 0) {
+        invokeInFlightCount.delete(slug)
+        if (pendingDispose.has(slug)) {
+          pendingDispose.delete(slug)
+          await disposeRuntimeNow(slug)
+        }
+      } else {
+        invokeInFlightCount.set(slug, after)
+      }
+    }
 
     if (Exit.isSuccess(exit)) {
       return { ok: true, result: exit.value }
@@ -363,8 +423,25 @@ export async function handleSubstrateInvoke(
  * to this slug (the modulePathToSlug reverse index lets us find them).
  * Without this, a long-running worker that disposed/reloaded a construct
  * many times would still hold every old module instance forever.
+ *
+ * F17 (Bridgebuilder iter-1, MEDIUM): if invokes are in flight for this
+ * slug, defer the dispose. The invoke's finally block will trigger
+ * disposeRuntimeNow when the counter reaches zero. Dispose-runtime is
+ * fire-and-forget from the parent (sandbox-bridge.ts:357 worker.postMessage
+ * with no return path), so callers don't observe deferral — they just get
+ * eventual consistency. Without this, the invoke could run against a
+ * disposed runtime, with confusing failure modes (e.g. "stove turned off
+ * mid-recipe").
  */
 export async function handleDisposeRuntime(slug: string): Promise<void> {
+  if ((invokeInFlightCount.get(slug) ?? 0) > 0) {
+    pendingDispose.add(slug)
+    return
+  }
+  await disposeRuntimeNow(slug)
+}
+
+async function disposeRuntimeNow(slug: string): Promise<void> {
   const runtime = runtimeCache.get(slug)
   if (runtime) {
     await runtime.dispose()
@@ -434,6 +511,9 @@ export function _clearWorkerRuntimeCaches(): void {
     pending.reject(new Error("worker runtime caches cleared"))
   }
   pendingBridgeRequests.clear()
+  // F17: also reset in-flight counters and pending-dispose set.
+  invokeInFlightCount.clear()
+  pendingDispose.clear()
 }
 
 /**

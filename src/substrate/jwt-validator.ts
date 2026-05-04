@@ -97,6 +97,9 @@ export function makeJwtValidator(opts: JwtValidatorOptions): JwtValidator {
       if (now.getTime() < cached.cacheExpiresAtMs) {
         const recheck = recheckLicense(cached.result.license, now, grace)
         if (recheck.status !== "rejected") {
+          // F9: cached.result.license.status is informational-as-of-cache-write;
+          // callers must use the recheck-derived status returned here, never
+          // reach into cache.get(...).result.license.status directly.
           return { status: recheck.status, license: { ...cached.result.license, status: recheck.status } }
         }
         // recheck rejected → drop cache entry, fall through to full re-validation
@@ -250,12 +253,13 @@ async function verifySignatureOnly(
     // between the claim checks and compactVerify could introduce a
     // verify-then-use ordering bug. Now: signature established first,
     // then payload extracted from the verified token.
-    await compactVerify(token, publicKey)
-
-    const parts = token.split(".")
-    if (parts.length !== 3) return null
-    const [_headerB64, payloadB64, _sigB64] = parts
-    const payloadJson = Buffer.from(payloadB64!, "base64url").toString("utf-8")
+    //
+    // Bridgebuilder iter-1 F10 fix: act on the EXACT payload bytes that
+    // compactVerify validated, not a separately-parsed copy. Eliminates
+    // the verify-here-act-there parse-differential surface (OWASP JWT
+    // cheat sheet; SAML XML signature wrapping family).
+    const { payload: payloadBytes } = await compactVerify(token, publicKey)
+    const payloadJson = new TextDecoder().decode(payloadBytes)
     const parsed: unknown = JSON.parse(payloadJson)
 
     // Bridgebuilder iter-4 Medium fix: explicit structural validation.
