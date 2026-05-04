@@ -335,10 +335,13 @@ export function creditPurchaseRoutes(
 // Factory
 // ---------------------------------------------------------------------------
 
-export function createPurchaseClients(rpcUrl: string, fallbackRpcUrl?: string) {
-  const primary = createPublicClient({ chain: base, transport: http(rpcUrl) })
+export function createPurchaseClients(
+  rpcUrl: string,
+  fallbackRpcUrl?: string,
+): { primary: PublicClient; fallback: PublicClient | undefined } {
+  const primary = createPublicClient({ chain: base, transport: http(rpcUrl) }) as PublicClient
   const fallback = fallbackRpcUrl
-    ? createPublicClient({ chain: base, transport: http(fallbackRpcUrl) })
+    ? (createPublicClient({ chain: base, transport: http(fallbackRpcUrl) }) as PublicClient)
     : undefined
   return { primary, fallback }
 }
