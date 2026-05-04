@@ -108,6 +108,12 @@ load_adversarial_config() {
   CONF_MAX_FILE_BYTES=$(yq eval ".flatline_protocol.context_escalation.max_file_bytes // 51200" "$CONFIG_FILE" 2>/dev/null || echo "51200")
   CONF_SECRET_SCANNING=$(yq eval ".flatline_protocol.secret_scanning.enabled // true" "$CONFIG_FILE" 2>/dev/null || echo "true")
 
+  # Security invariant: secret_scanning MUST be on. Override if config says false.
+  if [[ "$CONF_SECRET_SCANNING" != "true" ]]; then
+    echo "CRITICAL: secret_scanning.enabled is false — overriding to true. Raw code must never be sent to external providers without redaction." >&2
+    CONF_SECRET_SCANNING="true"
+  fi
+
   # Load allowlist patterns — content matching these is restored after redaction.
   # Wires config to runtime. See: Bridgebuilder Review Finding #4
   local allowlist_raw
@@ -153,7 +159,7 @@ secret_scan_content() {
           printf '%s\t%s\n' "$placeholder" "$match" >> "${scan_tmp}.allowlist"
           # Replace in file (literal match via perl to avoid regex in match)
           perl -i -pe "s/\Q${match}\E/${placeholder}/g" "$scan_tmp" 2>/dev/null || true
-          ((al_idx++))
+          al_idx=$((al_idx + 1))
         done <<< "$matches"
       fi
     done
@@ -421,7 +427,7 @@ assemble_dissent_context() {
 
       escalated_content+=$'\n'"--- FULL FILE: $filepath (P0 escalated) ---"$'\n'"$file_content"$'\n'
       escalated_tokens=$(( escalated_tokens + file_tokens ))
-      ((escalated_count++))
+      escalated_count=$((escalated_count + 1))
       escalation_used="true"
       log "Escalated P0 file: $filepath ($file_tokens tokens, $escalated_count/$MAX_ESCALATED_FILES)"
     done <<< "$diff_files"
@@ -602,7 +608,7 @@ process_findings() {
     else
       log "Rejected invalid finding at index $i"
     fi
-    ((i++))
+    i=$((i + 1))
   done
 
   # Extract token/cost metadata from model-adapter response
@@ -668,7 +674,7 @@ merge_findings() {
       fid=$(compute_finding_id "$anchor" "$category" "$i")
       finding=$(echo "$finding" | jq --arg fid "$fid" '. + {finding_id: $fid, source: "dissenter"}')
       result=$(echo "$result" | jq --argjson f "$finding" '. + [$f]')
-      ((i++))
+      i=$((i + 1))
     done
     echo "$result"
     return 0
@@ -727,7 +733,7 @@ merge_findings() {
       # New finding
       merged=$(echo "$merged" | jq --argjson f "$finding" '. + [$f]')
     fi
-    ((i++))
+    i=$((i + 1))
   done
 
   echo "$merged"
@@ -781,7 +787,7 @@ write_output() {
     local lock_dir="${trajectory_file}.lockdir"
     local max_wait=5 waited=0
     while ! mkdir "$lock_dir" 2>/dev/null; do
-      ((waited++))
+      waited=$((waited + 1))
       if [[ $waited -ge $max_wait ]]; then
         log "WARNING: Could not acquire lock, writing without lock"
         echo "$trajectory_entry" >> "$trajectory_file"
@@ -838,7 +844,25 @@ main() {
   # Check enabled
   if [[ "$CONF_ENABLED" != "true" ]]; then
     log "Adversarial $type review is disabled"
-    jq -n --arg type "$type" '{findings: [], metadata: {type: $type, status: "disabled"}}'
+    local disabled_result
+    disabled_result=$(jq -n --arg type "$type" --arg sid "$sprint_id" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{findings: [], metadata: {type: $type, sprint_id: $sid, timestamp: $ts, status: "skipped_by_config", model: null, cost_usd: 0}}')
+    # Emit trajectory line so the absence of adversarial output is explainable
+    # rather than a silent void. The gate hook does not require the full output
+    # file here because config says disabled, but visibility still matters.
+    local trajectory_dir="$PROJECT_ROOT/grimoires/loa/a2a/trajectory"
+    mkdir -p "$trajectory_dir"
+    local trajectory_file="$trajectory_dir/adversarial-$(date -u +%Y-%m-%d).jsonl"
+    echo "$disabled_result" | jq -c '{
+      timestamp: .metadata.timestamp,
+      type: .metadata.type,
+      model: .metadata.model,
+      sprint_id: .metadata.sprint_id,
+      status: .metadata.status,
+      finding_count: 0,
+      cost_usd: 0
+    }' >> "$trajectory_file" 2>/dev/null || true
+    echo "$disabled_result"
     exit 1
   fi
 

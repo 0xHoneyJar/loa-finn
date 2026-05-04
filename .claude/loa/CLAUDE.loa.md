@@ -1,4 +1,4 @@
-<!-- @loa-managed: true | version: 1.39.0 | hash: fc41a851ab8ab9ac778f7542426b0891905b21aff4e8c0f077564cb9def0166ePLACEHOLDER -->
+<!-- @loa-managed: true | version: 1.94.0 | hash: 5c812c0a8bd9b617722e55ab233f92f5c76afd006bfb36cb79afeb312cee1329PLACEHOLDER -->
 <!-- WARNING: This file is managed by the Loa Framework. Do not edit directly. -->
 
 # Loa Framework Instructions
@@ -96,13 +96,14 @@ Grimoire and state file locations configurable via `.loa.config.yaml`. Overrides
 
 | Rule | Why |
 |------|-----|
-<!-- @constraint-generated: start process_compliance_never | hash:64c9a09343312a4d -->
+<!-- @constraint-generated: start process_compliance_never | hash:05ba770e1e3535ec -->
 <!-- DO NOT EDIT — generated from .claude/data/constraints.json -->
 | NEVER write application code outside of `/implement` skill invocation (OR when a construct with declared `workflow.gates` owns the current workflow) | Code written outside `/implement` bypasses review and audit gates |
 | NEVER use Claude's `TaskCreate`/`TaskUpdate` for sprint task tracking when beads (`br`) is available | Beads is the single source of truth for task lifecycle; TaskCreate is for session progress display only |
 | NEVER skip from sprint plan directly to implementation without `/run sprint-plan`, `/run sprint-N`, or `/bug` triage (OR when a construct with `workflow.gates` declares pipeline composition) | `/run` wraps implement+review+audit in a cycle loop with circuit breaker. `/bug` produces a triage handoff that feeds directly into `/implement`. |
 | NEVER skip `/review-sprint` and `/audit-sprint` quality gates (Yield when construct declares `review: skip` or `audit: skip`) | These are the only validation that code meets acceptance criteria and security standards |
 | NEVER use `/bug` for feature work that doesn't reference an observed failure | `/bug` bypasses PRD/SDD gates; feature work must go through `/plan` |
+| NEVER implement code directly when `/spiraling` is invoked with a task — dispatch through the harness pipeline (`/run sprint-plan`, `/simstim`, or `spiral-harness.sh`) | `/spiraling` loads as context, not as an orchestrator. Without mechanical dispatch, the agent bypasses all quality gates (Flatline, Review, Audit, Bridgebuilder) — the fox-guarding-the-henhouse antipattern that the harness was built to prevent. |
 <!-- @constraint-generated: end process_compliance_never -->
 ### ALWAYS Rules
 
@@ -212,6 +213,19 @@ Pre-execution validation. PII filtering (blocking), injection detection (blockin
 Session-spanning observations in `grimoires/loa/memory/observations.jsonl`. Query via `.claude/scripts/memory-query.sh`. Ownership boundary: auto-memory owns user preferences/working style; observations.jsonl owns framework patterns/debugging discoveries. See reference for full table.
 
 **Reference**: `.claude/loa/reference/memory-reference.md`
+
+## Post-PR Bridgebuilder Loop (cycle-053, Amendment 1)
+
+When `post_pr_validation.phases.bridgebuilder_review.enabled: true` (default off), the post-PR orchestrator runs the multi-model Bridgebuilder against the current PR after `FLATLINE_PR`. Findings are classified by `post-pr-triage.sh`:
+
+- **CRITICAL/BLOCKER** → queued to `.run/bridge-pending-bugs.jsonl` for next `/bug` invocation to consume
+- **HIGH** → logged to `grimoires/loa/a2a/trajectory/bridge-triage-*.jsonl` (no gate in autonomous mode per HITL design decision #1)
+- **PRAISE** → queued to `.run/bridge-lore-candidates.jsonl` for pattern mining
+- Every decision carries a **mandatory reasoning field** per schema `.claude/data/trajectory-schemas/bridge-triage.schema.json`
+
+Full phase sequence: `POST_PR_AUDIT → CONTEXT_CLEAR → E2E_TESTING → FLATLINE_PR → BRIDGEBUILDER_REVIEW → READY_FOR_HITL`
+
+**Reference**: `grimoires/loa/proposals/close-bridgebuilder-loop.md`
 
 ## Post-Merge Automation (v1.36.0)
 

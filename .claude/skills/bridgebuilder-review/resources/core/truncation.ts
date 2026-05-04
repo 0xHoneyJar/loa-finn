@@ -80,7 +80,7 @@ export function getSecurityCategory(filename: string): string | undefined {
 
 /** Detect if Node 22+ path.matchesGlob is available (BB-F4). */
 const hasNativeGlob: boolean =
-  typeof (path as unknown as Record<string, unknown>).matchesGlob === "function";
+  typeof (path as Record<string, unknown>).matchesGlob === "function";
 
 /**
  * Simple glob matcher fallback for Node <22.
@@ -430,6 +430,7 @@ export function applyLoaTierExclusion(
 export const TOKEN_BUDGETS: Record<string, TokenBudget> = {
   "claude-sonnet-4-6": { maxInput: 200_000, maxOutput: 8_192, coefficient: 0.25 },
   "claude-sonnet-4-5-20250929": { maxInput: 200_000, maxOutput: 8_192, coefficient: 0.25 },
+  "claude-opus-4-7": { maxInput: 200_000, maxOutput: 8_192, coefficient: 0.25 },
   "claude-opus-4-6": { maxInput: 200_000, maxOutput: 8_192, coefficient: 0.25 },
   "gpt-5.2": { maxInput: 128_000, maxOutput: 4_096, coefficient: 0.23 },
   default: { maxInput: 100_000, maxOutput: 4_096, coefficient: 0.25 },
