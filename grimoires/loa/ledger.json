@@ -1307,22 +1307,25 @@
           "local_id": "sprint-5",
           "global_id": 130,
           "label": "Sandbox Bridge (ToolSandbox.execute() wire-up)",
-          "status": "planned",
-          "tasks": 3
+          "status": "completed",
+          "tasks": 3,
+          "notes": "3/3 tasks done. 12/12 sandbox-bridge tests pass via mock-worker (EventEmitter standin). worker-runtime.ts (Effect lives here, per-construct ManagedRuntime cache, parent-bridge proxy Layers) + sandbox-bridge.ts (parent-side dispatcher, modelrunner.req/eventwriter.req handlers) + worker-entry.ts (worker bootstrap). Architectural divergence: ships SEPARATE substrate worker pool, NOT integrated with src/agent/worker-pool.ts (lane scheduling integration is follow-up). Real-worker integration test deferred to sprint-7 e2e (build-step coupling). Commit: 3a5ea4e."
         },
         {
           "local_id": "sprint-6",
           "global_id": 131,
           "label": "CLI Surface + Programmatic API (Substrate.invoke())",
-          "status": "planned",
-          "tasks": 4
+          "status": "completed",
+          "tasks": 4,
+          "notes": "4/4 tasks done. 17/17 cli.test.ts + 6/6 index.test.ts pass. cli.ts ALEXANDER craft (JSON stdout, human stderr, color-on-status only when isatty, exit codes 0/1/2/3+). index.ts barrel + makeSubstrate facade for cycle-3 freeside-quests consumers. Commit: 3a5ea4e."
         },
         {
           "local_id": "sprint-7",
           "global_id": 132,
           "label": "End-to-End Smoke + Doctrine §13",
-          "status": "planned",
-          "tasks": 3
+          "status": "in_progress",
+          "tasks": 3,
+          "notes": "Doctrine §13 written to ~/vault/wiki/concepts/substrate-mental-model-for-product-builders.md (cycle-2 first-execution learnings: 5 corrections including HIGH sandbox-claim narrowing caught by cross-model review, operator-coined Option A reframe, what shipped, what deferred). Memory entry written to /Users/zksoju/.claude/projects/-Users-zksoju-Documents-GitHub-loa-finn/memory/. DEFERRED: full real-worker e2e (needs dist build OR tsx-aware worker_threads loader); bridge protocol exhaustively verified via mock-worker tests + cross-pack Tag identity via integration test importing built construct-lore-essay-grader."
         }
       ]
     }
