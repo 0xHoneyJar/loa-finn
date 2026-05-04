@@ -28,7 +28,8 @@
 
 import { AsyncLocalStorage } from "node:async_hooks"
 import { randomUUID } from "node:crypto"
-import { sep } from "node:path"
+import { realpathSync } from "node:fs"
+import { resolve, sep } from "node:path"
 import { pathToFileURL } from "node:url"
 import type { MessagePort } from "node:worker_threads"
 import { Cause, Context, Effect, Exit, Layer, ManagedRuntime, Option } from "effect"
@@ -225,18 +226,33 @@ export async function handleSubstrateInvoke(
   try {
     const slug = payload.slug
 
-    // Worker-side path containment (Bridgebuilder iter-2 #2 + iter-3 HIGH).
-    // Default-deny: trustedPacksDirs MUST be pre-registered via worker-entry's
-    // setup-from-workerData — see registerTrustedPacksDir(). The previous
-    // lazy-trust-on-first-use fallback was a TOCTOU bypass and is removed.
-    if (!isModPathTrusted(payload.modPath)) {
+    // Worker-side path containment (Bridgebuilder iter-2 #2 + iter-3 HIGH +
+    // iter-6 MEDIUM canonicalization fix). Default-deny: trustedPacksDirs MUST
+    // be pre-registered via worker-entry's setup-from-workerData.
+    //
+    // Canonicalize BEFORE trust check (iter-6 MEDIUM): otherwise
+    // `/trusted/packs/../../../etc/evil.mjs` could survive the prefix check
+    // (raw path starts with /trusted/packs/ but resolves to /etc/evil.mjs).
+    // pathToFileURL doesn't normalize; Node's module loader resolves at
+    // import time. resolve() collapses .. segments. Realpath would catch
+    // symlinks too, but we accept its file-must-exist requirement only when
+    // the file actually exists (otherwise resolve()-only check is fine).
+    let canonicalModPath: string
+    try {
+      canonicalModPath = realpathSync(resolve(payload.modPath))
+    } catch {
+      // File doesn't exist — fall back to logical resolution. Trust check
+      // still runs against the resolved (.. collapsed) path.
+      canonicalModPath = resolve(payload.modPath)
+    }
+    if (!isModPathTrusted(canonicalModPath)) {
       return {
         ok: false,
         error: {
           _tag: "ModPathTrustError",
           message: trustedModPathPrefixes.size === 0
             ? `worker has no trustedPacksDirs registered — pass via workerData.trustedPacksDirs at Worker construction`
-            : `worker rejected modPath outside trusted prefixes: ${payload.modPath}`,
+            : `worker rejected modPath outside trusted prefixes: ${payload.modPath} (resolved: ${canonicalModPath})`,
         },
       }
     }
@@ -248,14 +264,17 @@ export async function handleSubstrateInvoke(
       runtimeCache.set(slug, runtime)
     }
 
-    // Resolve program (memoized via bounded LRU moduleCache)
-    let mod = moduleCache.get(payload.modPath)
+    // Resolve program (memoized via bounded LRU moduleCache).
+    // KEY by canonicalModPath (NOT raw payload.modPath) so the trust check
+    // and the cache key + import use the same path identity. Without this
+    // alignment the iter-6 canonicalization fix would have a TOCTOU gap.
+    let mod = moduleCache.get(canonicalModPath)
     if (mod) {
       // LRU touch: re-insert moves to end of Map iteration order (most-recent)
-      moduleCache.delete(payload.modPath)
-      moduleCache.set(payload.modPath, mod)
+      moduleCache.delete(canonicalModPath)
+      moduleCache.set(canonicalModPath, mod)
     } else {
-      mod = (await import(pathToFileURL(payload.modPath).href)) as Record<string, unknown>
+      mod = (await import(pathToFileURL(canonicalModPath).href)) as Record<string, unknown>
       // Evict LRU if at capacity (Bridgebuilder iter-2 HIGH fix).
       // SAFETY: worker_threads are single-threaded JavaScript runtimes — no
       // concurrent handleSubstrateInvoke calls can interleave between the
@@ -269,8 +288,8 @@ export async function handleSubstrateInvoke(
           modulePathToSlug.delete(oldestKey)
         }
       }
-      moduleCache.set(payload.modPath, mod)
-      modulePathToSlug.set(payload.modPath, slug)
+      moduleCache.set(canonicalModPath, mod)
+      modulePathToSlug.set(canonicalModPath, slug)
     }
 
     const program = mod[payload.exportName]
@@ -371,9 +390,22 @@ export async function handleDisposeRuntime(slug: string): Promise<void> {
  * modPath containment than the lazy-on-first-use registration. Called by
  * operators wiring up the worker via a setup message before the first
  * substrate-invoke.
+ *
+ * Canonicalizes via realpath if the dir exists (resolves /tmp →
+ * /private/tmp on macOS, follows symlinks, etc.) so the trust check
+ * comparison operates on the same path identity as the canonicalized
+ * modPath at invoke time. Iter-6 fix completion: without this, the
+ * canonicalization in handleSubstrateInvoke would silently bypass any
+ * raw-path trust prefix.
  */
 export function registerTrustedPacksDir(dir: string): void {
-  trustedModPathPrefixes.add(dir.endsWith(sep) ? dir : dir + sep)
+  let canonical: string
+  try {
+    canonical = realpathSync(resolve(dir))
+  } catch {
+    canonical = resolve(dir)
+  }
+  trustedModPathPrefixes.add(canonical.endsWith(sep) ? canonical : canonical + sep)
 }
 
 /**

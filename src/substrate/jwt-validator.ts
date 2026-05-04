@@ -244,21 +244,30 @@ async function verifySignatureOnly(
   now: Date,
 ): Promise<JWTPayload | null> {
   try {
+    // Bridgebuilder iter-6 HIGH fix: verify signature FIRST before any
+    // claim inspection. Previous ordering (claim checks → signature) was
+    // safe-by-accident — a future refactor adding early-return logic
+    // between the claim checks and compactVerify could introduce a
+    // verify-then-use ordering bug. Now: signature established first,
+    // then payload extracted from the verified token.
+    await compactVerify(token, publicKey)
+
     const parts = token.split(".")
     if (parts.length !== 3) return null
     const [_headerB64, payloadB64, _sigB64] = parts
     const payloadJson = Buffer.from(payloadB64!, "base64url").toString("utf-8")
     const parsed: unknown = JSON.parse(payloadJson)
 
-    // Bridgebuilder iter-4 Medium fix: explicit structural validation on the
-    // decoded payload before treating it as a JWTPayload. Previously the cast
-    // worked by accident (missing claims compared as undefined !== expected).
+    // Bridgebuilder iter-4 Medium fix: explicit structural validation.
     if (parsed === null || typeof parsed !== "object") return null
     const payload = parsed as JWTPayload
     if (typeof payload.iss !== "string") return null
     if (typeof payload.exp !== "number") return null
+    // Bridgebuilder iter-6 Medium fix: explicit aud-presence check (was
+    // safe-by-accident via undefined !== expected; now explicit).
+    if (payload.aud === undefined) return null
 
-    // Verify iss/aud match
+    // Verify iss/aud match (signature already verified above)
     if (payload.iss !== expectedIssuer) return null
     if (Array.isArray(payload.aud) ? !payload.aud.includes(expectedAudience) : payload.aud !== expectedAudience) {
       return null
@@ -267,9 +276,6 @@ async function verifySignatureOnly(
     // Verify nbf (not yet valid) — reject if license isn't active yet
     const nowSec = Math.floor(now.getTime() / 1000)
     if (typeof payload.nbf === "number" && payload.nbf > nowSec) return null
-
-    // Verify signature using jose's lower-level primitives
-    await compactVerify(token, publicKey)
 
     return payload
   } catch {
