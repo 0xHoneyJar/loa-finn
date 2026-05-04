@@ -14,7 +14,7 @@
 //   - LOA_OFFLINE=1: skip publicKeyResolver call; use cached key only
 
 import { createHash } from "node:crypto"
-import { decodeProtectedHeader, importSPKI, jwtVerify, type JWTPayload } from "jose"
+import { compactVerify, decodeProtectedHeader, importSPKI, jwtVerify, type JWTPayload } from "jose"
 import { LicenseError, TIER_GRACE_SECONDS, type LicenseTier, type ValidatedLicense, type ValidationStatus } from "./types.js"
 
 // ── Public surface (per PRD FR-1 + SDD §4.3) ────────────────────────
@@ -154,7 +154,6 @@ export function makeJwtValidator(opts: JwtValidatorOptions): JwtValidator {
 
     const expMs = payload.exp * 1000
     const iatMs = typeof payload.iat === "number" ? payload.iat * 1000 : now.getTime()
-    const nbfMs = typeof payload.nbf === "number" ? payload.nbf * 1000 : iatMs
     const graceMs = grace[tier] * 1000
 
     const license: ValidatedLicense = {
@@ -262,7 +261,6 @@ async function verifySignatureOnly(
     if (typeof payload.nbf === "number" && payload.nbf > nowSec) return null
 
     // Verify signature using jose's lower-level primitives
-    const { compactVerify } = await import("jose")
     await compactVerify(token, publicKey)
 
     return payload
