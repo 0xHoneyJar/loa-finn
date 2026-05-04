@@ -83,6 +83,15 @@ export interface SandboxBridgeOptions {
    * jobId+slug, bridge errors, worker exits, dispose calls, stray messages.
    */
   logger?: BridgeLogger
+  /**
+   * Optional callback fired when the worker exits unexpectedly (non-zero
+   * code, not during operator-initiated shutdown). Bridgebuilder iter-5
+   * MEDIUM fix: gives the parent application a hook to surface bridge
+   * death to monitoring / alerting / supervisor restart logic. Without
+   * this, the bridge silently becomes unusable until the operator notices
+   * failed invocations.
+   */
+  onWorkerDeath?: (code: number) => void
 }
 
 export interface SandboxBridge {
@@ -94,6 +103,14 @@ export interface SandboxBridge {
   shutdown(): Promise<void>
   /** Visible-for-tests: number of in-flight invocations. */
   inFlightCount(): number
+  /**
+   * Returns true iff the bridge is accepting new invocations. False after
+   * shutdown() OR after an unexpected worker death (Bridgebuilder iter-5
+   * MEDIUM operational-readiness fix). Production callers should poll or
+   * check before each invoke; failed health is recoverable only by
+   * constructing a fresh bridge.
+   */
+  isHealthy(): boolean
 }
 
 export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
@@ -280,10 +297,9 @@ export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
     if (!shutdownRequested && code !== 0) {
       logger.error("substrate-bridge: worker exited unexpectedly — bridge unusable", { code })
       // Bridgebuilder iter-3 Medium fix: mark shutdownRequested so subsequent
-      // invoke() calls reject fast instead of queueing into a dead worker
-      // (the previous behavior would silently hang indefinitely). Auto-respawn
-      // is a follow-up; for now, fail loud and force the operator to recreate
-      // the bridge.
+      // invoke() calls reject fast instead of queueing into a dead worker.
+      // Bridgebuilder iter-5 Medium fix: also fire onWorkerDeath callback so
+      // the parent application can surface the death to monitoring.
       shutdownRequested = true
       const err = new Error(`substrate worker exited unexpectedly with code ${code} — bridge no longer accepting invocations`)
       for (const [, pending] of inFlight) {
@@ -291,6 +307,12 @@ export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
         pending.reject(err)
       }
       inFlight.clear()
+      try {
+        opts.onWorkerDeath?.(code ?? -1)
+      } catch (cbErr) {
+        // Don't let a buggy callback re-throw and break the worker-exit handler
+        logger.error("substrate-bridge: onWorkerDeath callback threw", { err: cbErr instanceof Error ? cbErr.message : String(cbErr) })
+      }
     }
   })
 
@@ -348,6 +370,7 @@ export function makeSandboxBridge(opts: SandboxBridgeOptions): SandboxBridge {
     },
 
     inFlightCount: () => inFlight.size,
+    isHealthy: () => !shutdownRequested,
   }
 }
 

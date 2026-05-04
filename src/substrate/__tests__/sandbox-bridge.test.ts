@@ -407,6 +407,57 @@ describe("invoke timeout (Bridgebuilder HIGH fix)", () => {
   })
 })
 
+describe("isHealthy + onWorkerDeath (Bridgebuilder iter-5 MEDIUM fix)", () => {
+  it("isHealthy() reports true initially", () => {
+    const bridge = makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: passthroughEventWriter,
+    })
+    expect(bridge.isHealthy()).toBe(true)
+  })
+
+  it("isHealthy() reports false after shutdown()", async () => {
+    const bridge = makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: passthroughEventWriter,
+    })
+    expect(bridge.isHealthy()).toBe(true)
+    await bridge.shutdown()
+    expect(bridge.isHealthy()).toBe(false)
+  })
+
+  it("onWorkerDeath callback fires on unexpected worker exit", () => {
+    const deaths: number[] = []
+    const bridge = makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: passthroughEventWriter,
+      onWorkerDeath: (code) => deaths.push(code),
+    })
+    expect(bridge.isHealthy()).toBe(true)
+    // Simulate unexpected worker exit (non-zero code, not during shutdown)
+    mockWorker.emit("exit", 137)
+    expect(deaths).toEqual([137])
+    expect(bridge.isHealthy()).toBe(false) // bridge marked unusable
+  })
+
+  it("onWorkerDeath callback errors are caught (don't break the worker-exit handler)", () => {
+    const bridge = makeSandboxBridge({
+      workerScript: "/fake/worker-entry.js",
+      modelInvoker: passthroughInvoker,
+      eventWriter: passthroughEventWriter,
+      onWorkerDeath: () => {
+        throw new Error("buggy callback")
+      },
+    })
+    // Should NOT throw out of the exit handler
+    expect(() => mockWorker.emit("exit", 1)).not.toThrow()
+    expect(bridge.isHealthy()).toBe(false)
+  })
+})
+
 describe("worker error event propagation (Bridgebuilder LOW fix)", () => {
   it("worker.emit('error') rejects all in-flight invocations", async () => {
     const bridge = makeSandboxBridge({

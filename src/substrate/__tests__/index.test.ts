@@ -45,6 +45,7 @@ function makeMockBridge(): SandboxBridge {
     dispose: vi.fn(),
     shutdown: vi.fn(async () => {}),
     inFlightCount: () => 0,
+    isHealthy: () => true,
   }
 }
 

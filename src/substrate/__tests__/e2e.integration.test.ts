@@ -25,7 +25,7 @@
 // landing it now to close cycle-032.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { execSync } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -62,14 +62,27 @@ beforeAll(() => {
     "src/substrate/index.ts",
   ]
 
-  // Run tsc with stderr inherited so compilation errors surface clearly
-  // (Bridgebuilder LOW fix). Previously stdio: "pipe" silently swallowed
-  // tsc errors and produced confusing "cannot find worker-entry.js" downstream.
+  // Bridgebuilder iter-5 MEDIUM fix: use execFileSync with explicit args
+  // array instead of execSync with concatenated shell string. Avoids the
+  // confused-deputy/command-injection class of issue when path strings
+  // contain shell metacharacters (e.g., spaces in temp dir on some OS
+  // configurations). npx + flat args is safer.
   try {
-    execSync(
-      `npx tsc --module NodeNext --moduleResolution NodeNext --target ES2024 ` +
-        `--strict --esModuleInterop --skipLibCheck --resolveJsonModule ` +
-        `--outDir "${tmpDist}" --rootDir src ${substrateFiles.join(" ")}`,
+    execFileSync(
+      "npx",
+      [
+        "tsc",
+        "--module", "NodeNext",
+        "--moduleResolution", "NodeNext",
+        "--target", "ES2024",
+        "--strict",
+        "--esModuleInterop",
+        "--skipLibCheck",
+        "--resolveJsonModule",
+        "--outDir", tmpDist,
+        "--rootDir", "src",
+        ...substrateFiles,
+      ],
       { cwd: projectRoot, stdio: ["pipe", "pipe", "inherit"] },
     )
   } catch (cause) {

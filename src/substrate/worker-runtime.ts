@@ -256,7 +256,12 @@ export async function handleSubstrateInvoke(
       moduleCache.set(payload.modPath, mod)
     } else {
       mod = (await import(pathToFileURL(payload.modPath).href)) as Record<string, unknown>
-      // Evict LRU if at capacity (Bridgebuilder iter-2 HIGH fix)
+      // Evict LRU if at capacity (Bridgebuilder iter-2 HIGH fix).
+      // SAFETY: worker_threads are single-threaded JavaScript runtimes — no
+      // concurrent handleSubstrateInvoke calls can interleave between the
+      // delete + set below (Bridgebuilder iter-5 HIGH documentation fix).
+      // If this code is ever lifted into a multi-thread/process pool, the
+      // delete+set sequence MUST be guarded by an async mutex.
       if (moduleCache.size >= MODULE_CACHE_MAX_ENTRIES) {
         const oldestKey = moduleCache.keys().next().value
         if (oldestKey !== undefined) {
