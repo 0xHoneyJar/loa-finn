@@ -6,9 +6,10 @@ import { execSync } from "node:child_process"
 // (see package.json test:finn script). Those cause "No test suite found"
 // errors when picked up by vitest.
 // E2E tests need running infrastructure (Redis, services) — run separately.
-// Also include cycle-032 substrate tests under src/substrate/__tests__/.
+// Also include cycle-032 substrate tests under src/substrate/__tests__/
+// and cycle-041 Score forensic-core tests under src/score/.
 const vitestFiles = execSync(
-  'grep -rl \'from "vitest"\' tests/ src/substrate/__tests__/ --include="*.test.ts" 2>/dev/null || true',
+  'grep -rl \'from "vitest"\' tests/ src/substrate/__tests__/ src/score/ --include="*.test.ts" 2>/dev/null || true',
   { encoding: "utf-8" },
 ).trim().split("\n").filter(f => f && !f.startsWith("tests/e2e/"))
 
