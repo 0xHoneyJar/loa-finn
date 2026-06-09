@@ -4,10 +4,22 @@
 // anomaly band. This is a SCREEN, never a published verdict (FR-2 / FR-2a): the output
 // is consumed by the Sprint-3 validation harness and Sprint-4 publication-hold, NOT posted.
 //
+// Classification precedence (severity-ordered; FR-2a "do not over-accuse"):
+//   1. naive_farm  (in-band + high overlap + clustered)  → HIGH   — strong multi-feature wash
+//   2. relay_double_count (circular ≥ 50%)               → MED    — concrete: revenue from agents
+//   3. subsidy_capture (subsidy ≥ 50%)                   → MED    — factual: subsidy-funded, NOT an
+//                                                                   accusation of wash (review fix #2)
+//   4. legit_shared_audience (high overlap, not naive)   → INSUFFICIENT_EVIDENCE — ambiguous overlap
+//   5. adaptive_farm (in-band, no overlap)               → MED    — count-only, unconfirmed
+//   6. none                                              → LOW
+//
+// naive_farm is checked FIRST so a strong HIGH signal is never downgraded by a weaker MED one
+// (review fix #1). Subsidy/circular cut-offs use BIGINT math (x*2 ≥ denom) — no `Number(bigint)`
+// rounding that could flip the 50% boundary for large values (review fix #3).
+//
 // Hard invariants enforced by construction (sprint-finn-score.md ACs, SDD §4.2):
-//   • `adaptive_farm` is NEVER tagged HIGH (the 2-feature screen cannot confirm an evasive farm).
-//   • `legit_shared_audience` ⇒ INSUFFICIENT_EVIDENCE (false-positive guard — real shared
-//     audiences must not be accused).
+//   • adaptive_farm is NEVER tagged HIGH.
+//   • legit_shared_audience ⇒ INSUFFICIENT_EVIDENCE (false-positive guard).
 //
 // No I/O, no clock, no randomness → reproducible (NFR-1).
 
@@ -27,7 +39,7 @@ export interface Thresholds {
 
 export type AdversaryTag =
   | "naive_farm" // shared 5–6 counterparties + banded buyer count            (DETECTED)
-  | "subsidy_capture" // high prize-pool subsidy share                        (DETECTED)
+  | "subsidy_capture" // high prize-pool subsidy share                        (DETECTED, factual)
   | "adaptive_farm" // disjoint pools, jittered counts                        (NOT DETECTED → not HIGH)
   | "legit_shared_audience" // real community overlap → false-positive risk   (→ INSUFFICIENT)
   | "relay_double_count" // circular A→B→C revenue                            (PARTIAL)
@@ -47,17 +59,18 @@ export interface ScreenResult {
   adversaryTag: AdversaryTag
 }
 
-// Share cut-offs for the subsidy/circular features. Kept as named module constants (not in
-// `Thresholds`, which the SDD fixes to the band/jaccard/precision knobs) so the contract stays
-// verbatim; tunable here once real epoch data lands (Sprint 2).
-export const SUBSIDY_SHARE_HIGH = 0.5
-export const CIRCULAR_SHARE_HIGH = 0.5
+// Buyer-set overlap that unions a cluster. DECOUPLED from the feature's `jaccardHigh` (review fix #5):
+// clustering and the per-agent overlap feature are different knobs. NOTE: detecting farms that share
+// only a FEW counterparties among many buyers (low Jaccard, the "all buyers transact with the same
+// 5–6 agents" pattern) needs a raw shared-counterparty feature — deferred to Sprint 2. Sprint-1
+// clustering catches clone fleets (shared deployer) + near-identical buyer sets.
+export const CLUSTER_OVERLAP_HIGH = 0.5
 
 export function screenAnomaly(graph: TxGraph, t: Thresholds): ScreenResult[] {
   const leaderboard = recomputeLeaderboard(graph)
   const jac = new Map(jaccardOverlap(graph).map((r) => [r.agentId, r]))
   const dev = buyerCountDeviation(graph, { bandLow: t.bandLow, bandHigh: t.bandHigh })
-  const clusters = clusterCounterparties(graph, t.jaccardHigh)
+  const clusters = clusterCounterparties(graph, CLUSTER_OVERLAP_HIGH)
   const clusterOf = new Map(clusters.map((c) => [c.agentId, c]))
   const clusterSize = new Map<string, number>()
   for (const c of clusters) clusterSize.set(c.clusterId, (clusterSize.get(c.clusterId) ?? 0) + 1)
@@ -70,26 +83,28 @@ export function screenAnomaly(graph: TxGraph, t: Thresholds): ScreenResult[] {
     const cl = clusterOf.get(rev.agentId)
     const clustered = cl ? (clusterSize.get(cl.clusterId) ?? 0) > 1 : false
 
+    // BIGINT threshold math — no Number() rounding (review fix #3).
     const denomSubsidy = rev.grossMicro + rev.subsidyMicro
-    const subsidyShare = denomSubsidy > 0n ? Number(rev.subsidyMicro) / Number(denomSubsidy) : 0
-    const circularShare = rev.grossMicro > 0n ? Number(rev.circularMicro) / Number(rev.grossMicro) : 0
+    const subsidyHigh = denomSubsidy > 0n && rev.subsidyMicro * 2n >= denomSubsidy // ≥ 50%
+    const circularHigh = rev.grossMicro > 0n && rev.circularMicro * 2n >= rev.grossMicro // ≥ 50%
 
     const inBand = bandDeviation === 0 && rev.distinctBuyers > 0
     const highOverlap = maxJaccard >= t.jaccardHigh
 
     let adversaryTag: AdversaryTag
     let band: Band
-    if (subsidyShare >= SUBSIDY_SHARE_HIGH) {
-      adversaryTag = "subsidy_capture"
-      band = "HIGH"
-    } else if (circularShare >= CIRCULAR_SHARE_HIGH) {
-      adversaryTag = "relay_double_count"
-      band = "MED"
-    } else if (inBand && highOverlap && clustered) {
+    if (inBand && highOverlap && clustered) {
       adversaryTag = "naive_farm"
       band = "HIGH"
+    } else if (circularHigh) {
+      adversaryTag = "relay_double_count"
+      band = "MED"
+    } else if (subsidyHigh) {
+      // revenue is mostly subsidy, not customers — a factual flag, NOT a wash accusation (no HIGH)
+      adversaryTag = "subsidy_capture"
+      band = "MED"
     } else if (highOverlap) {
-      // high overlap WITHOUT the full naive-farm combo → ambiguous → never accuse
+      // overlap WITHOUT the full naive-farm combo and no concrete signal → ambiguous → never accuse
       adversaryTag = "legit_shared_audience"
       band = "INSUFFICIENT_EVIDENCE"
     } else if (inBand) {

@@ -8,6 +8,7 @@
 // No I/O, no clock, no randomness → reproducible (NFR-1).
 
 import type { TxGraph } from "../edge/port.js"
+import { allAgentIds, buyerSetOf } from "./graph.js"
 
 export interface JaccardPair {
   otherAgentId: string
@@ -32,15 +33,15 @@ export function jaccard(a: Set<string>, b: Set<string>): number {
 
 /** Per-agent max buyer-set Jaccard overlap with every other agent (feature 1). */
 export function jaccardOverlap(graph: TxGraph): JaccardResult[] {
-  const agents = [...graph.buyersOf.keys()].sort()
+  const agents = allAgentIds(graph)
   const results: JaccardResult[] = []
   for (const a of agents) {
-    const A = graph.buyersOf.get(a) ?? new Set<string>()
+    const A = buyerSetOf(graph, a)
     const pairs: JaccardPair[] = []
     let max = 0
     for (const b of agents) {
       if (b === a) continue
-      const B = graph.buyersOf.get(b) ?? new Set<string>()
+      const B = buyerSetOf(graph, b)
       const j = jaccard(A, B)
       if (j > 0) pairs.push({ otherAgentId: b, jaccard: j })
       if (j > max) max = j
@@ -65,8 +66,8 @@ export interface BandRange {
  */
 export function buyerCountDeviation(graph: TxGraph, band: BandRange): Map<string, number> {
   const out = new Map<string, number>()
-  for (const a of graph.buyersOf.keys()) {
-    const c = (graph.buyersOf.get(a) ?? new Set<string>()).size
+  for (const a of allAgentIds(graph)) {
+    const c = buyerSetOf(graph, a).size
     let dev = 0
     if (c < band.bandLow) dev = band.bandLow - c
     else if (c > band.bandHigh) dev = c - band.bandHigh

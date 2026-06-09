@@ -10,6 +10,7 @@
 // No I/O, no clock, no randomness → reproducible (NFR-1).
 
 import type { TxGraph } from "../edge/port.js"
+import { allAgentIds } from "./graph.js"
 
 export interface AgentRevenue {
   agentId: string
@@ -29,17 +30,8 @@ interface Agg {
   buyers: Set<string>
 }
 
-/** Collect every agent id that appears in edges, buyersOf, or deployerOf. */
-function allAgents(graph: TxGraph): Set<string> {
-  const s = new Set<string>()
-  for (const e of graph.edges) s.add(e.agent)
-  for (const a of graph.buyersOf.keys()) s.add(a)
-  for (const a of graph.deployerOf.keys()) s.add(a)
-  return s
-}
-
 export function recomputeLeaderboard(graph: TxGraph): AgentRevenue[] {
-  const agents = allAgents(graph)
+  const agentSet = new Set(allAgentIds(graph))
   const agg = new Map<string, Agg>()
   const ensure = (a: string): Agg => {
     let r = agg.get(a)
@@ -49,7 +41,7 @@ export function recomputeLeaderboard(graph: TxGraph): AgentRevenue[] {
     }
     return r
   }
-  for (const a of agents) ensure(a)
+  for (const a of agentSet) ensure(a)
 
   for (const e of graph.edges) {
     const r = ensure(e.agent)
@@ -59,7 +51,7 @@ export function recomputeLeaderboard(graph: TxGraph): AgentRevenue[] {
     }
     r.gross += e.amountMicro
     r.buyers.add(e.buyer)
-    if (agents.has(e.buyer)) r.circular += e.amountMicro // buyer is an agent → wash/circular
+    if (agentSet.has(e.buyer)) r.circular += e.amountMicro // buyer is an agent → wash/circular
     else r.net += e.amountMicro
   }
 

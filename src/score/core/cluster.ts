@@ -9,6 +9,7 @@
 
 import type { TxGraph } from "../edge/port.js"
 import { jaccard } from "./features.js"
+import { allAgentIds, buyerSetOf } from "./graph.js"
 
 export interface ClusterResult {
   agentId: string
@@ -17,7 +18,7 @@ export interface ClusterResult {
 }
 
 export function clusterCounterparties(graph: TxGraph, overlapThreshold = 1): ClusterResult[] {
-  const agents = [...graph.buyersOf.keys()].sort()
+  const agents = allAgentIds(graph)
   const parent = new Map<string, string>()
   for (const a of agents) parent.set(a, a)
 
@@ -57,10 +58,10 @@ export function clusterCounterparties(graph: TxGraph, overlapThreshold = 1): Clu
 
   // 2. union on buyer-set overlap >= threshold (shared counterparties)
   for (let i = 0; i < agents.length; i++) {
-    const A = graph.buyersOf.get(agents[i]) ?? new Set<string>()
+    const A = buyerSetOf(graph, agents[i])
     if (A.size === 0) continue
     for (let k = i + 1; k < agents.length; k++) {
-      const B = graph.buyersOf.get(agents[k]) ?? new Set<string>()
+      const B = buyerSetOf(graph, agents[k])
       if (B.size === 0) continue
       if (jaccard(A, B) >= overlapThreshold) union(agents[i], agents[k])
     }
