@@ -60,6 +60,24 @@ groups (126–132, 144–146) from legacy double-registration — I added ZERO n
 `br sync --merge` (three-way), NOT force-flush (would have lost 255 issues). All 26 cycle-041 lines
 in JSONL.
 
+### Finn/Score cycle-041 Sprint 1 BUILT + code-reviewed (2026-06-09)
+Branch `feature/score-phase1` (off HEAD, LOCAL — not pushed). Clean-tree setup first: shielded 289
+pre-existing untracked `.claude/` construct installs + `src/*.js` build artifacts via
+`.git/info/exclude`; the grimoires planning docs (prd/sdd/sprint/context) are git-IGNORED by Loa
+convention (local-only — that's why they never commit). **S1 = the substrate-agnostic pure forensic
+core** under `src/score/`: TxGraph + GraphSource port (FR-6 seam + Virtuals stub) · recomputeLeaderboard
+(FR-1, net = gross − subsidy − circular) · jaccardOverlap + buyerCountDeviation (FR-2) · union-find
+clustering · screenAnomaly (HIGH/MED/LOW/INSUFFICIENT, FR-2a invariants by construction). 3 additive
+drizzle tables + hand-written migration `0002` (drizzle-kit generate has a pre-existing bigint bug;
+migrations here are hand-maintained). vitest config: added `src/score/` to the grep root (mirrors
+substrate). **GPT-5 codex code-review found 2 HIGH + 3 MED real bugs — all fixed** (branch-order
+downgrade, subsidy-alone-HIGH over-accusation, Number(bigint) threshold flip, inconsistent agent
+universe, cluster-threshold coupling). **26/26 tests pass, src/score typechecks clean.** Commits:
+99355d27 (planning state) · 104bf95d (S1 impl) · 7b083ce6 (beads close) · cb0a5738 (review fixes).
+AC verification: `a2a/score-sprint-1/reviewer.md`. Flatline mis-wired in this repo (loa_cheval aliases
+gpt-5.2/gemini-2.5-flash unknown + opus needs absent ANTHROPIC_API_KEY) → used codex as the working
+cross-model lane for both PRD and code review.
+
 ## Learnings
 
 ### TypeBox FormatRegistry Footgun (cycle-033, T-3.9)
