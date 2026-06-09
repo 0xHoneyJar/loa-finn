@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "created": "2026-02-06T02:00:00Z",
-  "current_cycle": "cycle-040",
+  "current_cycle": "cycle-041",
   "cycles": [
     {
       "label": "loa-finn MVP: Minimal Persistent Loa Agent",
@@ -1734,7 +1734,45 @@
           "notes": "3/3 tasks done. Sprint-7 e2e (5 tests) lands as src/substrate/__tests__/e2e.integration.test.ts: full pipeline through real worker_threads (compiles substrate to temp dist, spawns worker, runs synthetic Effect-program construct end-to-end through bridge proxy → cheval → response → resolve). Doctrine §13 + memory entry shipped earlier. Two type-narrowness fixes caught during standalone tsc compile (composeLayer return widening, ManagedRuntime cache cast). 110/111 substrate tests pass. Commit: f06cb74."
         }
       ]
+    },
+    {
+      "id": "cycle-041",
+      "label": "Score — Phase-1 Forensic-Integrity Spike (Finn/Economy-OS)",
+      "status": "active",
+      "started": "2026-06-09T16:38:32Z",
+      "prd": "grimoires/loa/prd-finn-economy-os.md",
+      "sdd": "grimoires/loa/sdd-finn-economy-os.md",
+      "sprints": [
+        {
+          "local_id": "sprint-1",
+          "global_id": 165,
+          "label": "Substrate-agnostic core + edge port (FR-1, FR-2, FR-6)",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-2",
+          "global_id": 166,
+          "label": "Ingestion + persistence + epoch job + PREMISE smoke (FR-1, FR-7)",
+          "status": "pending",
+          "tasks": 6
+        },
+        {
+          "local_id": "sprint-3",
+          "global_id": 167,
+          "label": "Forensic validation harness (FR-2a)",
+          "status": "pending",
+          "tasks": 3
+        },
+        {
+          "local_id": "sprint-4",
+          "global_id": 168,
+          "label": "Report generator + publication-hold + GO instrumentation (FR-3, §2.2a/b, §7)",
+          "status": "pending",
+          "tasks": 7
+        }
+      ]
     }
   ],
-  "next_global_sprint_id": 158
+  "next_global_sprint_id": 169
 }

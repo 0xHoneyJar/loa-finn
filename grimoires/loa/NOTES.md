@@ -1,5 +1,65 @@
 # NOTES.md
 
+## Session Continuity
+
+### /ride --enriched re-analysis (2026-06-08)
+Re-rode loa-finn (supersedes stale cycle-013 reality, Feb 11). Codebase grew ~3x: 28 modules /
+359 non-test files / ~81.6K LOC / 374 tests (was "15 modules, 120+ files"). A whole economic/NFT
+layer landed undocumented in the README module map: `nft`(73), `x402`(17), `credits`(16),
+`billing`(13), `substrate`(12), `marketplace`, `events`, `oracle`, `tracing`.
+
+Ride results: drift 6.5/10 · consistency 8/10 · governance 9/10 (230 semver tags).
+**Critical drift**: `package.json` `"license":"MIT"` contradicts AGPL-3.0 (`LICENSE.md`+README) → GAP-001.
+7 gaps filed (`gaps.md`, session `a51c`); 2 ADRs catalogued (`reality/decisions.md`); 30 domain
+terms (`reality/terminology.md`). Reality files refreshed (9 spokes, ~5.8K tokens).
+
+**Judgment call**: `prd.md`/`sdd.md` are genuine hand-authored feature docs (Per-NFT Personality,
+2026-03-26) — NOT overwritten. Ride output written to `prd-ride-reality.md` / `sdd-ride-reality.md`.
+Phase 8 legacy-deprecation skipped (would have wrongly deprecated SECURITY/CONTRIBUTING/README).
+Artifact verification: 20/20 persisted.
+
+### Finn PRD discovery — the Score-truth-agent reframe (2026-06-08)
+`/discovering-requirements` for a NEW Finn/Economy-OS PRD (→ `prd-finn-economy-os.md`; do NOT touch
+Cycle-040 `prd.md`). Operator pivoted the spine mid-discovery: first SKU = **Score-as-a-truth-agent**
+(grounded integrity scoring of tokens + agents, legit-vs-farm), NOT the vending machine. First
+deliverable = **demand-discovery via a bottom-up market study** (dogfood our truth tool on the live
+agent economy — ~82% theater per aGDP Epoch 5 — to map where real deal flow goes). Build target stays
+**exploratory** (PLAN v3 pillars not committed). Full reframe + locked decisions + Score lineage:
+`context/2026-06-08-finn-score-truth-agent-reframe.md`. Market study `w74auxo01` DONE (6 grounded
+probes): the "real earner" (aixbt) is ~99% token/~31% accuracy/no audited track record; real WTP is
+institutional provenance subs (Kaito ~$40M ARR). Wedge = a no-LLM deterministic aGDP leaderboard
+X-ray (wash-confidence per agent), weekly X thread, 3-report experiment with falsifiable kill-gates.
+**Spine ratified:** token=free-first · buyer=institutions+allocators · timing=enter-now-but-substrate-
+agnostic (1→3) · posture=spike/derisk/experiment. **PRD v2 written:** `prd-finn-economy-os.md`.
+GPT-5 adversarial review (via codex — governed 3-model Flatline is mis-wired here: config aliases
+`gpt-5.2`/`gemini-2.5-flash` unknown to loa_cheval + opus needs absent ANTHROPIC_API_KEY; flagged, not
+silently worked around). 7 blockers integrated: honesty reframe (forensic spike, NOT asserted
+credit-bureau) · **defamation/legal as a Phase-1 gate** (publicly naming agents "wash-farming" =
+real risk) · Distribution-GO vs Commercial-GO (WTP) split · anomaly-language + validation gate +
+facts-first · auditable-not-un-gameable + token-conflict guard · adversary model · moat definition.
+Demand-discovery-first sequencing was the one part GPT-5 credited. Review raw:
+`a2a/flatline/prd-codex-adversarial-review.raw.txt`.
+Recall finding: governed memory has nothing on this thesis (it's new — promote by operator hand only).
+
+### Finn/Score Phase-1 sprint plan written (2026-06-09)
+`/sprint-plan` over `prd-finn-economy-os.md` + `sdd-finn-economy-os.md` (Phase-1 forensic spike ONLY;
+Cycle-040 `prd.md`/`sdd.md`/`sprint.md` UNTOUCHED — confirmed clean in git). Plan →
+`grimoires/loa/sprint-finn-score.md` (new path, NOT `sprint.md`). **4 sprints**, mapped 1:1 to SDD §8:
+S1 substrate-agnostic pure core + GraphSource port + 3 tables (FR-1/2/6, MEDIUM/6) · S2 ingestion +
+epoch job + PREMISE smoke (FR-1/7, MEDIUM/6) · S3 validation harness (FR-2a, SMALL/3) · S4 report +
+publication-hold + GO instrumentation (FR-3/§7, LARGE/7). All demand-gated work EXCLUDED (no
+LLM/wallet/Bedrock/broker/token/MCP). SDD open Qs grounded into tasks: Q2 event-sigs→T2.1, Q3
+farming-band→T2.6, Q1 precision-bar→T3.1. OD-7 legal/Q5 is a PARALLEL HUMAN track that the
+publication-hold blocks on — noted, NOT an engineering sprint. SDD-referenced organs all verified on
+disk; `src/score/` is greenfield.
+**Ledger:** new `cycle-041`, global ids **165–168** (max prior = 164; the `next_global_sprint_id`
+pointer was stale at 158 — bumped to 169). Note: ledger carries 10 pre-existing duplicate global_id
+groups (126–132, 144–146) from legacy double-registration — I added ZERO new collisions.
+**Beads:** 4 epics (bd-2pyh/ua3w/ajio/90cu) + 22 child tasks, epic-blocking deps S1→S2→S3→S4
+(S1 unblocked root, S4 terminal). Beads SQLite was empty (5) vs JSONL (578) — reconciled via
+`br sync --merge` (three-way), NOT force-flush (would have lost 255 issues). All 26 cycle-041 lines
+in JSONL.
+
 ## Learnings
 
 ### TypeBox FormatRegistry Footgun (cycle-033, T-3.9)
