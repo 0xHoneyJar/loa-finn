@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-06-10T06:06:14.540Z",
+  "atoms": {
+    "total": 132,
+    "a_relay": 100,
+    "b_enrich": 32,
+    "gates": {
+      "NO_INFERENCE:not_requested": 100,
+      "NO_INFERENCE:fail_closed": 12,
+      "NO_INFERENCE:abstain_rule": 1,
+      "ROUTE_CHEVAL:routed:invoke_failed": 3,
+      "ROUTE_CHEVAL:routed": 16
+    },
+    "malformed": 0,
+    "sum_inference_micro": 10935,
+    "sum_infra_micro": 1030,
+    "sum_orchestration_micro": 66,
+    "sum_total_micro": 12031
+  },
+  "phases": [
+    {
+      "phase": 0,
+      "total_calls": 5,
+      "a_relay": 3,
+      "b_enrich": 2,
+      "gate_routed": 2,
+      "gate_closed": 0,
+      "a_relay_p50_ms": 319,
+      "b_p50_ms": 5019,
+      "b_gate_status": "ROUTED"
+    },
+    {
+      "phase": 1,
+      "total_calls": 50,
+      "a_relay": 40,
+      "b_enrich": 10,
+      "gate_routed": 10,
+      "gate_closed": 0,
+      "a_relay_p50_ms": 288,
+      "b_p50_ms": 3944,
+      "b_gate_status": "ROUTED"
+    },
+    {
+      "phase": 2,
+      "level": 1,
+      "total_calls": 60,
+      "a_relay": 48,
+      "b_enrich": 12,
+      "gate_routed": 12,
+      "gate_closed": 0,
+      "a_relay_p50_ms": 303,
+      "b_p50_ms": 4009,
+      "b_gate_status": "ROUTED"
+    },
+    {
+      "phase": 2,
+      "level": 2,
+      "total_calls": 208,
+      "a_relay": 167,
+      "b_enrich": 41,
+      "gate_routed": 41,
+      "gate_closed": 0,
+      "a_relay_p50_ms": 273,
+      "b_p50_ms": 4249,
+      "b_gate_status": "ROUTED"
+    }
+  ],
+  "bars": {
+    "_provenance": "Pre-registered hypothesis bars — arch-finn-cost-of-play.md, set 2026-06-09 BEFORE any data existed (composition run cost-of-play-0609b). Written ONCE per flatline B6/HC5. The readout embeds this file's sha256; editing this file = a different run, never a corrected one.",
+    "h1_held_max": 0.2,
+    "h1_falsified_min": 0.4,
+    "h2_flat_threshold": 0.05,
+    "h2_crossover_min_r2": 0.8,
+    "malformed_line_max_ratio": 0.01,
+    "sha256": "b98a5716ea1d58ec96e35932f021d6196345ff886b917a4e3768f5389a7f5f2e"
+  },
+  "readout": null
+}

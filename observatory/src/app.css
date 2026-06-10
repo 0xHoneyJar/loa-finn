@@ -1,0 +1,401 @@
+@import './lib/tokens.css';
+@import 'tailwindcss';
+
+/* ================================================================= */
+/* Observatory App CSS — freeside register, lab instrument panel      */
+/* Aesthetic authority: world-sprawl/apps/rektdrop/src/lib/design/taste.md
+/* CRT register: [data-register="freeside"] on <html>
+/*   scanline-opacity: 0.008  |  noise-opacity: 0.03 (near-zero)
+/* ================================================================= */
+
+/* ── Base ── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  background: var(--color-void-base);
+  color: var(--color-bone-base);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-terminal);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+  min-height: 100vh;
+}
+
+body {
+  background: transparent;
+  min-height: 100vh;
+}
+
+/* ── CRT system — freeside register (near-zero intensity) ──
+   The observatory uses [data-register="freeside"] on <html>
+   and [data-step="idle"] on the main element.
+   This combination keeps CRT atmosphere to texture-only weight.
+   Source: world-sprawl/apps/rektdrop/src/app.css lines 541–547, 936–938 */
+@property --crt-scanline-opacity {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0.008;
+}
+@property --crt-noise-opacity {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0.03;
+}
+
+/* Freeside register — CRT at near-zero intensity */
+/* Source: apps/rektdrop/src/app.css line 936 */
+html[data-register='freeside'] [data-step] {
+  --crt-scanline-opacity: 0.008;
+  --crt-noise-opacity: 0.03;
+}
+
+/* Scanlines — fixed overlay, repeating horizontal bands */
+.crt-scanlines::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    oklch(0.04 0.0 0 / var(--crt-scanline-opacity)) 2px,
+    oklch(0.04 0.0 0 / var(--crt-scanline-opacity)) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Vignette — soft radial edge darkening */
+.crt-vignette::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 52%,
+    oklch(0.04 0.0 0 / 0.45) 100%
+  );
+  pointer-events: none;
+  z-index: 9998;
+}
+
+/* ── Typography utilities ── */
+.font-mono    { font-family: var(--font-mono); }
+.font-display { font-family: var(--font-display); font-weight: 900; }
+.tracking-terminal { letter-spacing: var(--tracking-terminal); }
+.tracking-whisper  { letter-spacing: var(--tracking-whisper); }
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* ── Phosphor glow utilities ── */
+.phosphor-glow-bone {
+  text-shadow: 0 0 8px oklch(0.97 0.005 95 / 0.25);
+}
+.phosphor-glow-green {
+  text-shadow: 0 0 8px var(--color-phosphor-glow);
+}
+.phosphor-glow-anomaly {
+  text-shadow: 0 0 8px var(--color-anomaly-glow);
+}
+.phosphor-glow-cyan {
+  text-shadow: 0 0 6px oklch(0.85 0.15 195 / 0.3);
+}
+
+/* ── Panel shell — DashboardCard pattern (F13) ──
+   outer gradient shell + inner dark surface + 1px border strokes
+   Source: world-sprawl/apps/sprawl-ui/src/lib/components/ui/DashboardCard.svelte */
+.panel {
+  background: linear-gradient(180deg,
+    oklch(0.14 0.008 250) 0%,
+    oklch(0.10 0.005 250) 100%
+  );
+  border: 1px solid var(--color-void-border);
+  border-radius: 0px; /* No radii — die-stamped */
+  padding: var(--space-100);
+  box-shadow: var(--elevation-2); /* Glow elevation — taste.md: no drop shadows, glow only */
+}
+
+.panel-inner {
+  background: oklch(0.11 0.005 250);
+  border: 1px solid oklch(0.22 0.012 250 / 0.6);
+  padding: var(--space-400);
+  height: 100%;
+}
+
+/* ── Panel label — cyan structural chrome ── */
+.panel-label {
+  color: var(--color-cyan-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-terminal);
+  text-transform: uppercase;
+  border-bottom: 1px solid oklch(0.65 0.12 195 / 0.35);
+  padding-bottom: var(--space-200);
+  margin-bottom: var(--space-300);
+  display: block;
+}
+
+/* ── Data rows ── */
+.data-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: var(--space-100) 0;
+  border-bottom: 1px solid oklch(0.22 0.012 250 / 0.4);
+  gap: var(--space-400);
+}
+
+.data-row:last-child {
+  border-bottom: none;
+}
+
+.data-label {
+  color: var(--color-bone-dim);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-terminal);
+  flex-shrink: 0;
+}
+
+.data-value {
+  color: var(--color-bone-bright);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.data-value-ghost {
+  color: var(--color-bone-ghost);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ── Verdict labels ── */
+.verdict-held {
+  color: var(--color-phosphor-base);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-terminal);
+  text-shadow: 0 0 6px var(--color-phosphor-glow);
+}
+
+.verdict-falsified {
+  color: var(--color-anomaly-base);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-terminal);
+  text-shadow: 0 0 6px var(--color-anomaly-glow);
+}
+
+.verdict-pending {
+  color: var(--color-bone-ghost);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-terminal);
+}
+
+/* ── Hypothesis bars ── */
+.hypo-bar-block {
+  padding: var(--space-300) 0;
+  border-bottom: 1px solid oklch(0.22 0.012 250 / 0.4);
+}
+
+.hypo-bar-block:last-child {
+  border-bottom: none;
+}
+
+.hypo-bar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: var(--space-200);
+}
+
+.hypo-bar-id {
+  color: var(--color-cyan-dim);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-terminal);
+}
+
+.hypo-bar-track {
+  position: relative;
+  height: 3px;
+  background: oklch(0.22 0.012 250 / 0.6);
+  margin: var(--space-150) 0;
+}
+
+.hypo-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: var(--color-phosphor-base);
+}
+
+.hypo-bar-fill.over-held {
+  background: var(--color-anomaly-base);
+}
+
+.hypo-bar-marker {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+}
+
+.hypo-bar-marker-held {
+  background: var(--color-cyan-dim);
+}
+
+.hypo-bar-marker-falsified {
+  background: var(--color-anomaly-dim);
+}
+
+.hypo-bar-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-150);
+}
+
+.hypo-bar-threshold-label {
+  color: var(--color-bone-ghost);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-whisper);
+  text-transform: uppercase;
+}
+
+.hypo-bar-note {
+  color: var(--color-bone-ghost);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-whisper);
+  text-transform: uppercase;
+  margin-top: var(--space-100);
+}
+
+/* ── Learning entries ── */
+.learning-entry {
+  padding: var(--space-300) 0;
+  border-bottom: 1px solid oklch(0.22 0.012 250 / 0.4);
+}
+
+.learning-entry:last-child {
+  border-bottom: none;
+}
+
+.learning-id {
+  color: var(--color-cyan-dim);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-whisper);
+  text-transform: uppercase;
+  margin-bottom: var(--space-100);
+}
+
+.learning-headline {
+  color: var(--color-bone-base);
+  font-size: var(--text-sm);
+  letter-spacing: 0.04em;
+  line-height: var(--leading-relaxed);
+}
+
+.learning-source {
+  color: var(--color-bone-ghost);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-whisper);
+  text-transform: uppercase;
+  margin-top: var(--space-100);
+}
+
+/* ── Corner telemetry — AmbientTelemetry pattern (F5) ── */
+.telemetry-bl,
+.telemetry-br {
+  position: fixed;
+  bottom: max(2vh, 16px);
+  pointer-events: none;
+  user-select: none;
+  color: oklch(0.32 0.004 95);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-whisper);
+  text-transform: uppercase;
+  opacity: 0.5;
+  line-height: var(--leading-relaxed);
+  z-index: 100;
+}
+
+.telemetry-bl { left: 2vw; }
+.telemetry-br { right: 2vw; text-align: right; }
+
+/* ── Progression table ── */
+.prog-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.prog-table th {
+  color: var(--color-cyan-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-whisper);
+  text-transform: uppercase;
+  text-align: left;
+  padding: var(--space-100) var(--space-200) var(--space-200) 0;
+  border-bottom: 1px solid oklch(0.65 0.12 195 / 0.25);
+  font-weight: normal;
+}
+
+.prog-table th:not(:first-child) {
+  text-align: right;
+}
+
+.prog-table td {
+  color: var(--color-bone-base);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  padding: var(--space-150) var(--space-200) var(--space-150) 0;
+  border-bottom: 1px solid oklch(0.22 0.012 250 / 0.3);
+  vertical-align: middle;
+}
+
+.prog-table td:not(:first-child) {
+  text-align: right;
+}
+
+.prog-table tr:last-child td {
+  border-bottom: none;
+}
+
+.prog-table td.gate-routed {
+  color: var(--color-phosphor-base);
+  text-shadow: 0 0 5px var(--color-phosphor-glow);
+}
+
+.prog-table td.gate-closed {
+  color: var(--color-bone-ghost);
+}
+
+.prog-table td.phase-col {
+  color: var(--color-bone-dim);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-whisper);
+}
+
+/* Latency sub-section */
+.latency-group {
+  margin-top: var(--space-400);
+  padding-top: var(--space-300);
+  border-top: 1px solid oklch(0.22 0.012 250 / 0.4);
+}
+
+.latency-group-label {
+  color: var(--color-bone-ghost);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-whisper);
+  text-transform: uppercase;
+  margin-bottom: var(--space-200);
+}
