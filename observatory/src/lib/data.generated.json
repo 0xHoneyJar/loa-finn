@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-10T06:06:14.540Z",
+  "generated_at": "2026-06-10T06:22:58.659Z",
   "atoms": {
     "total": 132,
     "a_relay": 100,
@@ -55,13 +55,13 @@
     {
       "phase": 2,
       "level": 2,
-      "total_calls": 208,
-      "a_relay": 167,
-      "b_enrich": 41,
-      "gate_routed": 41,
+      "total_calls": 349,
+      "a_relay": 280,
+      "b_enrich": 69,
+      "gate_routed": 69,
       "gate_closed": 0,
-      "a_relay_p50_ms": 273,
-      "b_p50_ms": 4249,
+      "a_relay_p50_ms": 275,
+      "b_p50_ms": 4316,
       "b_gate_status": "ROUTED"
     }
   ],

@@ -92,7 +92,7 @@
         <!-- INFRA — atoms -->
         <div class="data-row">
           <span class="data-label">INFRA (atoms snapshot)</span>
-          <span class="data-value phosphor-glow-bone">
+          <span class="data-value data-value--hero phosphor-glow-bone">
             <NixieCount
               target={COST_LEDGER.infra_atoms_micro_usd / 1_000_000}
               duration={2000}
@@ -111,7 +111,7 @@
         <!-- CLASS B live -->
         <div class="data-row">
           <span class="data-label">CLASS-B LIVE ENRICHMENTS</span>
-          <span class="data-value phosphor-glow-bone">
+          <span class="data-value data-value--hero phosphor-glow-bone">
             <NixieCount
               target={COST_LEDGER.class_b_live_micro_usd / 1_000_000}
               duration={1600}

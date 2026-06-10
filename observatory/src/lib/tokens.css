@@ -51,19 +51,26 @@
   --font-mono:    'IBM Plex Mono', 'Courier New', monospace;
   --font-display: 'Basement Grotesque', system-ui;
 
-  /* Scale (rem / accessibility) */
-  --text-2xs:   0.500rem;   /*  8px */
-  --text-xs:    0.5625rem;  /*  9px */
-  --text-sm:    0.6875rem;  /* 11px */
-  --text-base:  0.8125rem;  /* 13px */
-  --text-lg:    1.000rem;   /* 16px */
-  --text-xl:    1.250rem;   /* 20px */
-  --text-2xl:   1.500rem;   /* 24px */
+  /* Scale (rem / accessibility)
+     Ladder corrected 2026-06-10 (feel pass — operator: "illegible"):
+     upstream rektdrop canon mandates a 14px data floor (taste.md:
+     text-sm 14px floor, 16px labels); the vendored ladder had drifted
+     ~3px down at every step. sm IS the floor — dense data never
+     renders below it; 2xs/xs are ambient chrome only. */
+  --text-2xs:   0.625rem;   /* 10px — corner telemetry ONLY */
+  --text-xs:    0.750rem;   /* 12px — sub-annotations ONLY */
+  --text-sm:    0.875rem;   /* 14px — THE data floor */
+  --text-base:  1.000rem;   /* 16px — labels */
+  --text-lg:    1.250rem;   /* 20px — panel titles */
+  --text-xl:    1.750rem;   /* 28px — hero readouts */
+  --text-2xl:   2.250rem;   /* 36px — a number that owns a panel */
 
-  /* Tracking */
+  /* Tracking — wide terminal tracking is a ≥14px-caps affordance;
+     dense numerics get near-zero tracking or legibility collapses */
   --tracking-terminal:  0.10em;
   --tracking-emphasis:  0.05em;
   --tracking-whisper:   0.25em;
+  --tracking-data:      0.02em;
 
   /* Leading */
   --leading-tight:   1.2;
