@@ -58,6 +58,11 @@ COPY public/ ./public/
 # FINN_POSTGRES_ENABLED=false as in the playtest env)
 COPY drizzle/ ./drizzle/
 
+# Identity contract — IdentityLoader hard-requires the soul file at boot
+# (deploy-discovered gap in the lean cut list: grimoires/ was cut wholesale,
+# but BEAUVOIR.md is boot-blocking and only a few KB)
+COPY grimoires/loa/BEAUVOIR.md ./grimoires/loa/BEAUVOIR.md
+
 # Hounfour adapters (cheval.py lives here) and schemas
 COPY adapters/ ./adapters/
 COPY schemas/ ./schemas/
