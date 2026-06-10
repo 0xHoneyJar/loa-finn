@@ -235,6 +235,35 @@ stays, producer-side architecturally) · Railway vs payload-real stub · ad-hoc 
 - **Next:** micro-sprint the V1 checklist (items 1–4 are /implement-gated app code), deploy, run
   playtest phases 0–3, readout vs pre-registered bars.
 
+## Session 2026-06-10 — DEPLOYED: cost-of-play live on Railway · phase 0 COMPLETE · program reframe
+
+**Deploy (experiment #1 production lane):** project `finn-cost-of-play` (honey jar workspace,
+c997cf7f…) · `score-stub` (dockerized — Railway upload root = git root, railpack saw repo
+package.json; own Dockerfile fix) · `finn-lean` live at finn-lean-production.up.railway.app
+after 3 deploy-discovered fixes: (1) BEAUVOIR.md is boot-blocking but lean cut grimoires/ —
+staged via deploy/BEAUVOIR.md because (2) the Railway indexer DROPS grimoires/ from the build
+context even for tracked files; (3) volume mounts root-owned over /data vs non-root finn user →
+`RAILWAY_RUN_UID=0` (playtest-scope deviation from non-root posture, documented).
+**Railway prices VERIFIED (docs): vCPU $0.000463/min = 2× the assumption** (RAM/egress matched)
+→ arch doc row corrected, `COP_INFRA_CONTAINER_MICRO_PER_HOUR=41640` deployed.
+**Phase 0 production: 5/5** (3A relay · 2B fail_closed — no funded key yet, by design), ~200-500ms,
+gate echoes correct. 200-response ⇒ atom durably appended (audit-verified contract).
+**Pending operator:** funded OpenAI-compatible key for Class B (phase 1+ H1 needs it) ·
+`railway login` refresh + `railway ssh keys github` for volume JSONL pull at readout.
+
+**Program reframe (operator):** the deploy = experiment #1 of a grounded-reality loop —
+hypothesis+bars → sim lane (gygax/arneson) + production lane → WORLDLINE binds (beliefs/predictions
+as claimed beats, measurements observed, coherence = calibration). Exp-2 = agent-commerce
+FORENSICS (brief: `grimoires/loa/context/exp2-agent-commerce-forensics-brief.md`, status
+candidate): decode ACP V1/V2 ($433M unscraped), 0xa6c9ba86 identity, wallet-friction funnel
+(operator belief B1 jotted to worldline spine as claimed — tension noted: research suggests
+demand-deficit alternative), beacon discovery-surface audit. Composition roster:
+gygax(PULL LATEST — awareness-ladder landed)+arneson+the-arcade+worldline+**beacon** (operator:
+100% include). score-api PR #263 CORRECTION folded: $438M gross / 3 ACP generations / ~95% wash /
+real A2A ≈ $0 → near-zero marginal cost is the SURVIVAL condition; wedge = token-level realness
+filter. Meta-process: abide by existing hivemind experiment templates; extract new only after ≥2
+experiments (operator call).
+
 ## Session 2026-06-09 (build) — sprint-169 COMPLETED (cost-of-play V1 built + gated)
 
 `/run sprint-169` full cycle, local mode (no finn origin remote — only the loa framework
