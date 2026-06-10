@@ -263,13 +263,37 @@ function utcDayKey(now: number): string {
   return new Date(now).toISOString().slice(0, 10)
 }
 
-/** Daily Class-B spend counter. Persisted to ${dir}/spend-YYYY-MM-DD.json via
- *  tmp-file + atomic rename after every settle, LOADED at startup — a cold
- *  start does not reset the kill-switch (B15: phase-3 restarts would
- *  otherwise bypass it exactly while it's being measured). */
+/** Thrown when settled spend cannot be persisted (review F3): the route
+ *  surfaces this as a 500 — a run with a broken kill-switch counter must be
+ *  VISIBLY broken, never silently optimistic. */
+export class SpendPersistError extends Error {
+  constructor(cause: unknown) {
+    super(`spend persist failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+    this.name = "SpendPersistError"
+  }
+}
+
+/** Daily Class-B spend counter with reservation semantics (review F2-F5).
+ *
+ *  - LOADED at startup; only ENOENT counts as a fresh day — any other read/
+ *    parse failure marks the counter UNAVAILABLE and every enrich request
+ *    fail-closes until the operator repairs it (F5; B15 restart integrity).
+ *  - `outstanding()` = settled + in-flight reservations. The route reserves
+ *    the estimate SYNCHRONOUSLY with the gate decision (same microtask — no
+ *    await between), so concurrent enrich requests cannot all pass the
+ *    kill-switch on the same pre-spend value (F2).
+ *  - Persists are serialized through an internal promise chain with unique
+ *    tmp names (F4); memory commits before persist (conservative at runtime),
+ *    persist failure throws SpendPersistError (F3).
+ *  - Reservations are in-memory only: a crash kills in-flight invocations
+ *    with the process, so they need no durability. */
 export class SpendCounter {
   private day = ""
   private micro = 0n
+  private reserved = 0n
+  private unavailable = false
+  private chain: Promise<void> = Promise.resolve()
+  private tmpSeq = 0
 
   constructor(
     private readonly dir: string,
@@ -284,43 +308,95 @@ export class SpendCounter {
     const day = utcDayKey(this.now())
     this.day = day
     this.micro = 0n
+    this.reserved = 0n
+    this.unavailable = false
     try {
       const { readFile } = await import("node:fs/promises")
       const raw = JSON.parse(await readFile(this.fileFor(day), "utf-8")) as {
         day?: string
         spend_micro?: string
       }
-      if (raw.day === day && typeof raw.spend_micro === "string") {
-        const value = BigInt(raw.spend_micro)
-        if (value >= 0n) this.micro = value
+      if (raw.day !== day || typeof raw.spend_micro !== "string") {
+        throw new Error("spend file shape mismatch")
       }
-    } catch {
-      // no file yet / unreadable → 0 for a fresh day; the gate stays
-      // conservative because every settle re-persists immediately.
+      const value = BigInt(raw.spend_micro)
+      if (value < 0n) throw new Error("negative persisted spend")
+      this.micro = value
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+        return // fresh day — zero is correct
+      }
+      // Corrupt/unreadable current-day file: fail CLOSED, not to zero (F5).
+      this.unavailable = true
+      console.error("[spend-counter] current-day spend file unreadable — enrichment fail-closed:", err)
     }
   }
 
-  /** Current UTC day's spend. Rolls to 0 when the UTC day changes. */
-  today(): bigint {
+  /** False when the persisted counter could not be read — gate must fail-close. */
+  available(): boolean {
+    this.rollDay()
+    return !this.unavailable
+  }
+
+  private rollDay(): void {
     const day = utcDayKey(this.now())
     if (day !== this.day) {
+      // A new UTC day starts fresh: no file exists yet, prior-day corruption
+      // no longer governs the current ceiling.
       this.day = day
       this.micro = 0n
+      this.reserved = 0n
+      this.unavailable = false
     }
-    return this.micro
   }
 
-  /** Add settled Class-B inference spend and persist atomically. */
-  async add(costMicro: bigint): Promise<void> {
-    if (typeof costMicro !== "bigint" || costMicro <= 0n) return
-    this.today() // roll day if needed
-    this.micro += costMicro
-    const { mkdir, rename, writeFile } = await import("node:fs/promises")
-    await mkdir(this.dir, { recursive: true })
-    const file = this.fileFor(this.day)
-    const tmp = `${file}.tmp-${process.pid}`
-    await writeFile(tmp, JSON.stringify({ day: this.day, spend_micro: this.micro.toString(10) }), "utf-8")
-    await rename(tmp, file)
+  /** Settled + reserved spend for the current UTC day (the gate input). */
+  outstanding(): bigint {
+    this.rollDay()
+    return this.micro + this.reserved
+  }
+
+  /** Reserve an estimate. SYNCHRONOUS by design — call it in the same
+   *  microtask as the gate decision so no other request can interleave. */
+  reserve(estMicro: bigint): void {
+    if (typeof estMicro !== "bigint" || estMicro <= 0n) return
+    this.rollDay()
+    this.reserved += estMicro
+  }
+
+  /** Release a reservation without settling (invoke failed — no spend). */
+  release(estMicro: bigint): void {
+    if (typeof estMicro !== "bigint" || estMicro <= 0n) return
+    this.reserved = this.reserved >= estMicro ? this.reserved - estMicro : 0n
+  }
+
+  /** Settle a reservation to actual spend and persist atomically.
+   *  Memory commits first (runtime stays conservative even if disk fails);
+   *  persist failure rejects with SpendPersistError (F3). */
+  async settle(estMicro: bigint, actualMicro: bigint): Promise<void> {
+    this.release(estMicro)
+    if (typeof actualMicro !== "bigint" || actualMicro < 0n) {
+      throw new SpendPersistError("settle called with invalid actual spend")
+    }
+    this.rollDay()
+    this.micro += actualMicro
+    const day = this.day
+    const value = this.micro
+    const seq = ++this.tmpSeq
+    const persist = this.chain.then(async () => {
+      const { mkdir, rename, writeFile } = await import("node:fs/promises")
+      await mkdir(this.dir, { recursive: true })
+      const file = this.fileFor(day)
+      const tmp = `${file}.tmp-${process.pid}-${seq}`
+      await writeFile(tmp, JSON.stringify({ day, spend_micro: value.toString(10) }), "utf-8")
+      await rename(tmp, file)
+    })
+    this.chain = persist.catch(() => {})
+    try {
+      await persist
+    } catch (err) {
+      throw new SpendPersistError(err)
+    }
   }
 }
 
@@ -462,7 +538,20 @@ export function createScoreVerdictRoutes(deps: ScoreVerdictDeps = {}): Hono {
     return c.json({ error: "Unauthorized", code: "INVALID_TOKEN" }, 401)
   })
 
-  app.use("*", costAtomMiddleware({ writer, window, rates, now }))
+  app.use(
+    "*",
+    costAtomMiddleware({
+      writer,
+      window,
+      rates,
+      now,
+      // Review F1: feed the gate's rolling infra estimate from CLOSED Class A
+      // atoms — est_infra_micro is the mean of the last 20, seeded until 5.
+      onAtomClosed: (atom) => {
+        if (atom.call_class === "A_relay") infraEstimator.push(atom.infra.cost_micro)
+      },
+    }),
+  )
 
   app.get("/verdict/:agentId", async (c: Context) => {
     const handle = getCostAtom(c)
@@ -528,20 +617,25 @@ export function createScoreVerdictRoutes(deps: ScoreVerdictDeps = {}): Hono {
             gateConfig.cheval.pricing,
           )
         : null
+    // Review F5: an unavailable spend counter (corrupt current-day file) must
+    // fail-close every enrich request — never silently reset to zero.
+    const spendAvailable = spend.available()
     const gateInput: GateInput | null =
-      gateConfig && gateConfig.cheval && estInference !== null
+      gateConfig && gateConfig.cheval && estInference !== null && spendAvailable
         ? {
             enrich,
             band: typeof claim.band === "string" ? claim.band : undefined,
             claim_verdict: typeof claim.verdict === "string" ? claim.verdict : undefined,
-            spend_today_micro: spend.today(),
+            // Review F2: settled + in-flight reservations, so concurrent
+            // enrich requests cannot all pass on the same pre-spend value.
+            spend_today_micro: spend.outstanding(),
             est_inference_micro: estInference,
             est_infra_micro: infraEstimator.estimate(),
             x402_price_micro: gateConfig.x402_price_micro,
             ceiling_micro: gateConfig.ceiling_micro,
           }
         : enrich
-          ? null // enrichment requested but transport/config unavailable → fail-closed
+          ? null // enrichment requested but transport/config/counter unavailable → fail-closed
           : {
               // Class A short-circuit: row 1 fires before economic inputs are needed
               enrich: false,
@@ -554,6 +648,12 @@ export function createScoreVerdictRoutes(deps: ScoreVerdictDeps = {}): Hono {
               ceiling_micro: 0n,
             }
     const gate = decideGate(gateInput)
+    // Review F2: reservation happens in the SAME microtask as the decision —
+    // no await sits between decideGate and reserve, so no other request can
+    // interleave and observe stale outstanding spend.
+    if (gate.decision === "ROUTE_CHEVAL" && estInference !== null) {
+      spend.reserve(estInference)
+    }
     const gateInputsRecord: Record<string, unknown> =
       gateInput === null
         ? { unavailable: "gate config or cheval transport missing" }
@@ -582,28 +682,56 @@ export function createScoreVerdictRoutes(deps: ScoreVerdictDeps = {}): Hono {
       const invokeStart = now()
       try {
         const result = await chevalInvoke(prompt, gateConfig.cheval, handle.correlationId)
+        // Review F6: every externally-sourced number is validated before it
+        // can reach a stored field — fractional/NaN/Infinity telemetry would
+        // silently corrupt the no-float invariant while still checksumming.
+        const safeCount = (v: unknown, name: string): number => {
+          if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0) {
+            throw new Error(`invalid telemetry from cheval: ${name}=${String(v)}`)
+          }
+          return v
+        }
+        const promptTokens = safeCount(result.usage.prompt_tokens, "prompt_tokens")
+        const completionTokens = safeCount(result.usage.completion_tokens, "completion_tokens")
+        const cachedTokens = result.usage.cached_tokens === undefined ? 0 : safeCount(result.usage.cached_tokens, "cached_tokens")
+        const providerLatency = safeCount(result.provider_latency_ms, "provider_latency_ms")
         const invokeWall = Math.max(0, now() - invokeStart)
-        const spawnMs = Math.max(0, invokeWall - Math.max(0, result.provider_latency_ms))
-        handle.setChevalSpawnMs(spawnMs)
+        handle.setChevalSpawnMs(Math.max(0, invokeWall - providerLatency))
         const inputCost = calculateCostMicro(
-          result.usage.prompt_tokens,
+          promptTokens,
           gateConfig.cheval.pricing.input_micro_per_million,
         )
         const outputCost = calculateCostMicro(
-          result.usage.completion_tokens,
+          completionTokens,
           gateConfig.cheval.pricing.output_micro_per_million,
         )
         const inferenceMicro = BigInt(inputCost.cost_micro + outputCost.cost_micro)
         handle.recordInference({
           model: gateConfig.cheval.model,
-          input_tokens: result.usage.prompt_tokens,
-          output_tokens: result.usage.completion_tokens,
-          cached_tokens: result.usage.cached_tokens ?? 0,
+          input_tokens: promptTokens,
+          output_tokens: completionTokens,
+          cached_tokens: cachedTokens,
           cost_micro: inferenceMicro,
         })
-        await spend.add(inferenceMicro)
+        // Review F2/F3: settle the reservation to actual spend. A persist
+        // failure is surfaced as a 500 — fail-loud, the inference cost is
+        // already recorded in the atom either way.
+        await spend.settle(estInference ?? 0n, inferenceMicro)
         enrichment = { model: gateConfig.cheval.model, content: result.content }
       } catch (err) {
+        if (err instanceof SpendPersistError) {
+          // settle() already released the reservation before persisting —
+          // releasing again here would eat a CONCURRENT request's reservation.
+          handle.setGate(`${gateDecisionString(gate)}:spend_persist_failed`, {
+            ...gateInputsRecord,
+            persist_error: err.message,
+          })
+          return c.json(
+            { error: "spend counter persist failed", code: "SPEND_PERSIST_FAILED" },
+            500,
+          )
+        }
+        spend.release(estInference ?? 0n)
         // Fail-closed AFTER routing: the spawn failed — record the attempt as
         // orchestration data, respond without enrichment. No partial billing:
         // failed invocations report no usage.

@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   InfraEstimator,
   SpendCounter,
+  SpendPersistError,
   createScoreVerdictRoutes,
   decideGate,
   estimateInferenceMicro,
@@ -185,7 +186,7 @@ describe("config parsing (B10) — startup fail-closed", () => {
   })
 })
 
-describe("SpendCounter (B12/B15)", () => {
+describe("SpendCounter (B12/B15 + review F2-F5)", () => {
   let dir: string
 
   beforeEach(() => {
@@ -200,29 +201,81 @@ describe("SpendCounter (B12/B15)", () => {
     const t = 1_750_000_000_000
     const c1 = new SpendCounter(dir, () => t)
     await c1.load()
-    await c1.add(123_456n)
+    await c1.settle(0n, 123_456n)
     // simulated restart: brand-new instance, same data dir
     const c2 = new SpendCounter(dir, () => t + 60_000)
     await c2.load()
-    expect(c2.today()).toBe(123_456n)
+    expect(c2.outstanding()).toBe(123_456n)
+    expect(c2.available()).toBe(true)
   })
 
   it("rolls to zero on UTC day change", async () => {
     let t = Date.UTC(2026, 5, 9, 23, 59, 0)
     const counter = new SpendCounter(dir, () => t)
     await counter.load()
-    await counter.add(500n)
-    expect(counter.today()).toBe(500n)
+    await counter.settle(0n, 500n)
+    expect(counter.outstanding()).toBe(500n)
     t = Date.UTC(2026, 5, 10, 0, 1, 0)
-    expect(counter.today()).toBe(0n)
+    expect(counter.outstanding()).toBe(0n)
   })
 
-  it("ignores non-positive and non-bigint adds", async () => {
+  it("reservations count toward outstanding and release on failure (F2)", async () => {
     const counter = new SpendCounter(dir, () => 1_750_000_000_000)
     await counter.load()
-    await counter.add(0n)
-    await counter.add(-5n)
-    expect(counter.today()).toBe(0n)
+    counter.reserve(10_000n)
+    expect(counter.outstanding()).toBe(10_000n)
+    counter.release(10_000n)
+    expect(counter.outstanding()).toBe(0n)
+  })
+
+  it("settle converts a reservation into settled spend (F2)", async () => {
+    const counter = new SpendCounter(dir, () => 1_750_000_000_000)
+    await counter.load()
+    counter.reserve(10_000n)
+    await counter.settle(10_000n, 8_500n)
+    expect(counter.outstanding()).toBe(8_500n)
+  })
+
+  it("serializes concurrent settles without losing spend (F4)", async () => {
+    const counter = new SpendCounter(dir, () => 1_750_000_000_000)
+    await counter.load()
+    await Promise.all(Array.from({ length: 10 }, () => counter.settle(0n, 100n)))
+    expect(counter.outstanding()).toBe(1_000n)
+    const reloaded = new SpendCounter(dir, () => 1_750_000_000_000)
+    await reloaded.load()
+    expect(reloaded.outstanding()).toBe(1_000n)
+  })
+
+  it("persist failure rejects with SpendPersistError, memory stays conservative (F3)", async () => {
+    const counter = new SpendCounter("/dev/null/not-a-dir", () => 1_750_000_000_000)
+    await counter.load() // ENOENT-class on a bogus path → fresh zero is fine
+    await expect(counter.settle(0n, 100n)).rejects.toThrow(SpendPersistError)
+    expect(counter.outstanding()).toBe(100n) // memory committed — runtime stays conservative
+  })
+
+  it("corrupt current-day file marks the counter unavailable, NOT zero (F5)", async () => {
+    const t = 1_750_000_000_000
+    const day = new Date(t).toISOString().slice(0, 10)
+    const { writeFile, mkdir } = await import("node:fs/promises")
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, `spend-${day}.json`), "{corrupt", "utf-8")
+    const counter = new SpendCounter(dir, () => t)
+    await counter.load()
+    expect(counter.available()).toBe(false)
+  })
+
+  it("a fresh UTC day clears the unavailable state", async () => {
+    let t = Date.UTC(2026, 5, 9, 12, 0, 0)
+    const day = new Date(t).toISOString().slice(0, 10)
+    const { writeFile, mkdir } = await import("node:fs/promises")
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, `spend-${day}.json`), "{corrupt", "utf-8")
+    const counter = new SpendCounter(dir, () => t)
+    await counter.load()
+    expect(counter.available()).toBe(false)
+    t = Date.UTC(2026, 5, 10, 0, 1, 0)
+    expect(counter.available()).toBe(true)
+    expect(counter.outstanding()).toBe(0n)
   })
 })
 
@@ -320,7 +373,83 @@ describe("route integration (atoms + gate echo + spend)", () => {
     // spend persisted for the kill-switch
     const counter = new SpendCounter(dir)
     await counter.load()
-    expect(counter.today()).toBe(8_500n)
+    expect(counter.outstanding()).toBe(8_500n)
+  })
+
+  it("feeds the infra estimator from closed Class A atoms (F1)", async () => {
+    const { claimId } = findIds()
+    const app = makeApp({})
+    // Before 5 Class A samples: est_infra is the seed (1000)
+    const first = await app.request(`/verdict/${claimId}?enrich=true`)
+    const firstAtoms = await readAtoms(join(dir, "cost-atoms.jsonl"))
+    const firstGate = (firstAtoms.atoms.at(-1) as any).orchestration.gate_inputs
+    expect(firstGate.est_infra_micro).toBe("1000")
+    expect(first.status).toBe(200)
+    // 5 Class A calls feed the estimator with real (tiny) infra costs
+    for (let i = 0; i < 5; i++) await app.request(`/verdict/${claimId}`)
+    const after = await app.request(`/verdict/${claimId}?enrich=true`)
+    expect(after.status).toBe(200)
+    const { atoms } = await readAtoms(join(dir, "cost-atoms.jsonl"))
+    const gateInputs = (atoms.at(-1) as any).orchestration.gate_inputs
+    // estimate is now the rolling mean of measured Class A infra costs —
+    // sub-micro wall/egress in tests → 0, definitively NOT the 1000 seed
+    expect(gateInputs.est_infra_micro).not.toBe("1000")
+  })
+
+  it("concurrent enrich requests cannot all pass the kill-switch (F2)", async () => {
+    const { claimId } = findIds()
+    // est_inference = 2000@$2.50/M + 500@$10/M = 5000 + 5000 = 10000 micro.
+    // Ceiling 15000 admits exactly ONE reservation.
+    const app = makeApp({
+      env: { COP_SPEND_CEILING_MICRO: "15000" },
+      cheval: async () => {
+        await new Promise((r) => setTimeout(r, 50)) // hold the reservation window open
+        return { content: "x", usage: { prompt_tokens: 100, completion_tokens: 10 }, provider_latency_ms: 1 }
+      },
+    })
+    const [r1, r2] = await Promise.all([
+      app.request(`/verdict/${claimId}?enrich=true`),
+      app.request(`/verdict/${claimId}?enrich=true`),
+    ])
+    const decisions = [
+      ((await r1.json()) as any).gate_decision,
+      ((await r2.json()) as any).gate_decision,
+    ].sort()
+    expect(decisions.filter((d) => d.startsWith("ROUTE_CHEVAL"))).toHaveLength(1)
+    expect(decisions.filter((d) => d === "NO_INFERENCE:kill_switch")).toHaveLength(1)
+  })
+
+  it("invalid cheval telemetry is rejected fail-closed — no floats stored (F6)", async () => {
+    const { claimId } = findIds()
+    const app = makeApp({
+      cheval: async () => ({
+        content: "x",
+        usage: { prompt_tokens: 1.5, completion_tokens: 10 }, // fractional!
+        provider_latency_ms: 5,
+      }),
+    })
+    const res = await app.request(`/verdict/${claimId}?enrich=true`)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body.enrichment).toBeUndefined()
+    expect(body.gate_decision).toMatch(/invoke_failed/)
+    const { atoms } = await readAtoms(join(dir, "cost-atoms.jsonl"))
+    const atom = atoms[0] as any
+    expect(atom.inference.cost_micro).toBe("0")
+    expect(atom.orchestration.gate_inputs.invoke_error).toMatch(/invalid telemetry/)
+  })
+
+  it("corrupt spend file fail-closes enrichment at the route level (F5)", async () => {
+    const day = new Date().toISOString().slice(0, 10)
+    const { writeFile, mkdir } = await import("node:fs/promises")
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, `spend-${day}.json`), "not json at all", "utf-8")
+    const { claimId } = findIds()
+    const app = makeApp({})
+    const res = await app.request(`/verdict/${claimId}?enrich=true`)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body.gate_decision).toBe("NO_INFERENCE:fail_closed")
+    expect(body.enrichment).toBeUndefined()
   })
 
   it("abstain fixture: enrich=true is refused by the abstain rule — no cheval call", async () => {

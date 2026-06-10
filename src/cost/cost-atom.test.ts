@@ -254,6 +254,48 @@ describe("middleware (HC6, B4/B7) — close before respond, exactly once", () =>
     const { atoms } = await readAtoms(writer.path)
     expect(atoms).toHaveLength(1)
     expect((atoms[0] as any).orchestration.gate_inputs.error).toMatch(/handler exploded/)
+    // review F7: the throw-path atom measures the ACTUAL 500 body, not zero
+    const expected = new TextEncoder().encode(
+      JSON.stringify({ error: "INTERNAL_ERROR", code: "INTERNAL_ERROR" }),
+    ).byteLength
+    expect((atoms[0] as any).infra.egress_bytes).toBe(expected)
+  })
+
+  it("invokes onAtomClosed with the durably-appended atom (review F1 hook)", async () => {
+    const writer = new CostAtomWriter(join(dir, "hook.jsonl"))
+    const seen: string[] = []
+    const app = new Hono()
+    app.use(
+      "*",
+      costAtomMiddleware({
+        writer,
+        window: new RollingBusyWindow(),
+        rates: RATES,
+        onAtomClosed: (atom) => seen.push(atom.call_class),
+      }),
+    )
+    app.get("/ok", (c) => c.json({ ok: true }))
+    await app.request("/ok")
+    expect(seen).toEqual(["A_relay"])
+  })
+
+  it("a throwing onAtomClosed hook never fails the request", async () => {
+    const writer = new CostAtomWriter(join(dir, "hook-throw.jsonl"))
+    const app = new Hono()
+    app.use(
+      "*",
+      costAtomMiddleware({
+        writer,
+        window: new RollingBusyWindow(),
+        rates: RATES,
+        onAtomClosed: () => {
+          throw new Error("feedback hook exploded")
+        },
+      }),
+    )
+    app.get("/ok", (c) => c.json({ ok: true }))
+    const res = await app.request("/ok")
+    expect(res.status).toBe(200)
   })
 
   it("responds 500 when the atom write fails (fail-closed, B4/B7)", async () => {

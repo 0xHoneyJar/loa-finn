@@ -266,7 +266,6 @@ export class CostAtomHandle {
   gateDecision = "NO_GATE"
   gateInputs: Record<string, unknown> = {}
   quoteMicro = 0n
-  closed = false
 
   constructor(
     readonly atomId: string,
@@ -315,6 +314,11 @@ export class CostAtomHandle {
   }
 }
 
+// Close state is MIDDLEWARE-OWNED (review F8): a handler that could flip a
+// public `closed` flag would silently skip atom persistence. Handles in this
+// set have been closed; there is no public mutation path.
+const closedHandles = new WeakSet<CostAtomHandle>()
+
 // ---------------------------------------------------------------------------
 // Hono middleware (HC6, HC3, B4/B7)
 // ---------------------------------------------------------------------------
@@ -324,6 +328,10 @@ export interface CostAtomMiddlewareOptions {
   window: RollingBusyWindow
   rates: InfraRates
   now?: () => number
+  /** Called after an atom is durably appended (review F1) — the route uses
+   *  this to feed the gate's rolling infra estimator from CLOSED atoms.
+   *  Errors here are swallowed: feedback must never fail a request. */
+  onAtomClosed?: (atom: CostAtom) => void
 }
 
 const COST_ATOM_KEY = "costAtom"
@@ -412,14 +420,22 @@ export function costAtomMiddleware(opts: CostAtomMiddlewareOptions) {
     if (requestError !== null) handle.tagError(requestError)
 
     // --- close phase: runs exactly once on every path ---
-    if (handle.closed) return // defense: double-invocation of middleware
-    handle.closed = true
+    if (closedHandles.has(handle)) return // defense: double-invocation of middleware
+    closedHandles.add(handle)
+
+    // Build the FINAL response before measuring (review F7): error-path atoms
+    // must measure the actual 500 body, not a phantom zero.
+    if (requestError !== null) {
+      console.error("[cost-atom] handler error:", requestError)
+      c.res = undefined
+      c.res = c.json({ error: "INTERNAL_ERROR", code: "INTERNAL_ERROR" }, 500)
+    }
 
     try {
       const wallMs = Math.max(0, now() - start)
       const allocatedPpm = opts.window.record(start, wallMs)
       let egressBytes = 0
-      if (requestError === null && c.res) {
+      if (c.res) {
         try {
           egressBytes = (await c.res.clone().arrayBuffer()).byteLength
         } catch {
@@ -428,20 +444,18 @@ export function costAtomMiddleware(opts: CostAtomMiddlewareOptions) {
       }
       const atom = closeAtom(handle, wallMs, allocatedPpm, egressBytes, opts.rates)
       await opts.writer.append(atom)
+      if (opts.onAtomClosed) {
+        try {
+          opts.onAtomClosed(atom)
+        } catch {
+          // feedback hook must never fail a request
+        }
+      }
     } catch (closeErr) {
       // Fail-closed: cost not recorded ⇒ the request fails (B4/B7).
       console.error("[cost-atom] close/write failed:", closeErr)
       c.res = undefined
       c.res = c.json({ error: "COST_ATOM_WRITE_FAILED", code: "COST_ATOM_WRITE_FAILED" }, 500)
-      return
-    }
-
-    if (handlerError) {
-      // Atom for the failed request is persisted (tagged via gate_inputs.error);
-      // surface a 500 without re-throwing past the closed envelope.
-      console.error("[cost-atom] handler error:", handlerError)
-      c.res = undefined
-      c.res = c.json({ error: "INTERNAL_ERROR", code: "INTERNAL_ERROR" }, 500)
     }
   }
 }
