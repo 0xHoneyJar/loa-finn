@@ -60,8 +60,10 @@ COPY drizzle/ ./drizzle/
 
 # Identity contract — IdentityLoader hard-requires the soul file at boot
 # (deploy-discovered gap in the lean cut list: grimoires/ was cut wholesale,
-# but BEAUVOIR.md is boot-blocking and only a few KB)
-COPY grimoires/loa/BEAUVOIR.md ./grimoires/loa/BEAUVOIR.md
+# but BEAUVOIR.md is boot-blocking and only a few KB). Sourced from deploy/
+# because the Railway upload indexer drops grimoires/ from the build context;
+# deploy/BEAUVOIR.md is a committed copy of grimoires/loa/BEAUVOIR.md.
+COPY deploy/BEAUVOIR.md ./grimoires/loa/BEAUVOIR.md
 
 # Hounfour adapters (cheval.py lives here) and schemas
 COPY adapters/ ./adapters/
