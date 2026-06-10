@@ -17,6 +17,7 @@
 -->
 <script lang="ts">
   import NixieCount from '$lib/NixieCount.svelte';
+  import AtomTicker from '$lib/AtomTicker.svelte';
   import {
     EXPERIMENT,
     COST_LEDGER,
@@ -24,6 +25,7 @@
     PHASES,
     BAR_RESULTS,
     LEARNINGS,
+    RECENT_ATOMS,
   } from '$lib/data.js';
 
   // Format micro-USD to display string
@@ -72,7 +74,7 @@
   <div class="obs-grid">
 
     <!-- ── Panel 1: COST LEDGER ── -->
-    <div class="panel">
+    <div class="panel beam-enter">
       <div class="panel-inner">
         <span class="panel-label">COST.LEDGER</span>
 
@@ -82,7 +84,7 @@
           <span class="data-value-ghost">~$0 (subscription)</span>
         </div>
         <div class="data-row" style="border-bottom: none; padding-bottom: 0;">
-          <span class="data-label" style="color: var(--color-bone-ghost); font-size: var(--text-2xs); letter-spacing: var(--tracking-whisper);">
+          <span class="data-subnote">
             {fmtTokens(COST_LEDGER.inference_harness_tokens_in)}↑ / {fmtTokens(COST_LEDGER.inference_harness_tokens_out)}↓ TOKENS
           </span>
         </div>
@@ -101,7 +103,7 @@
           </span>
         </div>
         <div class="data-row" style="border-bottom: none; padding-bottom: 0;">
-          <span class="data-label" style="color: var(--color-bone-ghost); font-size: var(--text-2xs); letter-spacing: var(--tracking-whisper);">
+          <span class="data-subnote">
             {ATOMS.total} ATOMS · {ATOMS.a_relay} A_RELAY · {ATOMS.b_enrich} B_ENRICH
           </span>
         </div>
@@ -120,7 +122,7 @@
           </span>
         </div>
         <div class="data-row" style="border-bottom: none; padding-bottom: 0;">
-          <span class="data-label" style="color: var(--color-bone-ghost); font-size: var(--text-2xs); letter-spacing: var(--tracking-whisper);">
+          <span class="data-subnote">
             10 BEDROCK PROBES + 2 FULL ENRICHMENTS (681 MICRO EACH)
           </span>
         </div>
@@ -135,7 +137,7 @@
           </span>
         </div>
         <div class="data-row" style="border-bottom: none; padding-bottom: 0;">
-          <span class="data-label" style="color: var(--color-bone-ghost); font-size: var(--text-2xs); letter-spacing: var(--tracking-whisper);">
+          <span class="data-subnote">
             2 SERVICES · ~1 SERVICE-DAY · USAGE API
           </span>
         </div>
@@ -144,7 +146,7 @@
 
         <!-- Calibration -->
         <div class="data-row" style="border-bottom: none;">
-          <span class="data-label" style="color: var(--color-bone-ghost); font-size: var(--text-2xs); letter-spacing: var(--tracking-whisper);">
+          <span class="data-subnote">
             {COST_LEDGER.calibration_note}
           </span>
         </div>
@@ -152,7 +154,7 @@
     </div>
 
     <!-- ── Panel 2: PROGRESSION ── -->
-    <div class="panel">
+    <div class="panel beam-enter">
       <div class="panel-inner">
         <span class="panel-label">PROGRESSION</span>
 
@@ -210,7 +212,7 @@
     </div>
 
     <!-- ── Panel 3: HYPOTHESIS BARS ── -->
-    <div class="panel">
+    <div class="panel beam-enter">
       <div class="panel-inner">
         <span class="panel-label">HYPOTHESIS.BARS</span>
         <p class="obs-bars-provenance">SHA-PINNED · SET BEFORE DATA EXISTED · cop-bars.json</p>
@@ -269,7 +271,7 @@
     </div>
 
     <!-- ── Panel 4: LEARNINGS ── -->
-    <div class="panel">
+    <div class="panel beam-enter">
       <div class="panel-inner">
         <span class="panel-label">LEARNINGS — {LEARNINGS.length} DURABLE</span>
 
@@ -285,6 +287,9 @@
     </div>
 
   </div>
+
+  <!-- Peripheral telemetry — last atoms scrolling by (DataTicker port) -->
+  <AtomTicker entries={RECENT_ATOMS} />
 </main>
 
 <style>

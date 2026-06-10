@@ -108,23 +108,102 @@ html[data-register='freeside'] [data-step] {
   text-shadow: 0 0 6px oklch(0.85 0.15 195 / 0.3);
 }
 
-/* ── Panel shell — DashboardCard pattern (F13) ──
-   outer gradient shell + inner dark surface + 1px border strokes
-   Source: world-sprawl/apps/sprawl-ui/src/lib/components/ui/DashboardCard.svelte */
+/* ── Background lattice — the spatial field (feel run 0610c port) ──
+   Source: rektdrop app.css .lattice-grid (L1099-1125) + idle phase block
+   (L1046-1055) + @keyframes lattice-drift (L1144-1153). 300% oversize
+   prevents gaps under rotation+drift. Freeside divergences: opacity 0.06
+   (vs idle 0.10), moiré alpha 0 (geometry present, interference silent),
+   no daemon-sample pulse — the instrument room is calm. */
+.lattice-grid {
+  --l-size: 240px;
+  --l-rot: 30deg;
+  --l-opacity: 0.06;
+  --l-drift: 28s;
+  --l-moire-alpha: 0;
+  --l-chroma: 0.006;
+  --l-hue: 95;
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 300%;
+  height: 300%;
+  background-image:
+    linear-gradient(oklch(0.88 var(--l-chroma) var(--l-hue) / var(--l-opacity)) 2px, transparent 2px),
+    linear-gradient(90deg, oklch(0.88 var(--l-chroma) var(--l-hue) / var(--l-opacity)) 2px, transparent 2px),
+    linear-gradient(35deg, oklch(0.88 var(--l-chroma) var(--l-hue) / var(--l-moire-alpha)) 1px, transparent 1px),
+    linear-gradient(-55deg, oklch(0.88 var(--l-chroma) var(--l-hue) / var(--l-moire-alpha)) 1px, transparent 1px);
+  background-size:
+    var(--l-size) var(--l-size),
+    var(--l-size) var(--l-size),
+    267px 267px,
+    267px 267px;
+  transform: rotate(var(--l-rot));
+  animation: lattice-drift var(--l-drift) linear infinite;
+}
+
+@keyframes lattice-drift {
+  from { background-position: 0 0, 0 0, 0 0, 0 0; }
+  to {
+    background-position:
+      var(--l-size) var(--l-size),
+      var(--l-size) var(--l-size),
+      267px 267px,
+      267px 267px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lattice-grid { animation: none; }
+}
+
+/* ── Beam-draw entrance — instrument power-up (feel run 0610c port) ──
+   Source: rektdrop app.css L744-751 (@keyframes beam-draw, 166ms steps(4),
+   left-to-right raster trace). Panels draw in staggered at 83ms quantum
+   multiples — the cluster boots line by line. */
+@keyframes beam-draw {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0); }
+}
+
+.beam-enter {
+  animation: beam-draw 166ms steps(4) backwards;
+}
+
+.beam-enter:nth-child(1) { animation-delay: 0ms; }
+.beam-enter:nth-child(2) { animation-delay: 83ms; }
+.beam-enter:nth-child(3) { animation-delay: 166ms; }
+.beam-enter:nth-child(4) { animation-delay: 249ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .beam-enter { animation: none; }
+}
+
+/* ── Panel shell — DashboardCard anatomy (feel run 0610c fidelity pass) ──
+   Source: world-sprawl/apps/sprawl-ui/src/lib/components/ui/DashboardCard.svelte
+   L40-65: outer shell = 4px padding + 180deg gradient (#1C1C1C → #131313
+   ≈ oklch 0.22 → 0.17 graphite); inner surface = flat dark + 1px border at
+   rgba(255,255,255,0.08). Deliberate divergence: radius 0 (taste.md —
+   die-stamped, no radii; dc uses 2px) and glow elevation retained. Panels
+   sit above the lattice (z-index). */
 .panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
   background: linear-gradient(180deg,
-    oklch(0.14 0.008 250) 0%,
-    oklch(0.10 0.005 250) 100%
+    oklch(0.215 0.004 250) 0%,   /* dc-outer start #1C1C1C */
+    oklch(0.165 0.004 250) 100%  /* dc-outer end   #131313 */
   );
   border: 1px solid var(--color-void-border);
-  border-radius: 0px; /* No radii — die-stamped */
-  padding: var(--space-100);
+  border-radius: 0px; /* No radii — die-stamped (divergence from dc 2px) */
+  padding: 4px; /* dc-outer exact: 4px shell reveal */
   box-shadow: var(--elevation-2); /* Glow elevation — taste.md: no drop shadows, glow only */
 }
 
 .panel-inner {
+  flex: 1 1 100%;
   background: oklch(0.11 0.005 250);
-  border: 1px solid oklch(0.22 0.012 250 / 0.6);
+  border: 1px solid oklch(1 0 0 / 0.08); /* dc-inner border: rgba(255,255,255,0.08) */
   padding: var(--space-400);
   height: 100%;
 }
@@ -181,6 +260,21 @@ html[data-register='freeside'] [data-step] {
   text-align: right;
 }
 
+/* In-panel sub-NOTES — the left-aligned breakdown caption beneath a data
+   row. Two deliberate tiers off the bone ladder (feel run 0610c, mint-gated):
+   sub-VALUE (.data-value-ghost) = bone-DIM — the answer, right column;
+   sub-NOTE (.data-subnote) = bone-MUTED — the derivation beneath it.
+   The note reads one step quieter than its value BY INTENT. No
+   text-transform: casing follows content (taste.md reserves UPPERCASE
+   for Labels). xs floor per tokens.css ("xs = sub-annotations ONLY"). */
+.data-subnote {
+  color: var(--color-bone-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-data);
+  line-height: var(--leading-tight);
+}
+
 /* ── Hero cost readout — Levels of Scale (feel run observatory-feel-0610a,
    mint-gate APPROVED; magnitude raised to the corrected ladder's xl=28px:
    the instrument's primary measurement earns a true LEVEL, not an emphasis).
@@ -200,7 +294,7 @@ html[data-register='freeside'] [data-step] {
   font-size: var(--text-sm);
   letter-spacing: var(--tracking-emphasis);
   border: 1px solid currentColor;
-  padding: var(--space-50, 2px) var(--space-200, 8px);
+  padding: var(--space-050) var(--space-200);
   display: inline-block;
 }
 

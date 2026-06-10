@@ -145,6 +145,20 @@ export const BAR_RESULTS: BarResult[] = [
   },
 ];
 
+
+// ── Recent atom events (ticker feed) ────────────────────────────────
+
+export type AtomEvent = {
+  id: string;
+  ts: number;
+  call_class: string;
+  gate: string;
+  total_micro: number;
+  wall_ms: number;
+};
+
+export const RECENT_ATOMS: AtomEvent[] = (generated as any).recent_atoms ?? [];
+
 // ── Durable learnings (curated) ──────────────────────────────────────
 
 export type Learning = {

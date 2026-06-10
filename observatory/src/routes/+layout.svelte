@@ -12,6 +12,7 @@
   CRT register: apps/rektdrop/src/app.css line 936–938
 -->
 <script lang="ts">
+  import BackgroundLattice from '$lib/BackgroundLattice.svelte';
   import '../app.css';
   import { EXPERIMENT } from '$lib/data.js';
 
@@ -27,6 +28,9 @@
     return () => clearInterval(id);
   });
 </script>
+
+<!-- Spatial field — drifting bone lattice behind everything (z-0) -->
+<BackgroundLattice />
 
 <!-- CRT scanlines — fixed overlay, barely visible at freeside register -->
 <div class="crt-scanlines crt-vignette" aria-hidden="true"></div>

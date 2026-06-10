@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-10T06:22:58.659Z",
+  "generated_at": "2026-06-10T06:53:04.960Z",
   "atoms": {
     "total": 132,
     "a_relay": 100,
@@ -17,6 +17,168 @@
     "sum_orchestration_micro": 66,
     "sum_total_micro": 12031
   },
+  "recent_atoms": [
+    {
+      "id": "KSGN9E",
+      "ts": 1781066044926,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 220
+    },
+    {
+      "id": "WWG956",
+      "ts": 1781066051219,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 210
+    },
+    {
+      "id": "MB330H",
+      "ts": 1781066057561,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 201
+    },
+    {
+      "id": "9Y806A",
+      "ts": 1781066063821,
+      "call_class": "B_enrich",
+      "gate": "ROUTE_CHEVAL:routed",
+      "total_micro": 746,
+      "wall_ms": 3809
+    },
+    {
+      "id": "GD6AJR",
+      "ts": 1781066496830,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 223
+    },
+    {
+      "id": "XV1E0S",
+      "ts": 1781066557162,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 200
+    },
+    {
+      "id": "7H6ZGJ",
+      "ts": 1781066617490,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 207
+    },
+    {
+      "id": "G6G8F4",
+      "ts": 1781066677757,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 3,
+      "wall_ms": 275
+    },
+    {
+      "id": "6RESRM",
+      "ts": 1781066738136,
+      "call_class": "B_enrich",
+      "gate": "ROUTE_CHEVAL:routed",
+      "total_micro": 750,
+      "wall_ms": 3895
+    },
+    {
+      "id": "M4Y7PX",
+      "ts": 1781066802102,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 209
+    },
+    {
+      "id": "PGEYC8",
+      "ts": 1781066862411,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 209
+    },
+    {
+      "id": "46PPYQ",
+      "ts": 1781066922671,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 219
+    },
+    {
+      "id": "GP5CCG",
+      "ts": 1781066982995,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 215
+    },
+    {
+      "id": "63W75K",
+      "ts": 1781067043269,
+      "call_class": "B_enrich",
+      "gate": "ROUTE_CHEVAL:routed",
+      "total_micro": 675,
+      "wall_ms": 3919
+    },
+    {
+      "id": "KFYAFA",
+      "ts": 1781067107402,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 4,
+      "wall_ms": 426
+    },
+    {
+      "id": "9RWWBT",
+      "ts": 1781067167952,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 206
+    },
+    {
+      "id": "6GJWGR",
+      "ts": 1781067228295,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 199
+    },
+    {
+      "id": "6S41YJ",
+      "ts": 1781067288559,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 212
+    },
+    {
+      "id": "1FH5BD",
+      "ts": 1781067348878,
+      "call_class": "B_enrich",
+      "gate": "ROUTE_CHEVAL:routed",
+      "total_micro": 681,
+      "wall_ms": 3284
+    },
+    {
+      "id": "NGP889",
+      "ts": 1781067412312,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 201
+    }
+  ],
   "phases": [
     {
       "phase": 0,
@@ -55,13 +217,25 @@
     {
       "phase": 2,
       "level": 2,
-      "total_calls": 349,
-      "a_relay": 280,
-      "b_enrich": 69,
-      "gate_routed": 69,
+      "total_calls": 600,
+      "a_relay": 480,
+      "b_enrich": 120,
+      "gate_routed": 120,
       "gate_closed": 0,
-      "a_relay_p50_ms": 275,
-      "b_p50_ms": 4316,
+      "a_relay_p50_ms": 271,
+      "b_p50_ms": 4233,
+      "b_gate_status": "ROUTED"
+    },
+    {
+      "phase": 2,
+      "level": 3,
+      "total_calls": 24,
+      "a_relay": 20,
+      "b_enrich": 4,
+      "gate_routed": 4,
+      "gate_closed": 0,
+      "a_relay_p50_ms": 203,
+      "b_p50_ms": 4701,
       "b_gate_status": "ROUTED"
     }
   ],

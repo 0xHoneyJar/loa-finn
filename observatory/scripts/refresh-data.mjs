@@ -31,6 +31,7 @@ function p50(xs) {
 // ── atoms ────────────────────────────────────────────────────────────
 const atomsPath = join(repo, 'tmp', 'cop-prod-atoms-snapshot.jsonl');
 const atoms = { total: 0, a_relay: 0, b_enrich: 0, gates: {}, sums: { inference: 0n, infra: 0n, orchestration: 0n, total: 0n }, malformed: 0 };
+const recentAtoms = []; // tail window for the event ticker
 if (existsSync(atomsPath)) {
   for (const line of readFileSync(atomsPath, 'utf-8').split('\n')) {
     const t = line.trim();
@@ -45,6 +46,15 @@ if (existsSync(atomsPath)) {
       atoms.sums.infra += BigInt(a.infra.cost_micro);
       atoms.sums.orchestration += BigInt(a.orchestration.cost_micro);
       atoms.sums.total += BigInt(a.total_micro);
+      recentAtoms.push({
+        id: String(a.atom_id).slice(-6),
+        ts: a.ts,
+        call_class: a.call_class,
+        gate: g,
+        total_micro: Number(BigInt(a.total_micro)),
+        wall_ms: a.infra.wall_ms,
+      });
+      if (recentAtoms.length > 20) recentAtoms.shift();
     } catch { atoms.malformed++; }
   }
 }
@@ -100,6 +110,7 @@ const generated = {
     sum_orchestration_micro: Number(atoms.sums.orchestration),
     sum_total_micro: Number(atoms.sums.total),
   },
+  recent_atoms: recentAtoms,
   phases,
   bars: { ...bars, sha256: barsSha },
   readout, // null until cop-readout writes it — panels show AWAITING READOUT
