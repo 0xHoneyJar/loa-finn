@@ -216,3 +216,61 @@ universal." The three legs share commons schemas (`QuarantineRecordSchema`, `Aud
 the trust boundary.
 
 ## Blockers
+
+## Session 2026-06-09 — cost-of-play reframe (cycle-041 → service-agent economics)
+
+Finn reframed: service-agent/operator CONSUMING Score API verdicts behind a Markov blanket; the open
+risk is marginal economics, not analysis capability. Forks resolved: verdicts-consumer (score island
+stays, producer-side architecturally) · Railway vs payload-real stub · ad-hoc composition.
+
+- **Design (build-from doc):** `grimoires/loa/specs/arch-finn-cost-of-play.md` — representative call
+  (`/api/v1/score/verdict`, Class A relay / Class B cheval-enrich), 3-ledger CostAtom, fail-closed
+  cheval-ROI gate (incl. no-inference-on-abstain), lean image, pre-registered H1 ≤20%/>40%.
+- **Composition run PROVEN:** `cost-of-play-0609b` → `valid_run`, digest sha256:b5986c43…;
+  `compositions/cost-of-play.yaml` authored ad-hoc (the-weaver naming pending).
+- **Runtime finding:** construct adapters ignored task-mandated reads 4/4 → 4 clews captured;
+  executor grounded via Explore + merged at seams with operator ratification.
+- **Score API exists** (research-stage): 0xHoneyJar/score-api PR #263 — layered fact-sheet verdict,
+  abstain-by-default; ACP escrow economy tiny ($30 top earner) → marginal-cost scope only.
+- **Next:** micro-sprint the V1 checklist (items 1–4 are /implement-gated app code), deploy, run
+  playtest phases 0–3, readout vs pre-registered bars.
+
+## Session 2026-06-09 (build) — flatline transport triage
+
+FIRST-ACT flatline on the build doc hit 3 stacked infra defects in finn's vendored framework
+(May-04 vintage, predates loa#727 headless adapters):
+
+1. **mktemp suffix bug** — `.claude/scripts/lib/invoke-diagnostics.sh:69` uses
+   `mktemp …-XXXXXX.log`; macOS/BSD mktemp won't randomize non-trailing X's, creates the literal
+   name once, every later run dies "File exists". Mitigation: `rm -f $TMPDIR/loa-flatline-*XXXXXX.log*`
+   before each run. Upstream fix belongs in loa (System Zone here — not edited).
+2. **cheval.py error masking** — `cheval.py:412` `except BudgetExceededError` raises
+   UnboundLocalError (name not in scope) and masks every real transport error. Also upstream.
+3. **All 3 API transports dead in this environment**: OPENAI_API_KEY valid but
+   **insufficient_quota** (verified direct curl) · ANTHROPIC_API_KEY unset · GOOGLE_API_KEY not in
+   this cheval's env allowlist (the broken `fast-thinker`/gemini binding from the handoff).
+   OpenAI circuit-breaker `.run/circuit-breaker-openai.json` was stuck OPEN from these — reset.
+
+**Route taken:** ran the multi-model review via the main loa repo's orchestrator
+(`~/Documents/GitHub/loa`, has codex/gemini/claude-headless adapters + fallback chains),
+`--doc` pointed at finn's build doc, `--skip-knowledge`. Results land in
+`grimoires/loa/a2a/flatline/cop-v1-build-review.json`.
+
+## Session 2026-06-09 (plan) — cost-of-play V1 micro-sprint registered
+
+`/sprint-plan` produced `grimoires/loa/sprint-cost-of-play.md` — ONE LARGE micro-sprint
+(**global sprint 169**, cycle-041 sprint-5; ledger bumped to next_global_sprint_id 170) covering
+build items 1–7 of `specs/enhance-finn-cost-of-play-v1.md`; item 8 (Railway deploy + phases 0–3)
+stays operator-paced ops. Beads: epic `bd-hwa1` + 8 tasks (`bd-xbso` T5.1 atom, `bd-e4f4` T5.2 stub,
+`bd-m08z` T5.3 gate P0, `bd-5dvb` T5.4 rpc counter, `bd-ops2` T5.5 lean image, `bd-viy9` T5.6 driver,
+`bd-yugv` T5.7 readout+bars, `bd-a087` T5.E2E P0), deps mirror the dependency graph, label sprint:169.
+
+**Grounded discovery during planning:** `vitest.config.ts:12` grep roots only scan
+`tests/ src/substrate/__tests__/ src/score/` — the new `src/cost` + `deploy/score-stub` tests would
+silently collect ZERO (exactly flatline IMP-016). T5.1 extends the grep roots + removes the untracked
+`src/cost/tmp-verify.test.ts` probe; T5.E2E asserts non-zero collected counts. Also: spec cited
+rpc-pool execute at :99-145; actual `execute()` is `src/x402/rpc-pool.ts:154` (plan cites :154).
+Note `/Users/zksoju/bonfire/finn` is a SYMLINK to this repo (same inode) — not a second clone.
+
+**Next:** `/run sprint-169` (implement→review→audit; decideGate + cost-atom middleware REQUIRE
+cross-model review at the review gate), then item-8 deploy via use-railway, phases 0→3, readout.

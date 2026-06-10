@@ -18,6 +18,7 @@ import type { S2SJwtSigner } from "../hounfour/s2s-jwt.js"
 import type { BillingFinalizeClient } from "../hounfour/billing-finalize-client.js"
 import type { BillingConservationGuard } from "../hounfour/billing-conservation-guard.js"
 import { createInvokeHandler } from "./routes/invoke.js"
+import { createScoreVerdictRoutes } from "./routes/score-verdict.js"
 import { createUsageHandler } from "./routes/usage.js"
 import { createOracleHandler, oracleCorsMiddleware } from "./routes/oracle.js"
 import { oracleAuthMiddleware } from "./oracle-auth.js"
@@ -291,6 +292,13 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     if (isOraclePath(c.req.path) || isProductApiPath(c.req.path)) return next()
     return hounfourAuth(config)(c, next)
   })
+
+  // Cost-of-play verdict route (cycle-041 S5, sprint-169). Sits BEHIND the
+  // JWT chain registered above for /api/v1/* (flatline B2) and BEFORE the
+  // billing guard composition — same position as /api/v1/invoke, minus the
+  // economic boundary. The route group carries its own CostAtom middleware
+  // and a FINN_AUTH_TOKEN bearer check (defense when config.jwt.enabled=false).
+  app.route("/api/v1/score", createScoreVerdictRoutes())
 
   // Economic boundary — pre-invocation gate (SDD §6.3, step 2)
   // Chain position: JWT Auth → **Economic Boundary** → Billing Guard → Provider

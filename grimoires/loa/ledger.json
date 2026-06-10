@@ -1770,9 +1770,16 @@
           "label": "Report generator + publication-hold + GO instrumentation (FR-3, §2.2a/b, §7)",
           "status": "pending",
           "tasks": 7
+        },
+        {
+          "local_id": "sprint-5",
+          "global_id": 169,
+          "label": "Cost-of-play V1 — instrumented verdict service + playtest harness (micro-sprint, plan: sprint-cost-of-play.md)",
+          "status": "pending",
+          "tasks": 8
         }
       ]
     }
   ],
-  "next_global_sprint_id": 169
+  "next_global_sprint_id": 170
 }
