@@ -248,8 +248,21 @@ context even for tracked files; (3) volume mounts root-owned over /data vs non-r
 → arch doc row corrected, `COP_INFRA_CONTAINER_MICRO_PER_HOUR=41640` deployed.
 **Phase 0 production: 5/5** (3A relay · 2B fail_closed — no funded key yet, by design), ~200-500ms,
 gate echoes correct. 200-response ⇒ atom durably appended (audit-verified contract).
-**Pending operator:** funded OpenAI-compatible key for Class B (phase 1+ H1 needs it) ·
-`railway login` refresh + `railway ssh keys github` for volume JSONL pull at readout.
+**Class B = Bedrock (operator correction, wired 2026-06-10):** finn's lane is Bedrock, not
+OpenAI. This repo's cheval.py has no bedrock transport BUT Bedrock's OpenAI-compat endpoint
+(bedrock-runtime.{region}.amazonaws.com/openai/v1 + bearer API key) drives the existing
+openai-compatible path with zero new transport code (cheval.py already sends Authorization:
+Bearer). Key transferred from the freeside-characters Railway project (AWS_BEARER_TOKEN_BEDROCK,
+never printed). Wire model `eu.anthropic.claude-opus-4-7` (the profile freeside verifiably runs,
+eu-central-1). **Pricing-staleness trap caught:** DEFAULT_PRICING's opus rows are \$15/\$75 but
+current opus-tier is \$5/\$25 (platform model catalog, checked 2026-06-10) — would have
+overstated H1 inference share 3×. Gate config now takes explicit verified rates via
+COP_CHEVAL_{INPUT,OUTPUT}_MICRO_PER_MTOK (fail-closed on garbage; billing table untouched).
+At \$5/\$25: est 22,500 micro → ROI row 67.5k ≤ ~99k margin → ROUTES. Phase-1 re-run needed
+(first run spanned a redeploy + was all fail-closed B).
+**Pending operator:** `railway login` refresh + `railway ssh keys github` for volume JSONL pull
+at readout · stale DEFAULT_PRICING/ANTHROPIC_PRICING rows flagged for a follow-up fix (billing
+undercharge risk is the OPPOSITE direction — overcharge — but stale either way).
 
 **Program reframe (operator):** the deploy = experiment #1 of a grounded-reality loop —
 hypothesis+bars → sim lane (gygax/arneson) + production lane → WORLDLINE binds (beliefs/predictions
