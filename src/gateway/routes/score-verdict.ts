@@ -20,12 +20,21 @@
 // inference ledger uses the same integer discipline (calculateCostMicro) and
 // IS the experiment's meter; production billing stays untouched.
 
+import { createHash, timingSafeEqual } from "node:crypto"
 import { Hono, type Context } from "hono"
 import {
   calculateCostMicro,
   findPricing,
   type MicroPricingEntry,
 } from "../../hounfour/pricing.js"
+
+/** Timing-safe string comparison — mirrors src/gateway/auth.ts safeCompare
+ *  (sha256 digests equalize length, timingSafeEqual is constant-time). */
+function safeCompare(a: string, b: string): boolean {
+  const bufA = createHash("sha256").update(a).digest()
+  const bufB = createHash("sha256").update(b).digest()
+  return timingSafeEqual(bufA, bufB)
+}
 import {
   CostAtomWriter,
   RollingBusyWindow,
@@ -549,12 +558,14 @@ export function createScoreVerdictRoutes(deps: ScoreVerdictDeps = {}): Hono {
   const app = new Hono()
 
   // Bearer gate (B2). Applies before the CostAtom middleware: unauthenticated
-  // probes are not measurement data.
+  // probes are not measurement data. Comparison is timing-safe (audit A1):
+  // at deploy this check is the PRIMARY auth boundary (JWT disabled), so the
+  // repo's hash-then-timingSafeEqual convention (gateway/auth.ts) applies.
   app.use("*", async (c, next) => {
     const required = env.FINN_AUTH_TOKEN
     if (!required) return next()
     const header = c.req.header("Authorization") ?? ""
-    if (header === `Bearer ${required}`) return next()
+    if (safeCompare(header, `Bearer ${required}`)) return next()
     return c.json({ error: "Unauthorized", code: "INVALID_TOKEN" }, 401)
   })
 

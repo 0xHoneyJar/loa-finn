@@ -14,8 +14,9 @@ import { createApp } from "../../src/gateway/server.js"
 const config = loadConfig()
 const { app } = createApp(config, {})
 app.onError((err, c) => {
+  // Detail stays server-side only (audit A2 — no error internals to clients).
   console.error(`[cop-local-server] error on ${c.req.method} ${c.req.path}:`, err)
-  return c.json({ error: "INTERNAL_ERROR", detail: String(err) }, 500)
+  return c.json({ error: "INTERNAL_ERROR", code: "INTERNAL_ERROR" }, 500)
 })
 
 const port = Number.parseInt(process.env.PORT ?? "3000", 10)
