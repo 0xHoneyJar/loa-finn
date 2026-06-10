@@ -503,6 +503,24 @@ describe("route integration (atoms + gate echo + spend)", () => {
     expect(decisions.filter((d) => d === "NO_INFERENCE:kill_switch")).toHaveLength(1)
   })
 
+  it("fractional provider latency is floored, not rejected (live-observed cheval behavior)", async () => {
+    const { claimId } = findIds()
+    const app = makeApp({
+      cheval: async () => ({
+        content: "enriched",
+        usage: { prompt_tokens: 100, completion_tokens: 20 },
+        provider_latency_ms: 4541.6995419654995, // exactly what cheval.py reported live
+      }),
+    })
+    const res = await app.request(`/verdict/${claimId}?enrich=true`)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body.gate_decision).toBe("ROUTE_CHEVAL:routed")
+    expect((body.enrichment as any).content).toBe("enriched")
+    const { atoms } = await readAtoms(join(dir, "cost-atoms.jsonl"))
+    const spawn = (atoms[0] as any).orchestration.cheval_spawn_ms
+    expect(Number.isInteger(spawn)).toBe(true)
+  })
+
   it("invalid cheval telemetry is rejected fail-closed — no floats stored (F6)", async () => {
     const { claimId } = findIds()
     const app = makeApp({

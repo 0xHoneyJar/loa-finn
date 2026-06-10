@@ -767,7 +767,16 @@ export function createScoreVerdictRoutes(deps: ScoreVerdictDeps = {}): Hono {
         const promptTokens = safeCount(result.usage.prompt_tokens, "prompt_tokens")
         const completionTokens = safeCount(result.usage.completion_tokens, "completion_tokens")
         const cachedTokens = result.usage.cached_tokens === undefined ? 0 : safeCount(result.usage.cached_tokens, "cached_tokens")
-        const providerLatency = safeCount(result.provider_latency_ms, "provider_latency_ms")
+        // Latency is TELEMETRY, not money: cheval.py reports fractional ms
+        // (observed live: 4541.699…) — floor it. Math.floor(NaN/Infinity)
+        // stays non-integer, so safeCount still catches garbage. Token
+        // counts above stay STRICT — they multiply into billed micro-USD.
+        const providerLatency = safeCount(
+          typeof result.provider_latency_ms === "number"
+            ? Math.floor(result.provider_latency_ms)
+            : result.provider_latency_ms,
+          "provider_latency_ms",
+        )
         const invokeWall = Math.max(0, now() - invokeStart)
         handle.setChevalSpawnMs(Math.max(0, invokeWall - providerLatency))
         const inputCost = calculateCostMicro(
