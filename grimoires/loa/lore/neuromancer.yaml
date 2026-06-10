@@ -1,0 +1,30 @@
+# Neuromancer-cosmology lore — the naming layer this repo already lives in.
+# Format per run-bridge constraint: id, term, short, context, source, tags.
+
+entries:
+  - id: finn-construct-oracle
+    term: "The Finn (construct oracle)"
+    short: >
+      Finn's namesake endpoint-state: in Mona Lisa Overdrive the Finn — the
+      Sprawl's fence — persists after death as a hardened ROM construct wired
+      into an alley shrine, a fixed-address oracle you PAY to consult. A fence's
+      core competence is provenance: telling real value from junk. loa-finn is
+      being built into exactly that — a paid verdict oracle (x402 quote at the
+      door, Score truth behind it) whose wedge is the realness filter.
+    context: >
+      The repo's cosmology is Count Zero's: the HOUNFOUR (src/hounfour) is the
+      temple where models are served; CHEVAL (adapters/cheval.py) is the horse
+      a model mounts; BEAUVOIR (grimoires/loa/BEAUVOIR.md) is the houngan who
+      explains the loa to newcomers; /ride is the possession. Within that
+      cosmology Finn is deliberately NOT a loa (god-fragment) and NOT a houngan
+      (priest) — he is the CONSTRUCT WITH A SHOPFRONT: a dead man's competence
+      running at a fixed address, earning consultation fees. The cost-of-play
+      experiment is, in lore terms, checking whether the alley shrine covers
+      its own rent. The operator's table-turn (2026-06-10) follows: the
+      scientists' tooling (Fable turns, codex, flatline) is the hounfour's
+      upkeep — lab overhead; THE EXPERIMENT IS FINN — his metabolic ledger
+      (CostAtoms), his street (the agent economy), and eventually his own
+      probes (Finn composing constructs and spawning sandboxes himself).
+    source: "operator reframe 2026-06-10 + sprint-169 deploy session; Gibson: Neuromancer / Count Zero / Mona Lisa Overdrive"
+    tags: [neuromancer, identity, finn, economics, cost-of-play, oracle, realness]
+    status: Active
