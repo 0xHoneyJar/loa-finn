@@ -235,6 +235,33 @@ stays, producer-side architecturally) · Railway vs payload-real stub · ad-hoc 
 - **Next:** micro-sprint the V1 checklist (items 1–4 are /implement-gated app code), deploy, run
   playtest phases 0–3, readout vs pre-registered bars.
 
+## Session 2026-06-09 (build) — sprint-169 COMPLETED (cost-of-play V1 built + gated)
+
+`/run sprint-169` full cycle, local mode (no finn origin remote — only the loa framework
+remote exists; cycle-041 stays a local branch by operator convention). 4 commits on
+`feature/score-phase1`: impl (8 tasks) → review cycle-2 fixes (F1-F8) → cycle-3 day-bound
+reservation tokens → audit fixes (A1 timing-safe bearer, A2 harness disclosure).
+
+- **Review found real bugs** (cross-model mandate earned its keep): codex dissent caught
+  6 BLOCKING incl. the InfraEstimator-never-fed AC violation (also found by self-review),
+  the kill-switch concurrency race (fixed via day-bound reservation tokens reserved in the
+  same microtask as the gate decision), corrupt-spend-file silent ceiling reset, and
+  unvalidated cheval telemetry (float contamination path). Codex VERIFICATION pass on the
+  fixes then caught the cross-midnight reservation-theft edge — two-pass dissent works.
+- **Final state:** 78/78 new-suite tests · island 26/26 · full gate 4991 passed (sole fail =
+  pre-existing native-runtime-spike load-flake, passes in isolation at HEAD; knownFailures
+  candidate) · lean image 1.11GB (beat 1.2-1.35 target) · phase-0 smoke 5/5 atoms, sum
+  invariant holds · COMPLETED marker written, ledger sprint-169 completed, epic bd-hwa1 closed.
+- **Working-tree forensics:** 6 stale May-3 compiled .js files (shielded in .git/info/exclude)
+  shadowed .ts sources under vitest ESM resolution → 182 phantom test failures; verified
+  pre-existing via clean HEAD worktree, deleted.
+- **Metering deviation (documented in report):** NativeRuntimeMeter NOT used for Class B —
+  it writes into production budget/cost-ledger; the atom is the experiment's meter.
+- **NEXT (operator-paced):** item 8 — Railway deploy (2 services, finn-lean 1 replica +
+  score-stub private networking, env per enhance doc) → phases 0-3 → readout vs sha-pinned
+  bars (`scripts/playtest/cop-bars.json`, sha b98a5716…). Verify Railway unit prices on
+  dashboard BEFORE readout. Operator directs: deploy go/no-go, phase transitions, verdict.
+
 ## Session 2026-06-09 (build) — flatline transport triage
 
 FIRST-ACT flatline on the build doc hit 3 stacked infra defects in finn's vendored framework
