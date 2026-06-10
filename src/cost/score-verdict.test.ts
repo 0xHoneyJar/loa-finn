@@ -201,6 +201,48 @@ describe("config parsing (B10) — startup fail-closed", () => {
     expect(cfg!.cheval!.provider_type).toBe("openai-compatible")
   })
 
+  it("explicit rate override builds pricing for table-less wire models (Bedrock)", () => {
+    const cfg = loadGateConfig({
+      CHEVAL_HMAC_SECRET: "s",
+      COP_CHEVAL_API_KEY: "k",
+      COP_CHEVAL_MODEL: "eu.anthropic.claude-opus-4-7",
+      COP_CHEVAL_PROVIDER: "bedrock-anthropic",
+      COP_CHEVAL_PROVIDER_TYPE: "openai-compatible",
+      COP_CHEVAL_INPUT_MICRO_PER_MTOK: "5000000",
+      COP_CHEVAL_OUTPUT_MICRO_PER_MTOK: "25000000",
+    })
+    expect(cfg!.cheval).not.toBeNull()
+    expect(cfg!.cheval!.pricing.input_micro_per_million).toBe(5_000_000)
+    expect(cfg!.cheval!.pricing.output_micro_per_million).toBe(25_000_000)
+    // est at 2000-in/500-out: 10_000 + 12_500 = 22_500 micro — clears the
+    // 3× ROI margin against the $0.10 quote (67_500 ≤ ~99_000)
+  })
+
+  it("partial or garbage rate override fails closed", () => {
+    const base = {
+      CHEVAL_HMAC_SECRET: "s",
+      COP_CHEVAL_API_KEY: "k",
+      COP_CHEVAL_MODEL: "eu.anthropic.claude-opus-4-7",
+      COP_CHEVAL_PROVIDER: "bedrock-anthropic",
+      COP_CHEVAL_PROVIDER_TYPE: "openai-compatible" as const,
+    }
+    expect(loadGateConfig({ ...base, COP_CHEVAL_INPUT_MICRO_PER_MTOK: "5000000" })!.cheval).toBeNull() // missing output rate
+    expect(
+      loadGateConfig({
+        ...base,
+        COP_CHEVAL_INPUT_MICRO_PER_MTOK: "five dollars",
+        COP_CHEVAL_OUTPUT_MICRO_PER_MTOK: "25000000",
+      })!.cheval,
+    ).toBeNull()
+    expect(
+      loadGateConfig({
+        ...base,
+        COP_CHEVAL_INPUT_MICRO_PER_MTOK: "-5",
+        COP_CHEVAL_OUTPUT_MICRO_PER_MTOK: "25000000",
+      })!.cheval,
+    ).toBeNull()
+  })
+
   it("invalid provider type disables cheval (fail-closed)", () => {
     const cfg = loadGateConfig({
       CHEVAL_HMAC_SECRET: "s",

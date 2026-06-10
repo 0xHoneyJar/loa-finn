@@ -211,7 +211,33 @@ export function loadGateConfig(
     const rawType = env.COP_CHEVAL_PROVIDER_TYPE ?? "openai"
     const providerType =
       rawType === "openai" || rawType === "openai-compatible" ? rawType : null
-    const pricing = findPricing(provider, pricingModel)
+    // Explicit rate override (deploy-discovered, 2026-06-10): the wire model
+    // may have NO entry in the shared pricing table, and the table's existing
+    // anthropic rows are stale (opus at $15/$75; current opus-tier is $5/$25
+    // per the platform model catalog). Rather than editing the billing-shared
+    // DEFAULT_PRICING, the experiment takes verified micro-USD-per-MTok rates
+    // from env. Both must parse as positive safe integers or cheval stays
+    // disabled (fail-closed) when no table entry exists either.
+    let pricing = findPricing(provider, pricingModel) ?? null
+    const rawIn = env.COP_CHEVAL_INPUT_MICRO_PER_MTOK
+    const rawOut = env.COP_CHEVAL_OUTPUT_MICRO_PER_MTOK
+    if (rawIn !== undefined || rawOut !== undefined) {
+      const inRate = Number.parseInt(rawIn ?? "", 10)
+      const outRate = Number.parseInt(rawOut ?? "", 10)
+      if (
+        Number.isSafeInteger(inRate) && inRate > 0 &&
+        Number.isSafeInteger(outRate) && outRate > 0
+      ) {
+        pricing = {
+          provider,
+          model: pricingModel,
+          input_micro_per_million: inRate,
+          output_micro_per_million: outRate,
+        }
+      } else {
+        pricing = null // partial/garbage rate override ⇒ fail-closed
+      }
+    }
     if (apiKey && hmacSecret && pricing && providerType) {
       cheval = {
         base_url: env.COP_CHEVAL_BASE_URL ?? "https://api.openai.com/v1",
