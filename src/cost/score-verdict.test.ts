@@ -184,6 +184,31 @@ describe("config parsing (B10) — startup fail-closed", () => {
     expect(loadGateConfig({ ...base, COP_CHEVAL_MODEL: "unknown-model" })!.cheval).toBeNull()
     expect(loadGateConfig({ COP_CHEVAL_API_KEY: "k" })!.cheval).toBeNull() // no hmac
   })
+
+  it("Bedrock-shaped env: wire model split from pricing model (deploy fix)", () => {
+    const cfg = loadGateConfig({
+      CHEVAL_HMAC_SECRET: "s",
+      COP_CHEVAL_API_KEY: "bedrock-api-key",
+      COP_CHEVAL_BASE_URL: "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1",
+      COP_CHEVAL_MODEL: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      COP_CHEVAL_PRICING_MODEL: "claude-sonnet-4-5-20250929",
+      COP_CHEVAL_PROVIDER: "anthropic",
+      COP_CHEVAL_PROVIDER_TYPE: "openai-compatible",
+    })
+    expect(cfg!.cheval).not.toBeNull()
+    expect(cfg!.cheval!.model).toBe("us.anthropic.claude-sonnet-4-5-20250929-v1:0") // wire id
+    expect(cfg!.cheval!.pricing.model).toBe("claude-sonnet-4-5-20250929") // priced id
+    expect(cfg!.cheval!.provider_type).toBe("openai-compatible")
+  })
+
+  it("invalid provider type disables cheval (fail-closed)", () => {
+    const cfg = loadGateConfig({
+      CHEVAL_HMAC_SECRET: "s",
+      COP_CHEVAL_API_KEY: "k",
+      COP_CHEVAL_PROVIDER_TYPE: "bedrock-native", // not a cheval.py transport
+    })
+    expect(cfg!.cheval).toBeNull()
+  })
 })
 
 describe("SpendCounter (B12/B15 + review F2-F5)", () => {

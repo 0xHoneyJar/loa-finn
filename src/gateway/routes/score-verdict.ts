@@ -140,8 +140,12 @@ export function decideGate(input: GateInput | null | undefined): GateResult {
 export interface ChevalGateConfig {
   base_url: string
   api_key: string
+  /** Wire model id sent to the endpoint (e.g. a Bedrock inference-profile id). */
   model: string
   provider: string
+  /** cheval.py transport type — "openai-compatible" for Bedrock's OpenAI-compat
+   *  endpoint (bedrock-runtime.{region}.amazonaws.com/openai/v1 + API key). */
+  provider_type: "openai" | "openai-compatible"
   pricing: MicroPricingEntry
   hmac_secret: string
 }
@@ -194,18 +198,27 @@ export function loadGateConfig(
 
     // Cheval transport config — absence disables enrichment (null cheval),
     // it does NOT invalidate the rest of the gate config.
+    // Wire model vs pricing model are SEPARATE (deploy-discovered): Bedrock's
+    // OpenAI-compat endpoint takes inference-profile ids like
+    // `us.anthropic.claude-…` that never match the pricing table — the
+    // pricing lookup uses COP_CHEVAL_PRICING_MODEL (default: the wire model).
     let cheval: ChevalGateConfig | null = null
     const apiKey = env.COP_CHEVAL_API_KEY ?? env.OPENAI_API_KEY
     const hmacSecret = env.CHEVAL_HMAC_SECRET
     const model = env.COP_CHEVAL_MODEL ?? "gpt-4o"
+    const pricingModel = env.COP_CHEVAL_PRICING_MODEL ?? model
     const provider = env.COP_CHEVAL_PROVIDER ?? "openai"
-    const pricing = findPricing(provider, model)
-    if (apiKey && hmacSecret && pricing) {
+    const rawType = env.COP_CHEVAL_PROVIDER_TYPE ?? "openai"
+    const providerType =
+      rawType === "openai" || rawType === "openai-compatible" ? rawType : null
+    const pricing = findPricing(provider, pricingModel)
+    if (apiKey && hmacSecret && pricing && providerType) {
       cheval = {
         base_url: env.COP_CHEVAL_BASE_URL ?? "https://api.openai.com/v1",
         api_key: apiKey,
         model,
         provider,
+        provider_type: providerType,
         pricing,
         hmac_secret: hmacSecret,
       }
@@ -484,7 +497,7 @@ function defaultChevalInvoke(): (prompt: string, cfg: ChevalGateConfig, traceId:
       schema_version: 1,
       provider: {
         name: cfg.provider,
-        type: "openai",
+        type: cfg.provider_type,
         base_url: cfg.base_url,
         api_key: cfg.api_key,
         connect_timeout_ms: 5_000,
