@@ -263,6 +263,14 @@ function utcDayKey(now: number): string {
   return new Date(now).toISOString().slice(0, 10)
 }
 
+/** A day-bound reservation token. `active` flips false on release/settle
+ *  (idempotence); `day` pins the UTC day whose aggregate it incremented. */
+export interface SpendReservation {
+  day: string
+  micro: bigint
+  active: boolean
+}
+
 /** Thrown when settled spend cannot be persisted (review F3): the route
  *  surfaces this as a 500 — a run with a broken kill-switch counter must be
  *  VISIBLY broken, never silently optimistic. */
@@ -357,24 +365,36 @@ export class SpendCounter {
   }
 
   /** Reserve an estimate. SYNCHRONOUS by design — call it in the same
-   *  microtask as the gate decision so no other request can interleave. */
-  reserve(estMicro: bigint): void {
-    if (typeof estMicro !== "bigint" || estMicro <= 0n) return
+   *  microtask as the gate decision so no other request can interleave.
+   *  Returns a DAY-BOUND token (codex cycle-2 finding): a reservation taken
+   *  before UTC midnight that settles after midnight must not subtract from
+   *  the new day's aggregate — that would steal a concurrent request's
+   *  reservation and undercount the new day's outstanding spend. */
+  reserve(estMicro: bigint): SpendReservation {
     this.rollDay()
-    this.reserved += estMicro
+    const active = typeof estMicro === "bigint" && estMicro > 0n
+    const token: SpendReservation = { day: this.day, micro: active ? estMicro : 0n, active }
+    if (active) this.reserved += token.micro
+    return token
   }
 
-  /** Release a reservation without settling (invoke failed — no spend). */
-  release(estMicro: bigint): void {
-    if (typeof estMicro !== "bigint" || estMicro <= 0n) return
-    this.reserved = this.reserved >= estMicro ? this.reserved - estMicro : 0n
+  /** Release a reservation without settling (invoke failed — no spend).
+   *  Idempotent; a token from a rolled-over day is a no-op (its aggregate
+   *  was already reset by rollDay). */
+  release(token: SpendReservation | null | undefined): void {
+    if (!token || !token.active) return
+    token.active = false
+    this.rollDay()
+    if (token.day === this.day) {
+      this.reserved = this.reserved >= token.micro ? this.reserved - token.micro : 0n
+    }
   }
 
   /** Settle a reservation to actual spend and persist atomically.
    *  Memory commits first (runtime stays conservative even if disk fails);
    *  persist failure rejects with SpendPersistError (F3). */
-  async settle(estMicro: bigint, actualMicro: bigint): Promise<void> {
-    this.release(estMicro)
+  async settle(token: SpendReservation | null, actualMicro: bigint): Promise<void> {
+    this.release(token)
     if (typeof actualMicro !== "bigint" || actualMicro < 0n) {
       throw new SpendPersistError("settle called with invalid actual spend")
     }
@@ -650,10 +670,13 @@ export function createScoreVerdictRoutes(deps: ScoreVerdictDeps = {}): Hono {
     const gate = decideGate(gateInput)
     // Review F2: reservation happens in the SAME microtask as the decision —
     // no await sits between decideGate and reserve, so no other request can
-    // interleave and observe stale outstanding spend.
-    if (gate.decision === "ROUTE_CHEVAL" && estInference !== null) {
-      spend.reserve(estInference)
-    }
+    // interleave and observe stale outstanding spend. The token is day-bound
+    // (cycle-2 codex finding: cross-midnight settles must not touch the new
+    // day's aggregate).
+    const reservation =
+      gate.decision === "ROUTE_CHEVAL" && estInference !== null
+        ? spend.reserve(estInference)
+        : null
     const gateInputsRecord: Record<string, unknown> =
       gateInput === null
         ? { unavailable: "gate config or cheval transport missing" }
@@ -716,12 +739,12 @@ export function createScoreVerdictRoutes(deps: ScoreVerdictDeps = {}): Hono {
         // Review F2/F3: settle the reservation to actual spend. A persist
         // failure is surfaced as a 500 — fail-loud, the inference cost is
         // already recorded in the atom either way.
-        await spend.settle(estInference ?? 0n, inferenceMicro)
+        await spend.settle(reservation, inferenceMicro)
         enrichment = { model: gateConfig.cheval.model, content: result.content }
       } catch (err) {
         if (err instanceof SpendPersistError) {
-          // settle() already released the reservation before persisting —
-          // releasing again here would eat a CONCURRENT request's reservation.
+          // settle() already consumed the reservation token (idempotent —
+          // release here would be a no-op anyway, but keep intent explicit).
           handle.setGate(`${gateDecisionString(gate)}:spend_persist_failed`, {
             ...gateInputsRecord,
             persist_error: err.message,
@@ -731,7 +754,7 @@ export function createScoreVerdictRoutes(deps: ScoreVerdictDeps = {}): Hono {
             500,
           )
         }
-        spend.release(estInference ?? 0n)
+        spend.release(reservation)
         // Fail-closed AFTER routing: the spawn failed — record the attempt as
         // orchestration data, respond without enrichment. No partial billing:
         // failed invocations report no usage.

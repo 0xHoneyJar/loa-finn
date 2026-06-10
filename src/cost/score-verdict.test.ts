@@ -201,7 +201,7 @@ describe("SpendCounter (B12/B15 + review F2-F5)", () => {
     const t = 1_750_000_000_000
     const c1 = new SpendCounter(dir, () => t)
     await c1.load()
-    await c1.settle(0n, 123_456n)
+    await c1.settle(null, 123_456n)
     // simulated restart: brand-new instance, same data dir
     const c2 = new SpendCounter(dir, () => t + 60_000)
     await c2.load()
@@ -213,7 +213,7 @@ describe("SpendCounter (B12/B15 + review F2-F5)", () => {
     let t = Date.UTC(2026, 5, 9, 23, 59, 0)
     const counter = new SpendCounter(dir, () => t)
     await counter.load()
-    await counter.settle(0n, 500n)
+    await counter.settle(null, 500n)
     expect(counter.outstanding()).toBe(500n)
     t = Date.UTC(2026, 5, 10, 0, 1, 0)
     expect(counter.outstanding()).toBe(0n)
@@ -222,24 +222,41 @@ describe("SpendCounter (B12/B15 + review F2-F5)", () => {
   it("reservations count toward outstanding and release on failure (F2)", async () => {
     const counter = new SpendCounter(dir, () => 1_750_000_000_000)
     await counter.load()
-    counter.reserve(10_000n)
+    const token = counter.reserve(10_000n)
     expect(counter.outstanding()).toBe(10_000n)
-    counter.release(10_000n)
+    counter.release(token)
+    expect(counter.outstanding()).toBe(0n)
+    counter.release(token) // idempotent — double release is a no-op
     expect(counter.outstanding()).toBe(0n)
   })
 
   it("settle converts a reservation into settled spend (F2)", async () => {
     const counter = new SpendCounter(dir, () => 1_750_000_000_000)
     await counter.load()
-    counter.reserve(10_000n)
-    await counter.settle(10_000n, 8_500n)
+    const token = counter.reserve(10_000n)
+    await counter.settle(token, 8_500n)
+    expect(counter.outstanding()).toBe(8_500n)
+  })
+
+  it("a cross-midnight settle cannot steal the new day's reservations (codex cycle-2)", async () => {
+    let t = Date.UTC(2026, 5, 9, 23, 59, 58)
+    const counter = new SpendCounter(dir, () => t)
+    await counter.load()
+    const oldToken = counter.reserve(10_000n) // reserved on day D
+    t = Date.UTC(2026, 5, 10, 0, 0, 5) // UTC midnight rolls; aggregate reset
+    const newToken = counter.reserve(10_000n) // day D+1 in-flight reservation
+    expect(counter.outstanding()).toBe(10_000n)
+    await counter.settle(oldToken, 8_500n) // old-day token: release is a no-op on D+1
+    // the new day's reservation is INTACT and the settle still counts as spend
+    expect(counter.outstanding()).toBe(18_500n)
+    counter.release(newToken)
     expect(counter.outstanding()).toBe(8_500n)
   })
 
   it("serializes concurrent settles without losing spend (F4)", async () => {
     const counter = new SpendCounter(dir, () => 1_750_000_000_000)
     await counter.load()
-    await Promise.all(Array.from({ length: 10 }, () => counter.settle(0n, 100n)))
+    await Promise.all(Array.from({ length: 10 }, () => counter.settle(null, 100n)))
     expect(counter.outstanding()).toBe(1_000n)
     const reloaded = new SpendCounter(dir, () => 1_750_000_000_000)
     await reloaded.load()
@@ -249,7 +266,7 @@ describe("SpendCounter (B12/B15 + review F2-F5)", () => {
   it("persist failure rejects with SpendPersistError, memory stays conservative (F3)", async () => {
     const counter = new SpendCounter("/dev/null/not-a-dir", () => 1_750_000_000_000)
     await counter.load() // ENOENT-class on a bogus path → fresh zero is fine
-    await expect(counter.settle(0n, 100n)).rejects.toThrow(SpendPersistError)
+    await expect(counter.settle(null, 100n)).rejects.toThrow(SpendPersistError)
     expect(counter.outstanding()).toBe(100n) // memory committed — runtime stays conservative
   })
 
