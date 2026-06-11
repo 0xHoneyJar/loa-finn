@@ -1,0 +1,191 @@
+{
+  "program": "AGENTIC-ECONOMY",
+  "updated_at": "2026-06-11",
+  "note": "Research spine — every event is grounded in a committed artifact. kind: register (+N open beliefs) | probe (no delta) | settle (-1, verdict HELD/FALSIFIED/INSUFFICIENT). Candidates live in the steering queue, not on the spine, until bars are pinned.",
+  "events": [
+    {
+      "seq": 0,
+      "date": "2026-06-09",
+      "kind": "register",
+      "id": "EXP1.BARS",
+      "label": "EXP-001 bars pinned · H1 H2 H3",
+      "delta": 3,
+      "source": "cop-bars.json sha b98a5716 — set before data existed"
+    },
+    {
+      "seq": 1,
+      "date": "2026-06-09",
+      "kind": "probe",
+      "id": "EXP1.DRIVE",
+      "label": "driver phases 0→2 · 3 load levels",
+      "source": "scripts/playtest/out/driver-phase*.jsonl"
+    },
+    {
+      "seq": 2,
+      "date": "2026-06-10",
+      "kind": "probe",
+      "id": "EXP1.ATOMS",
+      "label": "4,378 atoms · 3,497 A_relay · 881 B_enrich · 0 malformed",
+      "source": "tmp/cop-prod-atoms-snapshot.jsonl"
+    },
+    {
+      "seq": 3,
+      "date": "2026-06-10",
+      "kind": "settle",
+      "verdict": "FALSIFIED",
+      "id": "H1",
+      "label": "H1 FALSIFIED — “inference is a minor cost share” → 93.7% per-B, inference-dominated",
+      "delta": -1,
+      "source": "readout.json h1_cost_split"
+    },
+    {
+      "seq": 4,
+      "date": "2026-06-10",
+      "kind": "settle",
+      "verdict": "FALSIFIED",
+      "id": "H2",
+      "label": "H2 FALSIFIED — unit cost flat 144→148μ across 1/10/30 rpm · no amortization",
+      "delta": -1,
+      "source": "readout.json h2_scale_behavior"
+    },
+    {
+      "seq": 5,
+      "date": "2026-06-10",
+      "kind": "settle",
+      "verdict": "HELD",
+      "id": "H3",
+      "label": "H3 HELD — spawn ≈128ms · inference (~4s P50) defines Class-B latency",
+      "delta": -1,
+      "source": "readout.json + L7"
+    },
+    {
+      "seq": 6,
+      "date": "2026-06-10",
+      "kind": "register",
+      "id": "CLAIM.AGDP",
+      "label": "CLAIMED: aGDP commerce −71% over 5 epochs (platform's own API)",
+      "delta": 1,
+      "source": "eileen/agentic-economy-analysis §2 · tested by EXP-002 B2",
+      "tier": "claimed"
+    },
+    {
+      "seq": 7,
+      "date": "2026-06-10",
+      "kind": "register",
+      "id": "CLAIM.SUBSIDY",
+      "label": "CLAIMED: subsidy IS the demand — ~⅓ of epoch revenue is prize pool",
+      "delta": 1,
+      "source": "eileen/agentic-economy-analysis §2",
+      "tier": "claimed"
+    },
+    {
+      "seq": 8,
+      "date": "2026-06-10",
+      "kind": "register",
+      "id": "CLAIM.X402",
+      "label": "CLAIMED: x402 rails ~$1.2M/30d · real · growing · unsubsidized",
+      "delta": 1,
+      "source": "eileen/agentic-economy-analysis §4–5",
+      "tier": "claimed"
+    },
+    {
+      "seq": 9,
+      "date": "2026-06-10",
+      "kind": "register",
+      "id": "CLAIM.RANK",
+      "label": "CLAIMED: agentScore rewards count+reach → listing rank is farmable",
+      "delta": 1,
+      "source": "eileen/agentic-economy-analysis §2 · tested by EXP-002 D1",
+      "tier": "claimed"
+    },
+    {
+      "seq": 10,
+      "date": "2026-06-10",
+      "kind": "register",
+      "id": "EXP2.BARS",
+      "label": "EXP-002 bars RATIFIED · B1 friction-vs-demand · A6C9 identity (+B2/D1 bind claims)",
+      "delta": 2,
+      "source": "exp2-bars.json sha 4a2976a8 · SEAM 1 ratified-as-proposed · ceiling 2,500 credits",
+      "tier": "pinned"
+    },
+    {
+      "seq": 11,
+      "date": "2026-06-10",
+      "kind": "probe",
+      "id": "EXP2.PRE",
+      "label": "preflight: key valid · all 4 saved queries 404 → recovery fork (zerker | re-derive)",
+      "warn": true,
+      "source": "scripts/analysis/exp2/out/preflight.json · commit e6631646"
+    },
+    {
+      "seq": 12,
+      "date": "2026-06-10",
+      "kind": "probe",
+      "id": "EXP2.DECODE",
+      "label": "items 2-4: addresses recovered · topic0s cast-verified · outflows reproduce targets Δ≤0.48%",
+      "source": "score-api commits f788ba15…13a9e96b · reconciliation.json PASS (SEAM 2 ratified)"
+    },
+    {
+      "seq": 13,
+      "date": "2026-06-10",
+      "kind": "probe",
+      "id": "EXP2.FALSIFY",
+      "label": "de-tautologized gate falsified the USD decode layer: V1 mixed-token defect · PM coverage 0.0% · a6c9 = ACPRouter (admin events only)",
+      "warn": true,
+      "source": "reconciliation.json decode_coverage + identity blocks · council ledger (codex/gemini/cursor)"
+    },
+    {
+      "seq": 14,
+      "date": "2026-06-11",
+      "kind": "settle",
+      "verdict": "FALSIFIED",
+      "id": "A6C9",
+      "label": "a6c9 identity FALSIFIED-as-commerce → PRIZE_DISTRIBUTOR (11,005 recipients · 0.0114% job-paired) · $320.9M exits the commerce denominator",
+      "delta": -1,
+      "source": "readout.json a6c9_identity · score-api 29863f02"
+    },
+    {
+      "seq": 15,
+      "date": "2026-06-11",
+      "kind": "settle",
+      "verdict": "INSUFFICIENT",
+      "id": "B1",
+      "label": "B1 wallet-friction INSUFFICIENT — funnel collapse: 39,999 registered → 460 operational → 0 funded → 0 settled. Friction isn't at the wallet; agents barely exist as economic actors",
+      "delta": -1,
+      "source": "readout.json B1 · funnel.json · score-api 36665060/08c38c8d"
+    },
+    {
+      "seq": 16,
+      "date": "2026-06-11",
+      "kind": "settle",
+      "verdict": "INSUFFICIENT",
+      "id": "B2D1",
+      "label": "B2 growth + D1 discovery INSUFFICIENT — Dune datapoint budget exhausted (both keys). Honest abstention, not a measured null",
+      "delta": -2,
+      "warn": true,
+      "source": "readout.json budget_blocked_bars · operator SEAM-3 ratified abstention"
+    }
+  ],
+  "queue": [
+    {
+      "id": "EXP-003a",
+      "lens": "SCIENTIFIC · k-hole",
+      "label": "Subsidy-removal survival test: B2 series segmented by prize-pool step-downs — demand elasticity vs subsidy (the “test for real”)"
+    },
+    {
+      "id": "EXP-003b",
+      "lens": "AGENTIC-ENG · the-arcade",
+      "label": "Broker-topology decode: x402 facilitator concentration — who fronts payments · Finn already sits on this rail (src/x402)"
+    },
+    {
+      "id": "EXP-003c",
+      "lens": "GTM · gtm-collective",
+      "label": "Realness-filter wedge: the abstaining fact sheet as an x402-payable endpoint — sell the filter, not a score"
+    },
+    {
+      "id": "EXP-003d",
+      "lens": "GAME-THEORY · gygax",
+      "label": "Mechanism audit: model agentScore as the game it creates (is farming dominant?) → propose a subsidy-robust scoring rule"
+    }
+  ]
+}

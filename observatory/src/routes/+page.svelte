@@ -67,7 +67,10 @@
       <span class="obs-header-sep">//</span>
       {EXPERIMENT.name}
     </span>
-    <span class="obs-header-date">{EXPERIMENT.date}</span>
+    <span class="obs-header-right">
+      <a class="obs-header-link" href="./spine">RESEARCH.SPINE</a>
+      <span class="obs-header-date">{EXPERIMENT.date}</span>
+    </span>
   </header>
 
   <!-- ── 2×2 Panel Grid ── -->
@@ -335,6 +338,28 @@
     letter-spacing: var(--tracking-whisper);
     text-transform: uppercase;
     flex-shrink: 0;
+  }
+
+  .obs-header-right {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-400);
+    flex-shrink: 0;
+  }
+
+  .obs-header-link {
+    color: var(--color-cyan-dim);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-whisper);
+    text-decoration: none;
+    border: 1px solid var(--color-void-border);
+    padding: 2px 8px;
+  }
+
+  .obs-header-link:hover {
+    color: var(--color-cyan-base);
+    border-color: var(--color-cyan-dim);
   }
 
   /* ── 2×2 grid ── */
