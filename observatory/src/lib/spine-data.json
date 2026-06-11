@@ -150,9 +150,9 @@
       "kind": "settle",
       "verdict": "INSUFFICIENT",
       "id": "B1",
-      "label": "B1 wallet-friction INSUFFICIENT — funnel collapse: 39,999 registered → 460 operational → 0 funded → 0 settled. Friction isn't at the wallet; agents barely exist as economic actors",
+      "label": "B1 wallet-friction INSUFFICIENT — funnel collapse: 39,999 registered → 460 operational (98.8% drop) → 0 ever in a settled job (full-history). Friction isn't at the wallet; agents barely exist as economic actors. [funded-count caveated: date-floor blind spot, not load-bearing]",
       "delta": -1,
-      "source": "readout.json B1 · funnel.json · score-api 36665060/08c38c8d"
+      "source": "readout.json B1 (date-robust stages 1→2 + 4) · funnel.json RELIABILITY_CAVEAT · score-api 36665060…+fix"
     },
     {
       "seq": 16,
