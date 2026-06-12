@@ -1,23 +1,23 @@
 {
   "program": "AGENTIC-ECONOMY",
-  "updated_at": "2026-06-11",
-  "note": "Research spine — every event is grounded in a committed artifact. kind: register (+N open beliefs) | probe (no delta) | settle (-1, verdict HELD/FALSIFIED/INSUFFICIENT). Candidates live in the steering queue, not on the spine, until bars are pinned.",
+  "updated_at": "2026-06-12",
+  "note": "Research spine \u2014 every event is grounded in a committed artifact. kind: register (+N open beliefs) | probe (no delta) | settle (-1, verdict HELD/FALSIFIED/INSUFFICIENT). Candidates live in the steering queue, not on the spine, until bars are pinned.",
   "events": [
     {
       "seq": 0,
       "date": "2026-06-09",
       "kind": "register",
       "id": "EXP1.BARS",
-      "label": "EXP-001 bars pinned · H1 H2 H3",
+      "label": "EXP-001 bars pinned \u00b7 H1 H2 H3",
       "delta": 3,
-      "source": "cop-bars.json sha b98a5716 — set before data existed"
+      "source": "cop-bars.json sha b98a5716 \u2014 set before data existed"
     },
     {
       "seq": 1,
       "date": "2026-06-09",
       "kind": "probe",
       "id": "EXP1.DRIVE",
-      "label": "driver phases 0→2 · 3 load levels",
+      "label": "driver phases 0\u21922 \u00b7 3 load levels",
       "source": "scripts/playtest/out/driver-phase*.jsonl"
     },
     {
@@ -25,7 +25,7 @@
       "date": "2026-06-10",
       "kind": "probe",
       "id": "EXP1.ATOMS",
-      "label": "4,378 atoms · 3,497 A_relay · 881 B_enrich · 0 malformed",
+      "label": "4,378 atoms \u00b7 3,497 A_relay \u00b7 881 B_enrich \u00b7 0 malformed",
       "source": "tmp/cop-prod-atoms-snapshot.jsonl"
     },
     {
@@ -34,7 +34,7 @@
       "kind": "settle",
       "verdict": "FALSIFIED",
       "id": "H1",
-      "label": "H1 FALSIFIED — “inference is a minor cost share” → 93.7% per-B, inference-dominated",
+      "label": "H1 FALSIFIED \u2014 \u201cinference is a minor cost share\u201d \u2192 93.7% per-B, inference-dominated",
       "delta": -1,
       "source": "readout.json h1_cost_split"
     },
@@ -44,7 +44,7 @@
       "kind": "settle",
       "verdict": "FALSIFIED",
       "id": "H2",
-      "label": "H2 FALSIFIED — unit cost flat 144→148μ across 1/10/30 rpm · no amortization",
+      "label": "H2 FALSIFIED \u2014 unit cost flat 144\u2192148\u03bc across 1/10/30 rpm \u00b7 no amortization",
       "delta": -1,
       "source": "readout.json h2_scale_behavior"
     },
@@ -54,7 +54,7 @@
       "kind": "settle",
       "verdict": "HELD",
       "id": "H3",
-      "label": "H3 HELD — spawn ≈128ms · inference (~4s P50) defines Class-B latency",
+      "label": "H3 HELD \u2014 spawn \u2248128ms \u00b7 inference (~4s P50) defines Class-B latency",
       "delta": -1,
       "source": "readout.json + L7"
     },
@@ -63,9 +63,9 @@
       "date": "2026-06-10",
       "kind": "register",
       "id": "CLAIM.AGDP",
-      "label": "CLAIMED: aGDP commerce −71% over 5 epochs (platform's own API)",
+      "label": "CLAIMED: aGDP commerce \u221271% over 5 epochs (platform's own API)",
       "delta": 1,
-      "source": "eileen/agentic-economy-analysis §2 · tested by EXP-002 B2",
+      "source": "eileen/agentic-economy-analysis \u00a72 \u00b7 tested by EXP-002 B2",
       "tier": "claimed"
     },
     {
@@ -73,9 +73,9 @@
       "date": "2026-06-10",
       "kind": "register",
       "id": "CLAIM.SUBSIDY",
-      "label": "CLAIMED: subsidy IS the demand — ~⅓ of epoch revenue is prize pool",
+      "label": "CLAIMED: subsidy IS the demand \u2014 ~\u2153 of epoch revenue is prize pool",
       "delta": 1,
-      "source": "eileen/agentic-economy-analysis §2",
+      "source": "eileen/agentic-economy-analysis \u00a72",
       "tier": "claimed"
     },
     {
@@ -83,9 +83,9 @@
       "date": "2026-06-10",
       "kind": "register",
       "id": "CLAIM.X402",
-      "label": "CLAIMED: x402 rails ~$1.2M/30d · real · growing · unsubsidized",
+      "label": "CLAIMED: x402 rails ~$1.2M/30d \u00b7 real \u00b7 growing \u00b7 unsubsidized",
       "delta": 1,
-      "source": "eileen/agentic-economy-analysis §4–5",
+      "source": "eileen/agentic-economy-analysis \u00a74\u20135",
       "tier": "claimed"
     },
     {
@@ -93,9 +93,9 @@
       "date": "2026-06-10",
       "kind": "register",
       "id": "CLAIM.RANK",
-      "label": "CLAIMED: agentScore rewards count+reach → listing rank is farmable",
+      "label": "CLAIMED: agentScore rewards count+reach \u2192 listing rank is farmable",
       "delta": 1,
-      "source": "eileen/agentic-economy-analysis §2 · tested by EXP-002 D1",
+      "source": "eileen/agentic-economy-analysis \u00a72 \u00b7 tested by EXP-002 D1",
       "tier": "claimed"
     },
     {
@@ -103,9 +103,9 @@
       "date": "2026-06-10",
       "kind": "register",
       "id": "EXP2.BARS",
-      "label": "EXP-002 bars RATIFIED · B1 friction-vs-demand · A6C9 identity (+B2/D1 bind claims)",
+      "label": "EXP-002 bars RATIFIED \u00b7 B1 friction-vs-demand \u00b7 A6C9 identity (+B2/D1 bind claims)",
       "delta": 2,
-      "source": "exp2-bars.json sha 4a2976a8 · SEAM 1 ratified-as-proposed · ceiling 2,500 credits",
+      "source": "exp2-bars.json sha 4a2976a8 \u00b7 SEAM 1 ratified-as-proposed \u00b7 ceiling 2,500 credits",
       "tier": "pinned"
     },
     {
@@ -113,26 +113,26 @@
       "date": "2026-06-10",
       "kind": "probe",
       "id": "EXP2.PRE",
-      "label": "preflight: key valid · all 4 saved queries 404 → recovery fork (zerker | re-derive)",
+      "label": "preflight: key valid \u00b7 all 4 saved queries 404 \u2192 recovery fork (zerker | re-derive)",
       "warn": true,
-      "source": "scripts/analysis/exp2/out/preflight.json · commit e6631646"
+      "source": "scripts/analysis/exp2/out/preflight.json \u00b7 commit e6631646"
     },
     {
       "seq": 12,
       "date": "2026-06-10",
       "kind": "probe",
       "id": "EXP2.DECODE",
-      "label": "items 2-4: addresses recovered · topic0s cast-verified · outflows reproduce targets Δ≤0.48%",
-      "source": "score-api commits f788ba15…13a9e96b · reconciliation.json PASS (SEAM 2 ratified)"
+      "label": "items 2-4: addresses recovered \u00b7 topic0s cast-verified \u00b7 outflows reproduce targets \u0394\u22640.48%",
+      "source": "score-api commits f788ba15\u202613a9e96b \u00b7 reconciliation.json PASS (SEAM 2 ratified)"
     },
     {
       "seq": 13,
       "date": "2026-06-10",
       "kind": "probe",
       "id": "EXP2.FALSIFY",
-      "label": "de-tautologized gate falsified the USD decode layer: V1 mixed-token defect · PM coverage 0.0% · a6c9 = ACPRouter (admin events only)",
+      "label": "de-tautologized gate falsified the USD decode layer: V1 mixed-token defect \u00b7 PM coverage 0.0% \u00b7 a6c9 = ACPRouter (admin events only)",
       "warn": true,
-      "source": "reconciliation.json decode_coverage + identity blocks · council ledger (codex/gemini/cursor)"
+      "source": "reconciliation.json decode_coverage + identity blocks \u00b7 council ledger (codex/gemini/cursor)"
     },
     {
       "seq": 14,
@@ -140,9 +140,9 @@
       "kind": "settle",
       "verdict": "FALSIFIED",
       "id": "A6C9",
-      "label": "a6c9 identity FALSIFIED-as-commerce → PRIZE_DISTRIBUTOR (11,005 recipients · 0.0114% job-paired) · $320.9M exits the commerce denominator",
+      "label": "a6c9 identity FALSIFIED-as-commerce \u2192 PRIZE_DISTRIBUTOR (11,005 recipients \u00b7 0.0114% job-paired) \u00b7 $320.9M exits the commerce denominator",
       "delta": -1,
-      "source": "readout.json a6c9_identity · score-api 29863f02"
+      "source": "readout.json a6c9_identity \u00b7 score-api 29863f02"
     },
     {
       "seq": 15,
@@ -150,9 +150,9 @@
       "kind": "settle",
       "verdict": "INSUFFICIENT",
       "id": "B1",
-      "label": "B1 wallet-friction INSUFFICIENT — funnel collapse: 39,999 registered → 460 operational (98.8% drop) → 0 ever in a settled job (full-history). Friction isn't at the wallet; agents barely exist as economic actors. [funded-count caveated: date-floor blind spot, not load-bearing]",
+      "label": "B1 wallet-friction INSUFFICIENT \u2014 funnel collapse: 39,999 registered \u2192 460 operational (98.8% drop) \u2192 0 ever in a settled job (full-history). Friction isn't at the wallet; agents barely exist as economic actors. [funded-count caveated: date-floor blind spot, not load-bearing]",
       "delta": -1,
-      "source": "readout.json B1 (date-robust stages 1→2 + 4) · funnel.json RELIABILITY_CAVEAT · score-api 36665060…+fix"
+      "source": "readout.json B1 (date-robust stages 1\u21922 + 4) \u00b7 funnel.json RELIABILITY_CAVEAT \u00b7 score-api 36665060\u2026+fix"
     },
     {
       "seq": 16,
@@ -160,32 +160,73 @@
       "kind": "settle",
       "verdict": "INSUFFICIENT",
       "id": "B2D1",
-      "label": "B2 growth + D1 discovery INSUFFICIENT — Dune datapoint budget exhausted (both keys). Honest abstention, not a measured null",
+      "label": "B2 growth + D1 discovery INSUFFICIENT \u2014 Dune datapoint budget exhausted (both keys). Honest abstention, not a measured null",
       "delta": -2,
       "warn": true,
-      "source": "readout.json budget_blocked_bars · operator SEAM-3 ratified abstention"
+      "source": "readout.json budget_blocked_bars \u00b7 operator SEAM-3 ratified abstention"
+    },
+    {
+      "seq": 17,
+      "date": "2026-06-12",
+      "kind": "register",
+      "id": "EXP3.BARS",
+      "label": "EXP-003 verify-clusters pre-registered (claimed tier): C1 void-is-real \u00b7 C2 customers-exist (GO/NO-GO) \u00b7 C3 rails \u00b7 C4 chains. The realness filter pointed at the report that would justify the verification-void pivot",
+      "delta": 4,
+      "source": "exp3-verification-void-preregistration.md \u00b7 external report = claimed-tier \u00b7 SEAM-1 RATIFIED 2026-06-12",
+      "tier": "pinned"
+    },
+    {
+      "seq": 18,
+      "date": "2026-06-12",
+      "kind": "settle",
+      "verdict": "INSUFFICIENT",
+      "id": "C1",
+      "label": "C1 verification-void INSUFFICIENT (contested) \u2014 REFRAME: the bar bundled two voids. Technical void CLOSING (EigenVerify/Ritual/ChaosChain ship slash-secured verification; ERC-8004 Validation Registry = pluggable design-space). Demand void wide-open \u2192 hinge moves to C2",
+      "delta": -1,
+      "warn": true,
+      "source": "exp3-c1-settle.md \u00b7 k-hole flash probes (37+18 src) \u00b7 claimed-by-search, primary-source flags noted"
+    },
+    {
+      "seq": 19,
+      "date": "2026-06-12",
+      "kind": "settle",
+      "verdict": "HELD",
+      "id": "C2",
+      "label": "C2 commerce-exists HELD \u2014 enterprise vertical agent ARR real (Harvey CEO ~$190M, Sierra $100M\u2192~$200M, Decagon ~$35-45M); x402 real ~$17K/day (90% gamed). DECISIVE: verification demand is VERTICAL + in-house (Sierra Validator Agents / Harvey Trust Stack / Decagon Watchtower); horizontal agent-to-agent = pre-revenue (EQTY lone exception)",
+      "delta": -1,
+      "source": "exp3-c2-settle.md \u00b7 k-hole flash (8+66 src) \u00b7 claimed-by-search \u00b7 GO vertical / NO-GO horizontal"
+    },
+    {
+      "seq": 20,
+      "date": "2026-06-12",
+      "kind": "settle",
+      "verdict": "HELD",
+      "id": "EXP3.GONOGO",
+      "label": "EXP-003 GO/NO-GO: GO on the VERTICAL (Score forensic-integrity, EXP-001 WTP) \u00b7 NO-GO on horizontal verification (pre-revenue, in-house-satisfied). Evidence-confirms the ratified staging. Deterministic verification sidesteps the LLM-non-determinism wall that sinks agent-to-agent quorums",
+      "delta": -2,
+      "source": "C1+C2 synthesis \u00b7 the staged Score\u2192horizontal thesis, now evidence-backed not instinct"
     }
   ],
   "queue": [
     {
       "id": "EXP-003a",
-      "lens": "SCIENTIFIC · k-hole",
-      "label": "Subsidy-removal survival test: B2 series segmented by prize-pool step-downs — demand elasticity vs subsidy (the “test for real”)"
+      "lens": "SCIENTIFIC \u00b7 k-hole",
+      "label": "Subsidy-removal survival test: B2 series segmented by prize-pool step-downs \u2014 demand elasticity vs subsidy (the \u201ctest for real\u201d)"
     },
     {
       "id": "EXP-003b",
-      "lens": "AGENTIC-ENG · the-arcade",
-      "label": "Broker-topology decode: x402 facilitator concentration — who fronts payments · Finn already sits on this rail (src/x402)"
+      "lens": "AGENTIC-ENG \u00b7 the-arcade",
+      "label": "Broker-topology decode: x402 facilitator concentration \u2014 who fronts payments \u00b7 Finn already sits on this rail (src/x402)"
     },
     {
       "id": "EXP-003c",
-      "lens": "GTM · gtm-collective",
-      "label": "Realness-filter wedge: the abstaining fact sheet as an x402-payable endpoint — sell the filter, not a score"
+      "lens": "GTM \u00b7 gtm-collective",
+      "label": "Realness-filter wedge: the abstaining fact sheet as an x402-payable endpoint \u2014 sell the filter, not a score"
     },
     {
       "id": "EXP-003d",
-      "lens": "GAME-THEORY · gygax",
-      "label": "Mechanism audit: model agentScore as the game it creates (is farming dominant?) → propose a subsidy-robust scoring rule"
+      "lens": "GAME-THEORY \u00b7 gygax",
+      "label": "Mechanism audit: model agentScore as the game it creates (is farming dominant?) \u2192 propose a subsidy-robust scoring rule"
     }
   ]
 }
