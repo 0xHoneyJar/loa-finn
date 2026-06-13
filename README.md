@@ -1,7 +1,10 @@
 # loa-finn
 
-<!-- AGENT-CONTEXT: loa-finn is the home of the Finn experiment program — a research program
-that runs pre-registered, sha-pinned experiments on the agentic economy (real commerce vs theater)
+<!-- AGENT-CONTEXT: loa-finn is a research engine — it answers "what's real?" by running
+pre-registered, sha-pinned experiments (deploy instruments, settle deterministically, never an
+LLM's guess). The first application is the agentic economy (real commerce vs theater), NOT the
+definition — the method generalizes to anything you can pre-register and measure. Named for the
+Finn (Gibson's Sprawl appraiser who could tell real from counterfeit), given a method.
 and the runtime that rides them. Two halves: (1) the experiment program — EXP-001 cost-of-play,
 EXP-002 agent-commerce forensics, EXP-003 verify-the-void, EXP-004 graduation gate — recorded on a
 research spine (observatory/), with a checksummed append-only cost meter (src/cost/cost-atom.ts) and a
@@ -18,15 +21,15 @@ abstain over fabricate (grimoires/loa/context/epistemology-deterministic-layers.
 
 ## What is this?
 
-**loa-finn is the home of the Finn experiment program — and the runtime that rides it.**
+**loa-finn is a research engine — and the runtime that rides it.**
 
-The program asks one question of the agentic economy, over and over, with instruments instead of opinions: **is this real, or is it theater?** Each answer is a pre-registered, sha-pinned experiment — bars set *before* the data exists, an instrumented run, a readout that has to survive its own falsifications. The answers accrete on a public **research spine** ([`observatory/`](observatory/)), where every dot traces to a committed artifact.
+It answers one question — **what's real?** — by experiment instead of opinion: pre-register the bars *before* the data exists, run the instruments, settle with a readout that has to survive its own falsifications. The answers accrete on a public **research spine** ([`observatory/`](observatory/)), where every dot traces to a committed artifact. The first thing it was pointed at is the **agentic economy** (real commerce vs registration theater) — but the question, and the method, generalize to anything you can pre-register and measure. The agent economy is application #1, not the definition.
 
 Underneath sits the runtime that makes the experiments cheap and durable: multi-model routing, a write-ahead log, a cron system, a tool sandbox, and a checksummed cost meter that closes the bill before the response returns. The program is the soul; the runtime is the body it rides.
 
 ## Why "Finn"?
 
-In Gibson's *Neuromancer*, **the Finn** is a Sprawl fence — a dealer in hardware and information who can tell you what a thing is worth and whether it's real. When the AI **Wintermute** needs a face to speak to Case, it wears the Finn's: an intelligence putting on the appraiser to tell the real from the counterfeit. That's the patron. Here Finn is the **agent-scientist** — he doesn't just appraise, he runs the experiment that earns it: pre-register the bars, deploy the instruments, settle the verdict.
+In Gibson's *Neuromancer*, **the Finn** is a Sprawl fence — a dealer in hardware and information who can tell you what a thing is worth and whether it's real. When the AI **Wintermute** needs a face to speak to Case, it wears the Finn's: an intelligence putting on the appraiser to tell the real from the counterfeit. That's the patron — not a scientist (the Finn never was), but something better-fit: the one who could tell real from counterfeit and *prove the price*. This repo gives that instinct a method. The appraiser's question — *what's real, and what's it worth* — answered by experiment instead of opinion.
 
 The lab is **[loa-laplas](https://github.com/0xHoneyJar/loa-laplas)** — the deterministic enforcement lattice where Finn deploys other constructs into isolated, traced, lawful rooms (named for Laplace's demon: given full state, every outcome reproduces; runs are *proven*, not asserted). Finn is the principal investigator; loa-laplas is the bench. (Loa: AI entities that *ride* you through the interface — same Sprawl.)
 
