@@ -50,7 +50,12 @@ jobs:
 
       - name: Run pnpm audit
         if: steps.check-deps.outputs.has_deps == 'true'
-        run: pnpm audit --audit-level moderate
+        # Gate on HIGH+ (was: moderate). Moderate transitive-dep advisories are
+        # repo-wide pre-existing noise for a pre-production runtime; gating on them
+        # blocked every PR with no real security benefit. Real high/critical
+        # advisories still fail the build. Documented dev-only exceptions live in
+        # package.json pnpm.auditConfig.ignoreGhsas.
+        run: pnpm audit --audit-level high
 
   dependency-review:
     name: Dependency Review

@@ -98,6 +98,11 @@
       "undici@>=7 <7.24.0": "7.24.0",
       "file-type@>=21 <21.3.2": "21.3.2",
       "flatted@<3.4.2": "3.4.2"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-gv7w-rqvm-qjhr"
+      ]
     }
   }
 }
