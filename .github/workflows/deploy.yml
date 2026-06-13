@@ -117,14 +117,14 @@ jobs:
 
       - name: Update task definition with new image
         id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@9666dc9a3bf790a3a7a3a3ce7d1a8600100b0ad2 # v1.7.2
+        uses: aws-actions/amazon-ecs-render-task-definition@e89b6874818d80bb892e7010a5013519bde9d9a6 # v1.7.2
         with:
           task-definition: task-definition.json
           container-name: loa-finn
           image: ${{ steps.build-image.outputs.image }}
 
       - name: Deploy to ECS (rolling update)
-        uses: aws-actions/amazon-ecs-deploy-task-definition@3e7310352de28fdb25b55df7a1dfd15a5ddeb369 # v2.3.1
+        uses: aws-actions/amazon-ecs-deploy-task-definition@176bcc0288c49ee545288583859af21ee17f4b2c # v2.3.1
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE }}
