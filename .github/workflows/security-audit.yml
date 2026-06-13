@@ -80,7 +80,11 @@ jobs:
         if: steps.check-deps.outputs.has_deps == 'true'
         uses: actions/dependency-review-action@3c4e3dcb1aa7874d2c16be7d79418e9b7efd6261 # v4.8.2
         with:
-          fail-on-severity: moderate
+          # high (was: moderate) — consistent with the pnpm-audit gate above (operator-ratified).
+          # The observatory's dev-only Svelte/Vite tree carries moderate transitive advisories that
+          # never reach the production runtime; gating PRs on them blocks docs/UI work for no real
+          # security benefit. Real high/critical advisories in added deps still fail the build.
+          fail-on-severity: high
 
       - name: Note if dependency graph not enabled
         if: failure() && steps.check-deps.outputs.has_deps == 'true'

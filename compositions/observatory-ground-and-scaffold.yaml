@@ -1,0 +1,222 @@
+# Composition · observatory-ground-and-scaffold
+# ================================================================
+# Adapted from compositions/delivery/ground-and-craft.yaml (v1.2.0)
+# for the cost-of-play experiment program (2026-06-10).
+#
+# The experiment program's ledgers (CostAtoms, experiment-economics,
+# worldline beats, atomic learnings) need a VISIBLE SURFACE — a live
+# observatory the scientists watch while Finn runs. Operator: "scaffold
+# an auto-research-like live website view… human loop at the seams,
+# very similar to the compose command itself — we're steering the
+# actual experiments." Aesthetic: the sprawl world's science/CRT/
+# phosphor language (world-sprawl rektdrop + sandbox).
+# ================================================================
+
+schema_version: "1.0"
+kind: workflow
+name: observatory-ground-and-scaffold
+description: >
+  Ground the sprawl design canon from world-sprawl (rektdrop, sprawl-ui,
+  evals sandbox) + freeside-dashboard, design the observation surface
+  (what the scientists see: experiment costs, research progression,
+  atomic learnings), gate on operator approval, then scaffold a
+  lightweight SvelteKit observatory in loa-finn/observatory/ against
+  the approved canon and spec.
+
+intent: >
+  "The experiments are steered by humans at seams; the observatory is
+   the seam's instrument panel. Extract the canon that already ships
+   in the sprawl world (CRT/phosphor science aesthetic), decide what
+   deserves observation (costs, progression, learnings — quantitative
+   where the agent-infra side allows), then build the lightest Svelte
+   surface that shows it. Eye + hand, grounding first."
+
+backend: headless-tmux
+
+hivemind_labels:
+  product_area: "Experiment-program observatory (cost-of-play + grounded-reality loop)"
+  workstream: delivery
+  priority: high
+  jtbd:
+    category: personal
+    description: "Let me SEE the experiment — costs, progression, learnings — without grepping JSONL"
+  source: team-internal
+
+depends_on:
+  constructs:
+    - gecko       # survey both ground repos
+    - artisan     # taste extraction + component structure
+    - observer    # KEEPER — observation design (what to show)
+  tools: []
+  upstream_compositions:
+    - compositions/delivery/ground-and-craft.yaml   # shape donor
+  downstream_compositions:
+    - compositions/delivery/feel-iterate.yaml       # later visual iteration on the live site
+
+inputs:
+  - type: Artifact
+    name: ground_repos
+    description: >
+      ~/Documents/GitHub/world-sprawl (focus: apps/rektdrop — SvelteKit,
+      the in-world Svelte precedent; apps/sprawl-ui; evals/harness
+      sandbox; CRT/phosphor/science elements) and
+      ~/Documents/GitHub/freeside-dashboard (focus: src/styles, design
+      tokens, .claude/skills/taste-map).
+    required: true
+  - type: Artifact
+    name: data_sources
+    description: >
+      What the observatory renders (V1 file-fed snapshots, no live
+      coupling to finn): tmp/cop-prod-atoms-snapshot.jsonl (CostAtoms),
+      grimoires/loa/context/experiment-economics.md (per-experiment
+      ledger + payout), scripts/playtest/out/*.jsonl (driver records),
+      worldline spine beats (scope cop,*), grimoires/loa/NOTES.md
+      session learnings, scripts/playtest/cop-bars.json (sha-pinned bars).
+    required: true
+  - type: Intent
+    name: target_surface
+    description: >
+      loa-finn/observatory/ — fresh SvelteKit (or vite+svelte) app,
+      lightweight, static-buildable; panels: experiment cost ledger
+      (3-ledger view), playtest progression (phases/levels, gate
+      decisions), learnings feed, bars + verdicts once the readout
+      lands. Sprawl science/CRT/phosphor aesthetic per approved canon.
+    required: true
+  - type: Operator-Model
+    name: operator_context
+    required: false
+
+chain:
+  - stage: 1
+    name: survey-ground-repos
+    construct: gecko
+    skill: observe
+    persona: GECKO
+    mode: fresh
+    reads: [Artifact, Intent]
+    writes: [Signal, Verdict]
+    role: primary
+    notes: >
+      Survey BOTH repos for canon fragments: world-sprawl
+      apps/rektdrop/src/app.css + routes (CRT/phosphor/science
+      elements, scanline/glow treatments, wordmark), apps/sprawl-ui
+      (component library, PixelMark lineage), evals/harness sandbox
+      aesthetics; freeside-dashboard src/styles + components.json +
+      taste-map skill artifacts. Output a Signal listing each fragment
+      with path + one-line summary of what it carries (palette, motion,
+      type, materiality). Canonical-path resolution; skip node_modules
+      and build/.
+
+  - stage: 2
+    name: extract-sprawl-canon
+    construct: artisan
+    skill: synthesizing-taste
+    persona: ALEXANDER
+    mode: persistent
+    reads: [Artifact, Signal]
+    writes: [Artifact, Signal]
+    role: primary
+    notes: >
+      Brownfield mining, not authoring: extract the taste tokens that
+      ALREADY SHIP — phosphor greens/ambers and their exact values,
+      CRT treatments (scanlines, bloom, curvature, noise), terminal
+      typography ladder, motion timings, bezel/border materiality,
+      spacing rhythm. Pay specific attention to the science/laboratory
+      register (the operator wants the observatory to read as a
+      sprawl-world instrument). Output: draft taste.md for the
+      observatory grounded in shipping code, with source paths cited
+      per token.
+
+  - stage: 3
+    name: design-observation-surface
+    construct: observer
+    skill: observe
+    persona: KEEPER
+    mode: fresh
+    reads: [Artifact, Signal, Intent]
+    writes: [Artifact, Verdict]
+    role: primary
+    notes: >
+      KEEPER designs WHAT IS OBSERVED, from the real data artifacts
+      (read them): the 3-ledger cost view (per-experiment: inference/
+      infra/orchestration + payout), playtest progression (phases,
+      levels, gate-decision mix, kill-switch state, spend vs ceiling),
+      learnings feed (clews, NOTES learnings, worldline beats with
+      claimed/observed badges), bars panel (sha-pinned values + the
+      three-verdict slots awaiting the readout). Output: observation
+      spec — panel list, data contract per panel (exact source file →
+      fields → refresh model for V1 file-fed snapshots), and what is
+      deliberately NOT shown (no vanity metrics; quantitative only
+      where the agent-infra side genuinely measures).
+
+  - stage: 4
+    name: hitl-canon-and-spec-approval
+    construct: operator
+    persona: HUMAN
+    mode: blocking
+    role: hard-stop
+    notes: >
+      HARD STOP. Operator reviews the extracted canon (stage 2) and
+      the observation spec (stage 3); steers aesthetic direction and
+      panel priorities before any scaffolding. Approval gestures per
+      ground-and-craft stage 6 semantics.
+
+  - stage: 5
+    name: scaffold-observatory
+    construct: artisan
+    skill: distilling-components
+    persona: ALEXANDER
+    mode: persistent
+    reads: [Artifact, Verdict, Intent]
+    writes: [Artifact]
+    role: primary
+    notes: >
+      Scaffold loa-finn/observatory/ as a minimal SvelteKit app against
+      the APPROVED canon + spec only: tokens.css from the taste tokens,
+      the approved panels reading the V1 snapshot files (copy-in data
+      dir or symlink), static-buildable, zero coupling to finn runtime.
+      Follow rektdrop's SvelteKit conventions as the in-world precedent.
+      No speculative panels; no live websockets in V1.
+
+outputs:
+  - type: Artifact
+    destination: loa-finn/observatory/ (SvelteKit app) + observatory/taste.md
+    description: The scaffolded observatory + its grounded canon
+    hivemind_labels:
+      artifact_type: product-spec
+      learning_status: directionally-correct
+  - type: Artifact
+    destination: grimoires/loa/context/observatory-observation-spec.md
+    description: KEEPER's observation spec (panels + data contracts)
+    hivemind_labels:
+      artifact_type: experiment-design
+      learning_status: directionally-correct
+  - type: Verdict
+    destination: .run/compose/<run_id>/canon-approval.jsonl
+    description: Stage 4 approval gesture
+    hivemind_labels:
+      artifact_type: atomic-learning
+      learning_status: directionally-correct
+
+compose_with:
+  - gecko
+  - artisan
+  - observer
+
+thinking_effort:
+  default: high
+  enum: [low, medium, high, xhigh, max]
+  affects_in_this_composition:
+    - stage 1 survey — medium
+    - stage 2 extract-sprawl-canon — xhigh (load-bearing synthesis)
+    - stage 3 design-observation-surface — high
+    - stage 5 scaffold-observatory — high
+
+when_to_use: >
+  One-shot for the cost-of-play observatory. Generalizes later into
+  "experiment observatory" if the program template (operator: extract
+  after ≥2 experiments) wants it.
+
+version: "1.0.0"
+authored_at: "2026-06-10"
+authored_by: cost-of-play deploy session (operator /compose directive)

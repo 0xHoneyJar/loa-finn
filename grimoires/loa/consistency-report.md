@@ -1,0 +1,43 @@
+# Consistency Report
+
+> Refreshed by `/ride` 2026-06-12 (EXP-004 lens). Naming + pattern analysis across 363 source files.
+> 2026-06-08 findings carried forward; score-module row added.
+
+## Consistency Score: 8 / 10 (Strong)
+
+A mature, disciplined codebase. Naming is highly consistent within bounded contexts; the main
+friction is vocabulary divergence ACROSS the runtime vs economic vs NFT subsystems (expected of a
+multi-domain runtime) and a few legacy/compat aliases.
+
+## Naming Patterns
+
+| Dimension | Convention | Consistency |
+|-----------|-----------|-------------|
+| Files | `kebab-case.ts` (`economic-boundary.ts`, `jwt-auth.ts`) | Excellent — uniform |
+| Types/interfaces | `PascalCase` (`FinnConfig`, `CircuitBreaker`, `CreditAccount`) | Excellent |
+| Enums/unions | `PascalCase` type + string literals (`CircuitState`, `SettlementStatus`) | Strong |
+| DB tables | `finn_snake_case`, all in `finn` pgSchema | Excellent — namespaced |
+| Env vars | `SCREAMING_SNAKE`, mostly `FINN_*` prefixed | Strong (some bare: `PORT`, `MODEL`, `DATABASE_URL`, `ALCHEMY_API_KEY`) |
+| Money | `*Micro` suffix (micro-USDC integers) | Strong — consistent integer-money discipline |
+| Config nesting | Sub-objects per subsystem (`x402`, `siwe`, `oracle`, `redis`) | Excellent |
+
+## Identified Inconsistencies
+
+| # | Issue | Evidence | Severity |
+|---|-------|----------|----------|
+| C1 | Env var prefix mix: `FINN_*` vs bare (`PORT`, `MODEL`, `R2_*`, `GIT_*`, `X402_*`, `ALCHEMY_API_KEY`) | `src/config.ts` | Low — historical layering |
+| C2 | Deprecated `*` vs `*Micro` budget fields coexist | `src/hounfour/redis/budget.ts:17-28` | Low — flagged compat, 1-cycle TTL |
+| C3 | Two routing-key conventions (`@deprecated NFTRoutingKey` alias) | `src/hounfour/nft-routing-config.ts:24` | Low |
+| C4 | Provenance: docs use `CODE-FACTUAL/DERIVED/OPERATIONAL` (ADR-001/002) while ride uses `GROUNDED/INFERRED/ASSUMPTION` | docs/adr + this ride | Low — complementary, noted in SKILL |
+| C5 | `src/score/core` is exemplary hexagonal naming (port/adapters, pure core); `precisionBar` is carried in the `Thresholds` type as a *contract placeholder* with no implementation — a forward-declared field, not an inconsistency, but reads as capability | `src/score/core/screen.ts:37` | Info — EXP-004 gap, see drift-report.md §1 |
+
+## Breaking-Change Candidates (FLAGGED, not implemented)
+
+- Removing deprecated budget `*` fields (C2) would break any external consumer reading non-`Micro` keys — gate behind the stated "1 rotation cycle" window.
+- Standardizing all env vars to `FINN_*` (C1) is a breaking config migration — requires deploy coordination; do NOT do silently.
+
+## Improvement Opportunities
+
+1. Adopt the structured logger (pino) TODO codebase-wide (`pool-enforcement.ts:169`) for log consistency.
+2. Document the `*Micro` integer-money convention as a first-class invariant (it is well-followed but implicit).
+3. Consider a single env-var prefix policy in a future config refactor cycle.

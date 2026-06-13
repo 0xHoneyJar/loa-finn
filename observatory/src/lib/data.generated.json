@@ -1,0 +1,336 @@
+{
+  "generated_at": "2026-06-10T16:18:43.417Z",
+  "atoms": {
+    "total": 4378,
+    "a_relay": 3497,
+    "b_enrich": 881,
+    "gates": {
+      "NO_INFERENCE:not_requested": 3497,
+      "NO_INFERENCE:fail_closed": 12,
+      "NO_INFERENCE:abstain_rule": 1,
+      "ROUTE_CHEVAL:routed:invoke_failed": 3,
+      "ROUTE_CHEVAL:routed": 865
+    },
+    "malformed": 0,
+    "sum_inference_micro": 593732,
+    "sum_infra_micro": 45916,
+    "sum_orchestration_micro": 72,
+    "sum_total_micro": 639720
+  },
+  "recent_atoms": [
+    {
+      "id": "PDS549",
+      "ts": 1781081566021,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 1,
+      "wall_ms": 168
+    },
+    {
+      "id": "Y7JZ8E",
+      "ts": 1781081567221,
+      "call_class": "B_enrich",
+      "gate": "ROUTE_CHEVAL:routed",
+      "total_micro": 735,
+      "wall_ms": 4971
+    },
+    {
+      "id": "CM2JSF",
+      "ts": 1781081573317,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 199
+    },
+    {
+      "id": "NMYZZ1",
+      "ts": 1781081574547,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 1,
+      "wall_ms": 166
+    },
+    {
+      "id": "AFW37G",
+      "ts": 1781081575739,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 1,
+      "wall_ms": 168
+    },
+    {
+      "id": "T33SEE",
+      "ts": 1781081576940,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 1,
+      "wall_ms": 164
+    },
+    {
+      "id": "12P7BE",
+      "ts": 1781081578135,
+      "call_class": "B_enrich",
+      "gate": "ROUTE_CHEVAL:routed",
+      "total_micro": 751,
+      "wall_ms": 3838
+    },
+    {
+      "id": "TRB6SD",
+      "ts": 1781081583051,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 219
+    },
+    {
+      "id": "QTW1JH",
+      "ts": 1781081584305,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 1,
+      "wall_ms": 168
+    },
+    {
+      "id": "A0394M",
+      "ts": 1781081585507,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 183
+    },
+    {
+      "id": "86KH2Q",
+      "ts": 1781081586727,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 1,
+      "wall_ms": 165
+    },
+    {
+      "id": "ZK7T29",
+      "ts": 1781081587927,
+      "call_class": "B_enrich",
+      "gate": "ROUTE_CHEVAL:routed",
+      "total_micro": 763,
+      "wall_ms": 4631
+    },
+    {
+      "id": "M73KW1",
+      "ts": 1781081593693,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 208
+    },
+    {
+      "id": "ZJ4FZZ",
+      "ts": 1781081594933,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 1,
+      "wall_ms": 165
+    },
+    {
+      "id": "4YVDK6",
+      "ts": 1781081596135,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 210
+    },
+    {
+      "id": "VDRN90",
+      "ts": 1781081597481,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 1,
+      "wall_ms": 166
+    },
+    {
+      "id": "193QGZ",
+      "ts": 1781081598709,
+      "call_class": "B_enrich",
+      "gate": "ROUTE_CHEVAL:routed",
+      "total_micro": 721,
+      "wall_ms": 4056
+    },
+    {
+      "id": "CYD4MC",
+      "ts": 1781108244231,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 4,
+      "wall_ms": 388
+    },
+    {
+      "id": "ZYMJ4B",
+      "ts": 1781108246661,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 184
+    },
+    {
+      "id": "FV9AXH",
+      "ts": 1781108248881,
+      "call_class": "A_relay",
+      "gate": "NO_INFERENCE:not_requested",
+      "total_micro": 2,
+      "wall_ms": 177
+    }
+  ],
+  "phases": [
+    {
+      "phase": 0,
+      "total_calls": 5,
+      "a_relay": 3,
+      "b_enrich": 2,
+      "gate_routed": 2,
+      "gate_closed": 0,
+      "a_relay_p50_ms": 319,
+      "b_p50_ms": 5019,
+      "b_gate_status": "ROUTED"
+    },
+    {
+      "phase": 1,
+      "total_calls": 50,
+      "a_relay": 40,
+      "b_enrich": 10,
+      "gate_routed": 10,
+      "gate_closed": 0,
+      "a_relay_p50_ms": 288,
+      "b_p50_ms": 3944,
+      "b_gate_status": "ROUTED"
+    },
+    {
+      "phase": 2,
+      "level": 1,
+      "total_calls": 60,
+      "a_relay": 48,
+      "b_enrich": 12,
+      "gate_routed": 12,
+      "gate_closed": 0,
+      "a_relay_p50_ms": 303,
+      "b_p50_ms": 4009,
+      "b_gate_status": "ROUTED"
+    },
+    {
+      "phase": 2,
+      "level": 2,
+      "total_calls": 600,
+      "a_relay": 480,
+      "b_enrich": 120,
+      "gate_routed": 120,
+      "gate_closed": 0,
+      "a_relay_p50_ms": 271,
+      "b_p50_ms": 4233,
+      "b_gate_status": "ROUTED"
+    },
+    {
+      "phase": 2,
+      "level": 3,
+      "total_calls": 3600,
+      "a_relay": 2880,
+      "b_enrich": 720,
+      "gate_routed": 720,
+      "gate_closed": 0,
+      "a_relay_p50_ms": 208,
+      "b_p50_ms": 4184,
+      "b_gate_status": "ROUTED"
+    },
+    {
+      "phase": 3,
+      "total_calls": 3,
+      "a_relay": 3,
+      "b_enrich": 0,
+      "gate_routed": 0,
+      "gate_closed": 0,
+      "a_relay_p50_ms": 217,
+      "b_p50_ms": null,
+      "b_gate_status": "N/A"
+    }
+  ],
+  "bars": {
+    "_provenance": "Pre-registered hypothesis bars — arch-finn-cost-of-play.md, set 2026-06-09 BEFORE any data existed (composition run cost-of-play-0609b). Written ONCE per flatline B6/HC5. The readout embeds this file's sha256; editing this file = a different run, never a corrected one.",
+    "h1_held_max": 0.2,
+    "h1_falsified_min": 0.4,
+    "h2_flat_threshold": 0.05,
+    "h2_crossover_min_r2": 0.8,
+    "malformed_line_max_ratio": 0.01,
+    "sha256": "b98a5716ea1d58ec96e35932f021d6196345ff886b917a4e3768f5389a7f5f2e"
+  },
+  "readout": {
+    "generated_for": "sprint-169 cost-of-play V1",
+    "bars_file": "scripts/playtest/cop-bars.json",
+    "bars_sha256": "b98a5716ea1d58ec96e35932f021d6196345ff886b917a4e3768f5389a7f5f2e",
+    "bars": {
+      "_provenance": "Pre-registered hypothesis bars — arch-finn-cost-of-play.md, set 2026-06-09 BEFORE any data existed (composition run cost-of-play-0609b). Written ONCE per flatline B6/HC5. The readout embeds this file's sha256; editing this file = a different run, never a corrected one.",
+      "h1_held_max": 0.2,
+      "h1_falsified_min": 0.4,
+      "h2_flat_threshold": 0.05,
+      "h2_crossover_min_r2": 0.8,
+      "malformed_line_max_ratio": 0.01
+    },
+    "data": {
+      "atoms_total": 4378,
+      "atoms_in_window": 4378,
+      "class_a": 3497,
+      "class_b": 881,
+      "malformed_lines": 0,
+      "malformed_ratio": 0,
+      "malformed_detail": [],
+      "kill_switch_abort": false
+    },
+    "h1_cost_split": {
+      "claim": "inference is a minor share of per-call cost",
+      "regime": "inference-dominated",
+      "per_class_b_share": 0.9366749122851301,
+      "blended_share": 0.9281122991308698,
+      "blended_note": "blended is a function of the designed mix — mix-dependent, not regime-robust",
+      "verdict": "FALSIFIED"
+    },
+    "h2_scale_behavior": {
+      "claim": "unit cost falls as volume amortizes infra",
+      "levels": [
+        {
+          "level": 1,
+          "rpm": 1,
+          "atom_count": 76,
+          "unit_cost_micro": 143.71052631578948
+        },
+        {
+          "level": 2,
+          "rpm": 10,
+          "atom_count": 660,
+          "unit_cost_micro": 147.8242424242424
+        },
+        {
+          "level": 3,
+          "rpm": 60,
+          "atom_count": 3600,
+          "unit_cost_micro": 147.8852777777778
+        }
+      ],
+      "amortization_observed": false,
+      "crossover": {
+        "projected_rpm": null,
+        "r2": 0.018,
+        "note": "no reliable crossover (R² below bar or non-decreasing infra curve)"
+      },
+      "verdict": "FALSIFIED"
+    },
+    "h3_cheval_seam": {
+      "verdict": "HELD",
+      "note": "no bar pre-set — first measurement establishes the baseline",
+      "mean_spawn_ms": 74,
+      "orchestration_share_of_b": 0.00011358760128227782,
+      "samples": 868
+    },
+    "infra_reconciliation": {
+      "allocated_infra_micro": "45916",
+      "railway_usage_micro": null,
+      "unallocated_infra_micro": null,
+      "note": "unallocated infra is reported, never redistributed into per-call numbers (B8)"
+    }
+  }
+}

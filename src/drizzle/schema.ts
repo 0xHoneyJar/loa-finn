@@ -1,7 +1,8 @@
 // src/drizzle/schema.ts — Finn database schema (Sprint 1 T1.3, SDD §6)
 // All tables live in the `finn` schema, isolated from other services.
 
-import { pgSchema, text, timestamp, bigint, integer, jsonb, boolean, index, uniqueIndex, serial } from "drizzle-orm/pg-core"
+import { pgSchema, text, timestamp, bigint, integer, jsonb, boolean, index, uniqueIndex, serial, doublePrecision, check } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
 
 export const finnSchema = pgSchema("finn")
 
@@ -164,3 +165,65 @@ export const finnExperienceSnapshots = finnSchema.table("finn_experience_snapsho
   createdAt: bigint("created_at", { mode: "number" }).notNull(),   // Unix ms
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),   // Unix ms
 })
+
+// === Score Phase-1 forensic-integrity spike (cycle-041 Sprint 1, SDD §3.2) ===
+// All three tables are append-mostly / derived: they record what was COMPUTED from public
+// chain data (read-only spike), never mutate user state. Migration is additive.
+
+// --- score_epoch_snapshots ---
+// Raw ingested epoch (FR-1 input). Full TxGraph lives in R2; this row is the index + decomposition.
+export const scoreEpochSnapshots = finnSchema.table("score_epoch_snapshots", {
+  id: text("id").primaryKey(),                                       // ULID
+  platform: text("platform").notNull(),                             // 'agdp-acp' (FR-6 adapter id)
+  epochRef: text("epoch_ref").notNull(),                            // e.g. 'agdp:epoch-5'
+  blockFrom: bigint("block_from", { mode: "bigint" }).notNull(),
+  blockTo: bigint("block_to", { mode: "bigint" }).notNull(),
+  txCount: integer("tx_count").notNull(),
+  agentCount: integer("agent_count").notNull(),
+  buyerCount: integer("buyer_count").notNull(),
+  subsidyMicro: bigint("subsidy_micro", { mode: "bigint" }).notNull(),  // prize-pool subsidy decomposed (FR-1)
+  grossMicro: bigint("gross_micro", { mode: "bigint" }).notNull(),      // total gross service revenue
+  graphR2Key: text("graph_r2_key").notNull(),                       // pointer to full TxGraph in R2
+  ingestedAt: timestamp("ingested_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_score_snapshot").on(table.platform, table.epochRef),  // idempotent re-ingest
+  index("idx_score_snapshot_epoch").on(table.platform, table.epochRef),
+])
+
+// --- score_agent_features ---
+// Per-agent deterministic features (FR-2): the two wash features + cluster membership.
+export const scoreAgentFeatures = finnSchema.table("score_agent_features", {
+  id: text("id").primaryKey(),                                      // ULID
+  snapshotId: text("snapshot_id").notNull(),                       // FK → score_epoch_snapshots.id
+  agentId: text("agent_id").notNull(),                             // on-chain agent identifier
+  recomputedRank: integer("recomputed_rank").notNull(),            // FR-1 independent rank
+  netRevenueMicro: bigint("net_revenue_micro", { mode: "bigint" }).notNull(),   // net of circular/subsidy
+  grossRevenueMicro: bigint("gross_revenue_micro", { mode: "bigint" }).notNull(),
+  distinctBuyers: integer("distinct_buyers").notNull(),
+  bandDeviation: doublePrecision("band_deviation").notNull(),       // FR-2 feature 2: dev from 100–200 band
+  maxJaccard: doublePrecision("max_jaccard").notNull(),            // FR-2 feature 1: max buyer-set overlap
+  jaccardPairs: jsonb("jaccard_pairs").notNull().default([]),       // [{ otherAgentId, jaccard }]
+  clusterId: text("cluster_id"),                                   // FR-2 counterparty/deployer cluster (nullable)
+  sharedDeployer: text("shared_deployer"),                         // nullable
+  computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_score_feature").on(table.snapshotId, table.agentId),
+  index("idx_score_feature_snapshot").on(table.snapshotId),
+  index("idx_score_feature_cluster").on(table.clusterId),
+])
+
+// --- score_anomaly_screens ---
+// Internal anomaly band (FR-2). is_internal defaults TRUE: a SCREEN, never a published verdict.
+export const scoreAnomalyScreens = finnSchema.table("score_anomaly_screens", {
+  id: text("id").primaryKey(),                                      // ULID
+  snapshotId: text("snapshot_id").notNull(),                       // FK → score_epoch_snapshots.id
+  agentId: text("agent_id").notNull(),
+  band: text("band").notNull(),                                    // HIGH | MED | LOW | INSUFFICIENT_EVIDENCE
+  rationale: jsonb("rationale").notNull(),                          // features tripped + adversary tag (§4.2)
+  isInternal: boolean("is_internal").notNull().default(true),       // FR-2: screen, never a published verdict
+  screenedAt: timestamp("screened_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_score_screen").on(table.snapshotId, table.agentId),
+  index("idx_score_screen_snapshot").on(table.snapshotId),
+  check("chk_score_band", sql`${table.band} in ('HIGH','MED','LOW','INSUFFICIENT_EVIDENCE')`),
+])

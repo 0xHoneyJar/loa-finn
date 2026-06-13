@@ -1,0 +1,8 @@
+{
+  "_provenance": "Pre-registered hypothesis bars — arch-finn-cost-of-play.md, set 2026-06-09 BEFORE any data existed (composition run cost-of-play-0609b). Written ONCE per flatline B6/HC5. The readout embeds this file's sha256; editing this file = a different run, never a corrected one.",
+  "h1_held_max": 0.20,
+  "h1_falsified_min": 0.40,
+  "h2_flat_threshold": 0.05,
+  "h2_crossover_min_r2": 0.8,
+  "malformed_line_max_ratio": 0.01
+}

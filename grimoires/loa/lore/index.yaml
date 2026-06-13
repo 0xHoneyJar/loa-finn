@@ -13,6 +13,13 @@ categories:
       - id: deliberative-council
         status: Active
 
+  - id: neuromancer
+    source: neuromancer.yaml
+    description: Sprawl-cosmology identity lore (hounfour/cheval/loa/Finn)
+    entries:
+      - id: finn-construct-oracle
+        status: Active
+
   # Future categories (populated by bridge vision elevation):
   # - id: visions
   #   source: visions.yaml
