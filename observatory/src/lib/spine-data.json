@@ -1,6 +1,6 @@
 {
   "program": "AGENTIC-ECONOMY",
-  "updated_at": "2026-06-12",
+  "updated_at": "2026-06-13",
   "note": "Research spine \u2014 every event is grounded in a committed artifact. kind: register (+N open beliefs) | probe (no delta) | settle (-1, verdict HELD/FALSIFIED/INSUFFICIENT). Candidates live in the steering queue, not on the spine, until bars are pinned.",
   "events": [
     {
@@ -205,6 +205,16 @@
       "label": "EXP-003 GO/NO-GO: GO on the VERTICAL (Score forensic-integrity, EXP-001 WTP) \u00b7 NO-GO on horizontal verification (pre-revenue, in-house-satisfied). Evidence-confirms the ratified staging. Deterministic verification sidesteps the LLM-non-determinism wall that sinks agent-to-agent quorums",
       "delta": -2,
       "source": "C1+C2 synthesis \u00b7 the staged Score\u2192horizontal thesis, now evidence-backed not instinct"
+    },
+    {
+      "seq": 21,
+      "date": "2026-06-13",
+      "kind": "register",
+      "id": "EXP4.BARS",
+      "label": "EXP-004 graduation gate re-activated (Sprint 2+3, pre-registered): PREMISE kill (on-chain theater-vs-buyer-diverse, re-confirms EXP-002) + VALIDATION kill (precision/recall vs a pre-set bar, anti-p-hacking). The validated substrate #269 lacked \u2014 earns forensic claims only when BOTH GO",
+      "delta": 2,
+      "source": "exp4-graduation-gate-reactivation.md \u00b7 sprint-finn-score.md:104-193 \u00b7 /ride EXP-004 grounding",
+      "tier": "pinned"
     }
   ],
   "queue": [
