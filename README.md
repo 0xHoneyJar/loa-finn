@@ -26,7 +26,9 @@ Underneath sits the runtime that makes the experiments cheap and durable: multi-
 
 ## Why "Finn"?
 
-In William Gibson's Sprawl trilogy, **the Finn** is a fence — a Lower East Side dealer in hardware and information who knows what a thing is worth and whether it's counterfeit. By *Mona Lisa Overdrive* he's gone: persisted as an AI construct his friends still consult, a voice in a machine that appraises the real from the fake. He's the obvious patron for this work. The whole experiment program is the Finn's eye turned on the agent economy — **tell real commerce from registration theater, and price it honestly.** (Loa itself is named from the same Sprawl: AI entities that *ride* you through the interface. See [the Loa framework](https://github.com/0xHoneyJar/loa#why-loa).)
+In Gibson's *Neuromancer*, **the Finn** is a Sprawl fence — a dealer in hardware and information who can tell you what a thing is worth and whether it's real. When the AI **Wintermute** needs a face to speak to Case, it wears the Finn's: an intelligence putting on the appraiser to tell the real from the counterfeit. That's the patron. Here Finn is the **agent-scientist** — he doesn't just appraise, he runs the experiment that earns it: pre-register the bars, deploy the instruments, settle the verdict.
+
+The lab is **[loa-laplas](https://github.com/0xHoneyJar/loa-laplas)** — the deterministic enforcement lattice where Finn deploys other constructs into isolated, traced, lawful rooms (named for Laplace's demon: given full state, every outcome reproduces; runs are *proven*, not asserted). Finn is the principal investigator; loa-laplas is the bench. (Loa: AI entities that *ride* you through the interface — same Sprawl.)
 
 ## The experiment program
 
