@@ -60,6 +60,26 @@ artifact #269 lacked entirely.
 4. **The two kill gates are the experiment's settle events** — PREMISE and VALIDATION each settle
    GO/KILL on the spine, exactly like EXP-001's H1/H2/H3.
 
+## Folded in from the src/score council (2026-06-13, codex + Fable on PR #160)
+A two-corpus review of the Sprint-1 core verified the determinism invariant + correct signal
+polarity (the #269 inversion is NOT present here) — but found a **composition hole** that is exactly
+EXP-004's job to catch. Added as acceptance criteria:
+- **AC-COUNCIL-1 (the clone-fleet hole, was Fable H2):** the screen's only path to HIGH is
+  `inBand && highOverlap && clustered`. A clone fleet that provisions **> `bandHigh` buyers**
+  (near-identical buyer sets + shared deployer) is out-of-band → falls through to
+  `legit_shared_audience` / INSUFFICIENT, and the hard-invariant test cements it. This is the #269
+  failure shape at the COMPOSITION level (per-signal polarity is right; the gate is adversary-
+  controlled). **The labeled set MUST include an out-of-band clone fleet, and VALIDATION must score
+  it as caught (or the tag split to `clone_cluster`, MED, regardless of band).** A harness that
+  can't catch this is below bar by construction.
+- **AC-COUNCIL-2 (the seam contract, was Fable M2):** before Sprint-2 real ingestion, the
+  `TxGraph.buyersOf`/`deployerOf` derivation contract MUST be documented in `src/score/edge/port.ts`
+  (does `buyersOf` exclude subsidy edges?) with a consistency assertion at intake — the screen mixes
+  `bandDeviation` (from buyersOf) and `distinctBuyers` (from edges), so an adapter that derives them
+  differently silently skews the band feature across the exact seam EXP-004 plugs into.
+- (Tracked, not EXP-004-blocking: cost-meter inter-line chaining + the env-parse fail-closed —
+  `src/cost`/`src/gateway`, follow-up beads.)
+
 ## Run via — `code-implement-and-review` (REQUIRED)
 `~/.loa/constructs/substrates/construct-compositions/compositions/delivery/code-implement-and-review.yaml`
 · implement (codex) ↔ FAGAN, ≤3.
