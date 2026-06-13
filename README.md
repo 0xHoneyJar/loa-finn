@@ -32,6 +32,37 @@ In William Gibson's Sprawl trilogy, **the Finn** is a fence — a Lower East Sid
 
 Every experiment follows the same discipline: **register** the bars (pinned before data), **probe** (instrumented run), **settle** (a verdict from a deterministic instrument — `HELD` / `FALSIFIED` / `INSUFFICIENT` — never from an LLM). A falsification is progress.
 
+```mermaid
+graph LR
+    subgraph Register["① Register · pre-data"]
+        BARS["sha-pinned bars<br/><i>HELD/FALSIFIED thresholds<br/>set before data exists</i>"]
+    end
+    subgraph Probe["② Probe · instrumented run"]
+        RUN["deterministic instrument<br/><i>SQL · RPC · stdlib<br/>no LLM in the score path</i>"]
+        METER["cost meter<br/><i>src/cost/cost-atom.ts<br/>hash-chained · closes before response</i>"]
+    end
+    subgraph Settle["③ Settle · verdict from the bars"]
+        V{"measured vs pinned"}
+        H["HELD"]
+        F["FALSIFIED<br/><i>progress, not failure</i>"]
+        I["INSUFFICIENT<br/><i>abstain over fabricate</i>"]
+    end
+    subgraph Spine["observatory/ · the research spine"]
+        SP["register · probe · settle<br/><i>every dot cites a committed artifact</i>"]
+    end
+
+    BARS -->|pinned first| RUN
+    RUN --> METER
+    METER -->|measured| V
+    V --> H & F & I
+    H & F & I -->|recorded| SP
+
+    style BARS fill:#0f3460,stroke:#16c79a,color:#e0e0e0
+    style V fill:#1a1a2e,stroke:#533483,color:#e0e0e0
+    style F fill:#0f3460,stroke:#e94560,color:#e0e0e0
+    style I fill:#0f3460,stroke:#e94560,color:#e0e0e0
+```
+
 | # | Experiment | Question | Settled |
 |---|---|---|---|
 | **EXP-001** | cost-of-play | Where does a per-call dollar go — infra or inference? | **H1/H2 FALSIFIED** (inference is 93.7% of per-call cost, *not* infra; no amortization) · H3 HELD |
