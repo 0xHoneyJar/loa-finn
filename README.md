@@ -1,124 +1,110 @@
 # loa-finn
 
-<!-- AGENT-CONTEXT: name=loa-finn, type=overview, purpose=AI agent runtime with multi-model orchestration and persistence, key_files=[src/index.ts, src/gateway/server.ts, src/hounfour/router.ts, src/persistence/wal.ts], interfaces=[HounfourRouter, WAL, CronService, AuditTrail], dependencies=[hono, @mariozechner/pi-ai, @aws-sdk/client-s3, jose, ws], version=1ef38a64bfda4b35c37707c710fc9b796ada7ee5, priority_files=[src/index.ts, src/hounfour/router.ts, src/gateway/server.ts], trust_level=low, model_hints=[fast,summary] -->
+<!-- AGENT-CONTEXT: loa-finn is the home of the Finn experiment program — a research program
+that runs pre-registered, sha-pinned experiments on the agentic economy (real commerce vs theater)
+and the runtime that rides them. Two halves: (1) the experiment program — EXP-001 cost-of-play,
+EXP-002 agent-commerce forensics, EXP-003 verify-the-void, EXP-004 graduation gate — recorded on a
+research spine (observatory/), with a hash-chained cost meter (src/cost/cost-atom.ts) and a
+deterministic, no-LLM Score core (src/score/); (2) the agent runtime it rides on — multi-model
+routing (src/hounfour/), durable WAL persistence (src/persistence/), cron + sandbox + audit trail.
+Epistemology: claims enter `claimed`; only deterministic instruments vs sha-pinned bars `settle`;
+abstain over fabricate (grimoires/loa/context/epistemology-deterministic-layers.md). License: AGPL-3.0. -->
 
-<!-- provenance: DERIVED -->
-loa-finn is an AI agent runtime that provides multi-model orchestration (`src/hounfour/router.ts:29`), tool execution sandboxing (`src/agent/sandbox.ts:1`), and durable persistence (`src/persistence/wal.ts:1`) for Claude-powered applications. It exposes an HTTP and WebSocket API for session management (`src/gateway/server.ts:1`), routes LLM requests across providers with budget enforcement, and maintains a write-ahead log with R2 cloud storage backup (`src/index.ts:51`).
+[![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE.md)
+[![Runtime](https://img.shields.io/badge/runtime-Node%2022%2B-blue.svg)](package.json)
+[![Ridden with](https://img.shields.io/badge/ridden%20with-Loa-purple.svg)](https://github.com/0xHoneyJar/loa)
 
-<!-- provenance: DERIVED -->
-The architecture follows a layered runtime pattern: a central orchestrator (`src/index.ts:2`) coordinates specialized subsystems — model routing (`src/hounfour/router.ts:29`), job scheduling (`src/scheduler/scheduler.ts:1`), persistence (`src/persistence/wal.ts:1`) — that communicate through well-defined interfaces rather than direct coupling.
+> **What a thing is worth, and whether it's real** — the Finn's whole job in Gibson's Sprawl, and this program's.
 
-## Key Capabilities
+## What is this?
 
-<!-- provenance: CODE-FACTUAL -->
-- **Multi-Model Routing** — Route LLM requests across providers with alias resolution, capability matching, budget enforcement, and automatic fallback chains (`src/hounfour/router.ts:29`)
-- **Tool-Call Orchestration** — Execute multi-step tool-call loops with configurable iteration limits (20), wall time (120s), and total tool call caps (50) (`src/hounfour/orchestrator.ts:1`)
-- **Write-Ahead Log Persistence** — Append-only WAL with R2 checkpoint sync and Git archive snapshots for crash recovery (`src/persistence/wal.ts:1`)
-- **Cron Job System** — Enterprise cron with per-job circuit breakers, stuck detection, concurrency policies, and a kill switch (`src/cron/service.ts:1`)
-- **Tool Execution Sandbox** — Worker-thread isolation with filesystem jail, command allowlists, and 30s timeout enforcement (`src/agent/sandbox.ts:1`)
-- **Hash-Chained Audit Trail** — SHA-256 chained JSONL with optional HMAC signing across 4 phases: intent, result, denied, dry_run (`src/safety/audit-trail.ts:1`)
-- **JWT Multi-Tenant Auth** — ES256 JWT validation with JWKS caching, JTI replay prevention, and tenant-aware model pool routing (`src/hounfour/jwt-auth.ts:1`)
-- **BridgeBuilder PR Automation** — Automated GitHub PR review pipeline with R2-backed run leases and persona injection (`src/bridgebuilder/entry.ts:1`)
-- **WebSocket Streaming** — Real-time agent streaming with 8 event types, per-IP connection limits, and automatic compaction (`src/gateway/ws.ts:1`)
-- **Activity Dashboard** — Aggregated health snapshot with audit trail browsing and GitHub activity feed (`src/gateway/dashboard-routes.ts:1`)
+**loa-finn is the home of the Finn experiment program — and the runtime that rides it.**
+
+The program asks one question of the agentic economy, over and over, with instruments instead of opinions: **is this real, or is it theater?** Each answer is a pre-registered, sha-pinned experiment — bars set *before* the data exists, an instrumented run, a readout that has to survive its own falsifications. The answers accrete on a public **research spine** ([`observatory/`](observatory/)), where every dot traces to a committed artifact.
+
+Underneath sits the runtime that makes the experiments cheap and durable: multi-model routing, a write-ahead log, a cron system, a tool sandbox, and a hash-chained cost meter that closes the bill before the response returns. The program is the soul; the runtime is the body it rides.
+
+## Why "Finn"?
+
+In William Gibson's Sprawl trilogy, **the Finn** is a fence — a Lower East Side dealer in hardware and information who knows what a thing is worth and whether it's counterfeit. By *Mona Lisa Overdrive* he's gone: persisted as an AI construct his friends still consult, a voice in a machine that appraises the real from the fake. He's the obvious patron for this work. The whole experiment program is the Finn's eye turned on the agent economy — **tell real commerce from registration theater, and price it honestly.** (Loa itself is named from the same Sprawl: AI entities that *ride* you through the interface. See [the Loa framework](https://github.com/0xHoneyJar/loa#why-loa).)
+
+## The experiment program
+
+Every experiment follows the same discipline: **register** the bars (pinned before data), **probe** (instrumented run), **settle** (a verdict from a deterministic instrument — `HELD` / `FALSIFIED` / `INSUFFICIENT` — never from an LLM). A falsification is progress.
+
+| # | Experiment | Question | Settled |
+|---|---|---|---|
+| **EXP-001** | cost-of-play | Where does a per-call dollar go — infra or inference? | **H1/H2 FALSIFIED** (inference is 93.7% of per-call cost, *not* infra; no amortization) · H3 HELD |
+| **EXP-002** | agent-commerce forensics | Is the on-chain agent economy real commerce? | **Registration theater** — 39,999 registered → ~0 transacting; $320.9M of "commerce" was prize distribution |
+| **EXP-003** | verify-the-void | Is the verification market a place to build? | **GO-vertical / NO-GO-horizontal** — demand is real but vertical + in-house; deterministic verification is the moat |
+| **EXP-004** | graduation gate | *(next)* Can the forensic score prove itself? | Pre-registered: a real sybil layer + a precision/recall validation harness — the substrate the product needs *first* |
+
+The spine renders this at [`observatory/`](observatory/) (`npm --prefix observatory run dev`). The method came out of EXP-001 and held across all four — see [`grimoires/loa/context/epistemology-deterministic-layers.md`](grimoires/loa/context/epistemology-deterministic-layers.md).
+
+**The standing lesson** (earned the hard way, score-api #269): *a deterministic formula is not the product.* The validated substrate — a real sybil layer, labeled ground-truth, measured precision/recall — must exist before any "forensic" claim. EXP-004 is that gate. And *a converged review pass is not verification*: independent cross-model review still caught real defects in code that had already "passed." Both lessons are load-bearing here.
+
+## The substrate it rides on
+
+The runtime is real and grounded — it's what makes the experiments cheap (`~$0` marginal at the cheapest tier) and reproducible.
+
+- **Cost meter** — per-request 3-ledger record (inference / infra / orchestration), hash-chained, integer micro-USD, **closes before the response returns** and is immutable once written ([`src/cost/cost-atom.ts`](src/cost/cost-atom.ts)). This is the instrument EXP-001 read.
+- **Score core** — deterministic, **no-LLM** forensic scoring (`src/score/`). Sprint-1 (leaderboard / features / cluster / screen) is pure and unit-tested; the on-chain edge adapters are `NotImplementedError` by design (fixtures-only until EXP-004 builds the validated substrate).
+- **Multi-model routing** — alias resolution, capability matching, budget enforcement, fallback chains ([`src/hounfour/router.ts`](src/hounfour/router.ts)).
+- **Write-ahead log** — append-only WAL with R2 checkpoint + Git archive for crash recovery ([`src/persistence/wal.ts`](src/persistence/wal.ts)).
+- **Cron + sandbox + audit** — circuit-breakered jobs ([`src/cron/service.ts`](src/cron/service.ts)), worker-thread tool isolation with a filesystem jail ([`src/agent/sandbox.ts`](src/agent/sandbox.ts)), and a SHA-256 hash-chained audit trail ([`src/safety/audit-trail.ts`](src/safety/audit-trail.ts)).
+- **Cost-safe on-chain data** routes through [`@freeside/dune-meter`](https://github.com/0xHoneyJar/loa-freeside) — cost-capped, metered, never raw Dune (the EXP-002 budget scar, made structurally impossible).
 
 ## Quick Start
 
-### Prerequisites
-
-<!-- provenance: OPERATIONAL -->
-- Node.js 22+ (`"engines": { "node": ">=22" }` in `package.json`)
-- `ANTHROPIC_API_KEY` environment variable set
-
-### Run Locally
+**Prerequisites:** Node.js 22+, `ANTHROPIC_API_KEY`.
 
 ```bash
-# Clone and install
-git clone <repo-url> && cd loa-finn
+git clone https://github.com/0xHoneyJar/loa-finn && cd loa-finn
 npm install
-
-# Set required environment
 export ANTHROPIC_API_KEY=sk-ant-...
 
-# Start development server (tsx watch)
-npm run dev
-```
-
-<!-- provenance: CODE-FACTUAL -->
-The server starts at `http://localhost:3000` with health check at `GET /health` (`src/gateway/server.ts:1`).
-
-### Run with Docker
-
-```bash
-docker compose up
-```
-
-<!-- provenance: OPERATIONAL -->
-For GPU-accelerated local models (vLLM + Qwen):
-
-```bash
-docker compose -f docker-compose.gpu.yml up
-```
-
-### Run BridgeBuilder
-
-<!-- provenance: CODE-FACTUAL -->
-BridgeBuilder runs as a standalone entry point for automated PR review (`src/bridgebuilder/entry.ts:1`):
-
-```bash
-npm run bridgebuilder
+npm run dev                       # runtime — http://localhost:3000, health at GET /health
+npm --prefix observatory run dev  # the research spine
+docker compose up                 # or run containerized
 ```
 
 ## Module Map
 
-| Module | Purpose | Documentation |
-|--------|---------|---------------|
-| **hounfour** | Multi-model routing, budget, JWT, orchestration | [docs/modules/hounfour.md](docs/modules/hounfour.md) |
-| **gateway** | HTTP API, WebSocket, auth, rate limiting | [docs/modules/gateway.md](docs/modules/gateway.md) |
-| **persistence** | WAL, R2 sync, Git sync, recovery | [docs/modules/persistence.md](docs/modules/persistence.md) |
-| **cron** | Scheduled job system with circuit breakers | [docs/modules/cron.md](docs/modules/cron.md) |
-| **agent** | Session management, sandbox, worker pool | [docs/modules/agent.md](docs/modules/agent.md) |
-| **safety** | Audit trail, firewall, secret redaction | [docs/modules/safety.md](docs/modules/safety.md) |
-| **bridgebuilder** | GitHub PR automation pipeline | [docs/modules/bridgebuilder.md](docs/modules/bridgebuilder.md) |
-| **scheduler** | Periodic task scheduling with health | [docs/modules/scheduler.md](docs/modules/scheduler.md) |
+| Module | Purpose |
+|--------|---------|
+| **cost** | The hash-chained per-request cost meter — the experiment instrument |
+| **score** | Deterministic no-LLM forensic scoring (Sprint-1 core; substrate is EXP-004) |
+| **hounfour** | Multi-model routing, budget, JWT, orchestration |
+| **gateway** | HTTP API, WebSocket, auth, rate limiting |
+| **persistence** | WAL, R2 sync, Git sync, crash recovery |
+| **cron** / **scheduler** | Scheduled jobs with circuit breakers + health |
+| **agent** | Session management, sandbox, worker pool |
+| **safety** | Audit trail, firewall, secret redaction |
+| **substrate** | Effect-loader runtime + EventStore bridge |
+| **bridgebuilder** | GitHub PR review automation |
 
-## Documentation Index
+## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Architecture](docs/architecture.md) | System design, layers, component interactions |
-| [Operations](docs/operations.md) | Deployment, configuration, monitoring, troubleshooting |
-| [API Reference](docs/api-reference.md) | HTTP endpoints, WebSocket contracts, auth |
-| [Security](SECURITY.md) | Auth architecture, audit trail, vulnerability reporting |
-| [Contributing](CONTRIBUTING.md) | Development setup, workflow, code standards |
-| [Changelog](CHANGELOG.md) | Version history and release notes |
+| Topic | Where |
+|---|---|
+| Experiment program + epistemology | [`grimoires/loa/context/`](grimoires/loa/context/) (epistemology, experiment-economics, the EXP pre-registrations) |
+| Research spine | [`observatory/`](observatory/) |
+| Architecture · Operations · API | [docs/architecture.md](docs/architecture.md) · [docs/operations.md](docs/operations.md) · [docs/api-reference.md](docs/api-reference.md) |
+| Security · Contributing · Changelog | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) |
 
-## Links
+## Known limitations (honest)
 
-<!-- provenance: EXTERNAL-REFERENCE -->
-- **Repository**: [GitHub](https://github.com/0xHoneyJar/loa-finn)
-- **Issues**: [GitHub Issues](https://github.com/0xHoneyJar/loa-finn/issues)
-- **Upstream**: [Loa Framework](https://github.com/0xHoneyJar/loa)
+- **Score edges are unbuilt** — `src/score/edge/` throws `NotImplementedError`; the core runs on fixtures, and no precision/recall harness exists *yet* (that's EXP-004). No "forensic/court-admissible" claim is earned until both EXP-004 kill gates fire.
+- **Single-writer WAL** — no concurrent sessions per WAL file ([`src/persistence/wal.ts`](src/persistence/wal.ts)).
+- **No horizontal scaling** — single Hono instance per deployment.
+- **BridgeBuilder COMMENTs only** — it cannot APPROVE or REQUEST_CHANGES.
 
-## Known Limitations
+## Status & License
 
-<!-- provenance: CODE-FACTUAL -->
-- Single-writer WAL — no concurrent sessions per WAL file (`src/persistence/wal.ts:1`)
-- No horizontal scaling — single Hono instance per deployment (`src/gateway/server.ts:1`)
-- Tool sandbox 30s default timeout — long-running tools may be killed (`src/config.ts:1`)
-- BridgeBuilder can only COMMENT on PRs, not APPROVE or REQUEST_CHANGES (`src/bridgebuilder/entry.ts:1`)
+Active. The experiment program is at **EXP-004 (graduation gate)**; the runtime is in production-shaped use. Maintainer: [@janitooor](https://github.com/janitooor).
 
-<!-- ground-truth-meta: head_sha=689a777 generated_at=2026-02-11T01:06:00Z features_sha=689a777 limitations_sha=689a777 ride_sha=689a777 -->
+[AGPL-3.0](LICENSE.md) — use, modify, distribute freely; network deployments must release source. Commercial licenses available.
 
-## Maintainer
+---
 
-[@janitooor](https://github.com/janitooor)
-
-## License
-
-[AGPL-3.0](LICENSE.md) — Use, modify, distribute freely. Network service deployments must release source code.
-
-Commercial licenses are available for organizations that wish to use loa-finn without AGPL obligations.
-
-
-Ridden with [Loa](https://github.com/0xHoneyJar/loa)
+*Ridden with [Loa](https://github.com/0xHoneyJar/loa). Appraised by the Finn.*
