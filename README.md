@@ -4,7 +4,7 @@
 that runs pre-registered, sha-pinned experiments on the agentic economy (real commerce vs theater)
 and the runtime that rides them. Two halves: (1) the experiment program — EXP-001 cost-of-play,
 EXP-002 agent-commerce forensics, EXP-003 verify-the-void, EXP-004 graduation gate — recorded on a
-research spine (observatory/), with a hash-chained cost meter (src/cost/cost-atom.ts) and a
+research spine (observatory/), with a checksummed append-only cost meter (src/cost/cost-atom.ts) and a
 deterministic, no-LLM Score core (src/score/); (2) the agent runtime it rides on — multi-model
 routing (src/hounfour/), durable WAL persistence (src/persistence/), cron + sandbox + audit trail.
 Epistemology: claims enter `claimed`; only deterministic instruments vs sha-pinned bars `settle`;
@@ -22,7 +22,7 @@ abstain over fabricate (grimoires/loa/context/epistemology-deterministic-layers.
 
 The program asks one question of the agentic economy, over and over, with instruments instead of opinions: **is this real, or is it theater?** Each answer is a pre-registered, sha-pinned experiment — bars set *before* the data exists, an instrumented run, a readout that has to survive its own falsifications. The answers accrete on a public **research spine** ([`observatory/`](observatory/)), where every dot traces to a committed artifact.
 
-Underneath sits the runtime that makes the experiments cheap and durable: multi-model routing, a write-ahead log, a cron system, a tool sandbox, and a hash-chained cost meter that closes the bill before the response returns. The program is the soul; the runtime is the body it rides.
+Underneath sits the runtime that makes the experiments cheap and durable: multi-model routing, a write-ahead log, a cron system, a tool sandbox, and a checksummed cost meter that closes the bill before the response returns. The program is the soul; the runtime is the body it rides.
 
 ## Why "Finn"?
 
@@ -39,7 +39,7 @@ graph LR
     end
     subgraph Probe["② Probe · instrumented run"]
         RUN["deterministic instrument<br/><i>SQL · RPC · stdlib<br/>no LLM in the score path</i>"]
-        METER["cost meter<br/><i>src/cost/cost-atom.ts<br/>hash-chained · closes before response</i>"]
+        METER["cost meter<br/><i>src/cost/cost-atom.ts<br/>checksummed · append-only · closes before response</i>"]
     end
     subgraph Settle["③ Settle · verdict from the bars"]
         V{"measured vs pinned"}
@@ -78,7 +78,7 @@ The spine renders this at [`observatory/`](observatory/) (`npm --prefix observat
 
 The runtime is real and grounded — it's what makes the experiments cheap (`~$0` marginal at the cheapest tier) and reproducible.
 
-- **Cost meter** — per-request 3-ledger record (inference / infra / orchestration), hash-chained, integer micro-USD, **closes before the response returns** and is immutable once written ([`src/cost/cost-atom.ts`](src/cost/cost-atom.ts)). This is the instrument EXP-001 read.
+- **Cost meter** — per-request 3-ledger record (inference / infra / orchestration), **checksummed** (sha256 per line), append-only, single-writer, integer micro-USD, **closes before the response returns** and is immutable once written ([`src/cost/cost-atom.ts`](src/cost/cost-atom.ts)). This is the instrument EXP-001 read. *(Tamper-evident against corruption per line; not yet inter-line hash-chained — deletion/reorder detection is a tracked follow-up. The `src/safety/` audit trail below **is** hash-chained.)*
 - **Score core** — deterministic, **no-LLM** forensic scoring (`src/score/`). Sprint-1 (leaderboard / features / cluster / screen) is pure and unit-tested; the on-chain edge adapters are `NotImplementedError` by design (fixtures-only until EXP-004 builds the validated substrate).
 - **Multi-model routing** — alias resolution, capability matching, budget enforcement, fallback chains ([`src/hounfour/router.ts`](src/hounfour/router.ts)).
 - **Write-ahead log** — append-only WAL with R2 checkpoint + Git archive for crash recovery ([`src/persistence/wal.ts`](src/persistence/wal.ts)).
@@ -103,7 +103,7 @@ docker compose up                 # or run containerized
 
 | Module | Purpose |
 |--------|---------|
-| **cost** | The hash-chained per-request cost meter — the experiment instrument |
+| **cost** | The checksummed append-only per-request cost meter — the experiment instrument |
 | **score** | Deterministic no-LLM forensic scoring (Sprint-1 core; substrate is EXP-004) |
 | **hounfour** | Multi-model routing, budget, JWT, orchestration |
 | **gateway** | HTTP API, WebSocket, auth, rate limiting |
