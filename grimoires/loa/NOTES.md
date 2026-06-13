@@ -2,6 +2,30 @@
 
 ## Session Continuity
 
+### /ride EXP-004 grounding pass (2026-06-12)
+
+Re-rode loa-finn through the EXP-004 graduation-gate lens (real sybil layer + labeled validation
+harness). Central finding, fully grounded: **the deterministic score formula is built and unit-tested;
+the substrate around it is not validated** — the #269 lesson made literal in-repo.
+
+- **Score reality** (`src/score`, branch `feature/score-phase1`): Sprint-1 pure core
+  (`leaderboard/features/cluster/screen`) DONE + unit-tested. Edge adapters BOTH throw
+  `NotImplementedError` (`edge/adapters.ts:22,36`) → fixture-fed only. Screen is internal-only
+  (`screen.ts:5` "NOT posted"). `precisionBar` (`screen.ts:37`) is a carried contract placeholder, no
+  precision/recall harness. **EXP-004 ≡ Sprint 2 (real Base/ACP ingestion) + Sprint 3 (FR-2a validation
+  harness)** of `sprint-finn-score.md:104-189` — pre-registered, unbuilt.
+- **Stale theses flagged**: (1) `arch-finn-cost-of-play.md:16` "infra-dominated" is FALSIFIED by its own
+  `readout.json` (H1 93.7% inference, H2 R²=0.018, H3 74 ms). (2) PRD "credit bureau"/horizontal framing
+  is stale vs EXP-003 **GO-vertical / NO-GO-horizontal** (2026-06-12); no-LLM determinism is now a moat
+  (`exp3-c2-settle.md:46-52`).
+- **Aligned/healthy**: cost meter 3-ledger (`cost-atom.ts`) ↔ `experiment-economics.md`; substrate
+  executor real; observatory spine wired (`refresh-data.mjs` → `data.generated.json`).
+- **Carried CRITICAL (still open)**: `package.json:6` license `MIT` vs actual AGPL-3.0.
+- Did NOT regenerate prd.md/sdd.md or the finn-economy-os product docs (precedent from 06-08; stale
+  claims flagged in drift-report.md §2-3 for operator-promoted amendment, not auto-overwritten).
+- Outputs refreshed: `drift-report.md` (primary), `reality/{index,architecture-overview,.reality-meta}`,
+  `consistency-report.md`, `governance-report.md`, `trajectory-audit.md`.
+
 ### /ride --enriched re-analysis (2026-06-08)
 Re-rode loa-finn (supersedes stale cycle-013 reality, Feb 11). Codebase grew ~3x: 28 modules /
 359 non-test files / ~81.6K LOC / 374 tests (was "15 modules, 120+ files"). A whole economic/NFT
