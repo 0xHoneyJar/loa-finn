@@ -45,3 +45,30 @@ export type {
   IndexingLayer,
   IndexingRowEnvelope,
 } from "./indexing-experiment-row.js"
+
+// 6. decision-forecast — the REFLEXIVE calibration record (Phase 2: study our own
+//    decision-making). A sibling to TetlockForecast: scores a BUILD DECISION
+//    against the real target, Brier-scored, with the effect-size axis (§5b) and
+//    the abstain-over-force INSUFFICIENT discipline made mechanical.
+export {
+  RESOLUTION_TRUST,
+  OBJECTIVE_INSTRUMENTS,
+  DECISION_ACTIONS,
+  EFFECT_SIZES,
+  RESOLUTION_INSTRUMENTS,
+  DECISION_OUTCOMES,
+  PREDICTION_BASES,
+  brierPpm,
+  outcomeToBinary,
+  classifyEffectFromMargin,
+  assertDecisionValid,
+} from "./decision-forecast.js"
+export type {
+  DecisionForecast,
+  DecisionForecastEnvelope,
+  DecisionAction,
+  EffectSize,
+  ResolutionInstrument,
+  DecisionOutcome,
+  PredictionBasis,
+} from "./decision-forecast.js"
