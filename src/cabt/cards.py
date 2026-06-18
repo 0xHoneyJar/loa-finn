@@ -40,3 +40,10 @@ def has_weakness(card_id: int) -> bool:
     _ensure()
     c = _CARDS.get(card_id)
     return bool(c and getattr(c, "weakness", None) is not None)
+
+
+def attack_damage(attack_id: int) -> int:
+    """Printed damage of a specific attack (by attackId, e.g. from an ATTACK option). 0 if unknown."""
+    _ensure()
+    a = _ATTACKS.get(attack_id)
+    return int(a.damage or 0) if a is not None else 0
