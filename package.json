@@ -28,6 +28,10 @@
     "test:audit-fixtures": "vitest run tests/finn/hounfour/audit-timestamp-fixtures.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/drizzle/migrate.ts",
+    "indexing:seed": "tsx src/research/indexing-capture.ts seed",
+    "indexing:capture": "tsx src/research/indexing-capture.ts add",
+    "indexing:read": "tsx src/research/indexing-read.ts",
+    "test:indexing": "vitest run src/research/indexing-ledger.test.ts src/research/indexing-crossover.test.ts",
     "postinstall": "bash scripts/build-hounfour-dist.sh"
   },
   "dependencies": {

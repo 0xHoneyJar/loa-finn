@@ -25,3 +25,23 @@ export type {
 } from "./research-cost-atom.js"
 export { MODELINV_LEDGER_PATH } from "./modelinv-ref.js"
 export type { ModelinvRef, ModelinvEntry } from "./modelinv-ref.js"
+
+// 5. indexing-experiment-row — the Layer-1 TCO + Layer-2 firehose experiment row
+//    (epic bd-idx-tco-exp-s7r5). Mirrors the integer-micro/hash-chain idiom.
+export {
+  COST_SOURCE_TRUST,
+  COST_SOURCES,
+  INDEXING_CONFIGS,
+  INDEXING_LAYERS,
+  assertRowIntegerMicro,
+  assertRowValid,
+  microToUsd,
+  usdToMicro,
+} from "./indexing-experiment-row.js"
+export type {
+  CostSource,
+  IndexingConfig,
+  IndexingExperimentRow,
+  IndexingLayer,
+  IndexingRowEnvelope,
+} from "./indexing-experiment-row.js"
