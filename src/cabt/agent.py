@@ -62,12 +62,13 @@ def _legal_fallback(select: dict[str, Any]) -> list[int]:
 
 
 def _decision_deadline(obs_dict: dict[str, Any]) -> float:
-    """Per-decision wall-clock deadline from the per-player chess clock (`remainingOverageTime`, secs).
-    Reserve time across an assumed horizon; clamp to a sane per-move band."""
-    remaining = obs_dict.get("remainingOverageTime")
-    remaining = float(remaining) if remaining is not None else 600.0
-    per_move = max(0.5, min(6.0, remaining / 40.0))  # ~40 decisions of headroom, 0.5–6s each
-    return time.monotonic() + per_move
+    """Per-decision wall-clock budget. The engine enforces ``actTimeout`` (~1s/move) plus a banked
+    ``remainingOverageTime`` (~60s) buffer; overrun the bank and you're disqualified (TIMEOUT). So target
+    JUST under the per-move actTimeout, and back off hard once the bank is nearly drained."""
+    bank = obs_dict.get("remainingOverageTime")
+    bank = float(bank) if bank is not None else 60.0
+    budget = 0.85 if bank > 5.0 else 0.40  # stay under the ~1s actTimeout; conserve the bank when low
+    return time.monotonic() + budget
 
 
 def agent(obs_dict: dict[str, Any]) -> list[int]:
