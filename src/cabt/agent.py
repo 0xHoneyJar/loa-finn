@@ -76,8 +76,15 @@ def agent(obs_dict: dict[str, Any]) -> list[int]:
     if select is None:
         return load_deck()  # deck selection: the deck IS the first action
     try:
-        from .policy import pimc_select, greedy_baseline  # lazy: engine loads only at match time
-        chosen = pimc_select(obs_dict, load_deck(), deadline=_decision_deadline(obs_dict))
+        from .policy import greedy_baseline  # lazy: engine loads only at match time
+        # Default engine = the FunSearch-authored heuristic pilot (beats our PIMC 0.77, and it's
+        # instant so no chess-clock risk). CABT_POLICY=pimc switches back to determinized search.
+        if os.environ.get("CABT_POLICY", "heuristic") == "pimc":
+            from .policy import pimc_select
+            chosen = pimc_select(obs_dict, load_deck(), deadline=_decision_deadline(obs_dict))
+        else:
+            from .heuristic import choose
+            chosen = choose(obs_dict, load_deck())
         return chosen if chosen else greedy_baseline(select)
     except Exception:
         return _legal_fallback(select)  # never crash a match
