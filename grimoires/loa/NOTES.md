@@ -981,3 +981,22 @@ Snover) + showed Lucario is NOT a weakness loss (Abomasnow weak to {M}, Lucario 
   consistency repaired, board now establishes. Self-play can't confirm ladder value (we can't pilot the real
   field locally); the ladder is the only judge. Unlike the monofighting swap (a worse deck), this is our good
   deck fixed → submit-as-pre-registered-bet is rational. Pending: operator's submit call.
+
+**GAMES-004 — the rebuild ALSO failed: 2-for-2 falsified deck bets (2026-06-19).** Rebuilt deck (sub
+53858250) scored **225.2** vs v4 starter **719.1** — FALSIFIED (p=0.55 → Brier 0.302). Autopsy (12 games, 2-10):
+the board fix HELD on the real ladder (**bench 4-5 EVERY game**, vs the old deck's 0-1) — so BENCHING WAS NOT
+THE BOTTLENECK; the GAMES-002 diagnosis was WRONG. Leading hypothesis: cutting energy 35→13 STARVED Mega
+Abomasnow's attacks (the 35 energy was LOAD-BEARING for this slow {W} wall, not a bug) and/or the heuristic
+can't pilot a 34-trainer engine.
+- **Calibration record (logged bets): 2 resolved, BOTH falsified, BOTH overconfident** — monofighting p=0.62→
+  Brier 0.384; rebuild p=0.55→Brier 0.302. We are MISCALIBRATED-HIGH on deck changes: every self-play-grounded
+  deck "improvement" LOST on the ladder.
+- **THE HARD LESSON:** the untouched 35-energy v4 STARTER (719) is our best by ~3x for reasons we do NOT
+  understand, and BOTH principled "improvements" made it ~3x worse. Self-play/container testing misled us into
+  TWO bad submissions. The ladder is the ONLY judge; we keep betting against it and losing. STOP changing the
+  deck on self-play confidence. To improve we'd need to test vs the REAL field BEFORE submitting — still unsolved
+  (self-play can't pilot the field; replays are finished games, not playable opponents). v5 was correctly HELD
+  (the gate refused it; it'd likely have failed the same way). The DISCIPLINE held — we pre-registered both,
+  recorded both losses honestly, and now KNOW our deck-confidence runs hot. That is the (painful) value.
+- **ACTION:** restore v4 (719) as the active agent; treat the deck as a black box that WORKS until we have a real
+  field test. Stop spending submissions on self-play-confident deck changes.
