@@ -1032,3 +1032,15 @@ made the deck smarter and the PILOT worse at it. The binding constraint was neve
 - **If we ever change v4: keep it SIMPLE (bot-friendly), ONE variable, pre-register, ladder-test.** A
   consistency/engine "upgrade" is the wrong instinct for a crude bot. A better PILOT (heuristic_v5-class) is the
   prerequisite for a more complex deck — pilot first, deck second.
+
+**GAMES-007 — pilot-first: heuristic_v5 SHIPPED (2026-06-19).** Acting on GAMES-006 (the PILOT, not the deck, is
+the lever): wired `heuristic_v5` (the 6-term board-aware scorer — ko/development/energy/pivot/attack-quality/
+tempo) as the agent's SHIPPED default (`agent.py`; `CABT_POLICY=v4`/`pimc` are escape hatches), on v4's
+UNCHANGED bot-friendly deck — a clean ONE-VARIABLE ladder bet (pilot, same deck). Built via the implement↔review
+pair: FAGAN caught a CRITICAL — the submission package was missing `heuristic_v5.py` + `cards_v5.py`, so it would
+have silently shipped worse-than-greedy while looking like v5 (fixed; package now carries v5's full closure).
+does-it-run verified (legal moves on v4's deck, container; win-rate NOT read as signal). Pre-registered
+`heuristic-v5-pilot-on-v4-deck` **p=0.40** (humble — board-awareness has real merit but we're 0-for-2 +
+miscalibrated-high, the bot-friendly lesson warns added complexity may hurt the simple deck, self-play is
+anti-signal). Submitted **sub 53859930** (PENDING). Resolves vs v4 (719) when it scores. v4 stays our best
+regardless. The 7th logged bet; the LADDER is the only judge.
