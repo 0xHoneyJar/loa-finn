@@ -870,3 +870,42 @@ deck nullified it. The earlier "self-play is luck-bound" was deck-specific, NOT 
   heuristic features (the `_score` is blind to which Pokémon/energy/turn/board; lever = features not priors) +
   §B a multi-deck field-eval instrument with an anti-overfit defense (held-out deck split, greedy-as-tripwire,
   features-transfer-not-weights, pre-registration) for vitalik to stress-test.
+
+**METABOLISM-004 — heuristic_v5 (gygax structural design) built, graded, proven (2026-06-18):** /compose 1+2
+build (run `cabt-1plus2-seg1`, **valid_run**, envelope_digest `d411c8db…`, FAGAN-approved iter 1) implemented:
+`src/cabt/heuristic_v5.py` (v4's `_BASE` + lethal UNCHANGED + 6 additive STRUCTURAL terms: prize-trade/KO math,
+bench+evolution readiness, energy economy, retreat/status pivot, earned-attack quality, tempo — additive
+`_score(opt,cur,state)`, drop-in `choose(obs,deck)`), `cards_v5.py` (degrade-to-zero accessors grounded to
+api.py), `field_eval.py` (held-out deck split + conjunctive champion+pimc gate + greedy-tripwire). py_compile
+clean.
+- **GRADE (real cabt, N=80-160, v5 vs v4 SAME deck = policy isolation):** monofighting **0.738 [0.664,0.800]
+  v5 WINS (+0.24)** (v5 vs greedy 0.825 > v4 vs greedy 0.688); lucario 0.506 ~tie; sample 0.487 ~tie. → v5 is
+  NON-DOMINATED (≥ v4 everywhere, strictly > on monofighting), but the gain is monofighting-SPECIFIC + still
+  SELF-PLAY (the ladder is vs the field). vitalik adversarial review running (overfit? does the edge transfer?).
+- **Candidate ladder:** v4+sample (676.2, old flat) < v4+monofighting (deck-swap, submitted `53836290` PENDING)
+  < v5+monofighting (best self-play candidate, NOT yet submitted). DISCIPLINE: let the deck-swap ladder result
+  land FIRST (isolates the DECK lever), THEN submit v5+monofighting (isolates the POLICY lever) — one variable
+  per submission slot. Tools: `.cabt-spike/container_grade_v5.py`.
+- **vitalik adversarial verdict: UNSOUND — "the sound verifier was written and bypassed; a scheme nobody runs
+  is a costume"** (`grimoires/loa/specs/vitalik-v5-review.md`). The v5-vs-v4 grade I ran is the cheaper/weaker
+  instrument; gygax's held-out conjunctive gate (field_eval) was BUILT but not run for the decision. Three
+  landing attacks: (1) SELF-PLAY is the wrong quantity — v5 was built to exploit v4's flat-EVOLVE mistake; vs a
+  field that doesn't make it, v5's extra terms are mis-fire surface → v5 can win self-play yet score ≤676 on the
+  ladder; (2) the DEFAULT held-out headline points at the FLAT sample deck (an information-free gate); (3) win-
+  monofighting/tie-elsewhere is overfit SHAPE not transfer, and A.6 weakness uses a shaky type-proxy that helps
+  on mono-color but mis-fires on the heterogeneous field (the term linking the monofighting win to ladder
+  DEGRADATION). Praise: `ko_term` reads the offered option's damage (affordability-safe — dodges the card_aware
+  0.30 trap); `field_eval` is genuinely sound (the decision ignored it). DECISIVE CHEAP TEST (running): field_eval
+  confirm-tier, HOLD OUT lucario (train monofighting+sample) — does v5 clear champion AND pimc on held-out lucario
+  (CI>0.5)? `.cabt-spike/container_field_gate.py`. The whole episode IS the separation-of-powers thesis working:
+  generator (gygax) built it, executor bypassed the gate, adversary (vitalik) caught the bypass, verifier adjudicates.
+- **GATE VERDICT: gate_pass = FALSE — vitalik CONFIRMED.** v5 piloting HELD-OUT lucario vs the conjunctive gate:
+  champion(v4) 0.521 CI[0.458,0.583], pimc 0.550 CI[0.487,0.612] — BOTH CI-lower < 0.5, neither cleared. The
+  monofighting +0.24 win did NOT transfer to held-out lucario → v5 is deck-shaped (exploit-the-sparring-partner),
+  NOT a field-validated improvement. **DO NOT submit v5** (it would be the reward-hack the whole session guarded
+  against). The deck-swap (v4+monofighting — DECK lever, robust: monofighting beats sample deck-on-deck 0.60
+  independent of policy) stands as the live ladder experiment; v5 WAITS for the FIELD instrument (episode-mining,
+  bd-jipm) to test transfer. The full loop — generator built → executor bypassed the gate → adversary caught it →
+  verifier refused — IS the metabolism working on a real competition decision with a real stake (a ladder slot saved).
+  Artifact: `.cabt-spike/arena_out/field_eval_results.json`. Net session levers: DECK (robust, shipped) > structural
+  policy (real on monofighting but field-transfer UNPROVEN) >> priors (dead). Next unlock = REAL field opponents (episodes).
