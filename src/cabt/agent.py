@@ -80,16 +80,22 @@ def agent(obs_dict: dict[str, Any]) -> list[int]:
         # Pilot-first (GAMES-006): v5 — the structural scorer that SEES the board — is the SHIPPED default,
         # a one-variable ladder bet vs the v4 type-only heuristic (same deck). The ladder is the only judge.
         # Escape hatches: CABT_POLICY=v4 -> the old FunSearch type-only heuristic; =pimc -> determinized search.
-        policy = os.environ.get("CABT_POLICY", "v5")
+        # Pilot-first, bot-friendly (GAMES-008): v5 (all 6 terms) LOST to v4 (563<719) — complexity hurts.
+        # v6 = v4 + ONLY energy_economy_term (gygax-picked minimum) is the SHIPPED default. Escape hatches:
+        # CABT_POLICY=v5 (full scorer) / v4 (type-only) / pimc (determinized search).
+        policy = os.environ.get("CABT_POLICY", "v6")
         if policy == "pimc":
             from .policy import pimc_select
             chosen = pimc_select(obs_dict, load_deck(), deadline=_decision_deadline(obs_dict))
         elif policy == "v4":
             from .heuristic import choose
             chosen = choose(obs_dict, load_deck())
-        else:  # v5 (default) — the smarter pilot
+        elif policy == "v5":
             from .heuristic_v5 import choose as choose_v5
             chosen = choose_v5(obs_dict, load_deck())
+        else:  # v6 (default) — v4 + one term (energy economy), the minimal pilot
+            from .heuristic_v6 import choose as choose_v6
+            chosen = choose_v6(obs_dict, load_deck())
         return chosen if chosen else greedy_baseline(select)
     except Exception:
         return _legal_fallback(select)  # never crash a match
