@@ -1044,3 +1044,18 @@ does-it-run verified (legal moves on v4's deck, container; win-rate NOT read as 
 miscalibrated-high, the bot-friendly lesson warns added complexity may hurt the simple deck, self-play is
 anti-signal). Submitted **sub 53859930** (PENDING). Resolves vs v4 (719) when it scores. v4 stays our best
 regardless. The 7th logged bet; the LADDER is the only judge.
+
+**GAMES-008 — v5 pilot FALSIFIED, but calibration is SHARPENING (2026-06-19).** v5 pilot (sub 53859930) = 563.2
+vs v4 (719) — FALSIFIED (p=0.40 → Brier 0.160). v5 is COMPETITIVE (mid-field, NOT a collapse like the deck
+changes at 205-225) but the board-aware 6-term scorer is ~156 Elo WORSE than v4's crude type-only pilot. The
+bot-friendly lesson holds a THIRD time: added complexity hurts in the PILOT too. **0-for-3 on improving v4.**
+- **CALIBRATION IS THE REAL WIN:** monofighting p=0.62→Brier 0.384; rebuild p=0.55→0.302; v5 p=0.40→0.160. Three
+  falsified bets, but the p's DESCENDED (0.62→0.55→0.40) toward the truth (our changes lose) and the Brier
+  HALVED. The discipline works — we're learning our true (low/negative) edge over v4.
+- **ROBUST META-LESSON:** v4 (719) is a hard local optimum; EVERY sophistication tried (2 decks, 1 pilot) made it
+  worse. Our instincts (better deck, smarter pilot) are anti-correlated with winning here. v4's crude simplicity
+  is genuinely strong. RESPECT IT.
+- **If we keep going, the bot-friendly principle says add the MINIMUM, not the maximum** — v5 bundled 6 terms;
+  maybe ONE helps and five hurt. A v4 + ONE targeted term might beat v4 where full-v5 doesn't (still a ladder-only
+  bet; self-play is blind). Otherwise: accept v4 (719) as the entry — our changes have been thoroughly shown not
+  to help, on a clean pre-registered record.
