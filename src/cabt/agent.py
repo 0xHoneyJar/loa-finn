@@ -77,14 +77,19 @@ def agent(obs_dict: dict[str, Any]) -> list[int]:
         return load_deck()  # deck selection: the deck IS the first action
     try:
         from .policy import greedy_baseline  # lazy: engine loads only at match time
-        # Default engine = the FunSearch-authored heuristic pilot (beats our PIMC 0.77, and it's
-        # instant so no chess-clock risk). CABT_POLICY=pimc switches back to determinized search.
-        if os.environ.get("CABT_POLICY", "heuristic") == "pimc":
+        # Pilot-first (GAMES-006): v5 — the structural scorer that SEES the board — is the SHIPPED default,
+        # a one-variable ladder bet vs the v4 type-only heuristic (same deck). The ladder is the only judge.
+        # Escape hatches: CABT_POLICY=v4 -> the old FunSearch type-only heuristic; =pimc -> determinized search.
+        policy = os.environ.get("CABT_POLICY", "v5")
+        if policy == "pimc":
             from .policy import pimc_select
             chosen = pimc_select(obs_dict, load_deck(), deadline=_decision_deadline(obs_dict))
-        else:
+        elif policy == "v4":
             from .heuristic import choose
             chosen = choose(obs_dict, load_deck())
+        else:  # v5 (default) — the smarter pilot
+            from .heuristic_v5 import choose as choose_v5
+            chosen = choose_v5(obs_dict, load_deck())
         return chosen if chosen else greedy_baseline(select)
     except Exception:
         return _legal_fallback(select)  # never crash a match

@@ -56,7 +56,7 @@ const T_NOW_0619 = Date.parse("2026-06-19T18:00:00Z")
  *  `--force` + anchor bump — so a forecast cannot be silently revised after the
  *  fact, even if the on-disk registry is deleted first. Bump ONLY in the same commit
  *  that intentionally changes the registered set. */
-const EXPECTED_REGISTRY_HEAD = "e8e21269508ffcc526c83e73f7558605675c9dc499e2d30de67956efc77471a5"
+const EXPECTED_REGISTRY_HEAD = "6c69d1d17d14351174140c02f0983609970258e959ec32c1a3df7e7e74808039"
 
 /** Build a LOGGED, unresolved pre-registration. `effect_size` here is the PREDICTED
  *  effect (part of the bet); resolveRegisteredDecision replaces it with the measured
@@ -176,6 +176,27 @@ export const PRE_REGISTERED: DecisionForecast[] = [
     predicted_effect: "small", // a consistency fix of a working deck; humble — may even land insufficient on the ladder
     local_evidence:
       "container (heuristic held constant, vs the real extracted Lucario decklist): board fix CONFIRMED (avg max bench 1.0->3.5); self-play win-rate indistinguishable (0.525 vs 0.588) but BLIND to the real field (old = 0.588 self-play / 0.33 ladder)",
+    created_ts: T_NOW_0619,
+  }),
+  preregister({
+    // NEW (2026-06-19, pilot-first). GAMES-006: the DECK is not the lever (2 deck bets falsified); v4's
+    // bot-friendly 35-energy starter (719) wins because it's SIMPLE — the crude type-only heuristic can't
+    // misplay it. The PILOT is the binding constraint. heuristic_v5 (the 6-term structural scorer: ko /
+    // development / energy / pivot / attack-quality / tempo — it SEES the board where v4 is type-blind) is
+    // now the SHIPPED default on v4's UNCHANGED deck — a clean ONE-VARIABLE ladder bet (pilot, same deck).
+    // p=0.40: the board-awareness thesis has real merit (v4 is blind), BUT we are 0-for-2 + miscalibrated-high,
+    // the bot-friendly lesson warns added pilot complexity may HURT a deck that rewards simplicity, and
+    // self-play can't validate (anti-signal). Distinct from the narrower energy-target forecast (ONE feature;
+    // this is the whole scorer) — that one is left unresolved, not conflated.
+    decision_id: "heuristic-v5-pilot-on-v4-deck",
+    label: "ship heuristic_v5 (6-term structural scorer) as the default pilot on v4's bot-friendly deck",
+    action: "ship",
+    proposition:
+      "heuristic_v5 (the board-aware structural scorer) piloting v4's deck beats the v4 type-only heuristic baseline (~719 ladder) by a margin the games can resolve",
+    prediction_ppm: 400_000,
+    predicted_effect: "small", // a pilot refinement on a working deck; may land insufficient (below ladder resolution)
+    local_evidence:
+      "v5 SEES the board (6 weighted terms) vs v4's type-only blindness; does-it-run verified (legal moves on v4's deck, container). But 0-for-2 on cabt bets; bot-friendly lesson warns complexity may hurt the simple deck; self-play is anti-signal",
     created_ts: T_NOW_0619,
   }),
 ]
