@@ -909,3 +909,75 @@ clean.
   verifier refused — IS the metabolism working on a real competition decision with a real stake (a ladder slot saved).
   Artifact: `.cabt-spike/arena_out/field_eval_results.json`. Net session levers: DECK (robust, shipped) > structural
   policy (real on monofighting but field-transfer UNPROVEN) >> priors (dead). Next unlock = REAL field opponents (episodes).
+
+**METABOLISM-005 — the ladder FALSIFIED the deck-swap (2026-06-19): self-play is ACTIVELY MISLEADING.** The
+monofighting deck-swap (sub `53836290`) scored **276.5** on the public ladder vs flat-deck v4 (sub `53796612`)
+= **676.2** — a ~400-Elo COLLAPSE. The pre-registered p=0.62 resolves **FALSIFIED**, Brier **0.384** (we bet
+0.62 on something decisively false → recorded evidence our self-play-grounded confidence was miscalibrated;
+cabt-calibration.jsonl updated).
+- **THE LESSON (upgrades METABOLISM-002/003):** self-play (vs greedy, deck-on-deck) didn't just fail to predict
+  the ladder — it ACTIVELY MISLED. monofighting BEAT greedy + the sample deck in self-play (0.60, 0.76) yet
+  COLLAPSED vs the field. The proxy-vs-ground-truth trap is REAL + CATASTROPHIC, not theoretical. Self-play
+  numbers aren't just weak signal — they're DANGEROUS signal. The field is everything.
+- **vitalik + the held-out gate VINDICATED:** v5's self-play monofighting win (0.738) would near-certainly have
+  collapsed the same way. The gate (`gate_pass=FALSE`) + vitalik's refusal SAVED a second catastrophe. The
+  discipline (pre-registration · separation-of-powers · held-out gate) WORKED — it caught v5 BEFORE the slot;
+  it honestly scored the deck-swap miss AFTER. The system's value this session was NOT a better agent — it was
+  not shipping the second wrong thing, and honestly recording the first.
+- **PRACTICAL:** the 276.5 is now a COMPLETE submission — restore v4 (676.2) as the active/best entry (re-submit
+  or select); do NOT leave 276.5 as our agent. Field top ~1364; v4 676.2 is below median.
+- **NEXT = NON-NEGOTIABLE:** the FIELD instrument (episode-mining `bd-jipm`, REAL field opponents). Self-play is
+  proven dangerous; the only valid evaluation is vs the field. Every future candidate (incl. v5) gates on it.
+
+**GAMES-001 — the field instrument delivered: v4's real matchup table (2026-06-19).** Pulled 66 ladder replays
+(52 v4 + 14 mono) via the Kaggle episode API (auth: static KGAT token in `~/.kaggle/access_token` — OAuth was
+too flaky/scope-limited; tools `.cabt-spike/parse_{games,matchups}.py`). Decks DECODED from replays: v4's "flat
+sample deck" is actually **Mega Abomasnow ex (Water)** — a real META deck (4 field opponents run it); mono =
+Hitmontop/Okidogi (Fighting), just bad.
+- **v4 (Abomasnow) matchup table — 30-22 (58%) over 52 games:** vs **Lucario (Fighting) 7-14 = 0.33
+  [0.17,0.55] over 21 games**, and Lucario is **40% of the field**. vs EVERYTHING ELSE: **23-8 = 74%**
+  (Dragapult 4-0, Ogerpon/RagingBolt 3-0, Bellibolt 2-0, Team Rocket 2-0, Crustle 4-3, Abomasnow-MIRROR 4-2 —
+  our heuristic out-pilots other Abomasnow players). Lucario wins FAST (avg 66 steps vs 90-109 in wins = hard
+  counter, not variance).
+- **THE LEVER (quantified): the Lucario matchup.** v4 is a 74% deck with ONE hole. 50% vs Lucario → ~63%
+  overall; the 712 rating is gated by losing 2/3 of 40% of the field. Fix Lucario = the single highest-leverage move.
+- mono 3-11 (21%), loses to the whole meta incl. the Abomasnow mirror (1-3) — ABANDON (it's the live 225 anchor).
+- Field meta (real, ranked): Lucario(F) dominant → Bellibolt(L) → Abomasnow(W) → Dragapult → Grimmsnarl/Sinistcha.
+- This IS bd-jipm delivered from our OWN games. Open: diagnose WHY Lucario beats Abomasnow (weakness vs tempo)
+  → tech the matchup / switch deck / adopt Lucario.
+
+**GAMES-002 — Lucario-loss diagnosis: the Abomasnow deck is ENERGY-FLOODED (2026-06-19, decisive).** Read the
+actual v4 Lucario-loss replay lines (`.cabt-spike/parse_*`, step-by-step arcs). NOT a weakness double-KO — a
+BOARD-ESTABLISHMENT failure. Across 52 v4 games: our avg MAX bench in LOSSES = **0.8** vs WINS = **1.7**; fast
+losses (20-76 steps) sit at bench 0-1 while opponents bench 4-5. We field a LONE Pokémon → fast decks KO it →
+**"no Pokémon to promote" loss at 6-6 prizes** (the 20-step game: a full turn 0, benched NOTHING). **ROOT CAUSE
+(certain): the deck is 10 Pokémon / 35 ENERGY / 15 Trainer** — 58% energy, ~6 basics. Energy-flooded hands →
+can't build a board. The heuristic's under-benching is DOWNSTREAM (can't bench Pokémon it never draws); v5's
+bench term won't fix it either. **TECH = DECK-CONSTRUCTION fix, not policy:** cut energy ~35→13, reclaim ~22
+slots for Pokémon (consistency/basics) + draw/search trainers. Test the rebuilt deck vs the field (esp Lucario)
+on the matchup instrument BEFORE submit; pre-register. (A 35-energy deck scoring 712 ⇒ soft field ⇒ a consistent
+build should climb.) This is the concrete next build.
+- **Field ratio template (from pulled decklists):** good decks run **~13 energy / ~28-34 trainer / ~17-20 Pokémon**
+  (Lucario 19/13/28, Dragapult 21/8/33, Grimmsnarl 17/14/29). Ours: 10/35/15 — half the trainer engine, 2.5x the
+  energy. KEY realization: our "sample deck" is the competition's AUTO-GENERATED STARTER deck (Ten Uchikawa runs
+  the identical 34-energy Abomasnow list) — untuned by construction. **Rebuild plan (data-grounded): GRAFT a
+  proven field trainer engine** (draw/search trainers are deck-agnostic; copy a top deck's ~28 trainers + ~13
+  energy) onto the Snover→Mega Abomasnow ex attacker line. No from-scratch guessing — copy what wins on the ladder.
+  Then gate on the matchup instrument (vs Lucario esp.) + pre-register before submit. Card IDs available in the
+  pulled replays (every opponent's exact 60).
+
+**GAMES-003 — rebuilt deck: construction fix CONFIRMED, self-play still can't judge the ladder (2026-06-19).**
+gygax (via /compose `deck-rebuild-1`, valid_run) rebuilt Abomasnow → **13 Pokémon / 34 Trainer / 13 Energy**
+(`.cabt-spike/games/deck_rebuilt.csv`): cut energy 35→13, grafted a proven draw/search engine (Mega Signal,
+Poké Pad, Dusk Ball, Ultra Ball, Cheren, Carmine, Lillie's Determination, Waitress) onto Snover→Mega Abomasnow
+ex + Hero's Cape ACE (450-HP wall). gygax FALSIFIED my "missing middle stage" guess (evolves direct from
+Snover) + showed Lucario is NOT a weakness loss (Abomasnow weak to {M}, Lucario is {F} → we survive Mega Brave
+270 into 350 HP). Container test (heuristic constant, vs the REAL extracted Lucario decklist, N=80):
+- **OUR_AVG_MAX_BENCH 1.0 → 3.5** — the construction fix WORKS; the root-cause board failure is fixed.
+- **Win-rate OLD 0.588 [0.48,0.69] vs REBUILT 0.525 [0.42,0.63] — indistinguishable, and BLIND:** OLD scores
+  0.588 vs our-heuristic-piloting-Lucario yet **0.33 on the LADDER** vs real Lucario pilots. Self-play can't run
+  the field's actual agents → it CANNOT validate the Lucario matchup. The recurring structural lesson.
+- **VERDICT:** the rebuild is a principled, LOW-DOWNSIDE fix of our BEST deck (712) — same attackers/identity,
+  consistency repaired, board now establishes. Self-play can't confirm ladder value (we can't pilot the real
+  field locally); the ladder is the only judge. Unlike the monofighting swap (a worse deck), this is our good
+  deck fixed → submit-as-pre-registered-bet is rational. Pending: operator's submit call.

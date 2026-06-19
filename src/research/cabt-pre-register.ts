@@ -47,6 +47,8 @@ const T_NOW = Date.parse("2026-06-17T22:00:00Z")
 // A second pre-outcome timestamp for forecasts logged in the 2026-06-18 session (the
 // real-cabt deck probe, METABOLISM-003). Still pre-outcome — no ladder result exists yet.
 const T_NOW_0618 = Date.parse("2026-06-18T23:00:00Z")
+// Pre-outcome timestamp for the 2026-06-19 session (the real-games deck diagnosis + gygax rebuild).
+const T_NOW_0619 = Date.parse("2026-06-19T18:00:00Z")
 
 /** Committed anchor of the registry head (over PRE_REGISTERED). `--write` checks the
  *  freshly-built head against this: editing a `p` (or any field) in PRE_REGISTERED
@@ -54,7 +56,7 @@ const T_NOW_0618 = Date.parse("2026-06-18T23:00:00Z")
  *  `--force` + anchor bump — so a forecast cannot be silently revised after the
  *  fact, even if the on-disk registry is deleted first. Bump ONLY in the same commit
  *  that intentionally changes the registered set. */
-const EXPECTED_REGISTRY_HEAD = "3b7ed8d8f2df42a32c3da33caa84d4195eb1a8304f475d89cd315a5ea923a7d6"
+const EXPECTED_REGISTRY_HEAD = "e8e21269508ffcc526c83e73f7558605675c9dc499e2d30de67956efc77471a5"
 
 /** Build a LOGGED, unresolved pre-registration. `effect_size` here is the PREDICTED
  *  effect (part of the bet); resolveRegisteredDecision replaces it with the measured
@@ -156,6 +158,25 @@ export const PRE_REGISTERED: DecisionForecast[] = [
     local_evidence:
       "real-cabt N=60-300: monofighting>sample 0.60 [0.51,0.68] deck-on-deck (greedy both); heuristic 0.76 [0.67,0.83] vs greedy on monofighting vs FLAT 0.46 on sample",
     created_ts: T_NOW_0618,
+  }),
+  preregister({
+    // NEW (2026-06-19, GAMES-003 — real-game diagnosis + gygax rebuild via /compose). 52 real ladder games
+    // showed the live v4 deck is the competition's 35-energy STARTER deck that can't build a board (bench 0.8
+    // in losses) → fast aggro (Lucario, 40% of the field) KOs our lone Pokemon. gygax rebuilt it to 13E/34T/13P
+    // with a grafted draw/search engine; the container test CONFIRMED the board fix (avg max bench 1.0→3.5).
+    // p=0.55: a principled, LOW-DOWNSIDE consistency fix of our BEST deck (same attackers) — but self-play
+    // CANNOT validate the ladder impact (old deck = 0.588 self-play / 0.33 ladder). Deliberately humble after
+    // the monofighting overconfidence (p=0.62 → falsified, Brier 0.384).
+    decision_id: "deck-abomasnow-rebuild-consistent",
+    label: "rebuild Abomasnow: cut energy 35->13 + graft a draw/search engine, piloted by the heuristic",
+    action: "ship",
+    proposition:
+      "the rebuilt consistent Mega Abomasnow ex deck (13 energy / 34 trainer / 13 Pokemon) piloted by the heuristic beats the v4 starter-deck baseline (~712 ladder) by a margin the games can resolve",
+    prediction_ppm: 550_000,
+    predicted_effect: "small", // a consistency fix of a working deck; humble — may even land insufficient on the ladder
+    local_evidence:
+      "container (heuristic held constant, vs the real extracted Lucario decklist): board fix CONFIRMED (avg max bench 1.0->3.5); self-play win-rate indistinguishable (0.525 vs 0.588) but BLIND to the real field (old = 0.588 self-play / 0.33 ladder)",
+    created_ts: T_NOW_0619,
   }),
 ]
 
