@@ -1059,3 +1059,16 @@ bot-friendly lesson holds a THIRD time: added complexity hurts in the PILOT too.
   maybe ONE helps and five hurt. A v4 + ONE targeted term might beat v4 where full-v5 doesn't (still a ladder-only
   bet; self-play is blind). Otherwise: accept v4 (719) as the entry — our changes have been thoroughly shown not
   to help, on a clean pre-registered record.
+
+**GAMES-009 — pilot-first one-term minimal (v6) SHIPPED (2026-06-19).** After v5 (6 terms) lost (GAMES-008),
+applied the bot-friendly principle: add the MINIMUM. gygax picked the single term = **energy_economy_term**
+(de-randomizes v4's most frequent decision — which Pokemon to fuel on ATTACH, which v4 breaks by LIST INDEX;
+ATTACH-only → lowest blast radius; rejected development [bench red herring], attack_quality [redundant with v4's
+0.1*dmg], ko/pivot/tempo). v6 = v4's EXACT base + ONE `_safe`-wrapped reused v5 term (`src/cabt/heuristic_v6.py`).
+**gygax's wash-gate, honored:** a behavioral A/B (does-it-DIFFER, NOT strength — self-play win-rate is anti-signal)
+showed v6 picks differently than v4 on **21.7%** of ATTACH decisions (50/230) → a REAL intervention, worth a slot
+(NOT the no-op wash gygax feared). Explicit package import gate → no silent fallback (the FAGAN-F1 risk, handled
+mechanically). Submitted **sub 53861711** (PENDING). v6 IS the energy-target-attach intervention → it RESOLVES the
+standing `heuristic-v5-energy-target-attach` forecast (**p=0.40**, logged BLIND 06-17) when it scores; gygax's
+independent p=0.30 corroborates the humble direction. v4 (719) stays best regardless. The likely outcome is a
+WASH (35-energy abundance mutes the term) — this tests whether ANY single targeted term can move v4.
