@@ -1092,3 +1092,19 @@ flagged a real intervention; the ladder confirmed the divergent picks are net-WO
   METHODOLOGY (pre-registration + calibration + consilience), not the rank. 0-for-4 at winning, ~3-for-4 at
   KNOWING our edge — the rarer, compounding skill. To climb would need a qualitatively better PILOT (the proven
   binding constraint), which our methods can't produce; revisit only if that changes.
+
+**GAMES-011 — field-imitation feasibility: decisive GO (2026-06-19).** Operator surfaced the public dataset
+`kaggle/pokemon-tcg-ai-battle-episodes-index` → daily TOP-episode datasets (per-episode JSON, individually
+downloadable; ~21GB/day but SAMPLE-able, no bulk needed). Audit (6 sampled top episodes, 06-18):
+- **TOP-TIER play accessible** — daily top_avg 1024→1327 (06-16→18), median 927 — vs our v4's 719. A real
+  ceiling-LIFT target, not mid-field.
+- **Imitation data extractable + ABUNDANT** — winner (observation→action) pairs: 298 from 6 games, 263 real
+  choices (>1 option) = ~43 learnable decisions/game → one daily dataset (~6500 games) ≈ **280k state→move
+  samples/day.** Enough to train a real policy on a SINGLE day.
+- **1300-tier META (n=12, small):** Mega Lucario ex + Dwebble/Crustle dominate.
+- **THE KEY:** imitating top winners is the FIRST local signal grounded in real ladder success (not self-play
+  noise, not our anti-correlated priors). This is the qualitatively-different PILOT the binding-constraint
+  analysis demanded — it SUPERSEDES the "accept v4 / can't build a better pilot" verdict. Viable path:
+  behavioral cloning from top-tier play. Next: /kickoff the imitation-pilot build (extract → features → policy →
+  ship → ladder, pre-registered) in a FRESH session — a real ML effort, not a marathon-tail tweak. Sample data
+  in `.cabt-spike/top/`.
