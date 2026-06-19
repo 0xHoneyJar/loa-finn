@@ -1000,3 +1000,35 @@ can't pilot a 34-trainer engine.
   recorded both losses honestly, and now KNOW our deck-confidence runs hot. That is the (painful) value.
 - **ACTION:** restore v4 (719) as the active agent; treat the deck as a black box that WORKS until we have a real
   field test. Stop spending submissions on self-play-confident deck changes.
+
+**GAMES-005 — can we test vs the real field before submitting? Investigated: NO (2026-06-19).** Every avenue
+checked: (1) opponent agent CODE — private, not downloadable; their episode LOGS are EMPTY (timing only, no
+stdout). (2) cabt env reference agents — only `random` + `first` (weak, like greedy). (3) episode replays —
+finished games; can't replay our agent into them interactively. **CONCLUSION: no local test captures the real
+field — the field's edge is PILOT SKILL (top ~1364 vs our 719), private + far stronger than ANY local pilot we
+have (heuristic/PIMC/random/first).** Proof it's hopeless, not unexplored: the rebuilt deck beat greedy 0.95
+locally (it CAN close games) yet scored 225 on the ladder — the whole gap is pilot skill no local opponent
+simulates. **The LADDER is structurally the ONLY field test.** Reframed strategy: (a) STOP self-play pre-filtering
+(anti-signal — 0-for-2, both overconfident); local tests are valid ONLY for legality + does-it-function, never
+strength. (b) Use the ladder AS the experiment loop (one variable → pre-register → submit → read → iterate;
+~2 months to deadline). (c) UNDERSTAND v4's black box (why the 35-energy starter wins) BEFORE any more changes —
+we've been wrong twice about this deck. v4 (719) left as the entry; ladder untouched per operator.
+
+**GAMES-006 — WHY v4 wins: it's BOT-FRIENDLY, not well-built (2026-06-19).** Investigated v4's winning lines.
+Ruled out BOTH prior diagnoses: (a) bench — v4 WINS with low bench (1-2); the rebuilt deck LOST with full bench
+(4-5). Benching was a red herring. (b) energy-starvation — the rebuilt deck's wall got PLENTY of energy (2-8,
+even MORE than v4's 2-6); not starved. Same heuristic, both decks field a FUELED 350-HP Mega Abomasnow ex wall
+— yet the SIMPLE deck (35E/15T) WINS and the COMPLEX deck (13E/34T) LOSES. **THE ANSWER: the 35-energy starter
+is BOT-FRIENDLY** — almost no decisions (draw energy → attach to the wall → attack), so our crude type-scoring
+heuristic can't misplay it + the 350-HP wall grinds the field down. Our "improvements" added a 34-trainer
+draw/search engine that is HUMAN-optimal but BOT-HOSTILE: 34 cards of sequencing the crude pilot fumbles. We
+made the deck smarter and the PILOT worse at it. The binding constraint was never the deck — it's the PILOT's
+(low) skill; the starter is matched to it.
+- **META-LESSON (most important finding of the whole arc):** we've been CONFIDENTLY WRONG 4× — monofighting,
+  the bench diagnosis, the energy diagnosis, the consistency rebuild. Every plausible model got falsified by the
+  ladder. Our cabt instincts (consistency good, bench good, cut energy) are ANTI-CORRELATED with what wins here.
+  The only things that held: the working black box (v4=719) + the discipline that caught every error
+  (pre-registration, the gate, the ladder). DEFER to the black box; distrust our models; the ladder is truth.
+- **If we ever change v4: keep it SIMPLE (bot-friendly), ONE variable, pre-register, ladder-test.** A
+  consistency/engine "upgrade" is the wrong instinct for a crude bot. A better PILOT (heuristic_v5-class) is the
+  prerequisite for a more complex deck — pilot first, deck second.
