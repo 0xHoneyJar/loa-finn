@@ -44,6 +44,9 @@ import type { DecisionForecast } from "./schemas/decision-forecast.js"
 // not mechanically enforced — both reduce to git-commit timing + author honesty.
 // That git precedence IS the trust root; this constant + the chain are the witnesses.)
 const T_NOW = Date.parse("2026-06-17T22:00:00Z")
+// A second pre-outcome timestamp for forecasts logged in the 2026-06-18 session (the
+// real-cabt deck probe, METABOLISM-003). Still pre-outcome — no ladder result exists yet.
+const T_NOW_0618 = Date.parse("2026-06-18T23:00:00Z")
 
 /** Committed anchor of the registry head (over PRE_REGISTERED). `--write` checks the
  *  freshly-built head against this: editing a `p` (or any field) in PRE_REGISTERED
@@ -51,7 +54,7 @@ const T_NOW = Date.parse("2026-06-17T22:00:00Z")
  *  `--force` + anchor bump — so a forecast cannot be silently revised after the
  *  fact, even if the on-disk registry is deleted first. Bump ONLY in the same commit
  *  that intentionally changes the registered set. */
-const EXPECTED_REGISTRY_HEAD = "7e3639322c2faf166f41a729e58b3ba8161908dd9ebfb4b19d2be0965c694ba9"
+const EXPECTED_REGISTRY_HEAD = "3b7ed8d8f2df42a32c3da33caa84d4195eb1a8304f475d89cd315a5ea923a7d6"
 
 /** Build a LOGGED, unresolved pre-registration. `effect_size` here is the PREDICTED
  *  effect (part of the bet); resolveRegisteredDecision replaces it with the measured
@@ -64,6 +67,7 @@ function preregister(p: {
   prediction_ppm: number
   predicted_effect: DecisionForecast["effect_size"]
   local_evidence: string | null
+  created_ts?: number
 }): DecisionForecast {
   return {
     decision_id: p.decision_id,
@@ -78,7 +82,7 @@ function preregister(p: {
     ground_truth: null,
     outcome: null,
     brier_ppm: null,
-    created_ts: T_NOW,
+    created_ts: p.created_ts ?? T_NOW,
     resolved_ts: null,
   }
 }
@@ -132,6 +136,26 @@ export const PRE_REGISTERED: DecisionForecast[] = [
     prediction_ppm: 250_000,
     predicted_effect: "large", // if search won it'd be a clear swing; I predict it loses
     local_evidence: "dig + session: rule-based heuristics > search/RL/neural here; the pilot, not search depth, wins",
+  }),
+  preregister({
+    // NEW (2026-06-18, METABOLISM-003 — real-cabt deck probe in a linux container). The
+    // SAMPLE deck is a FLAT instrument (heuristic ≈ greedy, 0.46) while monofighting REWARDS
+    // policy (heuristic 0.76 vs greedy) AND beats the sample deck 0.60 deck-on-deck (greedy
+    // both sides). Our submission currently SHIPS the flat sample deck — so this swap is
+    // strictly better LOCALLY on both deck-strength AND policy-expression (stronger evidence
+    // than the lucario bet above, which LOSES deck-on-deck 0.39). p ≈ 0.62: likelier than not
+    // to help, but self-play-vs-greedy is a proxy and the field may counter monofighting
+    // (overfit risk — the honest residual the ladder will resolve).
+    decision_id: "deck-monofighting-with-heuristic-pilot",
+    label: "swap the sample deck for monofighting, piloted by the heuristic",
+    action: "ship",
+    proposition:
+      "the monofighting deck piloted by the heuristic beats the heuristic+sample-deck baseline (648.1) on the ladder, by a margin the games can resolve",
+    prediction_ppm: 620_000,
+    predicted_effect: "large", // decks are the field's biggest lever; local margins are large
+    local_evidence:
+      "real-cabt N=60-300: monofighting>sample 0.60 [0.51,0.68] deck-on-deck (greedy both); heuristic 0.76 [0.67,0.83] vs greedy on monofighting vs FLAT 0.46 on sample",
+    created_ts: T_NOW_0618,
   }),
 ]
 

@@ -815,3 +815,58 @@ receipts (no float in any `.jsonl`).
 - **Infra note:** disk hit 100% (142Mi free) at session start — freed ~15GB via `docker image prune -af` +
   `docker builder prune -f` (operator-authorized). `construct-rooms-substrate` was global-only; installed it
   into the estate so `/compose` resolves here.
+
+**METABOLISM-002 — the first GROUND-TRUTH measurements (real cabt in a container, 2026-06-18):** stood up
+the real cg engine in a linux/amd64 docker container — stdlib-only, `libcg.so` loads, **~0.1s/match for
+heuristic play (NOT the 30-60s feared)** so real evaluation is feasible locally in minutes. Tools (local,
+.cabt-spike/, gitignored): `container_smoke.py`, `container_arena.py`, `container_verify.py` — the real cabt
+Hand; the committed metabolism's CabtHand should wrap these (now fully de-risked). Findings (N=300,
+seat-swapped, same deck both sides, Wilson CI):
+- **The committed heuristic is statistically INDISTINGUISHABLE FROM GREEDY**: champion vs greedy
+  0.537 [0.480,0.592] vs the greedy-vs-greedy null 0.527 [0.470,0.582]. Our "v4=649 FunSearch pilot" has NO
+  detectable edge over random-legal-move at this instrument (any real edge < ~0.06).
+- **The priors lever is DEAD (flat)**: no variant beats the champion (develop-max, the best, vs champion
+  0.497). Resolves the pre-registered `heuristic-v5-energy-target` — not "likely small", ZERO at this instrument.
+- **Signal DOES exist for BAD policies**: more-aggressive (attack-first) vs champion 0.380 [0.327,0.436] REAL
+  DEFICIT — which PROVES the priors are actually applied (rules out a monkeypatch-fallback confound) and
+  corroborates heuristic.py's develop-first lesson with fresh ground truth. Easy to be bad; hard to beat the floor.
+- **PIMC search shows no edge — CONFIRMED FAIR**: first n4/rollout=0 (confounded) gave 0.25; the FAIR test
+  (n_worlds=8, CABT_ROLLOUT=3, 0.5s/move, ~2s/match) gives PIMC vs greedy **0.400 [0.246,0.577]**, vs champion
+  0.467 — STILL no edge. Even real search can't beat random-legal-move in same-deck play. Vindicates the
+  pre-registered `deeper-ISMCTS p=0.25 (bet against search)` at this instrument.
+- **THE META-FINDING (reward-hack averted):** self-play-vs-greedy is a near-USELESS instrument — reasonable
+  policies all cluster at the 0.5±0.055 noise floor; only clearly-bad policies separate. The ladder (649) is vs
+  the FIELD, not greedy. **Had the metabolism "climbed self-play win-rate," it would have optimized noise.** The
+  real levers are FIELD opponents (bd-jipm episode-mining is now CRITICAL PATH, not optional), the DECK
+  (deck-Lucario decision), and fair-config search — NOT priors, NOT self-play. The metabolism's value on its
+  first real run was revealing the proxy is noise BEFORE we optimized it.
+
+**METABOLISM-003 — the DECK was the dead variable, not the policy (2026-06-18):** deck-variety probe
+(`container_decks.py`, N=60/matchup) OVERTURNS METABOLISM-002's "heuristic ≈ greedy" — that was an ARTIFACT
+of the flat sample deck. DECK STRENGTH (greedy both sides): **monofighting beats sample 0.600 [0.511,0.683]**
+(real deck edge); lucario LOSES to sample 0.392. POLICY edge PER DECK (heuristic vs greedy): sample 0.458
+(FLAT — the broken instrument), **lucario 0.700 [0.613,0.775], monofighting 0.758 [0.674,0.826]** — the
+heuristic CRUSHES greedy by +0.20–0.26 on decks that REWARD policy. The skill was always there; the sample
+deck nullified it. The earlier "self-play is luck-bound" was deck-specific, NOT universal.
+- ⚠ **THE SUBMISSION SHIPS THE FLAT SAMPLE DECK** (submission/deck.csv md5 == dl/deck.csv == f196fa73…) — we
+  field a skilled heuristic on the one deck where skill doesn't express. Likely suppressing our ladder rating.
+- **Grounded ladder CANDIDATE (pre-register BEFORE submit):** submission = heuristic + monofighting (stronger
+  deck-on-deck AND expresses the +0.26 policy edge) or lucario. NOT confirmed — self-play vs greedy/deck-on-deck
+  is still a proxy; the ladder is vs the FIELD's meta decks (vitalik's overfit guard: 0.76 on ONE deck vs a dumb
+  opponent ≠ the field). But it's the best-grounded candidate we've had, and a CHANGE we can ship + measure.
+- **Reframes the field instrument:** use REAL decks (lucario/monofighting + episode-mined field decks), NEVER
+  the flat sample deck. The deck⊗policy interaction is the real game. Eval tools: `.cabt-spike/container_decks.py`.
+- **DELIVERABLE (operator-directed): deck-swap candidate PREPPED + PRE-REGISTERED.** Tarball
+  `.cabt-spike/submission-monofighting.tar.gz` (the live submission with deck.csv → monofighting; validated in
+  the amd64 container: imports the Kaggle `cabt.agent.agent` symbol, loads monofighting(60), plays legal moves).
+  Pre-registered BEFORE submit: `deck-monofighting-with-heuristic-pilot` p=0.62 (logged) in
+  `grimoires/loa/lab/cabt-forecasts.jsonl` (registry head bumped to 3b7ed8d8…, valid=true, tsc clean). Operator
+  uploads to Kaggle; resolves via `resolveRegisteredDecision` when the ladder settles. NOTE: lucario was the
+  WRONG pick (the operator's existing p=0.45 lucario bet now has ground-truth AGAINST it — loses deck-on-deck
+  0.39); monofighting is the data-backed candidate. ⚠ open: packaged `cabt.agent.agent` scored 0.58 vs greedy
+  on monofighting (N=24) vs the bare heuristic's 0.76 — verifying whether the submission wraps a weaker policy
+  (higher-N check running).
+- **gygax design (for the 1+2 build) DONE:** `grimoires/loa/specs/gygax-cabt-design.md` — §A six STRUCTURAL
+  heuristic features (the `_score` is blind to which Pokémon/energy/turn/board; lever = features not priors) +
+  §B a multi-deck field-eval instrument with an anti-overfit defense (held-out deck split, greedy-as-tripwire,
+  features-transfer-not-weights, pre-registration) for vitalik to stress-test.
