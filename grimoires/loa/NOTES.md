@@ -1072,3 +1072,23 @@ mechanically). Submitted **sub 53861711** (PENDING). v6 IS the energy-target-att
 standing `heuristic-v5-energy-target-attach` forecast (**p=0.40**, logged BLIND 06-17) when it scores; gygax's
 independent p=0.30 corroborates the humble direction. v4 (719) stays best regardless. The likely outcome is a
 WASH (35-energy abundance mutes the term) — this tests whether ANY single targeted term can move v4.
+
+**GAMES-010 — v6 FALSIFIED + the FIELD confirms v4 is PILOT-CAPPED (consilience) (2026-06-19).** v6 = v4 +
+energy_economy_term (sub 53861711) = 482.6 (7 games, early) vs v4 719 — FALSIFIED (p=0.40 → Brier 0.16).
+**STRIKING (provisional, small-N):** v6 (482) < v5 (568) < v4 (719) — the SINGLE term alone is WORSE than the
+full 6-term bundle AND zero terms. energy_economy_term is actively harmful; v5's other 5 terms MASKED it; v4's
+ARBITRARY index-0 energy attach beats "principled" targeting. The behavioral A/B (21.7% divergence) correctly
+flagged a real intervention; the ladder confirmed the divergent picks are net-WORSE.
+- **POISONED-WELL VINDICATED:** gygax's EXPERT "lowest-risk" pick was the single MOST harmful term. Even expert
+  priors are anti-correlated here. Calibration: 4 bets, all falsified, recent two Brier 0.16 (well-calibrated).
+- **FIELD-SOURCED MINE (the methodology upgrade, executed):** of 13 unique decks that BEAT v4, energy
+  min/median/max = 5/13/34; ~10 of 13 are COMPLEX (median 13E, ~30 trainers) = engine decks our crude pilot
+  CANNOT run (the rebuild proved trainer-heavy → fumble → 225). The 3 bot-friendly v4-beaters are near-mirrors
+  (Snover/Abomasnow ~34E = variance) or marginal (Dwebble 21E/31T). NO clean copyable upgrade for our pilot.
+- **CONSILIENCE (convergence from the strongest independent angle):** the field-data analysis CONFIRMS the
+  4-prior-bet conclusion — v4 is a PILOT-CAPPED local optimum. BOTH angles (our priors AND the field's revealed
+  winners) converge: v4 (719) is our genuine ceiling given our methods.
+- **VERDICT: ACCEPT v4 as the entry** — now triangulated, not a comfortable cul-de-sac. The real product was the
+  METHODOLOGY (pre-registration + calibration + consilience), not the rank. 0-for-4 at winning, ~3-for-4 at
+  KNOWING our edge — the rarer, compounding skill. To climb would need a qualitatively better PILOT (the proven
+  binding constraint), which our methods can't produce; revisit only if that changes.
