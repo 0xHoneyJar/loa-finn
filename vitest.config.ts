@@ -7,11 +7,13 @@ import { execSync } from "node:child_process"
 // errors when picked up by vitest.
 // E2E tests need running infrastructure (Redis, services) — run separately.
 // Also include cycle-032 substrate tests under src/substrate/__tests__/,
-// cycle-041 Score forensic-core tests under src/score/, and cycle-041 S5
-// cost-of-play tests under src/cost/ + deploy/score-stub/ (flatline IMP-016:
+// cycle-041 Score forensic-core tests under src/score/, cycle-041 S5
+// cost-of-play tests under src/cost/ + deploy/score-stub/, cycle-053
+// Agent R&D Lab research tests under src/research/, and the bd-ryza PSRO
+// metabolism toy-loop tests under src/lab/ (flatline IMP-016:
 // a missing grep root silently collects zero tests and reads as green).
 const vitestFiles = execSync(
-  'grep -rl \'from "vitest"\' tests/ src/substrate/__tests__/ src/score/ src/cost/ deploy/score-stub/ --include="*.test.ts" 2>/dev/null || true',
+  'grep -rl \'from "vitest"\' tests/ src/substrate/__tests__/ src/score/ src/cost/ src/research/ src/lab/ deploy/score-stub/ --include="*.test.ts" 2>/dev/null || true',
   { encoding: "utf-8" },
 ).trim().split("\n").filter(f => f && !f.startsWith("tests/e2e/"))
 
