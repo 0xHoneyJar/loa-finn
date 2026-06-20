@@ -1,0 +1,558 @@
+# Composition · audit-claim
+# ================================================================
+# The MISSING audit composition: adversarially verify a research
+# CLAIM / VERDICT against its VERIFIED SOURCE before it drives a
+# bankruptcy-critical decision.
+#
+# Why this exists (2026-06-19):
+#   The registry HAS coherence-audits (audit-feel, audit-ecosystem-
+#   coherence, audit-setup-coherence) and code-review comps
+#   (code-implement-and-review, rigorous-review, tiered-code-review).
+#   It has NO composition that audits a CLAIM — a research finding,
+#   an experiment verdict, a "X beats Y on TCO" call — against the
+#   ground-truth artifact it rests on. So bankruptcy-critical calls
+#   (the cabt calibration verdict, the indexing-TCO breakeven, any
+#   "submit / don't submit / spend / don't spend" gate) had to run
+#   through the raw Workflow engine with the verified source baked
+#   into each prompt — NOT the governed /compose terminal gate.
+#
+#   That raw path has a known defect: the construct adapters DROP
+#   side-channel inputs (MEMORY: construct-adapters-ignore-task-inputs;
+#   0/4 dispatches honored mandated reads in the cost-of-play-0609b
+#   run). A claim-audit that lets the reviewer confabulate over a
+#   source it never actually read is worse than no audit — it launders
+#   a guess into a verdict on a call you can go bankrupt on.
+#
+#   This composition closes BOTH gaps:
+#     1. It IS a registry composition → runs via /compose → proven by
+#        compose-verify-run (valid_run), never role-play.
+#     2. The verified source is pinned as a MANDATED READ (poteau G3 /
+#        P203): the gate REFUSES to pass unless the reviewer's rationale
+#        quotes the source's H1 verbatim. A dropped side-channel input
+#        now fails closed instead of confabulating.
+#
+# Shape: GROUND (re-derive what the source actually shows) → COUNCIL
+# (adversarial, cheval-routed, multi-model — the biased author does not
+# get to assert) → SETTLE (a grounded verdict + an explicit decision-
+# safety call). defi-strict surface: this is high-stakes by definition.
+#
+# Siblings: audit-ecosystem-coherence (audits SEAMS), rigorous-review
+# (grounds ANY review by contract). This one audits a CLAIM and gates a
+# DECISION. It borrows rigorous-review's claims_ledger (observed-vs-
+# claimed) and audit-ecosystem-coherence's biased-author + council
+# discipline, and adds the mandated-read pin as the anti-confabulation
+# spine.
+# ================================================================
+
+schema_version: "1.5"          # v1.5: output_schema for Form C handoff envelopes
+kind: workflow
+name: audit-claim
+description: >
+  Adversarially verify a research claim or experiment verdict against its
+  verified source BEFORE it drives a bankruptcy-critical decision. Ground
+  the claim against the source (re-derive, don't trust), route the
+  grounding through a cheval-routed multi-model council to counter author
+  bias, then settle a grounded verdict + an explicit go/no-go decision-
+  safety call. The verified source is a MANDATED READ — the grounding gate
+  refuses to pass unless it is evidenced verbatim, so a dropped side-channel
+  input fails closed instead of confabulating.
+
+intent: >
+  "A claim is about to gate a call we can go bankrupt on (submit this agent
+   version, trust this TCO breakeven, spend this budget). The agent that
+   produced the claim is the most biased judge of whether it holds. Re-derive
+   what the SOURCE actually shows (every claim tagged observed-vs-claimed,
+   grounded file:line / row / cell — never inferred from the claim's own
+   prose), route that grounding through an adversarial multi-model council
+   that breaks the author's confidence, and SETTLE: does the source support
+   the claim at the strength the decision needs? Then make the decision-safety
+   call explicit — GO / NO-GO / INSUFFICIENT-EVIDENCE — with the residual
+   risk named. Proven by compose-verify-run, or it did not happen."
+
+backend: headless-tmux
+
+hivemind_labels:
+  product_area: "loa-finn — claim/verdict audit before bankruptcy-critical decisions"
+  workstream: discovery
+  priority: high
+  jtbd:
+    category: personal
+    description: "Reassure Me This Is Safe — a decision-grade claim gets re-derived
+      from its source and broken by an adversarial council before I bet on it"
+  source: team-internal
+
+depends_on:
+  constructs:
+    - gecko               # stage 1 ground — the declared-vs-actual eye, turned on a claim vs its source
+    - fagan               # stage 2 council-review — cheval-routed adversarial gate
+    - the-weaver          # stage 3 settle — BEAUVOIR synthesis into a grounded verdict + decision call
+  scripts:
+    - construct-fagan/scripts/cheval-council.sh     # the cheval-routed council runner
+  tools:
+    - cheval              # the intelligence router (multi-model, MODELINV envelope)
+  reference:
+    - "compositions/discovery/audit-ecosystem-coherence.yaml"   # the biased-author + council sibling
+    - "compositions/experimentation/rigorous-review.yaml"       # the claims_ledger (observed-vs-claimed) primitive
+  upstream_compositions:
+    - compositions/discovery/flatline-ladder-survey.yaml        # MAY produce a survey claim worth auditing before integration
+
+# ----------------------------------------------------------------
+# Inputs. The VERIFIED SOURCE is the anti-confabulation spine: it is
+# pinned as a mandated read so the grounding gate (poteau G3/P203)
+# refuses to pass unless the reviewer evidences it verbatim. This is
+# the defense against the adapter-drops-side-channel-inputs defect —
+# a dropped source fails CLOSED, it does not confabulate.
+# ----------------------------------------------------------------
+inputs:
+  - type: Artifact
+    name: claim
+    description: >
+      The claim / verdict under audit — the exact assertion that is about to
+      gate a decision (e.g. "v4 heuristic beats PIMC on the real ladder",
+      "managed indexing beats sovereign-Ponder on TCO at $3.59/hr breakeven").
+      Quote it verbatim; do not paraphrase it into something easier to defend.
+    required: true
+  - type: Artifact
+    name: verified_source
+    description: >
+      The ground-truth artifact the claim rests on — the JSONL ledger, the
+      leaderboard readout, the measured run, the source file. MANDATED READ:
+      pin it as quest.mandated_reads[{path, h1}] so the grounding gate refuses
+      to pass unless the reviewer's rationale opens by quoting its H1 verbatim.
+      If the source has no H1 (a JSONL/CSV), wrap it in a one-line .md header
+      and pin THAT, so the mechanical echo-check has something to bind to.
+    required: true
+  - type: Intent
+    name: decision
+    description: >
+      The bankruptcy-critical call this claim gates — what GO costs if the
+      claim is false, and what NO-GO costs if it is true. The audit settles
+      against THIS, not in the abstract: a claim can be 80% supported and
+      still NO-GO if the downside of a false GO is ruin.
+    required: true
+  - type: Operator-Model
+    name: operator_context
+    required: false
+
+# Ground -> council-review -> settle. Loop council<->settle until the
+# council clears (or the cap is hit — surface, never auto-pass).
+iterate:
+  - [2, 3]
+max_iterations: 2
+terminate_when: >
+  the cheval-routed council (stage 2) returns APPROVED with no open BLOCKER
+  on the grounding, OR the iteration cap is reached (Verdict carries
+  auto_approved: true — surface to the operator, do NOT treat as a clean
+  pass; on a bankruptcy-critical call, cap_reached defaults to NO-GO).
+
+# ================================================================
+# Stages
+# ================================================================
+
+chain:
+  - stage: 1
+    name: ground-the-claim
+    construct: gecko
+    skill: diagnose
+    persona: GECKO
+    mode: fresh
+    reads: [Artifact, Intent]        # claim + verified_source + decision
+    writes: [Artifact, Signal]       # the claim-vs-source grounding map
+    role: primary
+    intelligence_tier: deep
+    thinking_effort: high
+    notes: >
+      You are GECKO. Read the VERIFIED SOURCE (the mandated read) FIRST and
+      open your rationale by quoting its H1 verbatim — the grounding gate
+      (P203) refuses to pass otherwise, and this is the whole point: you may
+      NOT ground a claim in a source you did not read.
+
+      Decompose the CLAIM into its atomic assertions. For EACH assertion,
+      go to the SOURCE and re-derive it — cite the exact evidence (file:line,
+      JSONL row, leaderboard value, measured number). Tag each:
+        - observed  — the source genuinely shows this (quote the evidence)
+        - claimed   — the claim asserts it but the source does NOT establish
+                      it (or establishes something weaker / N too small /
+                      a different metric / vendor-quoted not measured)
+      Distinguish a NUMBER the source reports from a CONCLUSION the claim
+      draws from it: "v4 = 648.1 above μ₀=600" is observed; "v4 beats PIMC"
+      may be claimed if the gap is within noise. Surface the strength gap:
+      what would the source need to show for the claim to hold at the
+      strength the DECISION needs, and does it?
+
+      Mark each judgment SMELL (soft, interpretation-dependent) vs CONFLICT
+      (hard — the source provably contradicts or fails to support the claim).
+      You sense; you do not decide GO/NO-GO. If the claim's own prose is your
+      only evidence for an assertion, it is `claimed`, full stop.
+
+    output_schema:
+      type: object
+      required:
+        - source_h1
+        - assertions
+        - strength_gap
+        - decision_sensitivity
+      additionalProperties: false
+      properties:
+        source_h1:
+          type: string
+          description: the H1 of the verified source, quoted verbatim (the mandated-read echo)
+        assertions:
+          type: array
+          items:
+            type: object
+            required:
+              - assertion
+              - evidence
+              - tag
+              - severity
+            additionalProperties: false
+            properties:
+              assertion:
+                type: string
+              evidence:
+                type: string
+                description: file:line / row / leaderboard value actually checked in the source — never inferred
+              tag:
+                type: string
+                enum: [observed, claimed]
+              severity:
+                type: string
+                enum: [CONFLICT, SMELL]
+        strength_gap:
+          type: string
+          description: what the source would need to show for the claim to hold at decision-strength, and whether it does
+        decision_sensitivity:
+          type: string
+          description: how the GO/NO-GO flips on the weakest `claimed` assertion (the load-bearing uncertainty)
+
+  - stage: 2
+    name: council-review
+    construct: fagan
+    persona: FAGAN
+    mode: fresh
+    reads: [Artifact]                # the grounding map (+ the mandated source)
+    writes: [Verdict, Signal]
+    role: primary                    # autonomous adversarial review, not a manual seam
+    iterates_with: 3
+    intelligence_tier: deep
+    thinking_effort: high
+    notes: >
+      Adversarially review GECKO's grounding. The author of the claim (and
+      often of the grounding) is BIASED toward believing it holds — your job
+      is to break that. The verified source is ALSO your mandated read: open
+      your rationale by quoting its H1 verbatim, then judge:
+        - Is each `observed` assertion ACTUALLY observed in the source, or did
+          the grounder over-read a noisy number into a conclusion? Re-check the
+          evidence pointers against the source yourself.
+        - Is any `claimed` assertion silently doing decision-load-bearing work?
+          A single load-bearing `claimed` on a bankruptcy-critical call HOLDS
+          the gate (CHANGES_REQUIRED).
+        - N / variance / null-model: is the claimed effect inside the noise?
+          (The cabt lesson: self-play-vs-greedy was a noise instrument;
+          0.537 vs 0.527 null at N=300 is INDISTINGUISHABLE, not a win.)
+        - Provenance: is the source MEASURED or VENDOR-QUOTED? A vendor quote
+          is `claimed` until a measured row exists (the indexing-TCO lesson).
+        - Did the grounder MISS an assertion the claim makes? Add it.
+      Per-voice MODELINV proves which model answered — REJECT "unknown"
+      model_ran on this high-stakes audit; no silent single-model downgrade
+      masquerading as a council.
+
+    output_schema:
+      type: object
+      required:
+        - source_h1
+        - verdict
+        - blocker
+        - confirmed_observed
+        - downgraded_to_claimed
+        - load_bearing_claimed
+        - missed_assertions
+        - corrections
+      additionalProperties: false
+      properties:
+        source_h1:
+          type: string
+          description: the mandated-read echo — the verified source's H1, verbatim
+        verdict:
+          type: string
+          enum: [APPROVED, CHANGES_REQUIRED]
+        blocker:
+          type: boolean
+        confirmed_observed:
+          type: array
+          items:
+            type: string
+        downgraded_to_claimed:
+          type: array
+          description: assertions GECKO tagged observed that the council re-tags claimed
+          items:
+            type: object
+            required: [assertion, why]
+            additionalProperties: false
+            properties:
+              assertion:
+                type: string
+              why:
+                type: string
+        load_bearing_claimed:
+          type: array
+          description: claimed assertions the GO/NO-GO actually rests on
+          items:
+            type: string
+        missed_assertions:
+          type: array
+          items:
+            type: string
+        corrections:
+          type: array
+          items:
+            type: object
+            required: [claim, gecko_said, actual, evidence]
+            additionalProperties: false
+            properties:
+              claim:
+                type: string
+              gecko_said:
+                type: string
+              actual:
+                type: string
+              evidence:
+                type: string
+
+  - stage: 3
+    name: settle-verdict
+    construct: the-weaver
+    persona: BEAUVOIR
+    skill: synthesize
+    mode: persistent
+    reads: [Verdict, Artifact, Intent]   # surviving council findings + grounding + the decision
+    writes: [Artifact, Signal]
+    role: primary
+    iterates_with: 2
+    intelligence_tier: deep
+    thinking_effort: high
+    notes: >
+      Apply the SURVIVING council findings (not the rejected ones) and SETTLE
+      the claim against the DECISION. Open by quoting the verified source's H1
+      (mandated read). Produce:
+        1. claims_ledger — every assertion, observed-vs-claimed, with its
+           source evidence (the rigorous-review anti-confabulation primitive).
+        2. claim_verdict — SUPPORTED / PARTIALLY-SUPPORTED / NOT-SUPPORTED /
+           INSUFFICIENT-EVIDENCE, at the STRENGTH the decision needs.
+        3. decision_call — the bankruptcy-critical part: GO / NO-GO /
+           INSUFFICIENT-EVIDENCE, with the residual risk named and the cost
+           of a WRONG GO stated. A claim can be PARTIALLY-SUPPORTED and still
+           NO-GO when a false GO is ruin. Default to NO-GO on the cap-reached
+           / degraded path — surface auto_approval as a SIGNAL not a pass.
+        4. what_would_settle_it — if INSUFFICIENT-EVIDENCE, the cheapest
+           measurement that would move the verdict (the next falsifiable probe).
+      Re-emit for the council to re-verify. Cite source evidence for every
+      concrete claim; a number that "should be there" is a claim to verify,
+      not assert. Generous and rigorous (BEAUVOIR).
+
+    output_schema:
+      type: object
+      required:
+        - source_h1
+        - claims_ledger
+        - claim_verdict
+        - decision_call
+        - residual_risk
+      additionalProperties: false
+      properties:
+        source_h1:
+          type: string
+        claims_ledger:
+          type: array
+          items:
+            type: object
+            required: [claim, grounding, tag]
+            additionalProperties: false
+            properties:
+              claim:
+                type: string
+              grounding:
+                type: string
+              tag:
+                type: string
+                enum: [observed, claimed]
+        claim_verdict:
+          type: string
+          enum: [SUPPORTED, PARTIALLY-SUPPORTED, NOT-SUPPORTED, INSUFFICIENT-EVIDENCE]
+        decision_call:
+          type: string
+          enum: [GO, NO-GO, INSUFFICIENT-EVIDENCE]
+        residual_risk:
+          type: string
+          description: what a wrong GO costs, and the load-bearing uncertainty that remains
+        what_would_settle_it:
+          type: string
+          description: cheapest measurement that moves the verdict (when INSUFFICIENT-EVIDENCE)
+
+outputs:
+  - type: Artifact
+    destination: "grimoires/loa/context/<date>-claim-audit-<slug>.md"
+    description: the reviewed claims ledger + claim verdict + GO/NO-GO decision call
+    hivemind_labels:
+      artifact_type: atomic-learning
+      learning_status: strongly-validated
+  - type: Verdict
+    destination: .run/compose/<run_id>/claim-audit-council.jsonl
+    description: per-iteration cheval-routed council verdicts + MODELINV envelopes
+  - type: Signal
+    destination: .run/compose/<run_id>/orchestrator.jsonl
+    description: orchestrator trajectory (stage transitions, iteration counts)
+
+compose_with:
+  - gecko
+  - fagan
+  - the-weaver
+composes_symmetrically_with:
+  - gecko ↔ fagan   # ground ↔ adversarial-council — the load-bearing pair
+
+# ================================================================
+# Surface Class — auditing a bankruptcy-critical claim is high-stakes
+# by definition. defi-strict: strictest schema-valid tier, council
+# mandatory, cap-reached reads as NO-GO not auto-pass.
+# ================================================================
+surface_class:
+  default: defi-strict
+  enum: [culturetech-loose, defi-strict, mixed, unspecified]
+  inferred_when_unspecified: defi-strict
+  affects_in_this_composition:
+    - council — MANDATORY on defi-strict (a lone critical voice HOLDS the gate); advisory on culturetech-loose
+    - cap-reached handling — NO-GO default on defi-strict; surfaced-warning on culturetech-loose
+    - claimed-assertion threshold — any load-bearing `claimed` HOLDS the gate on defi-strict
+
+# Top-level cheval-routed multimodal-council mandate (schema v1.4+ review_routing).
+# This is the defense against the single-model-downgrade-masquerading-as-council
+# failure: modelinv-required proves which model actually answered, and the poteau
+# G4 council-honor gate (P204) demands Ed25519-signed receipts from DISTINCT
+# reviewer keys — a forged reviewer_id string cannot pass.
+review_routing:
+  mandatory_when: [defi-strict]
+  router: cheval
+  runner: construct-fagan/scripts/cheval-council.sh
+  voices: [gpt-reviewer, reviewing-code, deep-thinker]   # cheval HEADLESS adapters
+  min_surviving_voices: 2
+  audit: modelinv-required
+  optional_when: [culturetech-loose, mixed, unspecified]
+
+thinking_effort:
+  default: high
+  canonical_definition: compositions/delivery/feel-iterate.yaml#thinking_effort
+  rationale: |
+    Every stage is decision-grade synthesis under adversarial pressure —
+    re-deriving a claim from a source (stage 1), breaking the author's
+    confidence (stage 2), and settling a bankruptcy-critical GO/NO-GO
+    (stage 3). There is no cheap stage here. Lean high.
+  affects_in_this_composition:
+    - stage 1 ground — high (re-derivation from source is multi-step)
+    - stage 2 council — high (adversarial bug-finding on the grounding)
+    - stage 3 settle — high (verdict + decision-safety call)
+
+invocation_examples:
+  - operator_utterance: "audit this claim before I submit"
+    resolves_to: full chain 1-3 with the claim + its source + the submission decision
+  - operator_utterance: "does the cabt finding actually support shipping v4?"
+    resolves_to: >
+      claim = the v4-beats-PIMC verdict; verified_source = the leaderboard
+      readout JSONL (pinned mandated read); decision = submit v4 vs hold.
+      Council breaks the noise question; settle returns GO/NO-GO.
+  - operator_utterance: "verify the indexing-TCO breakeven before the ADR"
+    resolves_to: >
+      claim = managed-beats-sovereign-at-$3.59/hr; verified_source = the TCO
+      measurement (vendor-quote provenance flagged); decision = ratify the ADR.
+  - operator_utterance: "is this claim grounded enough to bet on?"
+    resolves_to: full chain; settle returns INSUFFICIENT-EVIDENCE + the cheapest probe if not
+
+when_to_use: >
+  - A research claim / experiment verdict is about to gate a bankruptcy-critical
+    call (submit / hold, spend / don't, ratify an ADR, trust a measure).
+  - The agent that produced the claim is the most biased judge of it — you need
+    an adversarial, multi-model, PROVEN audit, not a self-assertion.
+  - The verified source MUST be re-read, not summarized — pin it as the mandated
+    read so a dropped side-channel input fails closed.
+  - NOT for code review (use code-implement-and-review / tiered-code-review).
+  - NOT for craft/feel (use audit-feel) or deployment-seam coherence
+    (use audit-ecosystem-coherence).
+  - NOT a general grounding pass on ANY review (use rigorous-review) — this one
+    gates a DECISION and settles GO/NO-GO.
+
+known_limitations:
+  - "The grounding gate (poteau P203) is a HEURISTIC: it checks the source's H1
+    was echoed verbatim, NOT that the document was genuinely read or the reasoning
+    grounded in it. A missing echo catches the agent that ignored the mandate; a
+    present echo is necessary but not sufficient. Absolute closure needs an
+    out-of-band check (the gatekeeper reading the source itself) — deferred. Do
+    not over-claim 'proof' from the echo alone."
+  - "Council honor (poteau P204/G4) holds ONLY while reviewer PRIVATE keys live
+    outside the governed agent's filesystem reach (held by the council runner /
+    provisioned per room). A deployment that writes reviewer private keys into the
+    agent-readable run dir re-opens forgery."
+  - "Iteration cap of 2 is enforced on defi-strict. Past the cap the reviewer's
+    API auto-approves at the wrapper level (Verdict carries auto_approved: true,
+    note: iteration-cap-reached). On a bankruptcy-critical call this MUST surface
+    as NO-GO, never folded into a clean pass."
+  - "Output verdicts vary run-to-run (LLM variance per flatline SKP-002/004).
+    Dispatch is deterministic; the GO/NO-GO is a settled judgment, not a proof —
+    re-run on a different cap or with a stronger source if the call is borderline."
+  - "Fan-out: this is a 3-distinct-stage chain with an iterate pair on [2,3]; it
+    does NOT carry args.items[] (multi-work-stage segments ignore items[] loudly,
+    segment-emitter.py). One claim per run — audit claims serially."
+
+references:
+  - sibling_council: compositions/discovery/audit-ecosystem-coherence.yaml   # biased-author + cheval council discipline
+  - sibling_ledger: compositions/experimentation/rigorous-review.yaml         # claims_ledger observed-vs-claimed primitive
+  - mandated_reads_contract: ~/.loa/constructs/substrates/construct-rooms-substrate/laplas/schemas/quest.schema.json
+  - grounding_gate: ~/.loa/constructs/substrates/construct-rooms-substrate/poteau/bin/poteau-gatekeeper.mjs   # P203 grounding + P204 council honor
+  - council_runner: construct-fagan/scripts/cheval-council.sh
+  - compose_skill: ~/.claude/skills/compose/SKILL.md
+  - composition_schema: ~/Documents/GitHub/loa-constructs/.claude/schemas/runtime/composition.schema.json
+
+operator_note: |
+  Authored 2026-06-19. Why this exists: the bankruptcy-critical claim-audits
+  (the cabt calibration verdict, the indexing-TCO breakeven) ran through the
+  raw Workflow engine with the verified source baked into each prompt — NOT
+  the governed /compose terminal gate — because the registry had no audit
+  composition for a CLAIM (only coherence-audits and code-review comps). The
+  raw path inherits the adapter-drops-side-channel-inputs defect (MEMORY:
+  construct-adapters-ignore-task-inputs — 0/4 dispatches honored mandated
+  reads), which would have let the reviewers confabulate on a call you can go
+  bankrupt on.
+
+  Three principles, sharpened from audit-ecosystem-coherence + the cabt/TCO
+  lessons:
+
+  1. THE SOURCE IS A MANDATED READ, NOT A SIDE-CHANNEL INPUT. The whole defect
+     this closes is the adapter silently dropping the verified source. Pinning
+     it as quest.mandated_reads[{path,h1}] makes the grounding gate (P203)
+     REFUSE to pass unless the reviewer echoes the source's H1 verbatim. A
+     dropped source now fails CLOSED instead of confabulating. This is the
+     spine — without it this is just another self-assertion.
+
+  2. THE BIASED AUTHOR DOESN'T GET TO ASSERT. The agent that produced the claim
+     is the worst judge of whether it holds. Stage 2 routes through the
+     cheval-routed multi-model council with modelinv-required + Ed25519-signed
+     receipts (P204) precisely to break the author's confidence in its own
+     number — no single-model downgrade masquerading as a council.
+
+  3. AUDIT THE CLAIM, GATE THE DECISION. The output is not "the claim is nice."
+     It is a GO/NO-GO with the residual risk named and the cost of a wrong GO
+     stated. A PARTIALLY-SUPPORTED claim can be NO-GO when a false GO is ruin.
+     PROOF-OF-RUN or it didn't happen: only real with a compose-verify-run
+     valid_run for its run_id — inline-asserting the verdict is the role-play
+     the /compose surface forbids.
+
+version: "1.0.0"
+authored_at: "2026-06-19"
+authored_by: audit-composition gap-fill (operator directive — "if there is no audit composition then you should write it")
+changelog:
+  - "1.0.0 (2026-06-19): Initial spec. The missing CLAIM-audit composition.
+    GROUND (gecko) -> COUNCIL (fagan, cheval-routed) -> SETTLE (the-weaver,
+    GO/NO-GO). Verified source pinned as a mandated read (P203) — the defense
+    against the adapter-drops-side-channel-inputs defect. defi-strict surface,
+    council mandatory, claims_ledger observed-vs-claimed, cap-reached reads as
+    NO-GO. Borrows audit-ecosystem-coherence's council discipline + rigorous-
+    review's claims_ledger; adds the mandated-read pin as the anti-confab spine."

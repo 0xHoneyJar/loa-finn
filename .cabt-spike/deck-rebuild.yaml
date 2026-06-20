@@ -1,0 +1,50 @@
+schema_version: "1.0"
+kind: workflow
+name: deck-rebuild
+description: >
+  GYGAX rebuilds a broken Pokemon TCG deck into a consistent one by grafting a
+  proven, field-tested trainer engine onto the chosen attacker line, then a
+  reviewer checks legality (exactly 60 cards, <=4 copies of any non-basic-energy
+  card, every card real) + construction sanity before it goes to implementation.
+intent: >
+  "The live deck is the competition's auto-generated starter (35 energy / 15
+   trainer) and loses to fast aggro because it can't build a board. GYGAX designs
+   a consistent rebuild grounded in the real field decklists; the gate verifies
+   the list is legal + coherent. Output is a 60-card decklist (names+counts) +
+   rationale, feeding the implementation pass (name->id, deck.csv, field test)."
+hivemind_labels:
+  product_area: "loa-finn cabt — deck construction"
+  workstream: experimentation
+  jtbd:
+    category: functional
+    description: "turn a diagnosed deck flaw into a consistent, field-grounded decklist"
+  source: team-internal
+inputs:
+  - type: Intent
+    name: task
+    description: The rebuild brief (grimoires/loa/specs/deck-rebuild.md)
+    required: true
+chain:
+  - stage: 1
+    construct: gygax
+    skill: homebrew
+    reads: [Intent]
+    writes: [Artifact]
+    role: primary
+    notes: >
+      Design the 60-card decklist: graft a generic draw/search engine from the
+      proven field lists (.cabt-spike/games/decklists.md) onto the Snover->Mega
+      Abomasnow ex line, ~13 Water energy, ~28-31 trainer, swapping Fighting-
+      specific cards. Emit the list grouped P/T/E with counts + the Lucario plan
+      + residual risks. Real cards only (EN_Card_Data.csv).
+  - stage: 2
+    construct: fagan
+    skill: reviewing-diffs
+    reads: [Artifact]
+    writes: [Verdict]
+    role: craft-gate
+    notes: >
+      Verify the decklist is LEGAL (exactly 60 cards; <=4 copies of any card
+      except basic energy; every card name exists in EN_Card_Data.csv) and
+      coherent (engine actually grafted; no Fighting-only accel left in a Water
+      deck; energy count sane). CHANGES_REQUIRED if any check fails.

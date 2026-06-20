@@ -1555,10 +1555,15 @@ flatline_protocol:
 
   # Models for adversarial review
   models:
-    # Primary model (default: Claude Opus 4.6)
+    # Primary model — Claude voice. NOTE: to run headless ("Cursor Claude" / native claude-code,
+    # no ANTHROPIC_API_KEY), flatline-orchestrator's validate_model must accept the `native` alias —
+    # it currently rejects it (only remote gpt/claude/gemini patterns). That's a Loa framework gap
+    # (System Zone), filed separately. Until then this remote `opus` needs ANTHROPIC_API_KEY.
     primary: "opus"
-    # Secondary model (default: GPT-5.2)
-    secondary: "gpt-5.2"
+    # Secondary model — GPT voice routed through CODEX (was gpt-5.2). Aligns with the cheval agent
+    # bindings (flatline-reviewer/skeptic → reviewer/reasoning = openai:gpt-5.3-codex) and uses the
+    # present OPENAI_API_KEY via the Responses API. Bump to gpt-5.5-codex once that model id is confirmed.
+    secondary: "gpt-5.3-codex"
     # Tertiary model
     tertiary: "gemini-2.5-flash"
 

@@ -32,7 +32,7 @@
   --color-phosphor-bright: oklch(0.82 0.22 155);
   --color-phosphor-glow:   oklch(0.72 0.18 155 / 0.35);
 
-  /* Anomaly — ROX dye emission, hypothesis violation */
+  /* Anomaly — ROX dye emission, belief violation (FALSIFIED) */
   --color-anomaly-base:   oklch(0.58 0.20 15);
   --color-anomaly-dim:    oklch(0.40 0.14 15);
   --color-anomaly-bright: oklch(0.68 0.24 15);

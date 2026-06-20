@@ -1108,3 +1108,108 @@ downloadable; ~21GB/day but SAMPLE-able, no bulk needed). Audit (6 sampled top e
   behavioral cloning from top-tier play. Next: /kickoff the imitation-pilot build (extract → features → policy →
   ship → ladder, pre-registered) in a FRESH session — a real ML effort, not a marathon-tail tweak. Sample data
   in `.cabt-spike/top/`.
+
+**GAMES-012 — imitation learnability spike + the ECHELON ghost arena: deck-strength ⊥ pilot-learnability (2026-06-19).**
+Ran the imitation bet as a verify-before-spend LEARNABILITY spike (NOT a build) — `.cabt-spike/imitation_spike.py`,
+256 top-tier episodes, CSV-backed features (the cg engine is a Linux-only native lib → can't run offline on Mac;
+EN_Card_Data.csv carries stage/hp/type/weak/retreat/cost/dmg), hand-resolved card identity (`hand[opt.index].id` —
+options carry only a hand index, NOT cardId; the first cut missed this and read all card features as 0), softmax-
+over-candidates linear ranker, held-out by GAME, 8-seed CV.
+- **Learnability is archetype-dependent (held-out top-1 of predicting experts):** LUCARIO learned 0.330 vs v4 0.273,
+  **lift +0.057±0.021, 8/8 splits** — a real signal (v4 is WEAK on aggro). DWEBBLE/CRUSTLE learned 0.582 vs v4 0.571,
+  **lift +0.011±0.026 (flat)** — v4 already pilots the grindy engine deck at ~expert level. Per-card-id one-hot
+  OVERFITS (hurts held-out) both → the signal lives in board-DELTA features, not card memorization.
+- **The metacog reframe (operator):** don't polish a fake signal (self-play / a local proxy we've learned not to
+  trust); CHANGE the signal regime. Built **Echelon v0 — the ghost arena** (`.cabt-spike/echelon/settle.py`):
+  settle the 254 real top-tier matches we already hold against ground truth → player Elo + the archetype matchup
+  matrix. No engine, no Docker. (A coliseum seeded with greedy clustered our pilots at 0.5 — GAMES-008; field
+  QUALITY is the whole ballgame, so seed it with the REAL meta / imitation clones, not greedy.)
+- **THE REAL META (settled, 754 matches / 756 episodes):** a ROCK-PAPER-SCISSORS triangle — Dwebble/Crustle beats
+  Lucario (0.73, N=154), Lucario beats Alakazam (0.62, N=16), **Alakazam beats Dwebble (0.80, N=66)**. Dwebble/Crustle
+  is the most-PLAYED (868 share) and beats most of the field (Lucario/Dragapult/Abomasnow 0.73–0.81), but Alakazam
+  (share 121, wr 0.60, top pilotElo ~1673) HARD-COUNTERS it. Lucario = meta-food (0.40 wr). Artifact:
+  `.cabt-spike/echelon/meta.json`. **Caveat for the fired Dwebble bet:** Alakazam (~16% of the field) is its
+  kryptonite (0.20) — a known drag already folded into the humble p=0.45.
+- **KEY FINDING — deck-strength ⊥ pilot-learnability (two orthogonal axes I'd been conflating):** Lucario = learnable
+  pilot on a LOSING deck (a perfect pilot still drowns 0.19 vs Dwebble); Dwebble/Crustle = winning deck whose pilot
+  is ALREADY adequate (no learned lift). The narrow top-1 signal alone would have walked us into cloning a losing
+  deck — **the ghost arena corrected the live Lucario rec.** Consilience: you need a learnable pilot ON a winning deck.
+- **NEW LEADING HYPOTHESIS (spike × arena, neither reaches it alone):** copy a top **Dwebble/Crustle** decklist +
+  keep the proven **v4-class bot-friendly pilot** (which the spike shows plays it ~57% expert-aligned). Winning deck +
+  already-adequate pilot, NO ML. Counter-weight (the scar): every prior DECK swap collapsed (mono 205, rebuild 225)
+  because the new deck was bot-HOSTILE (trainer engines our crude pilot fumbles); Dwebble/Crustle has a Cook/Lillie's/
+  Waitress engine. BUT the 57% agreement is direct evidence the pilot can handle it → first bet with evidence on BOTH
+  sides of the deck-vs-pilot tension. Ladder-resolvable, pre-register humbly. v4 (719) stays the standing entry.
+- **Coliseum roadmap:** v0 ghost arena (DONE) → v1 live Docker matches (engine x86-64 via Docker bridge, cabt-viewer
+  pattern) with an imitation-CLONE roster as the field, VALIDATED against the 5 ladder points (v4 719 > v5 569 > v6
+  540) where the greedy-field arena failed (0.5 cluster) → v2 research-team submissions + cabt-viewer progression view.
+- **SHIPPED the Dwebble/Crustle bet — sub 53868523 (PENDING, 2026-06-20).** v4 type-only pilot (CABT_POLICY=v4,
+  byte-identical to the 719 pilot) on the converged Dwebble/Crustle deck (`.cabt-spike/sub_dwebble_v4/`, deck from
+  `echelon/deck_dwebble_crustle.csv`). Pre-registered `deck-dwebble-crustle-with-v4-pilot` **p=0.45** (registry head
+  ec253962, valid=7). No-engine smoke PASS (package complete, deck-selection returns the exact list). Resolves vs v4
+  (719) when it scores. v4 stays the standing entry. (Ladder settle note: v6 finalized 539.8, v5 569.2 — both < v4.)
+- **COLISEUM v1 — engine runs LOCALLY (proof-of-life, 2026-06-20).** `.cabt-spike/echelon/arena_match.py` drives the
+  cg.game API inside `docker run --platform linux/amd64 python:3.12` (x86-64 engine via qemu on the ARM Mac). One
+  match in **0.6s** (v4 beat greedy, sanity ✓) — fast enough for a local coliseum, no Linux box needed. UNBLOCKS v1.
+  NEXT (the validation gate): round-robin v4/v5/v6 (same Abomasnow deck, pure pilot) vs a DIVERSE clone field (the
+  real archetype decks piloted by v4) → does the arena reproduce v4>v5>v6 (719/569/540) where the greedy-field arena
+  clustered at 0.5 (GAMES-008)? If yes = a trustworthy fast signal that escapes the 5-bets/day prison.
+
+**GAMES-013 — the VALIDATION GATE (pre-spike for the coliseum): arena is NOT yet a ladder-replacement (2026-06-20).**
+Operator invoked /simstim to build a submission coliseum for the research team, BUT flagged "pre-spike it" — validate
+the arena can replace the ladder BEFORE pouring a planning cycle into a "replaces-the-ladder" platform. Ran it
+(`.cabt-spike/echelon/validate_arena.py`, in the amd64 Docker engine, 240 matches/13s): each pilot (v4/v5/v6, same
+Abomasnow deck, pure-pilot) vs greedy + the diverse meta-field (Dwebble/Lucario/Alakazam, v4-piloted).
+- **RESULT (honest, not the crude auto-label):** the diverse field ranked **v4 first (0.400) > v5=v6 (0.317)** —
+  CORRECT direction, reproducing the ladder's top, where the GREEDY field TIED v4=v5=0.60 (mis-rank). So a real-meta
+  field IS more ladder-faithful than greedy. BUT the separation is 0.08 at N=20 (~60 field-games/pilot, ~1.3 SE) =
+  WITHIN NOISE; v5/v6 tied (their ladder gap is small); and the Dwebble column is ~0.00 for ALL pilots (Abomasnow
+  loses to Dwebble deck-deterministically — zero pilot signal). 
+- **WHY it can't separate confidently: the FIELD IS TOO WEAK.** It's v4-piloted decks — too weak + self-correlated to
+  punish pilot mistakes the way a 1300-Elo field does. Field QUALITY is the whole ballgame (consilient with GAMES-008's
+  0.5 cluster). To become a ladder-proxy the field needs STRONGER opponents (imitation clones / stronger pilots) + more N.
+- **VERDICT: the arena is NOT yet a trustworthy ladder-replacement — directionally promising, underpowered, weak field.**
+  The pre-spike did its job: it STOPPED us building a "replaces-the-ladder" platform on an unvalidated premise.
+- **REFRAME for the coliseum:** the submission platform is the MECHANISM that strengthens the field (more diverse strong
+  submissions = stronger field = better signal). So build it as "a battleground that BOOTSTRAPS a calibration signal"
+  (useful from day 1 for rough ranking + the ghost-arena meta), NOT "a drop-in ladder replacement (today)." Fork held
+  for the operator: (a) strengthen field first (clone roster) + re-validate → then platform; (b) build platform now with
+  the honest bootstrap framing; (c) higher-N re-validate first. Stale simstim state (simstim-20260614, unrelated) +
+  Flatline degraded (no ANTHROPIC_API_KEY) are practical gates IF we commit the cycle.
+- **DIRECTION (operator, 2026-06-20):** sequence = STRENGTHEN THE FIELD FIRST (2-3 imitation clones as stronger
+  opponents) → re-validate → THEN the platform PRD. MVP = research team only. **Guiding principle (load-bearing):
+  calibrate against opponents that MIRROR REALITY as closely as possible — the best opponent is other real users /
+  their agents, not synthetic bots. "Reality is the biggest test; our job is to simulate it as closely as possible."**
+  → the clones are a SEED; the real field = team submissions. So the field-strengthening IS the minimal real-submission
+  loop (research-team-only), seeded with clones + the ghost-arena meta. Synthetic-field validation (GAMES-013) already
+  showed bots barely separate pilots — vindicating "real opponents, not bots."
+- **FLATLINE PROVIDERS (operator wants Cursor-Claude + Codex-GPT5.5):** both CLI tools ARE on the machine (codex-cli
+  0.139.0, cursor-agent at ~/.local/bin), but Flatline routes through cheval's API adapters (anthropic/openai/google —
+  key-based; OPENAI_API_KEY set, ANTHROPIC_API_KEY unset = DEGRADED). cheval has NO codex/cursor CLI backend → wiring
+  them is a FRAMEWORK pass in the loa repo (`.claude/adapters/loa_cheval/` = System Zone here, off-limits to in-project
+  edits; the headless-CLI-adapters live in ~/Documents/GitHub/loa per memory). NOT on the critical path yet (field-first
+  means Flatline isn't needed until the PRD review phases) → defer the CLI-adapter wiring to when we commit the cycle;
+  quick fallback if needed sooner = set ANTHROPIC_API_KEY (raw). Did NOT change model routing (no-latitude).
+
+**GAMES-014 — CLONE ROSTER built (via /compose, proven valid_run) → synthetic field-strengthening is a DEAD END (2026-06-20).**
+Built the clone roster via /compose code-implement-and-review (general-purpose → FAGAN), terminal gate **valid_run**
+(run_id clone-roster-20260619-91e212, envelope_digest sha256:8d83d025). 3 files in `.cabt-spike/echelon/`: `train_clones.py`
+(reuses imitation_spike's featurizer/ranker VERBATIM — bit-parity proven over 86,272 options), `clone_agent.py`
+(pure-python serve, explicit no-silent-fallback load gate), `validate_arena_clones.py` (the clone-field gate). FAGAN
+earned its keep: caught the alakazam negative-lift honesty caveat + 2 MINOR hardening (mu/sd single-source, sd-zero
+guard — deferred, latent not active); the Docker engine RUN caught a `KeyError` (CLONES keyed by FIELD-key not arch_slug)
+the stub-smoke missed — fixed (1 line).
+- **The clones are WEAK imitators:** held-out top-1 over v4 — lucario +0.032, dwebble +0.012, **alakazam −0.007** (imitates
+  its archetype WORSE than v4's hand priors). Marginal at best.
+- **THE RESULT (the clone-field gate, Docker, N=20):** the clone-field spread (0.10) is only marginally wider than the
+  v4-piloted field (0.08) AND it **MIS-RANKS** the pilots: v6 (0.500) > v4 (0.433) > v5 (0.400) — the ladder truth is
+  v4 > v5 > v6 (719/569/540). The ordering is within noise (~1.1 SE at N=20). So even a field of imitation clones of the
+  REAL meta CANNOT reproduce the ladder.
+- **DECISIVE CONCLUSION:** synthetic field-strengthening (even reality-mirroring imitation clones) does NOT yield a
+  trustworthy local ladder-proxy. Consilient with GAMES-013 (field too weak) + GAMES-008 (greedy 0.5 cluster) + the
+  operator's principle: **you cannot fake the ladder with synthetic opponents, even good ones — the REAL field (real
+  participants) is the only path.** Field-strengthening-via-clones is CLOSED.
+- **STRATEGIC PIVOT:** the path to a trustworthy local signal is the REAL-PARTICIPANT platform (research-team submissions
+  = the real diverse field), NOT synthetic bots. The clones survive only as weak sparring/variety opponents, not a proxy.
+  Next: the real-participant coliseum (simstim), once the tree is committed + /update-loa lands the headless framework.
+  Standing: Dwebble bet 53868523 still PENDING.

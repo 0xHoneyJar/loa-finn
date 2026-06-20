@@ -56,7 +56,7 @@ const T_NOW_0619 = Date.parse("2026-06-19T18:00:00Z")
  *  `--force` + anchor bump — so a forecast cannot be silently revised after the
  *  fact, even if the on-disk registry is deleted first. Bump ONLY in the same commit
  *  that intentionally changes the registered set. */
-const EXPECTED_REGISTRY_HEAD = "6c69d1d17d14351174140c02f0983609970258e959ec32c1a3df7e7e74808039"
+const EXPECTED_REGISTRY_HEAD = "ec253962afce2b4aef4d8d7970ceb2ab346a980a7973dd5d42dfc8a99ec72e04"
 
 /** Build a LOGGED, unresolved pre-registration. `effect_size` here is the PREDICTED
  *  effect (part of the bet); resolveRegisteredDecision replaces it with the measured
@@ -197,6 +197,28 @@ export const PRE_REGISTERED: DecisionForecast[] = [
     predicted_effect: "small", // a pilot refinement on a working deck; may land insufficient (below ladder resolution)
     local_evidence:
       "v5 SEES the board (6 weighted terms) vs v4's type-only blindness; does-it-run verified (legal moves on v4's deck, container). But 0-for-2 on cabt bets; bot-friendly lesson warns complexity may hurt the simple deck; self-play is anti-signal",
+    created_ts: T_NOW_0619,
+  }),
+  preregister({
+    // NEW (2026-06-19, GAMES-012 — the ghost arena × spike consilience). The imitation LEARNABILITY spike
+    // said Lucario's PILOT is learnable, but Echelon v0 (254 real top-tier matches settled to Elo + a
+    // matchup matrix) revealed Lucario is META-FOOD (0.38 wr, 0.19 vs Dwebble). The two axes are ORTHOGONAL:
+    // Dwebble/Crustle is the KING deck (304 share; beats Lucario 0.81, Dragapult 0.78) AND the spike shows
+    // v4's crude type-priors ALREADY match Dwebble/Crustle experts 0.57 top-1 (held-out, 8-seed CV) — pilot
+    // already adequate. So the lever is the DECK, not a learned pilot. The list is CONVERGED (36 top winners
+    // ran the byte-identical 60) and bot-friendly-leaning (31E/8P/21T) — unlike the trainer-heavy rebuild that
+    // collapsed. p=0.45: the best-grounded deck bet yet (meta-king + converged + pilot-agreement evidence on
+    // BOTH sides of the deck-vs-pilot tension), BUT deck swaps are 0-for-2 (mono 205, rebuild 225), the
+    // Cook/Lillie's/Waitress engine still risks bot-fumble, and 0-for-4 overall demands humility.
+    decision_id: "deck-dwebble-crustle-with-v4-pilot",
+    label: "swap to the converged top-tier Dwebble/Crustle deck, piloted by the v4 type-only heuristic",
+    action: "ship",
+    proposition:
+      "the converged Dwebble/Crustle deck piloted by the v4 type-only heuristic beats the v4 baseline (~719 ladder) by a margin the games can resolve",
+    prediction_ppm: 450_000,
+    predicted_effect: "large", // decks are the field's biggest lever; this is the DOMINANT meta deck
+    local_evidence:
+      "Echelon v0 (254 real top-tier matches): Dwebble/Crustle dominates (304 share, 0.81 vs Lucario, 0.78 vs Dragapult); the top list is CONVERGED (36 byte-identical winner copies); imitation spike: v4-class priors match Dwebble/Crustle experts 0.57 top-1 (held-out, 8-seed CV) = pilot already adequate; deck is bot-friendly-leaning (31E/8P/21T)",
     created_ts: T_NOW_0619,
   }),
 ]

@@ -1,0 +1,44 @@
+
+## Dig: Vercel Eve durable workflow Workflow SDK the loop introducing eve agent
+_2026-06-17T18:40:31.645Z | 18 sources | 161.9s | depth: ++_
+
+### Findings
+
+Guillermo Rauch positions Vercel Eve as the **"Next.js for agents,"** introducing a filesystem-first paradigm that strips away the need for custom orchestration loops. By mapping agent capabilities directly to a rigid directory structure—`agent.ts` for model routing, `instructions.md` for the core system prompt, and `skills/` for markdown-based playbooks—Eve enforces an opinionated "Agent Stack." This structural shift treats agentic behavior not as a novel cognitive problem, but as a routing challenge, mirroring how Next.js transformed React from a component library into a full-stack framework (bridge). 
+
+Malte Ubl focuses the underlying architecture on solving long-running execution through "Reliability-as-Code," heavily utilizing Vercel's new Workflow SDK. By introducing primitives like `"use workflow"` and `"use step"`, the framework enables "Durable Approvals"—where an agent reaching a critical mutation (like issuing a refund) can indefinitely pause its execution to ping a human in Slack, consuming zero compute while it waits. This mechanism borrows the "Deterministic Replay" pattern from distributed systems like Microsoft Orleans, using an append-only log of events to reconstruct state during a crash without re-triggering non-deterministic LLM calls. The implementation effectively brings the "Blackboard Architecture" of Game AI—where non-player characters pass a shared context object to maintain a `RUNNING` state across discrete asynchronous ticks—into the world of serverless TypeScript (adjacent).
+
+Tony Holdroyd and the Inngest team characterize this shift as necessary to close the "Demo Gap," moving from fragile, memory-constrained Python scripts to event-sourced, suspend-and-resume workflows. This mirrors Harrison Chase's push for "checkpointers" in LangGraph, but Eve pushes the abstraction further by coupling the orchestrator to Vercel Sandbox, a microVM environment for securely executing autonomous code. The tradeoff for this zero-infrastructure velocity is a deep coupling to the Vercel ecosystem, though the introduction of "Worlds" adapters—allowing the open-source Workflow SDK to run on external Postgres databases—suggests a strategic hedge against complete vendor lock-in.
+
+### Pull Threads
+
+- Vercel Sandbox microVM isolation model — How Eve executes autonomous, agent-written code without exposing the host system to security risks.
+- Game AI Blackboard Architecture for LLMs — How passing a shared memory object, rather than relying purely on context-window state, changes agent orchestration and tool usage.
+- Vercel Connect short-lived token rotation — How shifting from long-lived API keys to managed OAuth APIs solves a critical vulnerability for autonomous agents integrating with third-party platforms.
+- The "Worlds" adapter specification — How Vercel is decoupling their open-source Workflow SDK state persistence from their proprietary cloud infrastructure to support self-hosted Postgres.
+
+### Emergence
+
+We are witnessing the rapid de-exoticization of AI engineering. The core challenges of scaling autonomous agents are no longer being treated as novel prompt-engineering or cognitive architecture problems, but rather as classic distributed systems challenges—specifically, the management of asynchronous state, side-effect isolation, and distributed event logging. By applying traditional business process management (BPM) paradigms to non-deterministic LLMs, the industry is effectively turning "agents" into highly fault-tolerant microservices with built-in human-in-the-loop checkpoints.
+
+### Sources
+- [tt.se](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEjlSawxyfxdLpNM8m_6aAlIBwit3kgBt6woJO07t0NqqJZGz8E19iD_GM92ryPnJuc9H_M55qn-qaRgWFvjPN7-wDksV8M2x2gcmmBP3bUQ2teMMvQOCZ_ytWNGPvxnd9HZlCJ87oNqcLnKUqug5GmZ5VPsByCWrgc3mqV2IxkU7T_4eu5FwB4KrrLIlt0Ds49zf-RejaZo3SM3VeUfpbEJAnzRGXCJ6OzIk5L0ADtEJxuGMzVJPJCB-too0VWVv4vBFDH5736ZLzn_xJW2ot_sCW6Fd8eBg5_ZM2aClue3H69CNDWqvHw3y5qRrbzq7o=)
+- [lasvegassun.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGUZLBsA7HZ2yt6pcSjO0v6cV7F0A3Xvf_UvZ63RTziofBhQ-Z1ycj61kUzoKWJCXIkNJD8NYII83Uo3NTIZ6-ZkcepT-kEe9KWKOyImpDnHRPusUxxYgEkBqFoVipmqWIZDJBGFMLzYt4S_ocGZLorH0rhcHhSZemGH_LX5XTSXvl2ma-dciKjuFWJ13GRBWObi3y6AyU=)
+- [vercel.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHkrBB3xePf-XuitIggU1pQW0MRTjZ8jbZlMUzd-xDYoF3CPqAtKuSi7dPScyb8wsH9ltet0T-ib3kLVywF2Ui7OWxXMX-hvRnw3gaZDIwJx7V3M39G7fGz7SYPluU5MFurtX0wFyhKxYB07YL6DaBiGQjeotgRWxERoezR7MEy9oZn8a1j)
+- [vercel.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGjlvqIvVroixhqzgJKyK8ayFd5fKdblHpqzKRwAT6_kPB4T4fSX5dlY5ylTL9k1XFnVvEgFFNUxX8OnIy8Id0eor14_vd5y1_cSVAkKDI4RjU2MLgQyDDrSUvx4xpAj47g2ldVi9I=)
+- [workflow-sdk.dev](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHg7fEY90m6NR1pZs60WDH4WJBATASAgbJqgU_Eru66QTV-EcO3EKvbUCBSSc38LQbzXbdMjqek8C8aU3dPCQ39Xe6lEJ3GjO6dHATJSQosgkvb8OIw7RNU3w==)
+- [vercel.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFclcpa2ty0VKbznDF_7Hmf1aTSa5HYxpq4agP4qRxFbxiIxPfFjQwbv15Ye3oRy6HP0wpYsdTYD1UzMNy0XjhVoAnlrvXjTKN3GRzpBhJnLAo76HN10hqcBh2DOW4exFRBKTIuANtYmD_rkiRjK20ylNTBrw9JqbXDc518y3mt)
+- [vercel.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGSjF1ptygq51YnRIt5EP6hfSuuemnFsF88oja4c-98MdBIGLOqq0soBQjueFJgO-gzsgr5JGzC1oyEuwv_9XjvpDGDRK3qFb-9TP1j9KiUIR3OyKqeLQ==)
+- [vercel.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGBJ0rlMMd_DP0xMXheN3wQkFQSLiE9niG-xj6srQQMW7kuTcVOjaR9BHdRSj14ugi5xaV0XeqRNjcdO750isGjQr47TG7Nbn9_J4i_7nBzJbP2iPgE1Atwl2fbPMMj9moYL7j4DRYcXesDi-500EP8WQlRC3Ha3pK13FVZvmFIOD-nxQC1EA==)
+- [letsdatascience.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGF5DtLBPQAe6IUux1ZRZDNDjo7qZM2w0LH7hFLnFBcYPGQ0rYNLwUuTOUa_aeH7Ipq9OmBv0DTl6FoVTvf25npJPscpGFdmxbprHk0ZAO4JCEvUE8vws7TsanGOrxUe8-JtX2E5tNoh_L49ht3P2Pk-12wK6aX_47XegZ2wQE-JAmHnKPlJ5Y-dEVUFlzpbyDcvdbcb34ajc38cg==)
+- [Vercel Agent Architecture & Durable Workflows](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEDPSuL1MFbnN9rNGcKUymEf109In7zXH5fKrG3tMTpeFST0i4LOHFrReHgkYsmwpjRdrxEJVA2qOzdCqYyQjheniQ09CjAz7hwaUm4YoiBXrax0WJXaA==)
+- [Vercel AI SDK & Workflow Infrastructure](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGgE1CU085bBLwM-NIVSZ87HkbWVpvWnyPuqAERY7u2jfGFin2st0Px2lQnqHG14DBooVUnTOMw5FVJfjcizLWB9dJk9gEeoki9g0vgyYFwQTCnyDTHOMh2GUXmrE1P5c--MatTcwWk)
+- [Zero to Agent: Building with Vercel Eve](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGs7wQAqCsULuY8Seob7mX8rS3NN4vX1oUfe5DqWGlYBYPpsd5VGwT9aMT1xuZmbXnnr920kQknrpBNVAyoDpJPKLhKaKZvAzI733KNd6baf4tZg-QX_6Sa8GcuUJrfEiD5lYiZBxC6RQ6hG2V-Sl7yVuStk6ukRw==)
+- [Vercel Workflow SDK Overview](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHH9U_p6f77Axex6ILy5ABmuoGxj6Hhr_jC24-N3RRly7t8pz0tfQ6oyHfAm7E_vlWhLBGTFnHJROJ4-oS1DWThJgy5DotCenOZ-8iVn4DuoR3FsMBrztzdpB3mluIqNh8j6Q==)
+- [Durable Execution vs BPM vs Actor Model Discussions](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG8HHNGHiycAy4sx-osGr7VtxVgCYqfV-_WqhmBWtyNSRXrNt4aH_eq26jhHQB0uPJVqUMNx3Gl-L0m4NdJWfvvUw9CtvLadDi_gI2c4mUxbvHe-rXTJrIyMTKah_40bYBejIk77dLgBgd22d15z69pnluvWTNupcKfeJMKl9s_DMNcYX9oRRxIDS6QYrvTbsgGq5YTUcgVgVhX1wPDmkFXSfEV2VU=)
+- [Game AI & Durable Execution State Patterns](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHiLR0zvv7JtkmxjC6NNj5HyWGoTIXh7sQGtYCCsIEZai3c4W_UhBTR1JPff6LMWEbCPkyc3LEVYjj2wJj_m2K7uIQ9FpgHpmJPnWOK9kCGjJxeK3VfC_AQuTQEeI_fxwpT6lODInTWXnWDXgfVMpybF5qdtcDP9UcX3Z5fZZKLzQTKnBzE4Oltla-z0ZYh4crdkO5ZBETSpvQloEJ4bYJ140ZSYa-d-hS9)
+- [Google Agent Executor Standards](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGR2GtGjjqLZihI07-h1S1M1RzVnuG22rXbm6rnaBEHoNZ0UZ8whsEuzE2QCCknRBo0p1JFKyd4x36-BkW41rrR8pL_0mC7OG74ALD8eU4iyWyNpcDnSjyyzSsyoXz1HqBWFlLoyoVvBdrav7deIgAZTkMDyxGV0LNhNWbd3_19aGby07SuGAx4izUGilc7BhljuvvD-ONbIdwtOBSzw3Da-qGAcG8=)
+- [Inngest: How Durable Execution Enables Long-Running AI Agents](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEhacG1leLvnyShloxUZenVETwJ2NHZ1883bub1ckiJLWIQfwP9J95KjjKDRir7AXLoj8B-Wb_LYiPBFgt1m9p29vF2VdXMaxE7WWTA8yH5aE23OUTU0594j9-7RFIfXe58DNFZ2WJECXl00cQ0sLrj6bYbNViRC4PTvyp7qsyp2uBfd_k=)
+- [Restate: Workflow Guarantees for Existing Agents](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGKy6kxUY5Qz2qcPQTEDgMte3I_N-_xiFSpi4N5v-kIxLI8p-8auPG-42WPV8UBj07_PrqXEjltL2SiB5vNGUhfEzjIm2BqiAkM9aM5-bJCvTOZyF_CCOGABEGiw7C13-hQ1PGoTy9xXCWaty51GN3HZjC9lIBO-J3BXQ5L3Q8hl9OLAtB6TY4AarGztjju1IWrJl8Y9JhdQLa9lFY=)
+
+---

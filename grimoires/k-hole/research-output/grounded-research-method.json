@@ -1,0 +1,183 @@
+{
+  "query": "What is the state of the art in 2026 for AI-agent-driven research that stays grounded in real-time reality: Gemini Deep Research, Grok real-time X/news access, automated trend-detection, horizon scanning, and cost-metered LLM research pipelines? How do teams keep automated research cheap (atomic per-query cost accounting) and grounded (cited, falsifiable) rather than hallucinated? What's the minimal 'research probe' that grounds an agent team in what's actually happening?",
+  "depth_rating": "++",
+  "findings": "Google's Gemini Deep Research Max treats verification as a recursive engine, deploying a dedicated Citation Agent to run up to 160+ sequential queries per hypothesis at roughly ~$3.00 per full run. Conversely, xAI’s Grok 4 Heavy functions as a \"Nowcasting\" sensor hooked into the X firehose, relying on a four-agent internal consensus model (Grok, Harper, Benjamin, Lucas) that must reach cryptographic-like agreement before outputting a finding. This split mirrors the intelligence community's historic divide between long-term strategic analysis (OSINT synthesis) and tactical, high-speed signals intelligence (SIGINT) (adjacent). \n\nStanford's SHARP (Scientific Human-Agent Reproduction Pipeline) and the experimental Baby-AIGS architecture indicate the industry bottleneck is no longer generation, but explicit falsification. Baby-AIGS deploys a dedicated FalsificationAgent whose \"sole directive is adversarial: attempting to disprove the lead agent’s scientific findings.\" To tether these agents to real-time events, the minimal \"research probe\" relies on an Agentic Data Contract over MCP—treated as \"living code\" with data freshness SLAs that trigger immediate failsafes if schema drift occurs. The ultimate grounding test has shifted to frameworks like the Agents' Last Exam (ALE), which evaluates utility not via text, but by having the agent execute multi-step tasks inside real virtual machines where \"success is binary and empirically verifiable.\"\n\nAnalemma demonstrated extreme cost-control by generating 166 complete ML research papers at roughly ~$1,100 per paper, relying on strict \"AI FinOps\" and cognitive load splitting. These \"agentlake\" pipelines use cascading model routing—dispatching intent routing to $0.10/1M token models while reserving reasoning models like o1 only for final synthesis—and enforce semantic caching where a 95% vector match serves a cached result for $0. This atomic accounting enables complex, multi-agent cross-domain topologies like Ghafarollahi et al.'s SciAgents, which uses ontological knowledge graphs for materials science, or Dr. Rahul Sundar's Dhyuti Frontiers, which automates literature surveys for Physics-Informed Neural Networks. The reliance on discrete, specialized agents (Surveyor, Framer, Implementer, Analyst) heavily echoes the Actor Model of concurrent computation, where isolated entities communicate strictly through message passing to prevent state corruption (adjacent).",
+  "emergence": "We have moved from \"prompt engineering\" to adversarial orchestration. Trust is no longer placed in the model's reasoning capabilities, but in the rigorous, mutually antagonistic friction of the system design. The workflow has inverted: systems autonomously generate the creative hypothesis, while the human (or a deterministic, cryptographically-locked multi-agent consensus) acts solely as the falsifier and boundary-enforcer. The machine is the dreamer; the pipeline architecture is the skeptic. (bridge)",
+  "pull_threads": [
+    "`Baby-AIGS FalsificationAgent prompting strategies`",
+    "`Agentic Data Contracts over MCP schema definitions`",
+    "`Agents' Last Exam (ALE) execution environments`",
+    "`HumanStudy-Bench Probability Alignment Scores`"
+  ],
+  "synthesis": "### Findings\n\nGoogle's Gemini Deep Research Max treats verification as a recursive engine, deploying a dedicated Citation Agent to run up to 160+ sequential queries per hypothesis at roughly ~$3.00 per full run. Conversely, xAI’s Grok 4 Heavy functions as a \"Nowcasting\" sensor hooked into the X firehose, relying on a four-agent internal consensus model (Grok, Harper, Benjamin, Lucas) that must reach cryptographic-like agreement before outputting a finding. This split mirrors the intelligence community's historic divide between long-term strategic analysis (OSINT synthesis) and tactical, high-speed signals intelligence (SIGINT) (adjacent). \n\nStanford's SHARP (Scientific Human-Agent Reproduction Pipeline) and the experimental Baby-AIGS architecture indicate the industry bottleneck is no longer generation, but explicit falsification. Baby-AIGS deploys a dedicated FalsificationAgent whose \"sole directive is adversarial: attempting to disprove the lead agent’s scientific findings.\" To tether these agents to real-time events, the minimal \"research probe\" relies on an Agentic Data Contract over MCP—treated as \"living code\" with data freshness SLAs that trigger immediate failsafes if schema drift occurs. The ultimate grounding test has shifted to frameworks like the Agents' Last Exam (ALE), which evaluates utility not via text, but by having the agent execute multi-step tasks inside real virtual machines where \"success is binary and empirically verifiable.\"\n\nAnalemma demonstrated extreme cost-control by generating 166 complete ML research papers at roughly ~$1,100 per paper, relying on strict \"AI FinOps\" and cognitive load splitting. These \"agentlake\" pipelines use cascading model routing—dispatching intent routing to $0.10/1M token models while reserving reasoning models like o1 only for final synthesis—and enforce semantic caching where a 95% vector match serves a cached result for $0. This atomic accounting enables complex, multi-agent cross-domain topologies like Ghafarollahi et al.'s SciAgents, which uses ontological knowledge graphs for materials science, or Dr. Rahul Sundar's Dhyuti Frontiers, which automates literature surveys for Physics-Informed Neural Networks. The reliance on discrete, specialized agents (Surveyor, Framer, Implementer, Analyst) heavily echoes the Actor Model of concurrent computation, where isolated entities communicate strictly through message passing to prevent state corruption (adjacent).\n\n### Pull Threads\n- `Baby-AIGS FalsificationAgent prompting strategies` — how do you prompt an agent whose sole directive is adversarial disproof without it falling into infinite cynical denial loops?\n- `Agentic Data Contracts over MCP schema definitions` — what does the actual \"living code\" of a real-time data SLA look like when verifying unstructured social firehose data?\n- `Agents' Last Exam (ALE) execution environments` — the mechanics of safely sandboxing and verifying complex VM-based tasks (like CNC tool path generation) for automated agent benchmarking.\n- `HumanStudy-Bench Probability Alignment Scores` — exploring the statistical math used to falsify an agent population if it fails to replicate human behavioral significance.\n\n### Emergence\nWe have moved from \"prompt engineering\" to adversarial orchestration. Trust is no longer placed in the model's reasoning capabilities, but in the rigorous, mutually antagonistic friction of the system design. The workflow has inverted: systems autonomously generate the creative hypothesis, while the human (or a deterministic, cryptographically-locked multi-agent consensus) acts solely as the falsifier and boundary-enforcer. The machine is the dreamer; the pipeline architecture is the skeptic. (bridge)",
+  "sources": [
+    {
+      "title": "youtube.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHuivAUrhDH4cvu-2zUiiFIKKSc-L9qBl4yZacGP2G2zc4pcc3zm0laNuH5LGQ72MhTMZqMRfH27Ar3ZiToHUVW2GDCMp6pFLzpIqtp3rTIG7ZDXA8tavNdWkSAkE1MGEGJ8AiZ4J4="
+    },
+    {
+      "title": "grizzlypeaksoftware.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF1HHPhJQbWgfZqhfe1rSujTM_R9TvCwFZhxLf0D18b0Ic154Z9DSy3d3L3HIVMVZjjTAXZPxY-ZwA8PCXMQteutfcLHUMdAcI06FzIznCdHBDeD2b28-6B-s5C2zAiud6qXqPONwYaST1M7aPRKPruVNTfUDICgUMMNlKHJM1mOPzcffbNaJlhFZl871gb23iViE4bxFpfBxzGdBZCkaUriUAKZDiRhtNiHQeHRjl8hYRLl7P8OHbITFwkPluo"
+    },
+    {
+      "title": "mem0.ai",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHyG7mOSn6iPysWKPKHVvNoArFeAy9n9Ayx21lMa7Zk2kidY1p86JW8EEDgKmqNWoGbFWTOD14M_w7QWHO3IAEvjQ7fNhtX3ZtunDkKr6bD6gwglbpcROW_5_3kcxg9hYWbmSOo"
+    },
+    {
+      "title": "medium.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHWD79zrwFz-_jDc6AzBSfooMG62YeVL9qA99UvRhtmhtBrJKusgU8T8DME9CF-BJylRT7R4BZDqVWZqhEM6-SC2dxFjNPEXZ8V0g0TkC64uPe19tVJqw-4fQKigx2S-xk86tYkqq4JlyMPfYp5XiT2jqQDcQS7knHY7rq_r0Wvtmg-in_ewaQKCdcBhW1u3GL741J2"
+    },
+    {
+      "title": "futuresearch.ai",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGIkmCTksQqLrqBz5qNdNSvqvvnQtVcVybYnfdQFY4SlmfzxPH4M4ujmkfRHcrweZkIUNgmb8552hATjqFSQKdaQXfSAkTZgJmMJIJhJY8qJR40HjUuoRXSdG2OjafttZOQ2yDvYbskOeaVAgiMVw=="
+    },
+    {
+      "title": "airstreet.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE6CVxRCyvTqsdR5pqv0R0AHWIv6jOY96s84U-aAOwONEpxDLBtOimPVR9HRbyV2T7nndnN_vnhbspydWCRCsEewrge0Ybz6SBWtKBgESvMrUJQhvYlrXjsGny0OgIGKzP6iew_nAXQbyiVnyt2"
+    },
+    {
+      "title": "medium.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGa8pmrJi4Gq4u4XYkUw3u70w8DpfY1uXsn_iVfgYh4v4uEOyaD5ZQKb4hr1JNWgnG3HRyiz_69kdm2tb-M8Vf0subbWwB5ZzfqF8mGqkhLI6-rtCh7kuAvD9cslb__kXLYo4lia440O5VjS8ieicsQLBiBf-L0diycKT8ZxoUXlTNY4dFBiJaPQhQA4xyDRukLtKrvFHjjYALYxfU1aeHeMkql3MYy9TH4sdQOTyClUY8="
+    },
+    {
+      "title": "forrester.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEx0YbQn9BC9cx6Utw-suH36uEGp9GPNVPK9BCL_rV8XnUfoeJTqmRpdLkW_6m986UwYiePNxUBRX6AXs-OXSTLlpFbfM0ixnVAgy3YRto2Ba8vpVAebvVsA3kn8NJE77IcvOylAG-CFJaKwMN0ksEQSS1eC4MQZ4RN9AEImB-0JUxnSISWrV77UMuWttJyTo0="
+    },
+    {
+      "title": "adaline.ai",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEB1ssmNmrLyUp5Bn9Nb_pN8gAa03ToJ4rxH8TuIf5YyPmQPM20ushDTXNm9vbJ0_KH7b1elS4VwqvknxY9K_0D-7-Ifq3hlVTWIzACNDCmA8igTGd2BDFQQCLVRecumqioucg-kG8gu1L3Zj5bkdFRACecBd-x"
+    },
+    {
+      "title": "kore.ai",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGT7MfVjZ5_pr0uMR82imRMdsCr_FceC3Pm6dsNBMPKpuU7hgkUDDMq7HN_8WxKT52DNEYkAZmjC0WKJu70BQ0vZ0GBlqM9XkFKQDgh5l3EymTCWaFkQP2cxl9UKbZf4yB-kwBoXTHufVKw_NNrJEZ5f1-xtmKVQMZTkc7LnCY6yz3F2ifH"
+    },
+    {
+      "title": "medium.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFpC8n44D3PkHiFMRjMeFh9SL9inDF7HFBrRmEAhjgnY8PkJ6l_G4lt2atx_n9l26VMkajdQ0rDg-CRX_UWQWEPfl0wE8vfmGe5pmyWesu4s0YFWePxcCDopFIQDuzXcdwOU5d_tVCnOZYTgbuvPS1XA6oI9-qpN2Hrrd0sIh2jzLtWlY2JAlcBk6Lghsce8gPKNFoBBlLR9nc="
+    },
+    {
+      "title": "youtube.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEoUXDzB7fSB4pQFVChu9CXXIRRQBOmC1UhZ2IWWiT3fNhpHHWgR-T4S_yOKrwCO2FkJE7_i1y3STDxsYeAfv85RtRHf91thSoLyuze1ZmBiPbzOrJDblYSN_x0OzJcZDEK7fC__g4="
+    },
+    {
+      "title": "simplyask.ai",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH_t0sgES8oFr9ez2r97-E8yf_FtQXrNZsdOP8dnhH0312bsV0lzm4UCPU5jGTnNrfCzTYteNPBKdEYqLqVhH6F9PesWn02GsYIGXYkGu9QovXNxRaF9no0kGKkrRGJdx8sgnOGZIYbouloEgQLix3kos-I6RCC9IujAmRs29xTDIYw_dDKwBMH8AOA2jLMOOfEfI2vjpN-wDKQ8GL726dhHfGGIL5w"
+    },
+    {
+      "title": "criver.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFKtnIdct3tJVWWVmNShsOjBN56Oi2WMhxJFZkz2Ctk7O3zBA7rxu9MbjBktXJ6IpaKBA1gg9CGc8lZHL_zAhVdjZVjphM68WkV6ZiUgO_WFbJGwC_m0N6uW2Ynwj8NAgHVsNnsBeehVu194mvsNRC1HrckJuRCWf6oeyf3LKf_T4eb9gUX"
+    },
+    {
+      "title": "decodethefuture.org",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF7Upyvfv1SXzpxVXgVfsBUo2pDQy2fy35X7fb8xscYHBl0luOgnYjjCOJR8-o08MozEc5SCIp31rArUe8enosqjud0Bf2j3hUQSbNBCdVB8gLGtUb4ouBcRRtXLcRrDnf9gdsd33YJcGLWqgDC_kBCW1kh"
+    },
+    {
+      "title": "rapidclaw.dev",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHXEFUiwYmq1-cELVo1vTKQGm68OW2JknMZIgyXiGeEfEkmudcHHJQHph-mPyMX3ewcT9GkPMEf20BHIqrDK1XWrSntl8evS5MMZnZAiksGT7UUka4w-bFIkc-vEbVwTfvWHlR4Hbt-hq8EE1imbQ=="
+    },
+    {
+      "title": "youtube.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE0yyiv__sMhf7OogaBUVLs5bv3h5-0DH_66Roow9lMdbj0O75ndLBACxrIkASiP_DcH9eZohZDQALRJ06T7t2zl8cgGrrt6grNxkn55a3cQt_29lztyPMD0wfwV5YFELqH9EePScs="
+    },
+    {
+      "title": "huggingface.co",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFZbnYBXXWKLvNEiKGs2TyDv_GjxVfexGVBCFlewcNHwxgkDtGjLwqz_zIr5SfykpxHSsc7v8n6L8Mtgj26nWjX102EUuyvLGLqE-CxJ8tjd9BXxZF28Fq_c_yFIbNtfZxR0-w="
+    },
+    {
+      "title": "arxiv.org",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF5oRX33aiTVIt3X0jwk1eBSo5ax2MN1ciNfGbdB6Ov8jz_HP8S1Bl8DScp6SGWkKb5CmotXNQPazTbZEvmIN2ej161jnLbPvC7NiA0IflK1WJfpBJKQ2_6ARn-"
+    },
+    {
+      "title": "workato.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHRWntfy0GiHzbt2RB8HXfOzbqhkuAjuo3VdGN7iv9TEY-acp5jkptqqxqbzJ-Kz4Oc7jqKkRubgAoCukikUYJxk_W551tihoOw27v0kdSaCt5c-DZdzx7M4t0hIncwx4SWSFpE66SAeXqzncSn2Bon"
+    },
+    {
+      "title": "arxiv.org",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQETSUyChilAs3VugdWAS_-JlnJXw2Of76YR2eJvs0qM-c2uIXqwliLymC2b0YmdgVT1c08llX5t9vZItY2pDm1tIc8lmY0bwuCad7dBl70xWCuSikPoYKDGZiFLnMSW"
+    },
+    {
+      "title": "tredence.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGAok5YDsGKkOQQCLSV6zmajaBA1dllTvLD9qSvE__B5Ea1eB9psaibzkjsf768z3n4iM7YX3TvP5PKtaV_o_sH2-2KJuNiZKJbCCmAlOlZqnBhHnWmRYkEw4Y6bZtI-v7k5CsUDajn"
+    },
+    {
+      "title": "arxiv.org",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGiru_RopRHGWWe91gimW8vekK6SMMSIzc9-EPCr2N4QWgEiS55_2tuvl9xe0rvLl1KF5GeVR5dhfdyO3MXNJiEU6MCk_MJbMDA9-6Fi5jVh5wmKWOxtnFKQQPa-QZO"
+    },
+    {
+      "title": "buildfastwithai.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFUTA6MLxq3ZEeyQ1bB7sGiuZSXaHlKWWtmu1zQB-mrFAYLtIqIYb_FBJ-10fCtIAIW3DU-6kj7PtVfKpl_Kty0vCPeArI5zmZ_mb2FdSNaV0MtMDRpdKuXAsuwsJZ7DvCzptdy1VHbUcS79md8xfx1uFgId_CFzkjrlQok44d5"
+    },
+    {
+      "title": "ai-agentsplus.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQErxosItupwQ9goiPdxrxX0HQ-guD0chGBI0S_GcAFuLwstdJhXa5sIzMSmmDJHQBGgtvIxlFc_epyS3f2g7FHuv6dxGJvR_5NlUa92C0DizyvrSLYCUACc0DR_z4yBBlMp5AB_Cam1YOX4waoLj8gOlsH385tvW7VB_LkpK0AfKBVxnp-yHyxfD7JG0x4="
+    },
+    {
+      "title": "niteagent.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQENP7T5q8tgSKzA7utccVmeiXgaXwhNfCmMznN6Tac_Fqd98vul1vSULn8mPure1H_vD-rjwir-1N-SpFuubf0uJSRBrEW5SMnvI5fh78sHsisgMyGvSgCKisCdvz30vl-7x96W0l5490ziNXia1uu8t5P8SaLK1j-Ivp_g"
+    },
+    {
+      "title": "shapingtomorrow.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHRCp9CeXsOOvO3XHcCnwhUX4LGtwJqXv-f0EyoB0w1MzRhd0au8r4sYEguvSx_6qGQQ8bubKtQGVVBRqV9tWPOQA67UBBP6g5kynpeZmAxd7XPkz0MjAPjJLRey-0TklM9v2NE6u00Wnz3deK07CPKSK0gVnf2GwHUOLRBXbQbDfZAC_lP"
+    },
+    {
+      "title": "capsolver.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHNoC70151p9nbBqJ5NSMggYFj1FtiDgT3zQJAKUC0ydvYX6Lgo4RdaU1G56AWgB4CsRjjwwMgoys50NnGfDwsutnlBN2iqBnmEW7_dFT8brcUjjvi3jpW5py6VFsOcC2jU6CPt4ruEaqi9dt0tgiK6lADrA1KYNdYVvXI183c="
+    },
+    {
+      "title": "medium.com",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQElvmjV0r5q7_gFIXeO4FUvgtmxz7QV9OeHEkUBKBOTQvpkyJB9GcSEOg-d6EwXZGHVU5zdO7tdSp3GAGglztkZLVuqTF5u1dFY3tAxvn6574UzhKlc2Ig7AkDAxJp-r4LlIkr9zTiofP5agIt4Z5z4fWQNu8hXOHom0THmK12hH9pGQZcinuFNWrc="
+    },
+    {
+      "title": "arxiv.org",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHzTubNSSIDCv9XxnBgcPXTiIxDeccum8rewyteLx5qiYkG5JulsjxXfgp2A5HDMNbOkfcE7Uzt4G47ntj90S2W5MxH_yUhLZXd17IrRSPGTAfRLEQETA-31SeB2vtS"
+    },
+    {
+      "title": "youtube.com (Agents' Last Exam)",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFUlEd-5SRGu_xTEVLtzEUnJMb2Gxfwbc6rUu4cJ5O4_fQvo5qz44AmTrrOj1qKRzhXHotvto_BeAx6s8IL3AnxzSgH-mbnDIzN4PwYo-T3gC8B1b9hJp85QOLfYKxQl9tr41yEryQ="
+    },
+    {
+      "title": "arxiv.org (ART Framework)",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHA7H7yVq9YPA-rW8Wt6CVp_B0Ge2VisPxTcQ1rW_UT5lkvw-sddlakMrrvfg0dHX7fZf_7y7nDGUQYRs14ulvYCu_HsmzskrYu8bAyFTxmz6WUG4OBdChpUL9n"
+    },
+    {
+      "title": "researchgate.net",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHdDT8seDB41ZT_85-6YocgkVMEwV-olUQkEQFeySyspMIy4NngMbKegXcyiHBWHyq_Dl-zf-wcA3bD7IE39MaizAJimWs-9_YB182i90Jq0dAXd5dZ812bEq1RPukxRIgpLgWi9RqxGAsGli-3dcYOLLCRjE6nQT5FY46eNvVySi_iKKoLfWcKptW3SjlX8yDBfUD9CUiytkA4NakDebxqGMl5LebgjOk0l6cmRZSA3Sd9E-Kxa3P-YPEf947Xhis="
+    },
+    {
+      "title": "arxiv.org (Signal Prediction)",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHt-5ITqQ8_aGqgoVAn1too3l7uA3TBkV_5WPyrZ_VNrSluGGp-yU8h_ko_RM3wkb5xL8P__cYSm-xo2VHODzTZxvlDoihZANfHK_k7TGh13hYU4Rj6AC4bqPfkItoXnw=="
+    },
+    {
+      "title": "youtube.com (Dhyuti Frontiers)",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQECUrFIjQ7nX9-vz2q_gTcjF4uTLDSUsE5kmAMCHFLbqqoVqMoBZYwRK3ByZr6mIMkaJftzBJJyryq6GfRBwHhgyd1qwE4Q0HjxYPdnUB4gyCKTmmzZ3GRB07u0BjHIIxeb8wQY1Q=="
+    },
+    {
+      "title": "emergentmind.com (SciAgents)",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE87KYnQDAys8-VdtcSKxusLjcVz1gc_6wxcKbZ9KAE7KMcUTeYWTVTaN1rEL_ykBymILldySpprC3DvT7cdx6MY0HH_fsDoHjfKdn_or3U9XbRvI2UqRbxzl2QMv2M4A68VEGudPMHQzHSgaCDDg3EN0zTIobyH8vrGmm_UqhOrjeZ3r6Kx5zm"
+    },
+    {
+      "title": "deepmind.google (Co-Scientist)",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEevfwgB9lOq1mhOojddjASKR1ZSLKnn-BggOe-ujqNppWzevJTDZAeJdlszQO1aWZO6h7QnATtaog_IDVhrDIQjIQqn69bT_wXwrikOoxOKFzcrl_u9KIYQTgQwh2Qz9Bcf9af3lu-HORpzgd_Q3zoAcxMGYC80uTTq2lbufc48oAdgx1gCtqHfbsDXQJK7RboEuEu"
+    },
+    {
+      "title": "arxiv.org (Co-Scientist Details)",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGAcM4oFdEafgKld2jLzLQCJitBbum1TAxvhMYZSap8hA2qQYHmWSF9d_D8B6G01GCKVqHxDA6IUYGhkXJPladBanT5xvxqslKn1QjEkPePodmbS-NUbia6fUA="
+    },
+    {
+      "title": "github.com (Scientific Agent Skills)",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGlVbwafem0srKJWx_fU5kJ4k8GwrtvCNY0qz2k0MiNXiNZAP8OQkfd0H1JIMUTb6NFQusLpSS9ADgLQX3izuLUFADM1cI-RAABimLcv3VrIjaU_6vd9Q1g6c1D34vEByfAj3M4Vj3y7sQ5UX4sozg="
+    },
+    {
+      "title": "greenbook.org (Synthetic Users)",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEGZLOB8TjDsB-wubYPA5HbCg5tjjXI_XS0LoZRZYSoppU6E-laJpPHNNUwhUnSGoSzjXs7vKrO0OlpcEfA_Fp4it3Cb3OWpOpeiQCjGsJUEEDL3ZK0ZshRq2Q2VsDVO5c3ltmtAVeXIeGJpAFAGIgtbnSlNRtI-NunRhYXsQkqlw=="
+    }
+  ],
+  "source_count": 40,
+  "search_count": 2,
+  "failed_searches": 0,
+  "web_search_queries": [],
+  "had_resonance": false,
+  "had_trail": false,
+  "trail_file": "/Users/zksoju/Documents/GitHub/loa-finn/grimoires/k-hole/research-output/grounded-research-method.md",
+  "emitted_envelope": "/Users/zksoju/Documents/GitHub/loa-finn/grimoires/k-hole/research-output/envelopes/what-is-the-state-of-the-art-in-2026-for-ai-agent-driven-research-that-9285f39a.json"
+}

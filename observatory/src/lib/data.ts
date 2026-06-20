@@ -9,8 +9,15 @@
  *   scripts/playtest/out/readout.json        — cop-readout output (optional)
  *
  * VERDICT DISCIPLINE (non-negotiable): the observatory NEVER computes
- * H1/H2/H3 verdicts. Verdict panels render AWAITING READOUT until the
- * readout instrument writes its output; then they display it verbatim.
+ * belief verdicts. Verdict panels render AWAITING READOUT until the
+ * readout INSTRUMENT writes its output; then they display it verbatim.
+ *
+ * GLOSSARY (canonical — one word per concept, honored everywhere):
+ *   THE LOOP   PROBE → REGISTER → DESIGN → SETTLE → CALIBRATE
+ *   BELIEF     the unit (never "hypothesis"); a FORECAST against a BAR
+ *   BAR        the pre-registered line (never threshold/criterion/target)
+ *   FINDING    pre-settle reading · RESULT  post-settle (kept DISTINCT)
+ *   VERDICTS   HELD · FALSIFIED · INSUFFICIENT (PENDING = not run, DISTINCT)
  *
  * LEARNINGS are curated (qualitative by nature) — edited by hand.
  */
@@ -74,7 +81,7 @@ export type PhaseRow = {
 
 export const PHASES: PhaseRow[] = generated.phases as PhaseRow[];
 
-// ── Pre-registered hypothesis bars (sha-pinned) ──────────────────────
+// ── Pre-registered belief BARS (sha-pinned) ──────────────────────────
 
 export const BARS = {
   h1_held_max: generated.bars.h1_held_max,
@@ -85,7 +92,9 @@ export const BARS = {
   sha256: generated.bars.sha256 as string,
 } as const;
 
-// ── Bar results — verdicts ONLY from the readout instrument ──────────
+// ── BAR results — verdicts ONLY from the readout INSTRUMENT ──────────
+// PENDING = the bar has NOT been run (≠ INSUFFICIENT, which is
+// ran-but-couldn't-decide). The two are kept DISTINCT by doctrine.
 
 export type VerdictLabel = 'HELD' | 'FALSIFIED' | 'INSUFFICIENT' | 'PENDING';
 
@@ -160,51 +169,72 @@ export type AtomEvent = {
 export const RECENT_ATOMS: AtomEvent[] = (generated as any).recent_atoms ?? [];
 
 // ── Durable learnings (curated) ──────────────────────────────────────
+// Scannable shape (ALEXANDER legibility spec): a tight TAG + a one-line
+// GIST sit at the data floor; the full HEADLINE is the tucked second read.
+// Reader scans tag+gist; opens the detail only on the one that earns it.
 
 export type Learning = {
   id: string;
-  headline: string;
+  tag: string;      // tight title — what the learning is about (≤24 chars)
+  gist: string;     // one-line takeaway, scannable at the data floor
+  headline: string; // the full durable statement, tucked behind details
   source: string;
 };
 
 export const LEARNINGS: Learning[] = [
   {
     id: 'L1',
+    tag: 'FORMAT REGISTRY',
+    gist: 'TypeBox passes invalid UUIDs until formats are registered.',
     headline: 'TypeBox FormatRegistry starts empty — Value.Check() silently passes invalid UUIDs without format registration. Defense-in-depth: side-effect import + runtime guard + test setupFiles.',
     source: 'cycle-033 · T-3.9',
   },
   {
     id: 'L2',
+    tag: 'ROUTING VOCAB',
+    gist: '6 TaskTypes → 5 RoutingKeys; no inner default = compile-time safety.',
     headline: 'Routing vocabulary: 6 TaskTypes → 5 RoutingKeys. Summarization maps to analysis (same execution characteristics). No default branch in inner fn → compile error if union grows.',
     source: 'cycle-033 · T-3.9',
   },
   {
     id: 'L3',
+    tag: 'EXHAUSTIVE UNION',
+    gist: 'Closed inner fn + known Set + open wrapper = safe growing union.',
     headline: 'KnownFoo Exhaustive Pattern: closed inner function (no default) + known Set for O(1) guard + open wrapper with fallback. Generalizes to any open TypeScript union that may grow upstream.',
     source: 'cycle-033 · T-4.4',
   },
   {
     id: 'L4',
+    tag: 'SCORE REFRAME',
+    gist: 'First SKU = deterministic forensic scoring; WTP = provenance subs.',
     headline: 'Score-truth-agent reframe: first SKU = forensic integrity scoring (deterministic, no LLM). Real WTP = institutional provenance subscriptions (~$40M ARR comps). Demand-discovery first.',
     source: 'cycle-041 · 2026-06-08',
   },
   {
     id: 'L5',
+    tag: 'STALE PRICING',
+    gist: 'Opus token rate was 3× stale — a silent billing bug.',
     headline: 'DEFAULT_PRICING opus token rate 3× stale — latent billing bug found outside experiment scope. Pricing values require versioning; staleness is a silent budget error.',
     source: 'cycle-041 · 2026-06-10',
   },
   {
     id: 'L6',
+    tag: 'INFRA FOLKLORE',
+    gist: 'Railway vCPU price was 2× the assumption — cite the usage API.',
     headline: 'Railway vCPU price 2× the assumption ($0.000463/min verified vs $0.000231 assumed). Infra cost rows must cite the pricing docs/usage API, never capacity folklore.',
     source: 'cycle-041 · 2026-06-10',
   },
   {
     id: 'L7',
+    tag: 'SPAWN ≈ 128MS',
+    gist: 'Spawn overhead is small; inference (~4s P50) owns Class-B latency.',
     headline: 'H3 datum: cheval spawn overhead ≈ 128ms over provider latency (first measurement). Spawn is not the dominant latency — inference at ~4s P50 defines the Class-B profile.',
     source: 'cycle-041 · 2026-06-10',
   },
   {
     id: 'L8',
+    tag: 'INFERENCE ≈ 95%',
+    gist: 'Class-B busy-time is ~95% inference; idle-cost is the open question.',
     headline: 'H1 signal: Class-B busy-time ≈ 95% inference at the cheapest tier when routed. Idle-cost treatment (unallocated_infra) is the load-bearing question for the verdict.',
     source: 'cycle-041 · 2026-06-10',
   },

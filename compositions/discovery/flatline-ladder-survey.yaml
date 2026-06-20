@@ -1,0 +1,143 @@
+# Composition · flatline-ladder-survey
+# ================================================================
+# The compose-first REDEMPTION for FLATLINE-LADDER Lane A.
+# Lane A first ran as a raw Workflow (the consumption-gradient slip
+# documented in grimoires/loa/context/flatline-ladder.md §0.5). This
+# is the governed, construct-named form: k-hole DIG precision per
+# source, gecko ecosystem-relevance sense, a synthesis hard-stop —
+# UNIX-pipe of bounded expertise, not generic sonnet agents.
+# ================================================================
+
+schema_version: "1.2"
+kind: workflow
+name: flatline-ladder-survey
+description: >
+  Governed harness-frontier survey — research N frontier sources via
+  k-hole DIG, sense relevance-to-our-harness via gecko, synthesize into
+  a ruthless relevance-to-integration matrix. The construct-named,
+  compose-first form of the survey FLATLINE-LADDER Lane A first ran raw.
+
+intent: >
+  "Given a set of frontier harness/tool sources plus a grounded
+   description of OUR harness, produce a relevance-to-integration matrix:
+   per source, the ONE primitive it got right, where it maps onto our
+   seams, an integration verdict, a relevance score, and a falsifiable
+   belief about our harness — using named constructs (k-hole for DIG
+   precision, gecko for ecosystem-relevance sensing) rather than generic
+   agents, because construct identity IS the precision."
+
+hivemind_labels:
+  product_area: "Loa Workflow"
+  workstream: discovery
+  jtbd:
+    category: personal
+    description: "Compare the AI-harness frontier against our own setup and surface what's worth integrating — governed + construct-precise"
+  source: team-internal
+
+depends_on:
+  constructs:
+    - k-hole          # Stages 1 + 3 — STAMETS-shape DIG + synthesis
+    - gecko           # Stage 2 — GECKO-shape ecosystem-relevance sense
+  tools:
+    - dig-search      # k-hole/scripts/dig-search.ts when present; WebSearch fallback
+
+inputs:
+  - type: Intent
+    name: sources
+    description: Frontier sources to survey — each becomes a per-item DIG (args.items[])
+    required: true
+  - type: Artifact
+    name: our_harness
+    description: Grounded description of OUR harness seams — the relevance anchor
+    required: true
+
+chain:
+  - stage: 1
+    name: survey
+    construct: k-hole
+    skill: dig
+    persona: STAMETS
+    mode: fresh
+    reads: [Intent, Artifact]
+    writes: [Signal]
+    role: primary
+    notes: >
+      Per source: extract the ONE primitive, its mechanism, where it maps
+      onto OUR harness seams, an integration verdict (INTEGRATE-DIRECTLY /
+      BORROW-PATTERN / IRRELEVANT / INSUFFICIENT-EVIDENCE), a relevance
+      score 0-100, and a falsifiable belief about our harness. Be skeptical
+      — most frontier tools are IRRELEVANT or at best BORROW-PATTERN.
+      Use dig-search.ts when present; WebSearch fallback. FAN-OUT: this is
+      the single work-stage that carries args.items[]=[<source>,...] so the
+      sources fan out in one wave (iteration-1 single-work-stage fan-out —
+      the ONLY fan-out shape compose supports today; multi-work-stage
+      segments ignore items[] loudly, segment-emitter.py:997).
+
+  - stage: 2
+    name: relevance-sense
+    construct: gecko
+    skill: observe
+    persona: GECKO
+    mode: fresh
+    reads: [Signal]
+    writes: [Signal]
+    role: cross-reference
+    notes: >
+      Ecosystem-relevance pass — for each surveyed primitive, sense whether
+      it coheres with OUR existing seams (declared ↔ governed ↔ earned) and
+      sharpen the integration verdict against the live estate. GECKO
+      surfaces a STATUS|SIGNAL|MISMATCH read; it never DECIDES integration
+      (the surface-not-decide boundary). Skill is illustrative — sense-estate
+      / sensing-runtime-fit may fit better when the relevance target is our
+      runtime contract specifically.
+
+  - stage: 3
+    name: synthesize
+    construct: k-hole
+    skill: dig
+    persona: STAMETS
+    mode: blocking
+    reads: [Signal]
+    writes: [Artifact]
+    role: hard-stop
+    notes: >
+      Fan-IN: merge the per-source signals into ONE relevance-to-integration
+      matrix ranked by relevance-to-OUR-harness, plus a convergence note
+      (where the frontier converges + our non-convergent move). Operator
+      seam: present the matrix before any plan/build follows. Lands the
+      Lane A artifact at grimoires/loa/context/flatline-ladder/lane-a/.
+
+outputs:
+  - type: Artifact
+    destination: "grimoires/loa/context/flatline-ladder/lane-a/survey-matrix.md"
+    description: Relevance-to-integration matrix + convergence note (Lane A artifact)
+
+compose_with:
+  - k-hole
+  - gecko
+
+when_to_use: |
+  - Any harness/tool frontier survey where construct precision matters
+  - The governed replacement for a raw research Workflow fan-out
+  - Re-running or extending FLATLINE-LADDER Lane A
+
+known_limitations: |
+  - Fan-out across sources needs args.items[] supplied on stage 1. compose
+    does NOT auto-derive items[] from the `sources` intent today
+    (segment-emitter.py:1149) — the driver must supply them. This is gap #1
+    of the three compose-first gaps in charter §0.5; until it lands, the
+    /compose driver resolves `sources` into items[] explicitly.
+  - gecko/observe is a SENSING skill — it surfaces relevance (STATUS|SIGNAL|
+    MISMATCH), it does not decide integration. The synthesis stage + operator
+    own the verdict.
+  - This YAML is the governed dispatch target. Run via /compose, never a raw
+    Workflow (charter §0.5 — the consumption-gradient slip this file retires).
+
+references:
+  - charter: grimoires/loa/context/flatline-ladder.md
+  - exemplar: ~/Documents/GitHub/loa-laplas/compositions/discovery/kickoff-build-session.yaml
+  - compose_skill: ~/.claude/skills/compose/SKILL.md
+
+version: "0.1.0"
+authored_at: "2026-06-17"
+authored_by: FLATLINE-LADDER compose-first redemption (charter §0.5)

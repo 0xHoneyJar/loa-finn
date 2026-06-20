@@ -312,30 +312,30 @@ html[data-register='freeside'] [data-step] {
   color: var(--color-bone-dim); /* dim, not ghost — pending is a STATE, not chrome */
 }
 
-/* ── Hypothesis bars ── */
-.hypo-bar-block {
+/* ── Belief bars ── */
+.belief-bar-block {
   padding: var(--space-300) 0;
   border-bottom: 1px solid oklch(0.22 0.012 250 / 0.4);
 }
 
-.hypo-bar-block:last-child {
+.belief-bar-block:last-child {
   border-bottom: none;
 }
 
-.hypo-bar-header {
+.belief-bar-header {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   margin-bottom: var(--space-200);
 }
 
-.hypo-bar-id {
+.belief-bar-id {
   color: var(--color-cyan-dim);
   font-size: var(--text-sm);
   letter-spacing: var(--tracking-terminal);
 }
 
-.hypo-bar-track {
+.belief-bar-track {
   position: relative;
   height: 10px; /* was 3px — the star panel's instrument track must read at a glance */
   background: oklch(0.22 0.012 250 / 0.6);
@@ -343,7 +343,7 @@ html[data-register='freeside'] [data-step] {
   margin: var(--space-150) 0;
 }
 
-.hypo-bar-fill {
+.belief-bar-fill {
   position: absolute;
   left: 0;
   top: 0;
@@ -351,40 +351,40 @@ html[data-register='freeside'] [data-step] {
   background: var(--color-phosphor-base);
 }
 
-.hypo-bar-fill.over-held {
+.belief-bar-fill.over-held {
   background: var(--color-anomaly-base);
 }
 
-.hypo-bar-marker {
+.belief-bar-marker {
   position: absolute;
   top: -4px;
   bottom: -4px;
-  width: 2px; /* threshold ticks must survive a glance */
+  width: 2px; /* BAR ticks must survive a glance */
 }
 
-.hypo-bar-marker-held {
+.belief-bar-marker-held {
   background: var(--color-cyan-dim);
 }
 
-.hypo-bar-marker-falsified {
+.belief-bar-marker-falsified {
   background: var(--color-anomaly-dim);
 }
 
-.hypo-bar-footer {
+.belief-bar-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-top: var(--space-150);
 }
 
-.hypo-bar-threshold-label {
+.belief-bar-line-label {
   color: var(--color-bone-ghost);
   font-size: var(--text-2xs);
   letter-spacing: var(--tracking-whisper);
   text-transform: uppercase;
 }
 
-.hypo-bar-note {
+.belief-bar-note {
   color: var(--color-bone-ghost);
   font-size: var(--text-2xs);
   letter-spacing: var(--tracking-whisper);
@@ -392,9 +392,12 @@ html[data-register='freeside'] [data-step] {
   margin-top: var(--space-100);
 }
 
-/* ── Learning entries ── */
+/* ── Learning entries — scannable units (ALEXANDER legibility spec) ──
+   Each learning is a <details>. At the data floor: a tight TAG + a one-line
+   GIST on a single scannable row. The full statement is tucked behind the
+   caret. Nothing below the text-sm data floor — the tag rides text-sm, the
+   gist text-sm; only the tucked source uses text-2xs (telemetry register). */
 .learning-entry {
-  padding: var(--space-300) 0;
   border-bottom: 1px solid oklch(0.22 0.012 250 / 0.4);
 }
 
@@ -402,16 +405,60 @@ html[data-register='freeside'] [data-step] {
   border-bottom: none;
 }
 
-.learning-id {
+.learning-summary {
+  list-style: none;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: var(--space-200);
+  padding: var(--space-300) 0;
+}
+
+.learning-summary::-webkit-details-marker {
+  display: none;
+}
+
+.learning-caret {
   color: var(--color-cyan-dim);
-  font-size: var(--text-2xs);
-  letter-spacing: var(--tracking-whisper);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  /* steps() — the institutional "no smooth" discipline (taste.md) */
+  transition: transform var(--duration-fast) var(--ease-snap);
+}
+
+.learning-entry[open] .learning-caret {
+  transform: rotate(90deg);
+}
+
+.learning-tag {
+  color: var(--color-cyan-base);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-terminal);
   text-transform: uppercase;
-  margin-bottom: var(--space-100);
+  white-space: nowrap;
+}
+
+.learning-gist {
+  color: var(--color-bone-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.02em;
+  line-height: var(--leading-normal);
+}
+
+.learning-summary:hover .learning-tag {
+  color: var(--color-cyan-bright);
+}
+
+.learning-detail {
+  padding: 0 0 var(--space-300) calc(var(--space-200) + 1ch);
 }
 
 .learning-headline {
   color: var(--color-bone-base);
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
   letter-spacing: 0.04em;
   line-height: var(--leading-relaxed);
@@ -419,10 +466,11 @@ html[data-register='freeside'] [data-step] {
 
 .learning-source {
   color: var(--color-bone-ghost);
+  font-family: var(--font-mono);
   font-size: var(--text-2xs);
   letter-spacing: var(--tracking-whisper);
   text-transform: uppercase;
-  margin-top: var(--space-100);
+  margin-top: var(--space-200);
 }
 
 /* ── Corner telemetry — AmbientTelemetry pattern (F5) ── */
@@ -513,4 +561,54 @@ html[data-register='freeside'] [data-step] {
   letter-spacing: var(--tracking-whisper);
   text-transform: uppercase;
   margin-bottom: var(--space-200);
+}
+
+/* ── Progressive disclosure — the in-register tuck (shared) ──
+   Hero stays at rest; the secondary tier lives behind a quiet mono summary.
+   ▸ glyph rotates on open via steps(1) — no smooth easing (taste.md). Summary
+   is cyan-dim at text-2xs; the disclosure caret is the only motion. Genuinely
+   tucked: the content is removed from the at-rest read, not just dimmed. */
+.tuck {
+  margin-top: var(--space-300);
+}
+
+.tuck > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-200);
+  color: var(--color-cyan-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-whisper);
+  text-transform: uppercase;
+  padding: var(--space-100) 0;
+  transition: color var(--duration-fast) var(--ease-snap);
+}
+
+.tuck > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tuck > summary:hover {
+  color: var(--color-cyan-base);
+}
+
+.tuck > summary::before {
+  content: '▸';
+  color: var(--color-cyan-dim);
+  /* steps(1) snap — the institutional "no smooth" discipline */
+  transition: transform var(--duration-fast) var(--ease-snap);
+}
+
+.tuck[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+/* The tucked body — a quiet second read, never result-weight */
+.tuck-body {
+  margin-top: var(--space-200);
+  padding-left: var(--space-300);
+  border-left: 1px solid oklch(0.22 0.012 250 / 0.6);
 }

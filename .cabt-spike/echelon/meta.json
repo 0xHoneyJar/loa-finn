@@ -1,0 +1,364 @@
+{
+ "settled_matches": 754,
+ "leaderboard": [
+  {
+   "player": "yaruwo",
+   "elo": 1993.5,
+   "games": 10
+  },
+  {
+   "player": "tubotu",
+   "elo": 1949.7,
+   "games": 17
+  },
+  {
+   "player": "nobker",
+   "elo": 1922.7,
+   "games": 4
+  },
+  {
+   "player": "\u3042\u304b\u304f\u307e\u5c4b",
+   "elo": 1921.9,
+   "games": 9
+  },
+  {
+   "player": "Heisei",
+   "elo": 1881.6,
+   "games": 14
+  },
+  {
+   "player": "KanNinomiya",
+   "elo": 1857.4,
+   "games": 17
+  },
+  {
+   "player": "Otsuka Naotsugu",
+   "elo": 1850.1,
+   "games": 5
+  },
+  {
+   "player": "Mudkip's Machines",
+   "elo": 1846.0,
+   "games": 7
+  },
+  {
+   "player": "shunya1135",
+   "elo": 1819.9,
+   "games": 14
+  },
+  {
+   "player": "itohudo",
+   "elo": 1817.7,
+   "games": 7
+  },
+  {
+   "player": "Kityyomu",
+   "elo": 1803.1,
+   "games": 11
+  },
+  {
+   "player": "mm-1989",
+   "elo": 1794.3,
+   "games": 6
+  },
+  {
+   "player": "Blake Stagner",
+   "elo": 1793.0,
+   "games": 4
+  },
+  {
+   "player": "Takamasa Ueno",
+   "elo": 1766.0,
+   "games": 13
+  },
+  {
+   "player": "DD Adai",
+   "elo": 1765.8,
+   "games": 3
+  },
+  {
+   "player": "Chikuwabu",
+   "elo": 1752.8,
+   "games": 3
+  },
+  {
+   "player": "denden12",
+   "elo": 1749.0,
+   "games": 6
+  },
+  {
+   "player": "Hiroaki Takahashi",
+   "elo": 1745.4,
+   "games": 8
+  },
+  {
+   "player": "kawaiy",
+   "elo": 1742.2,
+   "games": 9
+  },
+  {
+   "player": "Quan Nguyen",
+   "elo": 1740.1,
+   "games": 5
+  },
+  {
+   "player": "noikaret",
+   "elo": 1739.7,
+   "games": 9
+  },
+  {
+   "player": "Tanupro",
+   "elo": 1738.6,
+   "games": 3
+  },
+  {
+   "player": "Team Rocket",
+   "elo": 1736.7,
+   "games": 9
+  },
+  {
+   "player": "\u4ffa\u9054\u4f55\u3048?\u30c1\u30fc\u30e0cudgk",
+   "elo": 1736.0,
+   "games": 12
+  },
+  {
+   "player": "Mogja J",
+   "elo": 1731.2,
+   "games": 3
+  },
+  {
+   "player": "copasta",
+   "elo": 1730.8,
+   "games": 9
+  },
+  {
+   "player": "reika555",
+   "elo": 1727.3,
+   "games": 6
+  },
+  {
+   "player": "Manan Gupta",
+   "elo": 1725.3,
+   "games": 23
+  },
+  {
+   "player": "Ryuto Yoda",
+   "elo": 1721.8,
+   "games": 7
+  },
+  {
+   "player": "Hiroto toto",
+   "elo": 1720.9,
+   "games": 8
+  },
+  {
+   "player": "m333studio",
+   "elo": 1716.9,
+   "games": 4
+  },
+  {
+   "player": "DENPA92",
+   "elo": 1710.1,
+   "games": 7
+  },
+  {
+   "player": "Toshiki Shinju",
+   "elo": 1709.7,
+   "games": 5
+  },
+  {
+   "player": "platypus2000jp",
+   "elo": 1701.5,
+   "games": 14
+  },
+  {
+   "player": "Map1e",
+   "elo": 1697.5,
+   "games": 4
+  },
+  {
+   "player": "strayuru",
+   "elo": 1689.9,
+   "games": 3
+  },
+  {
+   "player": "Anthony Ellis ",
+   "elo": 1686.7,
+   "games": 4
+  },
+  {
+   "player": "fumishiki",
+   "elo": 1679.8,
+   "games": 3
+  },
+  {
+   "player": "aki",
+   "elo": 1672.6,
+   "games": 3
+  },
+  {
+   "player": "Donguk Jung",
+   "elo": 1668.2,
+   "games": 12
+  }
+ ],
+ "archetypes": [
+  {
+   "archetype": "Alakazam (Psychic)",
+   "appearances": 121,
+   "winrate": 0.603,
+   "wr_ci95": [
+    0.514,
+    0.686
+   ],
+   "pilot_elo": 1672.5
+  },
+  {
+   "archetype": "Dwebble/Crustle (Grass)",
+   "appearances": 868,
+   "winrate": 0.492,
+   "wr_ci95": [
+    0.459,
+    0.525
+   ],
+   "pilot_elo": 1542.7
+  },
+  {
+   "archetype": "Lucario (Fighting)",
+   "appearances": 273,
+   "winrate": 0.403,
+   "wr_ci95": [
+    0.346,
+    0.462
+   ],
+   "pilot_elo": 1504.5
+  },
+  {
+   "archetype": "Abomasnow (Water)",
+   "appearances": 15,
+   "winrate": 0.267,
+   "wr_ci95": [
+    0.109,
+    0.52
+   ],
+   "pilot_elo": 1470.3
+  },
+  {
+   "archetype": "Dragapult",
+   "appearances": 58,
+   "winrate": 0.362,
+   "wr_ci95": [
+    0.251,
+    0.491
+   ],
+   "pilot_elo": 1437.5
+  }
+ ],
+ "matchups": [
+  {
+   "attacker": "Lucario (Fighting)",
+   "defender": "Dwebble/Crustle (Grass)",
+   "wins": 41,
+   "games": 154,
+   "winrate": 0.266
+  },
+  {
+   "attacker": "Dwebble/Crustle (Grass)",
+   "defender": "Lucario (Fighting)",
+   "wins": 113,
+   "games": 154,
+   "winrate": 0.734
+  },
+  {
+   "attacker": "Dwebble/Crustle (Grass)",
+   "defender": "Dwebble/Crustle (Grass)",
+   "wins": 247,
+   "games": 494,
+   "winrate": 0.5
+  },
+  {
+   "attacker": "Lucario (Fighting)",
+   "defender": "Lucario (Fighting)",
+   "wins": 29,
+   "games": 58,
+   "winrate": 0.5
+  },
+  {
+   "attacker": "Dwebble/Crustle (Grass)",
+   "defender": "Alakazam (Psychic)",
+   "wins": 13,
+   "games": 66,
+   "winrate": 0.197
+  },
+  {
+   "attacker": "Alakazam (Psychic)",
+   "defender": "Dwebble/Crustle (Grass)",
+   "wins": 53,
+   "games": 66,
+   "winrate": 0.803
+  },
+  {
+   "attacker": "Dwebble/Crustle (Grass)",
+   "defender": "Dragapult",
+   "wins": 29,
+   "games": 36,
+   "winrate": 0.806
+  },
+  {
+   "attacker": "Dragapult",
+   "defender": "Dwebble/Crustle (Grass)",
+   "wins": 7,
+   "games": 36,
+   "winrate": 0.194
+  },
+  {
+   "attacker": "Abomasnow (Water)",
+   "defender": "Dwebble/Crustle (Grass)",
+   "wins": 2,
+   "games": 10,
+   "winrate": 0.2
+  },
+  {
+   "attacker": "Dwebble/Crustle (Grass)",
+   "defender": "Abomasnow (Water)",
+   "wins": 8,
+   "games": 10,
+   "winrate": 0.8
+  },
+  {
+   "attacker": "Lucario (Fighting)",
+   "defender": "Dragapult",
+   "wins": 6,
+   "games": 14,
+   "winrate": 0.429
+  },
+  {
+   "attacker": "Dragapult",
+   "defender": "Lucario (Fighting)",
+   "wins": 8,
+   "games": 14,
+   "winrate": 0.571
+  },
+  {
+   "attacker": "Alakazam (Psychic)",
+   "defender": "Lucario (Fighting)",
+   "wins": 6,
+   "games": 16,
+   "winrate": 0.375
+  },
+  {
+   "attacker": "Lucario (Fighting)",
+   "defender": "Alakazam (Psychic)",
+   "wins": 10,
+   "games": 16,
+   "winrate": 0.625
+  },
+  {
+   "attacker": "Alakazam (Psychic)",
+   "defender": "Alakazam (Psychic)",
+   "wins": 8,
+   "games": 16,
+   "winrate": 0.5
+  }
+ ]
+}

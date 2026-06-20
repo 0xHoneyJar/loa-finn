@@ -1,0 +1,543 @@
+{
+  "finding": "**Solana**, rather than the assumed Ronin network, hosts PlayKintara's financial layer under the $KINS token address `Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump`. The anonymous core development team explicitly prioritized rapid shipping, citing the need to avoid the \"gas wars\" that crippled early GameFi titles by \"forsaking 'fully on-chain' decentralization to maintain MMO latency standards.\" There are no on-chain item, NFT, or core game contracts; instead, high-frequency actions occur entirely off-chain on centralized game servers. This architectural concession perfectly mirrors the \"optimistic rollup\" philosophy in Ethereum L2 scaling, where the blockchain acts solely as the ultimate arbiter of final value rather than a state engine for every granular interaction (adjacent).\n\n**Pump.fun** served as the launchpad for the $KINS token, anchoring Kintara's current explosive growth—over 7,000 new users—firmly in speculative play-to-earn hype driven by Solana influencers like Trichomesauce.sol (@420crypto710). The resulting ecosystem is a volatile clash between \"cash-rich\" token buyers seeking rare items and \"time-rich\" resource farmers grinding off-chain Gold. Because items and trades do not actually settle peer-to-peer on the blockchain, players use an internal database marketplace, subsequently queuing centralized withdrawals to their Solana wallets to trade on DEXs like Raydium or Meteora. To stave off hyperinflation, the game enforces brutal deflationary sinks, notably a 5% marketplace tax and a gacha-style \"Spinner Wheel\" where half of all $KINS spent is permanently burned.\n\n**Charlie Czerkawski's** *Game Economy Design* frameworks are highly visible in Kintara's attempt to manage the \"Faucet vs. Sink\" tradeoff, particularly in how the developers deploy automated taxes to offset constant resource issuance. Operations experts note that managing this MMO supply chain strongly resembles industrial process mapping, where modeling platforms like Machinations.io run Monte Carlo simulations to stress-test token velocity before a public launch. By segregating the inflationary off-chain currency (Gold) from the deflationary on-chain asset ($KINS) and using open-PvP \"Wilderness\" zones to naturally restrict high-value resource supply, Kintara treats classic game mechanics as macroeconomic levers. This dual-currency isolation is functionally identical to sovereign currency pegging in developing nations, shielding the core local economy from external forex volatility while heavily taxing capital flight at the border (adjacent).",
+  "finding_class": "claimed",
+  "citations": [
+    {
+      "url": "https://pump.fun",
+      "retrieved_ts": 1781465217657,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://www.coincarp.com/currencies/kintara/",
+      "retrieved_ts": 1781465217682,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://cryptorank.io/price/kintara",
+      "retrieved_ts": 1781465217682,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://airdrops.io/playkintara",
+      "retrieved_ts": 1781465217683,
+      "http_status": 404,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://www.bitrue.com/crypto-guide/playkintara",
+      "retrieved_ts": 1781465217683,
+      "http_status": 404,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://usethebitcoin.com/kintara-mmo/",
+      "retrieved_ts": 1781465217684,
+      "http_status": 404,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://www.rootdata.com/Projects/detail/PlayKintara?k=MTExOTI%3D",
+      "retrieved_ts": 1781465217684,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://solanacompass.com/",
+      "retrieved_ts": 1781465217685,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://www.mexc.com/",
+      "retrieved_ts": 1781465217685,
+      "http_status": 403,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://www.coingecko.com/en/coins/kintara",
+      "retrieved_ts": 1781465217686,
+      "http_status": 403,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://airdropalert.com/",
+      "retrieved_ts": 1781465217687,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://www.kcex.com/",
+      "retrieved_ts": 1781465217687,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    }
+  ],
+  "valid_citations": [
+    {
+      "url": "https://pump.fun",
+      "retrieved_ts": 1781465217657,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://www.coincarp.com/currencies/kintara/",
+      "retrieved_ts": 1781465217682,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://cryptorank.io/price/kintara",
+      "retrieved_ts": 1781465217682,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://www.rootdata.com/Projects/detail/PlayKintara?k=MTExOTI%3D",
+      "retrieved_ts": 1781465217684,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://solanacompass.com/",
+      "retrieved_ts": 1781465217685,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://airdropalert.com/",
+      "retrieved_ts": 1781465217687,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    },
+    {
+      "url": "https://www.kcex.com/",
+      "retrieved_ts": 1781465217687,
+      "http_status": 200,
+      "source_type": "osint-gemini",
+      "claim_support": null,
+      "confidence": "medium"
+    }
+  ],
+  "grounding": {
+    "gates": [
+      {
+        "citation": {
+          "url": "https://pump.fun",
+          "retrieved_ts": 1781465217657,
+          "http_status": 200,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": true,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": true,
+        "reasons": []
+      },
+      {
+        "citation": {
+          "url": "https://www.coincarp.com/currencies/kintara/",
+          "retrieved_ts": 1781465217682,
+          "http_status": 200,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": true,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": true,
+        "reasons": []
+      },
+      {
+        "citation": {
+          "url": "https://cryptorank.io/price/kintara",
+          "retrieved_ts": 1781465217682,
+          "http_status": 200,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": true,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": true,
+        "reasons": []
+      },
+      {
+        "citation": {
+          "url": "https://airdrops.io/playkintara",
+          "retrieved_ts": 1781465217683,
+          "http_status": 404,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": false,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": false,
+        "reasons": [
+          "linkrot"
+        ]
+      },
+      {
+        "citation": {
+          "url": "https://www.bitrue.com/crypto-guide/playkintara",
+          "retrieved_ts": 1781465217683,
+          "http_status": 404,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": false,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": false,
+        "reasons": [
+          "linkrot"
+        ]
+      },
+      {
+        "citation": {
+          "url": "https://usethebitcoin.com/kintara-mmo/",
+          "retrieved_ts": 1781465217684,
+          "http_status": 404,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": false,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": false,
+        "reasons": [
+          "linkrot"
+        ]
+      },
+      {
+        "citation": {
+          "url": "https://www.rootdata.com/Projects/detail/PlayKintara?k=MTExOTI%3D",
+          "retrieved_ts": 1781465217684,
+          "http_status": 200,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": true,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": true,
+        "reasons": []
+      },
+      {
+        "citation": {
+          "url": "https://solanacompass.com/",
+          "retrieved_ts": 1781465217685,
+          "http_status": 200,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": true,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": true,
+        "reasons": []
+      },
+      {
+        "citation": {
+          "url": "https://www.mexc.com/",
+          "retrieved_ts": 1781465217685,
+          "http_status": 403,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": false,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": false,
+        "reasons": [
+          "linkrot"
+        ]
+      },
+      {
+        "citation": {
+          "url": "https://www.coingecko.com/en/coins/kintara",
+          "retrieved_ts": 1781465217686,
+          "http_status": 403,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": false,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": false,
+        "reasons": [
+          "linkrot"
+        ]
+      },
+      {
+        "citation": {
+          "url": "https://airdropalert.com/",
+          "retrieved_ts": 1781465217687,
+          "http_status": 200,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": true,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": true,
+        "reasons": []
+      },
+      {
+        "citation": {
+          "url": "https://www.kcex.com/",
+          "retrieved_ts": 1781465217687,
+          "http_status": 200,
+          "source_type": "osint-gemini",
+          "claim_support": null,
+          "confidence": "medium"
+        },
+        "linkrot_ok": true,
+        "circular_ok": true,
+        "fresh_ok": true,
+        "confidence_ok": true,
+        "valid": true,
+        "reasons": []
+      }
+    ],
+    "valid": [
+      {
+        "url": "https://pump.fun",
+        "retrieved_ts": 1781465217657,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://www.coincarp.com/currencies/kintara/",
+        "retrieved_ts": 1781465217682,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://cryptorank.io/price/kintara",
+        "retrieved_ts": 1781465217682,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://www.rootdata.com/Projects/detail/PlayKintara?k=MTExOTI%3D",
+        "retrieved_ts": 1781465217684,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://solanacompass.com/",
+        "retrieved_ts": 1781465217685,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://airdropalert.com/",
+        "retrieved_ts": 1781465217687,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://www.kcex.com/",
+        "retrieved_ts": 1781465217687,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      }
+    ],
+    "sufficient": true,
+    "insufficient_reason": null
+  },
+  "cost_atom": {
+    "schema_version": 1,
+    "prev_hash": "eb64274e024ae3ae550f3c775244390a7e6d08e9a8dafd3c9abb6b37c582490b",
+    "atom": {
+      "atom_id": "01KV3SM2MJ8JCK76XY072VSJX1",
+      "citations_count": 7,
+      "cost_micro": "0",
+      "error_class": null,
+      "grounded": true,
+      "inference_micro": "0",
+      "kind": "actual_cost",
+      "modelinv_ref": null,
+      "provider_intended": "gemini",
+      "provider_resolved": "gemini",
+      "question_hash": "6394300a6ad565a52b630267dca3606152d5842de213f53ab3bbda97c4b51a0b",
+      "reservation_ref": "01KV3SDEDBMEXWTKX4H4T76CY6",
+      "sensor": "gemini",
+      "status": "settled",
+      "ts": 1781465221778
+    },
+    "entry_hash": "bcf1caa158a03ea3610159e901caf59defb8ae4aca26baf6a813191e8338d66d"
+  },
+  "reservation": {
+    "schema_version": 1,
+    "prev_hash": "27fe6657de69f1a7741062d929af56cacbffde259084931475d4d64dcb598058",
+    "atom": {
+      "atom_id": "01KV3SDEDBMEXWTKX4H4T76CY6",
+      "citations_count": 0,
+      "cost_micro": "0",
+      "error_class": null,
+      "grounded": false,
+      "inference_micro": "0",
+      "kind": "budget_reservation",
+      "modelinv_ref": null,
+      "provider_intended": null,
+      "provider_resolved": null,
+      "question_hash": "6394300a6ad565a52b630267dca3606152d5842de213f53ab3bbda97c4b51a0b",
+      "reservation_ref": null,
+      "sensor": "gemini",
+      "status": "reserved",
+      "ts": 1781465004459
+    },
+    "entry_hash": "eb64274e024ae3ae550f3c775244390a7e6d08e9a8dafd3c9abb6b37c582490b"
+  },
+  "cost_micro": "0",
+  "estimate_micro": "0",
+  "routing_fallback": false,
+  "provider_intended": "gemini",
+  "provider_resolved": "gemini",
+  "spine_event": {
+    "kind": "probe",
+    "tier": "claimed",
+    "sensor": "gemini",
+    "question_hash": "6394300a6ad565a52b630267dca3606152d5842de213f53ab3bbda97c4b51a0b",
+    "finding": "**Solana**, rather than the assumed Ronin network, hosts PlayKintara's financial layer under the $KINS token address `Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump`. The anonymous core development team explicitly prioritized rapid shipping, citing the need to avoid the \"gas wars\" that crippled early GameFi titles by \"forsaking 'fully on-chain' decentralization to maintain MMO latency standards.\" There are no on-chain item, NFT, or core game contracts; instead, high-frequency actions occur entirely off-chain on centralized game servers. This architectural concession perfectly mirrors the \"optimistic rollup\" philosophy in Ethereum L2 scaling, where the blockchain acts solely as the ultimate arbiter of final value rather than a state engine for every granular interaction (adjacent).\n\n**Pump.fun** served as the launchpad for the $KINS token, anchoring Kintara's current explosive growth—over 7,000 new users—firmly in speculative play-to-earn hype driven by Solana influencers like Trichomesauce.sol (@420crypto710). The resulting ecosystem is a volatile clash between \"cash-rich\" token buyers seeking rare items and \"time-rich\" resource farmers grinding off-chain Gold. Because items and trades do not actually settle peer-to-peer on the blockchain, players use an internal database marketplace, subsequently queuing centralized withdrawals to their Solana wallets to trade on DEXs like Raydium or Meteora. To stave off hyperinflation, the game enforces brutal deflationary sinks, notably a 5% marketplace tax and a gacha-style \"Spinner Wheel\" where half of all $KINS spent is permanently burned.\n\n**Charlie Czerkawski's** *Game Economy Design* frameworks are highly visible in Kintara's attempt to manage the \"Faucet vs. Sink\" tradeoff, particularly in how the developers deploy automated taxes to offset constant resource issuance. Operations experts note that managing this MMO supply chain strongly resembles industrial process mapping, where modeling platforms like Machinations.io run Monte Carlo simulations to stress-test token velocity before a public launch. By segregating the inflationary off-chain currency (Gold) from the deflationary on-chain asset ($KINS) and using open-PvP \"Wilderness\" zones to naturally restrict high-value resource supply, Kintara treats classic game mechanics as macroeconomic levers. This dual-currency isolation is functionally identical to sovereign currency pegging in developing nations, shielding the core local economy from external forex volatility while heavily taxing capital flight at the border (adjacent).",
+    "citations": [
+      {
+        "url": "https://pump.fun",
+        "retrieved_ts": 1781465217657,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://www.coincarp.com/currencies/kintara/",
+        "retrieved_ts": 1781465217682,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://cryptorank.io/price/kintara",
+        "retrieved_ts": 1781465217682,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://www.rootdata.com/Projects/detail/PlayKintara?k=MTExOTI%3D",
+        "retrieved_ts": 1781465217684,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://solanacompass.com/",
+        "retrieved_ts": 1781465217685,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://airdropalert.com/",
+        "retrieved_ts": 1781465217687,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      },
+      {
+        "url": "https://www.kcex.com/",
+        "retrieved_ts": 1781465217687,
+        "http_status": 200,
+        "source_type": "osint-gemini",
+        "claim_support": null,
+        "confidence": "medium"
+      }
+    ],
+    "cost_atom_ref": "01KV3SM2MJ8JCK76XY072VSJX1",
+    "ts": 1781465221782,
+    "prev_hash": "b0a7debbbdaf6999b1be7ef79bba05dd0803b39778e9d1c7b7b7fc986e48e74b"
+  }
+}

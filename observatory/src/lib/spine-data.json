@@ -215,6 +215,17 @@
       "delta": 2,
       "source": "exp4-graduation-gate-reactivation.md \u00b7 sprint-finn-score.md:104-193 \u00b7 /ride EXP-004 grounding",
       "tier": "pinned"
+    },
+    {
+      "seq": 22,
+      "date": "2026-06-13",
+      "kind": "settle",
+      "verdict": "HELD",
+      "id": "SETTLE-002",
+      "label": "x402 \u201ctheater persists\u201d HELD \u2014 genuine_usd slope \u22128.72/wk \u00b7 genuine-payers slope \u221254.25/wk \u00b7 growth ratios 0.23\u00d7 & 0.09\u00d7 (rail SHRINKING, not 2\u00d7 arriving) \u00b7 self-dealing 95.9% \u00b7 settlements collapse 10\u00d7. Belief corroborated, not killed. TETLOCK Brier 0.1225 (P=0.65, under-confident)",
+      "delta": -1,
+      "source": "Dune exec 01KV1SFVSP7QGXR2J2ZVDGF98C (query 7718233, 0.336 cr, small) \u00b7 SETTLES.md SETTLE-002",
+      "tier": "settled"
     }
   ],
   "queue": [

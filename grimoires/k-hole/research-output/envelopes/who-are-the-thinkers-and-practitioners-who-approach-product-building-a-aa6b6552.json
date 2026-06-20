@@ -1,0 +1,34 @@
+{
+  "schema_version": "0.1.0",
+  "envelope_id": "who-are-the-thinkers-and-practitioners-who-approach-product-building-a-aa6b6552",
+  "ref": {
+    "name": "Who are the thinkers and practitioners who approach product-building and strategy from a research / scientific-method / forecasting direction — treating bets as experiments grounded in real-time reali",
+    "type": "concept"
+  },
+  "direction": {
+    "name": "who-are-the-thinkers-and-practitioners-who-approach-product-building-a"
+  },
+  "resonance": {
+    "strength": 0.6,
+    "evidence": [
+      "Philip Tetlock shifts strategy from the \"highest paid person's opinion\" (HiPPO) to probabilistic rigor using Brier scores to measure accuracy over time. His forecasting method demands an \"outside view\"—forcing teams to establish historical base rates before applying project-specific details—which treats beliefs as hypotheses to be tested rather than \"identities to be defended.\" In a product research lab, he mans the \"Calibration & Accountability Desk,\" maintaining a mathematical Ledger of Bets to track how well-calibrated an organization's leaders actually are.",
+      "Eric Ries and Steve Blank operate the lab's \"Rapid Prototyping Facility,\" executing the \"Build-Measure-Learn\" loop to scientifically validate unproven business models outside the building. John R. Platt acts as the \"Kill Switch\" on their adjacent Experimental Design Board, demanding that their Minimum Viable Product serve as a single \"crucial experiment\" designed specifically to falsify mutually exclusive alternative hypotheses rather than act as a fragile version 1.0. (bridge) This strict requirement to actively kill incorrect theories directly maps to Karl Popper's empirical falsification do",
+      "Regina Dugan embodies the DARPA \"Program Manager\" model, focusing lab capital on \"Pasteur’s Quadrant\" (use-inspired basic research) and enforcing two-year project limits to prevent \"creeping elegance.\" She operates the lab's \"Funding & Triage Gate\" using the Heilmeier Catechism, forcing teams to define their \"mid-term exams\" and articulate \"the limits of current practice\" without relying on jargon. Her framework explicitly tolerates massive individual failure in pursuit of high-risk moonshots, aggressively bridging deep science with immediate commercial productization.",
+      "Simon Wardley visualizes the value chain using Wardley Mapping to predict where future capital should be deployed, tracking components from Genesis to Commodity. Amy Webb scans the fringe for \"weak signals,\" calculating their trajectory toward the mainstream using her CIPHER framework to develop resilient scenarios. Paul Saffo anchors this \"Futures Desk\" by mapping a \"Cone of Uncertainty\" and urging teams to \"embrace the things that don't fit,\" effectively acting as the lab's long-range radar to intercept anomalies before they become statistically obvious problems. (bridge)"
+    ]
+  },
+  "why": {
+    "design": "Dig on \"Who are the thinkers and practitioners who approach product-building and strategy from a research / scientific-method / forecasting direction — treating bets as experiments grounded in real-time reality? Name specific people and their methods: superforecasting/calibration (Tetlock), strong inference / decisive competing-hypothesis experiments (Platt), research-lab and program-manager models (DARPA, Bell Labs), lean build-measure-learn, horizon-scanning/weak-signals. For each: the core method and what dimension of a research lab they'd own.\" surfaced 30 sources at + depth — synthesis grounded the direction."
+  },
+  "provenance": {
+    "surfaced_by": "/Users/zksoju/Documents/GitHub/loa-finn/grimoires/k-hole/research-output/lab-roster.md",
+    "ratified_at": "2026-06-13",
+    "candidate": true
+  },
+  "threads_to_pull": [
+    "Cedric Chin's Commoncog falsification matrices",
+    "Regina Dugan's Project Soli / Project Ara",
+    "Alberto Savoia's \"Fake Door\" pretotyping",
+    "Paul Saffo's \"Cone of Uncertainty\" mapping"
+  ]
+}

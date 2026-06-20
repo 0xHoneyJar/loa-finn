@@ -1,0 +1,33 @@
+{
+  "schema_version": "0.1.0",
+  "envelope_id": "what-is-the-state-of-the-art-in-2026-for-ai-agent-driven-research-that-9285f39a",
+  "ref": {
+    "name": "What is the state of the art in 2026 for AI-agent-driven research that stays grounded in real-time reality: Gemini Deep Research, Grok real-time X/news access, automated trend-detection, horizon scann",
+    "type": "concept"
+  },
+  "direction": {
+    "name": "what-is-the-state-of-the-art-in-2026-for-ai-agent-driven-research-that"
+  },
+  "resonance": {
+    "strength": 0.8,
+    "evidence": [
+      "Google's Gemini Deep Research Max treats verification as a recursive engine, deploying a dedicated Citation Agent to run up to 160+ sequential queries per hypothesis at roughly ~$3.00 per full run. Conversely, xAI’s Grok 4 Heavy functions as a \"Nowcasting\" sensor hooked into the X firehose, relying on a four-agent internal consensus model (Grok, Harper, Benjamin, Lucas) that must reach cryptographic-like agreement before outputting a finding. This split mirrors the intelligence community's historic divide between long-term strategic analysis (OSINT synthesis) and tactical, high-speed signals i",
+      "Stanford's SHARP (Scientific Human-Agent Reproduction Pipeline) and the experimental Baby-AIGS architecture indicate the industry bottleneck is no longer generation, but explicit falsification. Baby-AIGS deploys a dedicated FalsificationAgent whose \"sole directive is adversarial: attempting to disprove the lead agent’s scientific findings.\" To tether these agents to real-time events, the minimal \"research probe\" relies on an Agentic Data Contract over MCP—treated as \"living code\" with data freshness SLAs that trigger immediate failsafes if schema drift occurs. The ultimate grounding test has s",
+      "Analemma demonstrated extreme cost-control by generating 166 complete ML research papers at roughly ~$1,100 per paper, relying on strict \"AI FinOps\" and cognitive load splitting. These \"agentlake\" pipelines use cascading model routing—dispatching intent routing to $0.10/1M token models while reserving reasoning models like o1 only for final synthesis—and enforce semantic caching where a 95% vector match serves a cached result for $0. This atomic accounting enables complex, multi-agent cross-domain topologies like Ghafarollahi et al.'s SciAgents, which uses ontological knowledge graphs for mate"
+    ]
+  },
+  "why": {
+    "design": "Dig on \"What is the state of the art in 2026 for AI-agent-driven research that stays grounded in real-time reality: Gemini Deep Research, Grok real-time X/news access, automated trend-detection, horizon scanning, and cost-metered LLM research pipelines? How do teams keep automated research cheap (atomic per-query cost accounting) and grounded (cited, falsifiable) rather than hallucinated? What's the minimal 'research probe' that grounds an agent team in what's actually happening?\" surfaced 40 sources at ++ depth — synthesis grounded the direction."
+  },
+  "provenance": {
+    "surfaced_by": "/Users/zksoju/Documents/GitHub/loa-finn/grimoires/k-hole/research-output/grounded-research-method.md",
+    "ratified_at": "2026-06-13",
+    "candidate": true
+  },
+  "threads_to_pull": [
+    "`Baby-AIGS FalsificationAgent prompting strategies`",
+    "`Agentic Data Contracts over MCP schema definitions`",
+    "`Agents' Last Exam (ALE) execution environments`",
+    "`HumanStudy-Bench Probability Alignment Scores`"
+  ]
+}

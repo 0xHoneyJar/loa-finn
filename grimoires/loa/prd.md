@@ -1,426 +1,164 @@
-# PRD: Per-NFT Personality — Pipeline Wiring + Scale-Out Design
+# PRD: The Corpus Engine — automating the realness loop
 
 **Status:** Draft
-**Author:** Jani + Claude
-**Date:** 2026-03-26
-**Cycle:** 040
-**References:** [Issue #132](https://github.com/0xHoneyJar/loa-finn/issues/132) · [Issue #133](https://github.com/0xHoneyJar/loa-finn/issues/133) (Soft Launch Checklist) · [Issue #131](https://github.com/0xHoneyJar/loa-finn/issues/131) (Critical Path)
+**Author:** Finn (main-loop) + operator
+**Date:** 2026-06-14
+**Cycle:** cycle-053
+**Supersedes (in the active slot):** `prd.archived-2026-06-14-pre-corpus-engine.md` (the March-26 Per-NFT Personality PRD, unrelated — preserved, not deleted)
+
+> **Hivemind:** artifact_type: product-spec · workstream: experimentation · priority: high
+> **One line:** turn the hand-run realness loop into a scheduled, governed, cost-capped engine that grows a calibration track record — the franchise no competitor can copy in a weekend.
+> **Rev 2 (2026-06-14):** flatline-reviewed (headless GPT-5.5 + Gemini-3.1-pro; opus dropped). Two BLOCKERS fixed (FR-3 forward-rolling window, FR-4 forecast registration) + 5 findings integrated. See `a2a/flatline/prd-corpus-engine-consensus.md`.
+
+---
+
+## 0. Why this, why now (grounded)
+
+The realness filter is **validated as an instrument**: it returns THEATER for x402 (99.3% self-dealing, shrinking) and REAL for Kintara $KINS (29,009 traders, top-1 5.78%, growing) — `grimoires/loa/lab/SETTLES.md` (SETTLE-001/002/003). But all three runs were **hand-run** (the main loop acting as each desk). A standing research lab cannot be hand-run — that's the "consumption-gradient slip" (hand-running *feels* lighter, defects from the governed runtime). The engine is what forces the discipline a one-off appraisal can skip.
+
+The strategic payload (`grimoires/loa/context/gadget-factory-brief.md`): *don't sell the loupe — sell the appraiser's reputation.* A realness score is a commodity; the **calibration track record** (pre-registered, deterministically-settled, Brier-scored bets) is the only thing in the stack that compounds. The corpus engine is the machine that grows it.
 
 ---
 
 ## 1. Problem Statement
 
-The finnNFT personality engine is 85% built across 68 files (~18K lines in `src/nft/`). The DAMP-96 derivation engine, BEAUVOIR synthesizer, anti-narration framework, on-chain reader, signal cache, personality store, name derivation, and experience engine all exist as working code. However, **none of this is connected to the chat session flow**. Users currently interact with 4 generic static personalities loaded from `config/personalities.json` via `StaticPersonalityLoader`.
+The lab can produce a metered, grounded, deterministically-settled realness verdict — but only when a human drives every step, on demand. There is no standing process that (a) sources new candidates, (b) runs the full loop on a schedule without a human at each seam, (c) re-settles prior verdicts over time to test *survival* (not just present-tense realness), or (d) accumulates the results into a scored, queryable track record.
 
-The gap is the "last mile" — wiring existing components into a pipeline triggered by session creation: `tokenId → on-chain read → DAMP-96 derivation → BEAUVOIR synthesis → personality injection`. Additionally, the identity graph (`identity-graph.ts`) and experience engine (`experience-engine.ts`) are fully implemented but never invoked.
+> Source: `gadget-factory-brief.md:33-46` (the pushback + the automation design); `NOTEBOOK.md` entry 002 ("WEBB's firehose is manual today… the Grok SIGINT sensor is the wire that makes her desk autonomous — that's the next build, not the next probe").
 
-This cycle delivers the soft launch: 5-10 team members chatting with distinct, on-chain-derived agent personalities. It also documents the scale-out architecture for 100K+ NFTs.
-
-> Sources: Issue #132 (full spec), Code analysis of `src/nft/` (68 files), `agent-chat.ts` session flow, `config/personalities.json` (4 static entries)
+**`realness ≠ survival`** is not a caveat — it is the product spec for the loop's second pass. A one-shot settle measures the present; survival needs the *same bet re-settled over time* (SETTLE-003 caveat: "a pump.fun token growing 6× in 3 weeks can be a real, distributed speculative mania and still round-trip to zero").
 
 ---
 
 ## 2. Goals & Success Metrics
 
-### 2.1 Business Objectives
+| Goal | Metric | Source |
+|---|---|---|
+| Grow a calibration track record | N settled bets on the spine with registered forecast + Brier score, accumulating weekly | `experiment-economics.md:92-101` (learning_yield = Σ tier-weighted settled beliefs / cost) |
+| Test survival, not just realness | Each REAL verdict re-settled at t+7/+30/+90; survival labeled per bet | SETTLE-003 caveats; operator (2026-06-14) |
+| Run governed, not hand-run | 0 hand-run settles post-V1; every run via the cron→`lab-cycle` path with a `valid_run` | `COMPOSITION.md`; CLAUDE.md consumption-gradient doctrine |
+| Stay cheap | Per-run Dune credits hard-capped; learning_yield trends up | `experiment-economics.md:112-140`; Dune quota 2500/mo (verified `getUsage`) |
 
-- **Soft launch ready**: 5-10 team members chatting with distinct dNFT agents on production
-- **Product thesis validated**: "The art and the agent are the same thing expressed in different modalities" — on-chain traits produce personality
-- **Scale-out architecture designed**: Caching, batch derivation, and degradation patterns documented for 100K+ NFTs
+**V1 success definition:** the engine runs `lab-cycle` on a schedule in a Railway Sandbox, settles ≥1 fresh candidate AND re-settles ≥1 prior REAL verdict per cycle, appends both to the spine with Brier scores, and never exceeds its per-run credit cap — unattended, for ≥2 consecutive scheduled cycles.
 
-### 2.2 Quantitative Success Criteria
-
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| DAMP fingerprint distinctiveness | Cosine similarity < 0.7 between any two agents | `src/nft/eval/distinctiveness.ts` |
-| BEAUVOIR synthesis latency | < 10s per generation (Opus) | Circuit breaker telemetry |
-| Streaming response start | < 3s for cached personalities | Gateway latency metrics |
-| Anti-narration violation rate | 0% on generated BEAUVOIR docs | `validateAntiNarration()` assertions |
-| Cache hit rate (soft launch) | 100% for pre-computed demo IDs | Redis cache metrics |
-
-### 2.3 Qualitative Success Criteria
-
-| Criteria | Validation |
-|----------|------------|
-| Team members rate personality quality 4+/5 | Post-chat feedback during soft launch |
-| Users can distinguish agents by conversation alone | Blind test: guess which archetype from conversation |
-| Personality feels "alive", not templated | Subjective team assessment |
-
-> Sources: Issue #133 "Wow Criteria", Phase 2 interview
+**Explicit non-goal (V1):** external revenue / packaging sellable gadgets (#002 survival-forecaster svc, #003 realness-score svc). Internal edge — the track record steering what THJ builds — first. (Operator, 2026-06-14.)
 
 ---
 
-## 3. User & Stakeholder Context
+## 3. Users & Stakeholders
 
-### 3.1 Primary Persona: finnNFT Holder
+| Persona | Job-to-be-done | Priority |
+|---|---|---|
+| **Operator / THJ (internal)** | "Tell me what's actually real in the trenches so I build for real demand, not theater" — steers TBA/Mint/Freeside bets | **Primary (V1)** |
+| **The lab itself (Finn)** | consumes its own track record to calibrate forecasts (TETLOCK) and source candidates (WEBB) | Primary |
+| **External consumers (future)** | a realness API / survival-forecaster / daily readout | Deferred (post-V1) |
 
-- **Access**: Connects wallet, SIWE authentication
-- **Interaction**: Web chat at `/chat/{tokenId}`, Discord `/agent` command
-- **Ownership model**: Own NFT only — `on-chain-reader.ts:readOwner(tokenId)` must match SIWE wallet
-- **Soft launch scope**: 5-10 allowlisted team members (`CHAT_ALLOWED_ADDRESSES`)
-
-### 3.2 Stakeholders
-
-| Stakeholder | Interest | Involvement |
-|-------------|----------|-------------|
-| @janitooor | Primary maintainer, PR reviewer | Approval on all implementation |
-| Team members | Soft launch testers | Quality feedback on personality distinctiveness |
-
-> Sources: Issue #133 Gate 5 (access control), Phase 3 interview
+> Source: `gadget-factory-brief.md` fork #3 resolved → "internal edge first" (operator, 2026-06-14).
 
 ---
 
 ## 4. Functional Requirements
 
-### FR-1: End-to-End Pipeline Wiring
+**FR-1 — Scheduled loop dispatch.** The system shall run the `lab-cycle` composition on a schedule via the existing `src/cron` JobRunner, dispatching into a Railway Sandbox per run.
+- AC: a schedule entry triggers a `lab-cycle` run; the run executes PROBE→REGISTER→DESIGN→⟦pin-bars⟧→SETTLE→CALIBRATE; a `valid_run` proof is recorded.
+- Grounding: `src/cron/{runner,schedule,job-registry,service}.ts` exist (verified 2026-06-14); `railway-sandbox-spike-memo.md:28-32`.
 
-**When** a user creates a chat session with a `tokenId`, **the system shall** resolve personality through this pipeline:
+**FR-2 — Governed deterministic settle (headless).** When a settle runs in a headless cron, the system shall query Dune via the governed `dune-meter` path (key-based, cost-capped, execute-by-id), NOT the Dune MCP.
+- AC: a headless run completes a settle with no interactive MCP; the run carries a cost atom with the credits consumed.
+- Grounding: the Dune MCP is interactively authenticated (absent in headless runs — harness note); `dune-meter` is currently broken (HTTP 405 on execute) — `SETTLES.md` SETTLE-001 provenance. **This is blocking dependency #1.**
 
-```
-Session creation (agent-chat.ts)
-  → Verify ownership: readOwner(tokenId) == SIWE wallet
-  → Check cache: PersonalityStore.get(tokenId) → Redis → Postgres
-  → Cache miss: OnChainReader.readSignals(tokenId)
-  → Signal derivation: buildSignalSnapshot() → deriveDAMP()
-  → Identity graph: KnowledgeGraphLoader.extractSubgraph()
-  → BEAUVOIR synthesis: BeauvoirSynthesizer.synthesize() [Opus]
-  → Store: PersonalityStore.write() [Redis + Postgres dual-write]
-  → Resolve: resolvePersonalityPrompt() → inject into system prompt
-```
+**FR-3 — Survival re-settle (forward-rolling window).** The system shall, on schedule, re-measure each prior `HELD[real]` verdict at t+7/t+30/t+90 using the SAME pinned thresholds + SAME query template but a FRESH, forward-rolling data window (the days since discovery), producing a survival-labeled datapoint and a Brier update.
+- **Flatline C1 (BLOCKER, both voices) fix:** re-settle must NOT replay the original window — that is static by construction and measures nothing. It advances the data window to observe actual post-discovery decay/survival. Same thresholds, new data.
+- AC: a REAL verdict ages into a re-settle queue; the re-run queries fresh data for the post-discovery window and yields {survived | decayed | indeterminate} + a calibration update; both the original snapshot and the new window are stored.
+- Grounding: SETTLE-003 open thread (NOTEBOOK 002); operator priority (2026-06-14); flatline consensus C1 (`a2a/flatline/prd-corpus-engine-consensus.md`).
 
-**Integration points** (existing code to wire):
-- `src/nft/on-chain-reader.ts` → `readSignals(tokenId)` returns `SignalSnapshot`
-- `src/nft/signal-engine.ts` → `buildSignalSnapshot()` constructs full signal
-- `src/nft/damp.ts` → `deriveDAMP(snapshot)` returns `DAMPFingerprint` (96 dials)
-- `src/nft/identity-graph.ts` → `extractSubgraph(archetype, ancestor, era, element)` returns `SynthesisSubgraph`
-- `src/nft/beauvoir-synthesizer.ts` → `synthesize(fingerprint, signals, subgraph)` returns BEAUVOIR.md
-- `src/nft/personality-resolver.ts` → `resolvePersonalityPrompt()` wraps in `<system-personality>` delimiters
-- `src/nft/personality-context.ts` → `buildPersonalityContext()` creates protocol v4.5 context
-- `src/nft/name-derivation.ts` → `nameKDF(signals)` returns canonical agent name
+**FR-4 — Forecast registration + calibration ledger (the franchise).** Before each settle, the system shall register a probabilistic forecast (`probability_ppm` + `base_rate_ppm` + `resolution_criterion`, via `tetlock-forecast.ts`), pinned BEFORE any data is read; after the deterministic settle it shall Brier-score that forecast against the outcome and append the scored bet to the spine; a ledger-read exposes the track record (count, hit-rate, mean Brier, survival curve).
+- **Flatline C2 (BLOCKER, both voices) fix:** the Brier numerator is the PRE-REGISTERED probability (PLATT pins bars, TETLOCK registers `p`); the deterministic verdict is the 0/1 it scores against, not the forecast. The mechanism already exists (`tetlock-forecast.ts`); V1 makes it a REQUIRED, enforced step — no settle without a prior registered forecast.
+- AC: a settle with no prior registered forecast is rejected; `verifySpineChain()` passes after append; ledger-read returns the running calibration summary.
+- Grounding: `tetlock-forecast.ts` (`probability_ppm`/`resolution_criterion`); `spine-ledger.ts`; `experiment-economics.md:92-101`; flatline C2.
 
-**Concurrency control (SKP-004):** The pipeline MUST use a per-token distributed lock (Redis `SET NX` with expiry) to prevent duplicate Opus synthesis for the same tokenId. Concurrent requests for the same token wait on the lock rather than triggering parallel synthesis. Writes use compare-and-swap by content hash to prevent last-writer-wins corruption.
+**FR-5 — Verdict via GADGET #001.** The deterministic SETTLE verdict shall be computed by the `realness-verdict` module (pure, tested), not ad-hoc per run.
+- AC: the engine imports `gadgets/realness-verdict` (graduated to `src/` under /implement); its discrimination test stays green (Kintara→REAL, x402→THEATER).
+- **Flatline H5/MED fix:** the verdict carries boundary dimensions (present distribution · organic-demand proxy · manipulation/sybil risk · survival), and `INDETERMINATE` is reserved for the honest bar-gap ONLY — transport/exec failures are `INSUFFICIENT`/retry, never a scored verdict (else they poison the Brier).
+- Grounding: `grimoires/loa/lab/gadgets/realness-verdict/` (built + 5/5 this session).
 
-**Dual-write consistency (SKP-003):** Postgres is the source of truth. Write order: Postgres first (with idempotency key), then Redis cache. On read, if Redis and Postgres disagree (content hash mismatch), perform read-repair from Postgres. Store `personality_version` / `content_hash` in both stores for mismatch detection.
+**FR-7 — Discrimination benchmark before autonomy.** Before GADGET #001 is wired into the autonomous scheduled engine, its thresholds shall be validated against a benchmark suite of ≥10 diverse, independently-known REAL/THEATER cases (backtest/holdout), with false-REAL/false-THEATER rates recorded and thresholds locked.
+- **Flatline C3 (HIGH, both voices) fix:** a 2-case validation (SETTLE-001/003) is a seed, not proof; sybil/bot volume can spoof basic organic metrics. Autonomous wiring is GATED on the benchmark.
+- AC: the suite exists, runs green, results stored; autonomy gated on it.
+- Grounding: flatline C3.
 
-**BEAUVOIR sanitization (SKP-008):** Generated BEAUVOIR content MUST be sanitized before storage: strip/escape `<system-personality>` delimiter tokens and any system-role directives. Validate against allowed sections/headers and enforce length limits. The anti-narration validator already catches some adversarial patterns; add delimiter-specific checks.
-
-**WebSocket loading sequence (IMP-002):** For cold-cache resolution (up to 20s), the WebSocket MUST send a structured loading state frame: `{ "type": "personality_loading", "stage": "on_chain_read|damp_derivation|synthesis|caching", "progress_percent": N }`. Client renders a loading indicator until `{ "type": "personality_ready", "agent_name": "...", "archetype": "..." }` is received.
-
-**Experience engine ordering (IMP-005):** Drift is applied at read-time, NOT during synthesis. The canonical order is: `birth_fingerprint` (immutable) + `stored_drift_offsets` (versioned, Postgres) = `effective_fingerprint` (computed). Synthesis uses the `effective_fingerprint`. Drift offsets are updated asynchronously post-session via atomic Postgres transaction with optimistic concurrency.
-
-**Acceptance criteria**:
-- A tokenId in the WebSocket query produces a personality derived from on-chain traits, not from static config
-- Ownership verification rejects non-owners with appropriate error
-- Pipeline completes within 20s on cold cache, <1s on warm cache
-- Concurrent requests for same tokenId do not trigger duplicate synthesis
-- Postgres is always consistent; Redis may lag but self-heals via read-repair
-- Generated BEAUVOIR content cannot break out of system-personality delimiters
-
-> Sources: Issue #132 Sprint 1, Flatline SKP-004 (HIGH:760), SKP-003 (HIGH:770), SKP-008 (CRITICAL:940), IMP-002, IMP-005
-
-### FR-2: Identity Graph Integration
-
-**The system shall** inject cultural references, aesthetic preferences, and philosophical foundations from the identity graph into the BEAUVOIR synthesis prompt.
-
-**Current state**: `identity-graph.ts` (483 lines) has `extractSubgraph()`, `resolveCulturalReferences()`, `resolveAestheticPreferences()`, `resolvePhilosophicalFoundations()` — all implemented. `buildSynthesisPrompt()` has slots for this data but receives empty inputs.
-
-**Task**: Wire `KnowledgeGraphLoader.extractSubgraph()` output into `BeauvoirSynthesizer.buildSynthesisPrompt()` so the synthesis prompt includes:
-- Cultural references from ancestor's codex neighborhood (hop depth = 2)
-- Aesthetic notes from archetype affinity
-- Philosophical lineage from era + element nodes
-
-**Acceptance criteria**:
-- Generated BEAUVOIR docs reference cultural context appropriate to the ancestor
-- Two agents with different ancestors produce visibly different cultural grounding
-
-> Sources: Code analysis (`identity-graph.ts:483`, `beauvoir-synthesizer.ts:511`)
-
-### FR-3: Experience Engine Wiring
-
-**The system shall** track interactions per personality and apply gradual dial drift over time.
-
-**Current state**: `experience-engine.ts` (322 lines) fully implements:
-- Epoch triggers after N interactions
-- Per-dial exponential decay with 30-day half-life
-- Drift formula: `impact * exp(-ln(2)/30 * age_days)`
-- Clamping: ±0.5% per epoch, ±5% cumulative from birth values
-- `experience-accumulator.ts`, `experience-rebase.ts`, `experience-config.ts` all implemented
-
-**Task**: Wire experience engine into personality resolution path:
-- After each session, increment interaction counter
-- On epoch trigger, compute dial drift from accumulated interactions
-- Apply drift offsets during `resolvePersonalityPrompt()` before synthesis
-- Store experience state in Redis/Postgres
-
-**Acceptance criteria**:
-- Interaction count tracked per tokenId
-- After N interactions (configurable epoch size), personality dials shift within ±0.5% bounds
-- Cumulative drift never exceeds ±5% from birth values
-
-> Sources: Code analysis (`experience-engine.ts`, `experience-types.ts`, `experience-accumulator.ts`)
-
-### FR-4: Pre-Computed Demo Personalities
-
-**The system shall** support pre-computing personality derivations for known tokenIds.
-
-**Task**: Create a script/command that:
-1. Takes a list of tokenIds (or reads from config)
-2. Runs the full pipeline: on-chain read → DAMP → identity graph → BEAUVOIR synthesis → cache write
-3. Validates anti-narration on each generated BEAUVOIR
-4. Reports distinctiveness scores between all generated personalities
-
-**For soft launch**: Use test/mock tokenIds initially, swap for real team-owned IDs before launch.
-
-**Acceptance criteria**:
-- 5 personalities pre-computed and cached
-- All pass anti-narration validation
-- Pairwise cosine similarity < 0.7
-
-> Sources: Issue #132 Sprint 3, Phase 5 interview
-
-### FR-5: Chat Metadata — Name & Archetype
-
-**The system shall** expose the agent's derived name and archetype in API response metadata and chat page UX.
-
-**loa-finn (API)**:
-- Include `agent_name` (from `nameKDF()`), `archetype`, `era` in session creation response
-- Include in WebSocket personality metadata frame
-
-**loa-freeside (UX)**:
-- Update `chat-page.routes.ts` to display agent name instead of generic "Agent Chat"
-- Show archetype/era as flavor text
-- Optionally show tarot card or zodiac as visual flair
-
-**Acceptance criteria**:
-- Chat page shows derived agent name (e.g., "Kael Tempest" not "Agent #1")
-- Archetype visible as secondary metadata
-
-> Sources: Issue #132 Sprint 3 Task 3.4, Phase 3/6 interview
-
-### FR-6: Centralized Ownership Verification Gate
-
-**When** a user attempts to create a chat session via ANY entry point (HTTP, WebSocket, Discord, or future paths), **the system shall** verify NFT ownership through a single centralized function:
-
-```
-verifyOwnership(tokenId, wallet) → centralized service function
-  → On-chain ownerOf() call (NOT cached for auth decisions)
-  → Match against SIWE-authenticated wallet address
-  → Allow if match, reject with 403 if mismatch
-  → Short TTL owner cache (60s max) for repeated checks within same session
-```
-
-**Centralization requirement (SKP-001):** All session creation paths MUST route through a single `verifyOwnership()` function. Deny-by-default: if tokenId is present but ownership not validated, reject. Integration tests MUST cover every entry point.
-
-**Ownership cache TTL (SKP-002):** Ownership data MUST NOT use the 24h signal cache. Auth-layer ownership uses a separate 60s TTL cache. On NFT transfer, `transfer-listener.ts` invalidates immediately. Store `blockNumber` with ownership reads for staleness detection.
-
-**Active-session transfer behavior (IMP-004):** If ownership changes during an active session, the current session completes but no new sessions are allowed for the old owner. Transfer invalidation is eventual (within 60s TTL) for in-flight sessions.
-
-**Acceptance criteria**:
-- Non-owners receive 403 with clear error message on ALL entry points
-- Ownership check uses 60s TTL cache (NOT 24h signal cache)
-- Transfer events invalidate ownership cache immediately
-- Soft launch: also checks `CHAT_ALLOWED_ADDRESSES` allowlist
-- Integration tests cover HTTP, WebSocket, and any other session creation paths
-
-> Sources: Issue #133 Gate 5, Flatline SKP-001 (CRITICAL:910), SKP-002 (CRITICAL:880), IMP-004 (HIGH_CONSENSUS)
-
-### FR-7: Fallback & Degradation Chain
-
-**If** any pipeline stage fails, **the system shall** degrade gracefully:
-
-| Failure | Fallback |
-|---------|----------|
-| On-chain read fails | Use cached signals if available, else reject |
-| DAMP derivation fails | Should not fail (pure function), but reject if input invalid |
-| Identity graph load fails | Synthesize without cultural grounding (empty subgraph) |
-| BEAUVOIR synthesis fails (circuit breaker open) | Use cached BEAUVOIR if available, else use static fallback |
-| Redis unavailable | Fall through to Postgres, then on-chain |
-
-**Acceptance criteria**:
-- No pipeline failure produces an unhandled error
-- Degradation logged with severity for monitoring
-- Static fallback (`config/personalities.json`) is the last resort, never the default
-
-> Sources: Code analysis (circuit breaker in `beauvoir-synthesizer.ts`, `personality-provider-chain.ts` fallback order)
+**FR-6 — Candidate intake (manual V1, autonomous fast-follow).** The system shall accept a candidate via a TRANSACTIONAL store (a state table, not a flat file — race/double-settle safe), ledger EVERY candidate with source + inclusion/rejection reason, and report calibration over the FULL intake funnel (not only settled bets).
+- **Flatline H1 (HIGH) + Gemini #6 fix:** manual intake is a selection-bias hole — a cherry-picked corpus is a fake track record. Logging every candidate + rejection reason + funnel-level calibration is the guard; a transactional store (not a flat queue file) removes the race/double-settle risk.
+- AC (V1): a candidate row triggers a scheduled loop; rejections recorded with reasons; funnel calibration queryable.
+- Grounding: `src/cron/store.ts` (transactional store exists); `SIGINT-WIRING.md` (grok autonomous = fast-follow); flatline H1 + Gemini #6.
 
 ---
 
 ## 5. Technical & Non-Functional Requirements
 
-### 5.1 Performance
+**NFR-1 — Deterministic settle only.** If a settle verdict is produced, it shall come from a deterministic instrument (on-chain / test / market P&L), never an LLM. (`epistemology-deterministic-layers.md` §4.)
 
-| Metric | Target |
-|--------|--------|
-| Cached personality resolution | < 100ms |
-| Cold cache (on-chain + synthesis) | < 20s (with loading state) |
-| Pre-computed personality load | < 50ms |
-| Streaming response start | < 3s after personality resolved |
+**NFR-2 — Metered, every step.** The system shall close a hash-chained cost atom before any finding/settle is representable (`cost-atom-research.ts`, Contract A). A run without atoms didn't happen.
 
-### 5.2 Synthesis Model
+**NFR-3 — Hard per-run credit cap.** The sandbox shall enforce a hard Dune credit cap per run; on cap, the run aborts with a typed failure, no partial settle. (The dropped-call double-charge in SETTLE-003 is the motivating incident; `dune-meter --cap` is the mechanism.)
 
-- **Model**: Claude Opus for BEAUVOIR generation
-- **Rationale**: Highest personality depth and nuance for the "wow" factor
-- **Cost**: One-time per personality (cached after generation)
+**NFR-4 — Orchestration reliability over clever science.** The engine shall use commit-per-item and idempotent re-settle so a transport death mid-cycle is recoverable without double-settle.
+- Grounding: "the cheap deterministic floor held; the expensive part was the orchestration wrapper" (`experiment-economics.md:138-140`); existing `src/cron/{idempotency,circuit-breaker,kill-switch}.ts`.
 
-### 5.3 Caching Architecture
+**NFR-5 — Sandbox isolation.** Runs execute under restricted bash/network, execFile-only, with resource caps (max tool-calls / runtime / items). (`src/cron/sandbox-policies.ts`; `railway-sandbox-spike-memo.md:28-32`.)
 
-| Layer | Store | TTL | Purpose |
-|-------|-------|-----|---------|
-| Signal cache | Redis | 24h | On-chain signal snapshots |
-| Personality store | Redis + Postgres | 1h / permanent | BEAUVOIR docs + DAMP fingerprints |
-| R2 backup | S3-compatible | Permanent | BEAUVOIR.md versioned backup |
-| Identity graph cache | Redis | 24h | Codex subgraphs |
+**NFR-6 — Global rolling credit budget + censored-outcome accounting.** Beyond the per-run cap (NFR-3), the JobRunner shall enforce a global rolling (e.g., 24h) Dune-credit budget before dispatching any run; a cap-abort shall be recorded as a typed `censored` outcome counted in corpus-quality metrics, never silently dropped.
+- **Flatline C4 (HIGH, both) + GPT-5.5 #7 fix:** fresh candidates + an accumulating t+7/+30/+90 re-settle backlog will exhaust the 2,500/mo quota without a global cap; silently dropping cap-aborts is survivorship bias.
+- Grounding: `experiment-economics.md` (2,500/mo ceiling); `src/cron/rate-limiter.ts`.
 
-**Already built**: `signal-cache.ts`, `personality-store.ts`, `identity-graph.ts:IdentityGraphCache`
+**NFR-7 — Bet provenance / versioning.** Each settle shall store, as part of the bet: the Dune query ID, the SQL/template version hash, parameters, pinned thresholds, the verdict-module commit SHA, and the exact data window. A later query/threshold change MUST NOT silently rewrite the meaning of historical calibration.
+- **Flatline H2 (GPT-5.5 #6) fix:** unversioned templates make the track record un-auditable. Grounding: the spine's append-only hash-chain (`spine-ledger.ts`).
 
-### 5.4 Security
-
-- Ownership verification via on-chain `ownerOf()` before session creation
-- Anti-narration validation (7 constraints) on every BEAUVOIR generation
-- Temporal voice domain checking per era
-- SIWE + JWT auth chain (existing)
-- Soft launch allowlist (`CHAT_ALLOWED_ADDRESSES`)
-
-### 5.5 Scale-Out Design (Architecture Documentation)
-
-Document (not implement) the following patterns for 100K+ NFTs:
-
-1. **Batch derivation**: Pre-compute DAMP fingerprints for all minted tokenIds during off-peak hours
-2. **Cache warming**: Proactive synthesis for frequently accessed agents (top 1000 by interaction count)
-3. **Synthesis queue**: Rate-limited BEAUVOIR generation to prevent Opus API burst
-4. **Degradation tiers**: Full personality → cached BEAUVOIR → generic archetype template → static fallback
-5. **Transfer invalidation**: `transfer-listener.ts` already exists — document integration with cache invalidation
-
-> Sources: Phase 5 interview, `transfer-listener.ts` (231 lines, implemented)
+**Compute substrate (decided):** **Railway Sandbox** — verified available 2026-06-14 (`railway sandbox list` returns clean; the spike memo's `PROJECT_SANDBOXES` flag blocker is CLEARED). Still flagged EXPERIMENTAL by Railway → keep the Finn-native `src/cron` path as the fallback behind a flag (spike memo's standing recommendation, `:43-52`).
 
 ---
 
 ## 6. Scope & Prioritization
 
-### 6.1 In Scope (This Cycle)
+### V1 (this cycle) — "Loop + survival re-settle" (operator-confirmed)
+1. Fix `dune-meter` governed headless Dune path (blocking dep #1; cross-repo loa-freeside).
+2. Graduate GADGET #001 `realness-verdict` into `src/` (under /implement).
+3. Wire `src/cron` JobRunner → `lab-cycle` dispatch into a Railway Sandbox, scheduled.
+4. Survival re-settle queue (t+7/+30/+90) for REAL verdicts.
+5. Calibration-ledger append + read (spine) — with forecast registration (FR-4) + bet provenance (NFR-7).
+6. Candidate intake = operator-seeded via a transactional store (FR-6).
 
-| Priority | Feature | Repos |
-|----------|---------|-------|
-| P0 | FR-1: Pipeline wiring (tokenId → personality → session) | loa-finn |
-| P0 | FR-6: Ownership verification gate | loa-finn |
-| P0 | FR-7: Fallback & degradation chain | loa-finn |
-| P1 | FR-2: Identity graph integration into synthesis | loa-finn |
-| P1 | FR-3: Experience engine wiring | loa-finn |
-| P1 | FR-4: Pre-computed demo personalities (5 test tokenIds) | loa-finn |
-| P2 | FR-5: Chat metadata — name & archetype display | loa-finn + loa-freeside |
-| P2 | Scale-out architecture documentation | loa-finn (docs) |
+**V1 build phasing (Flatline #10 — de-risk sequencing):** (a) dune-meter fix + ONE deterministic replay of an existing settle → (b) scheduled fresh settle (with forecast registration) → (c) survival re-settle queue (forward-rolling window) → (d) calibration readout + the discrimination benchmark (FR-7). Each phase lands before the next opens.
 
-### 6.2 Explicitly Out of Scope
+### Fast-follow (next cycle)
+- WEBB autonomous: wire the grok SIGINT firehose (needs a Cheval xai provider — `SIGINT-WIRING.md`).
+- The survival-forecaster gadget (#002) once the corpus has enough re-settle datapoints.
 
-| Feature | Reason |
-|---------|--------|
-| Governance/DAO voting enforcement | Post-launch feature, governance_model field exists but enforcement deferred |
-| Routing affinity enforcement in hounfour | Partial wire exists, not needed for soft launch |
-| Agent mode switching endpoint | Post-launch personalization feature |
-| Flatline review integration for synthesis | Quality gate, not critical path |
-| Discord bot personality integration | Separate work track in loa-freeside |
-| Eval harness integration into CI | Quality tooling, not launch-blocking |
-| Personality versioning UI | API-level versioning exists, UI deferred |
-
-### 6.3 Cross-Repo Work
-
-| Repo | Work | Effort |
-|------|------|--------|
-| **loa-finn** | Pipeline wiring, identity graph, experience engine, demo personalities | Primary dev work |
-| **loa-freeside** | Chat page: display agent name/archetype from API metadata | Light UX update |
-
-> Sources: Phase 6 interview, Issue #132 Sprint breakdown
+### Out of scope (V1)
+- External revenue / packaged sellable gadgets (#002/#003 as products).
+- A UI/dashboard for the track record (a ledger-read is enough for V1).
 
 ---
 
 ## 7. Risks & Dependencies
 
-### 7.1 Technical Risks
-
-| Risk | Severity | Likelihood | Mitigation |
-|------|----------|------------|------------|
-| Opus synthesis latency (10s+) blocks first session | High | Medium | Pre-compute for known IDs, loading state for cold cache |
-| On-chain reader RPC failures (rate limits, network) | Medium | Medium | Circuit breaker + fallback chain (cache → Postgres → static) |
-| Anti-narration false positives rejecting valid BEAUVOIR | Medium | Low | Retry loop (2 retries) with violation feedback already built |
-| Identity graph missing codex data for some combos | Low | Low | `extractSubgraph()` returns empty subgraph gracefully |
-| Experience engine drift accumulating incorrectly | Medium | Low | ±5% cumulative clamp, rebase mechanism exists |
-| Cross-repo coordination overhead (finn + freeside) | Low | Medium | API contract first, UX second |
-
-### 7.2 Dependencies
-
-| Dependency | Status | Risk |
-|------------|--------|------|
-| `ANTHROPIC_API_KEY` configured for Opus | Available in production secrets | None |
-| Redis for personality caching | Running in staging + production | None |
-| RPC endpoint for finnNFT contract | Configured via `ALCHEMY_API_KEY` | Rate limit risk at scale |
-| IPFS gateway for metadata | Configured in `on-chain-reader.ts` | Latency risk |
-| 5 test tokenIds for demo | To be created with mock on-chain data | Low |
-| Postgres for dual-write | Running, schema needs personality tables | Migration required |
-
-### 7.3 Assumptions
-
-1. **[ASSUMPTION]** `BeauvoirSynthesizer.buildSynthesisPrompt()` handles all 12 DAMP categories adequately — enrichment needs identity graph wiring, not prompt restructuring. **If wrong**: Sprint 2 scope expands.
-2. **[ASSUMPTION]** Experience engine wiring doesn't affect synthesis latency — epoch checks are fast, drift computation is pure math. **If wrong**: Experience engine needs async processing path.
-3. **[ASSUMPTION]** `agent-chat.ts` is the sole session creation path. **If wrong**: Discord and other entry points need the same pipeline wiring.
-
-> Sources: Phase 7 interview, code analysis
+| # | Risk / Dependency | Severity | Mitigation |
+|---|---|---|---|
+| D1 | `dune-meter` broken (HTTP 405 execute; cross-repo loa-freeside) | **Blocking** | Fix it first (execute-by-id, executable bin, saved query) — `SETTLES.md` SETTLE-001 provenance. **+ Flatline H4:** the 405 may be a Dune tier/endpoint restriction, not a routing bug → build a mocked data-source fallback so orchestration + schema testing aren't blocked on the live fix |
+| R1 | Railway Sandbox is EXPERIMENTAL (API may change) | Medium | Keep Finn-native `src/cron` fallback behind a flag (spike memo) |
+| R2 | Headless cron lacks the Dune MCP | Medium | D1 (dune-meter) is the resolution; do not depend on the MCP in cron |
+| R3 | Orchestration-wrapper fragility (transport deaths mid-cycle) | Medium | commit-per-item + idempotent re-settle (NFR-4); proven failure mode (`experiment-economics.md:117-119,138-140`) |
+| R4 | Cost runaway (unbounded Dune scans) | Medium | Hard per-run `--cap` (NFR-3); the SETTLE-003 double-charge is the warning |
+| R5 | `src/research`/`src/cron` graduation touches App Zone | Low | Goes through /implement gates (not micro-fix) |
+| R6 | grok SIGINT needs a framework-side Cheval xai provider | Low (deferred) | Out of V1; specced in `SIGINT-WIRING.md` |
 
 ---
 
-## 8. Appendix: Existing Code Inventory
+## 8. Verified facts (this session — ground truth)
 
-### 8.1 Pipeline Components (All in `src/nft/`)
+- `src/cron/` exists with runner, schedule, idempotency, circuit-breaker, kill-switch, rate-limiter, concurrency, sandbox-policies (+ dry-run, job-registry, service, store, types). **Verified `ls` 2026-06-14.**
+- Railway Sandbox available now (`railway sandbox list` clean; flag cleared since the 2026-06-06 spike). **Verified 2026-06-14.**
+- Realness filter validated (SETTLE-001/002 theater; SETTLE-003 real). GADGET #001 built + 5/5 tests.
+- Dune quota: 2500 credits/mo; ~16 used this session. `dune-meter` still broken.
 
-| Component | File | Lines | Status |
-|-----------|------|-------|--------|
-| Signal types & constants | `signal-types.ts` | 308 | Complete |
-| Signal engine | `signal-engine.ts` | 391 | Complete |
-| DAMP-96 derivation | `damp.ts` | 305 | Complete |
-| DAMP offset tables | `damp-tables.ts` | 126 | Complete |
-| BEAUVOIR synthesizer | `beauvoir-synthesizer.ts` | 511 | Complete |
-| BEAUVOIR template | `beauvoir-template.ts` | 112 | Complete (fallback) |
-| Anti-narration (7 constraints) | `anti-narration.ts` | 701 | Complete |
-| Temporal voice domain | `temporal-voice.ts` | 206 | Complete |
-| On-chain reader | `on-chain-reader.ts` | 400 | Complete |
-| Signal cache (Redis 24h) | `signal-cache.ts` | 123 | Complete |
-| Personality store (Redis+Pg) | `personality-store.ts` | 228 | Complete |
-| Personality service (CRUD) | `personality.ts` | 1331 | Complete |
-| Personality resolver | `personality-resolver.ts` | 289 | Complete |
-| Personality context (v4.5) | `personality-context.ts` | 248 | Complete |
-| Personality provider chain | `personality-provider-chain.ts` | 62 | Complete |
-| Static personality loader | `static-personality-loader.ts` | 170 | Complete (legacy) |
-| Name derivation (HKDF) | `name-derivation.ts` | 229 | Complete |
-| Identity graph | `identity-graph.ts` | 483 | Complete, **not wired** |
-| Experience engine | `experience-engine.ts` | 322 | Complete, **not wired** |
-| Experience accumulator | `experience-accumulator.ts` | 244 | Complete, **not wired** |
-| Experience config | `experience-config.ts` | 226 | Complete, **not wired** |
-| Experience rebase | `experience-rebase.ts` | 202 | Complete, **not wired** |
-| First contact | `first-contact.ts` | 93 | Complete |
-| Entropy ceremony | `entropy.ts` | 696 | Complete |
-| Transfer listener | `transfer-listener.ts` | 231 | Complete |
-| Codex data loader | `codex-data/loader.ts` | — | Complete |
-
-### 8.2 Current Session Flow (What Changes)
-
-**Before** (static):
-```
-agent-chat.ts → StaticPersonalityLoader → personalities.json → generic prompt
-```
-
-**After** (dynamic):
-```
-agent-chat.ts
-  → verifyOwnership(tokenId, siweWallet)
-  → PersonalityProviderChain.get(tokenId)
-    → PersonalityStore (Redis → Postgres)
-    → [cache miss] OnChainReader.readSignals(tokenId)
-    → deriveDAMP(snapshot)
-    → KnowledgeGraphLoader.extractSubgraph(...)
-    → BeauvoirSynthesizer.synthesize(fingerprint, signals, subgraph) [Opus]
-    → PersonalityStore.write(tokenId, personality) [dual-write]
-    → ExperienceEngine.applyDrift(fingerprint, tokenId) [if epochs accumulated]
-  → resolvePersonalityPrompt(personality)
-  → buildPersonalityContext(personality)
-  → compose system prompt with <system-personality> delimiters
-  → invoke model with personality context
-```
+> **Sources:** `gadget-factory-brief.md`, `grimoires/loa/lab/{SETTLES,NOTEBOOK,COMPOSITION,SIGINT-WIRING,METHODOLOGY}.md`, `grimoires/loa/lab/roster/*.md`, `context/railway-sandbox-spike-memo.md`, `context/experiment-economics.md`, `context/epistemology-deterministic-layers.md`, live verification (`ls src/cron`, `railway sandbox list`, Dune `getUsage`), and the pre-generation gate (operator answers, 2026-06-14).

@@ -2,13 +2,16 @@
   Observatory — EXP-001 // COST-OF-PLAY-V1
 
   Four panels in a 2×2 grid:
-    [COST.LEDGER]      [PROGRESSION]
-    [HYPOTHESIS.BARS]  [LEARNINGS]
+    [COST.LEDGER]    [PROGRESSION]
+    [BELIEF.BARS]    [LEARNINGS]
 
   Design decisions:
   - Register: freeside (CRT near-zero, data-forward)
   - Color: bone-bright for hero numbers (never crimson — TDR-007)
   - Verdicts: phosphor-base = HELD, anomaly-base = FALSIFIED, bone-ghost = PENDING
+    (PENDING = not run; INSUFFICIENT = ran-couldn't-decide — kept DISTINCT)
+  - Glossary: BELIEF (the unit) · BAR (the pre-registered line) · the loop
+    PROBE → REGISTER → DESIGN → SETTLE → CALIBRATE
   - Motion: NixieCount at 83ms quantum for cost readouts
   - Steps() only — no smooth easing anywhere
   - No game ceremony. No KANSEI tier escalation. This reads as a laboratory.
@@ -47,8 +50,8 @@
     return Math.min(current / max_display, 1) * 100;
   }
 
-  function barThresholdPct(threshold: number, max_display: number): number {
-    return Math.min(threshold / max_display, 1) * 100;
+  function barLinePct(line: number, max_display: number): number {
+    return Math.min(line / max_display, 1) * 100;
   }
 </script>
 
@@ -58,7 +61,7 @@
 </svelte:head>
 
 <main class="obs-main" data-step="idle">
-  <!-- ── Header strip ── -->
+  <!-- ── Identity strip — pure context line (the navbar carries navigation) ── -->
   <header class="obs-header">
     <span class="obs-header-id">
       OBSERVATORY.INSTRUMENT
@@ -67,13 +70,27 @@
       <span class="obs-header-sep">//</span>
       {EXPERIMENT.name}
     </span>
-    <span class="obs-header-right">
-      <a class="obs-header-link" href="./spine">RESEARCH.SPINE</a>
-      <span class="obs-header-date">{EXPERIMENT.date}</span>
-    </span>
+    <span class="obs-header-date">{EXPERIMENT.date}</span>
   </header>
 
-  <!-- ── 2×2 Panel Grid ── -->
+  <!-- ── Hero — the experiment's one result, at rest above the detail grid ──
+       Weight from SIZE, bone-bright only (TDR-007). The 2×2 grid below is the
+       detail tier; this line is what the page leads with. -->
+  <div class="obs-hero">
+    <p class="obs-hero-line">
+      THIS EXPERIMENT COST
+      <span class="obs-hero-cost phosphor-glow-bone">
+        ≈ <NixieCount
+          target={COST_LEDGER.class_b_live_micro_usd / 1_000_000}
+          duration={2000}
+          format={(n) => `$${n.toFixed(3)}`}
+        />
+      </span>
+    </p>
+    <p class="obs-hero-support">LIVE CLASS-B INFERENCE · &lt;$5 INFRA · ~$0 HARNESS (SUBSCRIPTION)</p>
+  </div>
+
+  <!-- ── 2×2 Panel Grid — the detail tier ── -->
   <div class="obs-grid">
 
     <!-- ── Panel 1: COST LEDGER ── -->
@@ -85,11 +102,6 @@
         <div class="data-row">
           <span class="data-label">INFERENCE (harness)</span>
           <span class="data-value-ghost">~$0 (subscription)</span>
-        </div>
-        <div class="data-row" style="border-bottom: none; padding-bottom: 0;">
-          <span class="data-subnote">
-            {fmtTokens(COST_LEDGER.inference_harness_tokens_in)}↑ / {fmtTokens(COST_LEDGER.inference_harness_tokens_out)}↓ TOKENS
-          </span>
         </div>
 
         <div style="height: var(--space-300);"></div>
@@ -103,11 +115,6 @@
               duration={2000}
               format={(n) => `$${n.toFixed(6)}`}
             />
-          </span>
-        </div>
-        <div class="data-row" style="border-bottom: none; padding-bottom: 0;">
-          <span class="data-subnote">
-            {ATOMS.total} ATOMS · {ATOMS.a_relay} A_RELAY · {ATOMS.b_enrich} B_ENRICH
           </span>
         </div>
 
@@ -124,11 +131,6 @@
             />
           </span>
         </div>
-        <div class="data-row" style="border-bottom: none; padding-bottom: 0;">
-          <span class="data-subnote">
-            10 BEDROCK PROBES + 2 FULL ENRICHMENTS (681 MICRO EACH)
-          </span>
-        </div>
 
         <div style="height: var(--space-300);"></div>
 
@@ -139,20 +141,28 @@
             &lt; ${COST_LEDGER.railway_est_usd_max.toFixed(2)} (est.)
           </span>
         </div>
-        <div class="data-row" style="border-bottom: none; padding-bottom: 0;">
-          <span class="data-subnote">
-            2 SERVICES · ~1 SERVICE-DAY · USAGE API
-          </span>
-        </div>
 
-        <div class="obs-divider"></div>
-
-        <!-- Calibration -->
-        <div class="data-row" style="border-bottom: none;">
-          <span class="data-subnote">
-            {COST_LEDGER.calibration_note}
-          </span>
-        </div>
+        <!-- TUCK: derivations + calibration — the second read, behind the caret -->
+        <details class="tuck">
+          <summary>METHODOLOGY / CALIBRATION</summary>
+          <div class="tuck-body">
+            <p class="data-subnote">
+              INFERENCE: {fmtTokens(COST_LEDGER.inference_harness_tokens_in)}↑ / {fmtTokens(COST_LEDGER.inference_harness_tokens_out)}↓ TOKENS
+            </p>
+            <p class="data-subnote">
+              ATOMS: {ATOMS.total} TOTAL · {ATOMS.a_relay} A_RELAY · {ATOMS.b_enrich} B_ENRICH
+            </p>
+            <p class="data-subnote">
+              CLASS-B: 10 BEDROCK PROBES + 2 FULL ENRICHMENTS (681 MICRO EACH)
+            </p>
+            <p class="data-subnote">
+              RAILWAY: 2 SERVICES · ~1 SERVICE-DAY · USAGE API
+            </p>
+            <p class="data-subnote tuck-calibration">
+              {COST_LEDGER.calibration_note}
+            </p>
+          </div>
+        </details>
       </div>
     </div>
 
@@ -189,101 +199,114 @@
           </tbody>
         </table>
 
-        <!-- Latency sub-section -->
-        <div class="latency-group">
-          <p class="latency-group-label">LATENCY P50 (PHASE 1 → PHASE 2)</p>
-          {#each PHASES as row}
-            <div class="data-row">
-              <span class="data-label">
-                PH {row.level !== undefined ? `${row.phase}.${row.level}` : String(row.phase)} A_RELAY
-              </span>
-              <span class="data-value">{row.a_relay_p50_ms}ms</span>
-            </div>
-            {#if row.b_enrich > 0}
+        <!-- TUCK: latency P50 sub-table — the second read, behind the caret -->
+        <details class="tuck">
+          <summary>LATENCY P50 (PHASE 1 → PHASE 2)</summary>
+          <div class="tuck-body">
+            {#each PHASES as row}
               <div class="data-row">
                 <span class="data-label">
-                  PH {row.level !== undefined ? `${row.phase}.${row.level}` : String(row.phase)} B_ENRICH ({row.b_gate_status})
+                  PH {row.level !== undefined ? `${row.phase}.${row.level}` : String(row.phase)} A_RELAY
                 </span>
-                <span class="data-value" class:verdict-held={row.b_gate_status === 'ROUTED'} class:verdict-pending={row.b_gate_status === 'FAIL_CLOSED'}>
-                  {row.b_p50_ms}ms
-                </span>
+                <span class="data-value">{row.a_relay_p50_ms}ms</span>
               </div>
-            {/if}
-          {/each}
-        </div>
+              {#if row.b_enrich > 0}
+                <div class="data-row">
+                  <span class="data-label">
+                    PH {row.level !== undefined ? `${row.phase}.${row.level}` : String(row.phase)} B_ENRICH ({row.b_gate_status})
+                  </span>
+                  <span class="data-value" class:verdict-held={row.b_gate_status === 'ROUTED'} class:verdict-pending={row.b_gate_status === 'FAIL_CLOSED'}>
+                    {row.b_p50_ms}ms
+                  </span>
+                </div>
+              {/if}
+            {/each}
+          </div>
+        </details>
       </div>
     </div>
 
-    <!-- ── Panel 3: HYPOTHESIS BARS ── -->
+    <!-- ── Panel 3: BELIEF BARS ── -->
     <div class="panel beam-enter">
       <div class="panel-inner">
-        <span class="panel-label">HYPOTHESIS.BARS</span>
+        <span class="panel-label">BELIEF.BARS</span>
         <p class="obs-bars-provenance">SHA-PINNED · SET BEFORE DATA EXISTED · cop-bars.json</p>
 
         {#each BAR_RESULTS as bar}
-          <div class="hypo-bar-block">
-            <div class="hypo-bar-header">
-              <span class="hypo-bar-id">{bar.id} — {bar.label}</span>
+          <div class="belief-bar-block">
+            <div class="belief-bar-header">
+              <span class="belief-bar-id">{bar.id} — {bar.label}</span>
               <span class={bar.verdict === 'HELD' ? 'verdict-held' : bar.verdict === 'FALSIFIED' ? 'verdict-falsified' : 'verdict-pending'}>
                 {bar.verdict}
               </span>
             </div>
 
             <!-- Bar track -->
-            <div class="hypo-bar-track">
+            <div class="belief-bar-track">
               <!-- Fill — current value -->
               {#if bar.current_value !== null}
                 <div
-                  class="hypo-bar-fill"
+                  class="belief-bar-fill"
                   class:over-held={bar.current_value > bar.bar_held}
                   style="width: {barFillPct(bar.current_value, bar.bar_max_display)}%"
                 ></div>
               {/if}
 
-              <!-- Threshold: HELD line (cyan) -->
+              <!-- BAR: HELD line (cyan) -->
               <div
-                class="hypo-bar-marker hypo-bar-marker-held"
-                style="left: {barThresholdPct(bar.bar_held, bar.bar_max_display)}%"
+                class="belief-bar-marker belief-bar-marker-held"
+                style="left: {barLinePct(bar.bar_held, bar.bar_max_display)}%"
               ></div>
 
-              <!-- Threshold: FALSIFIED line (anomaly), if defined -->
+              <!-- BAR: FALSIFIED line (anomaly), if defined -->
               {#if bar.bar_falsified !== null}
                 <div
-                  class="hypo-bar-marker hypo-bar-marker-falsified"
-                  style="left: {barThresholdPct(bar.bar_falsified, bar.bar_max_display)}%"
+                  class="belief-bar-marker belief-bar-marker-falsified"
+                  style="left: {barLinePct(bar.bar_falsified, bar.bar_max_display)}%"
                 ></div>
               {/if}
             </div>
 
-            <div class="hypo-bar-footer">
-              <span class="hypo-bar-threshold-label">
+            <div class="belief-bar-footer">
+              <span class="belief-bar-line-label">
                 HELD ≤ {bar.bar_held.toFixed(2)}
                 {#if bar.bar_falsified !== null}
                   &nbsp;·&nbsp; FALSIFIED ≥ {bar.bar_falsified.toFixed(2)}
                 {/if}
               </span>
-              <span class="hypo-bar-threshold-label">
+              <span class="belief-bar-line-label">
                 {bar.current_value !== null ? bar.current_value.toFixed(3) : '···'}
               </span>
             </div>
 
-            <p class="hypo-bar-note">{bar.verdict_note}</p>
+            <p class="belief-bar-note">{bar.verdict_note}</p>
           </div>
         {/each}
       </div>
     </div>
 
-    <!-- ── Panel 4: LEARNINGS ── -->
+    <!-- ── Panel 4: LEARNINGS ──
+         Scannable units (ALEXANDER legibility spec): a tight TAG + a
+         one-line GIST sit at the data floor; the full statement is tucked
+         behind ▸ DETAILS. The reader scans tags, opens only what earns it —
+         not a wall of mono. -->
     <div class="panel beam-enter">
       <div class="panel-inner">
         <span class="panel-label">LEARNINGS — {LEARNINGS.length} DURABLE</span>
 
         <div class="obs-learnings-scroll">
           {#each LEARNINGS as learning}
-            <div class="learning-entry">
-              <p class="learning-id">{learning.id} · {learning.source}</p>
-              <p class="learning-headline">{learning.headline}</p>
-            </div>
+            <details class="learning-entry">
+              <summary class="learning-summary">
+                <span class="learning-caret" aria-hidden="true">▸</span>
+                <span class="learning-tag">{learning.id} · {learning.tag}</span>
+                <span class="learning-gist">{learning.gist}</span>
+              </summary>
+              <div class="learning-detail">
+                <p class="learning-headline">{learning.headline}</p>
+                <p class="learning-source">{learning.source}</p>
+              </div>
+            </details>
           {/each}
         </div>
       </div>
@@ -340,26 +363,40 @@
     flex-shrink: 0;
   }
 
-  .obs-header-right {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-400);
+  /* ── Hero — the experiment's one result, at rest above the grid ──
+     One hero per page (research type system): the cost line leads, the 2×2
+     grid is the detail tier below it. Weight from SIZE, bone-bright (TDR-007). */
+  .obs-hero {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-150);
     flex-shrink: 0;
   }
 
-  .obs-header-link {
-    color: var(--color-cyan-dim);
+  .obs-hero-line {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-300);
+    color: var(--color-bone-bright);
     font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    letter-spacing: var(--tracking-whisper);
-    text-decoration: none;
-    border: 1px solid var(--color-void-border);
-    padding: 2px 8px;
+    font-size: var(--text-2xl);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-emphasis);
+    text-transform: uppercase;
   }
 
-  .obs-header-link:hover {
-    color: var(--color-cyan-base);
-    border-color: var(--color-cyan-dim);
+  .obs-hero-cost {
+    color: var(--color-bone-bright);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .obs-hero-support {
+    color: var(--color-bone-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    letter-spacing: var(--tracking-whisper);
+    text-transform: uppercase;
   }
 
   /* ── 2×2 grid ── */
@@ -378,22 +415,26 @@
     }
   }
 
-  /* ── Divider ── */
-  .obs-divider {
-    height: 1px;
-    background: var(--color-void-border);
-    margin: var(--space-300) 0;
+  /* Tucked subnotes get breathing room between lines */
+  .tuck-body .data-subnote + .data-subnote {
+    margin-top: var(--space-150);
   }
 
-  /* ── Bars provenance note ── */
+  .tuck-calibration {
+    margin-top: var(--space-300);
+    padding-top: var(--space-200);
+    border-top: 1px solid oklch(0.22 0.012 250 / 0.4);
+    color: var(--color-bone-dim);
+  }
+
+  /* ── Bars provenance — a quiet muted caption, NOT a result-weight divider.
+     text-2xs, bone-muted; no border (it is context, not a section break). ── */
   .obs-bars-provenance {
-    color: var(--color-bone-ghost);
+    color: var(--color-bone-muted);
     font-size: var(--text-2xs);
     letter-spacing: var(--tracking-whisper);
     text-transform: uppercase;
     margin-bottom: var(--space-300);
-    padding-bottom: var(--space-200);
-    border-bottom: 1px solid oklch(0.22 0.012 250 / 0.4);
   }
 
   /* ── Learnings scroll container ── */

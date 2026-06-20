@@ -252,3 +252,19 @@ app/package.json
 app/package-lock.json
 app/tsconfig.json
 app/ecosystem.config.js
+
+# cabt research spike — exclude data/venv/binaries (keep code: *.py, deck *.csv, weight *.json, meta.json)
+.cabt-spike/venv/
+.cabt-spike/top/
+.cabt-spike/games/
+.cabt-spike/dl/
+.cabt-spike/sub_*/
+.cabt-spike/submission*/
+.cabt-spike/*.tar.gz
+.cabt-spike/arena_out/
+.cabt-spike/dataset/
+.cabt-spike/decks/
+
+# python bytecode
+**/__pycache__/
+*.pyc
