@@ -90,7 +90,7 @@ export function createUsageHandler(ledgerPath: string) {
         if (!Number.isFinite(tsMs)) continue
         if (tsMs < cutoffMs) continue
 
-        // Extract cost — support both V1 (float USD) and V2 (string micro-USDC)
+        // Extract cost — support both V1 (float USD) and V2 (string micro-USD)
         let costMicro: bigint
         if (entry.schema_version === 2 && typeof entry.total_cost_micro === "string") {
           try {
@@ -99,7 +99,7 @@ export function createUsageHandler(ledgerPath: string) {
             costMicro = 0n
           }
         } else if (typeof entry.total_cost_usd === "number") {
-          // V1: convert float USD to micro-USDC (best-effort)
+          // V1: convert float USD to micro-USD (best-effort)
           costMicro = BigInt(Math.round(entry.total_cost_usd * 1_000_000))
         } else {
           costMicro = 0n
