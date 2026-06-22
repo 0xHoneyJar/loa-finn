@@ -669,7 +669,8 @@ export function buildOpenApiSpec(): Record<string, unknown> {
           ],
           responses: {
             "200": {
-              description: "NFTs resolved for wallet",
+              description:
+                "NFTs resolved for wallet. An empty wallet returns { nfts: [] } (not a 404).",
               content: {
                 "application/json": {
                   schema: {
@@ -677,14 +678,10 @@ export function buildOpenApiSpec(): Record<string, unknown> {
                     properties: {
                       nfts: {
                         type: "array",
-                        items: { $ref: "#/components/schemas/NFTInfo" },
-                      },
-                      total: {
-                        type: "integer",
-                        description: "Total number of NFTs found",
+                        items: { $ref: "#/components/schemas/NFTOwnershipInfo" },
                       },
                     },
-                    required: ["nfts", "total"],
+                    required: ["nfts"],
                   },
                 },
               },
@@ -705,6 +702,364 @@ export function buildOpenApiSpec(): Record<string, unknown> {
                 },
               },
             },
+          },
+        },
+      },
+      "/api/identity/wallet/{wallet}/nft": {
+        get: {
+          operationId: "getWalletNft",
+          summary: "Resolve the first NFT for a wallet (deprecated)",
+          description:
+            "Returns only the first NFT held by the given wallet. Deprecated in favor of " +
+            "GET /api/identity/wallet/{wallet}/nfts (RFC 8594). Responses carry Deprecation, " +
+            "Sunset, and Link (successor-version) headers.",
+          tags: ["Identity"],
+          deprecated: true,
+          parameters: [
+            {
+              name: "wallet",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "Wallet address (0x...)",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "First NFT for the wallet, or null if none held",
+              headers: {
+                Deprecation: {
+                  description: "RFC 8594 deprecation flag (always \"true\")",
+                  schema: { type: "string" },
+                },
+                Sunset: {
+                  description: "RFC 8594 sunset date for this endpoint",
+                  schema: { type: "string", format: "date-time" },
+                },
+                Link: {
+                  description: "Points to the successor endpoint (rel=successor-version)",
+                  schema: { type: "string" },
+                },
+              },
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      nft: {
+                        oneOf: [
+                          { $ref: "#/components/schemas/NFTInfo" },
+                          { type: "null" },
+                        ],
+                      },
+                    },
+                    required: ["nft"],
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid wallet address",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
+                },
+              },
+            },
+            "502": {
+              description: "NFT resolution upstream failure",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Error" },
+                },
+              },
+            },
+          },
+        },
+      },
+      // -----------------------------------------------------------------------
+      // Invoke + Usage (tenant-authenticated) — cycle-024 T1/T2
+      // -----------------------------------------------------------------------
+      "/api/v1/invoke": {
+        post: {
+          operationId: "invoke",
+          summary: "Invoke a model for the authenticated tenant",
+          description:
+            "Routes a prompt through pool selection, model routing, and billing finalization for " +
+            "the tenant identified by the JWT. Distinct from /api/v1/x402/invoke (on-chain payment) " +
+            "and /api/v1/agent/chat (personality-conditioned chat).",
+          tags: ["Agent"],
+          security: [{ tenantJwt: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/InvokeRequest" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Successful invocation",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/InvokeResponse" },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid request body (BINDING_INVALID or missing prompt/agent)",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "401": {
+              description: "Missing or invalid tenant JWT",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "402": {
+              description: "Budget exceeded (BUDGET_EXCEEDED)",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "403": {
+              description: "Knowledge source rejected for security (KNOWLEDGE_INJECTION)",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "413": {
+              description: "Context window exceeded (CONTEXT_OVERFLOW)",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "422": {
+              description: "Model context window insufficient for knowledge enrichment (ORACLE_MODEL_UNAVAILABLE)",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "429": {
+              description: "Rate limit exceeded (RATE_LIMITED)",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "502": {
+              description: "Upstream provider unavailable (PROVIDER_UNAVAILABLE)",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "503": {
+              description:
+                "Service temporarily unavailable (BUDGET_CIRCUIT_OPEN, ORACLE_KNOWLEDGE_UNAVAILABLE, or billing evaluator degraded)",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+          },
+        },
+      },
+      "/api/v1/usage": {
+        get: {
+          operationId: "getUsage",
+          summary: "Get pre-settlement usage for the authenticated tenant",
+          description:
+            "Returns aggregated, pre-settlement cost-ledger usage for the tenant identified by the " +
+            "JWT, grouped by provider:model. Costs are returned as strings to preserve BigInt precision.",
+          tags: ["Billing"],
+          security: [{ tenantJwt: [] }],
+          parameters: [
+            {
+              name: "days",
+              in: "query",
+              required: false,
+              description: "Lookback window in days (default 7, max 90).",
+              schema: { type: "integer", minimum: 1, maximum: 90, default: 7 },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Aggregated usage for the tenant",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/UsageResponse" },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid days parameter",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "401": {
+              description: "Missing or invalid tenant JWT",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "500": {
+              description: "Ledger read error",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+          },
+        },
+      },
+      // -----------------------------------------------------------------------
+      // Conversation CRUD (SIWE session) — message history lifecycle
+      // -----------------------------------------------------------------------
+      "/api/v1/conversations": {
+        post: {
+          operationId: "createConversation",
+          summary: "Create a conversation",
+          description: "Creates a new conversation for an NFT-bound agent. Requires a SIWE session.",
+          tags: ["Conversations"],
+          security: [{ siweSession: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    nft_id: {
+                      type: "string",
+                      description: "NFT identifier the conversation is bound to",
+                    },
+                  },
+                  required: ["nft_id"],
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Conversation created",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Conversation" },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid request body or missing nft_id",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "401": { description: "Authentication required (missing or invalid SIWE session)" },
+            "403": { description: "Access denied to the requested NFT" },
+            "404": { description: "NFT not found" },
+          },
+        },
+        get: {
+          operationId: "listConversations",
+          summary: "List conversations for an NFT",
+          description:
+            "Returns a cursor-paginated list of conversation summaries for an NFT owned by the " +
+            "authenticated wallet.",
+          tags: ["Conversations"],
+          security: [{ siweSession: [] }],
+          parameters: [
+            {
+              name: "nft_id",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description: "NFT identifier to list conversations for",
+            },
+            {
+              name: "cursor",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Opaque pagination cursor from a previous page",
+            },
+            {
+              name: "limit",
+              in: "query",
+              required: false,
+              schema: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+              description: "Page size (default 20, max 50)",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Paginated conversation summaries",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ConversationSummaryList" },
+                },
+              },
+            },
+            "400": {
+              description: "Missing nft_id or invalid limit",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "401": { description: "Authentication required (missing or invalid SIWE session)" },
+          },
+        },
+      },
+      "/api/v1/conversations/{id}/messages": {
+        get: {
+          operationId: "getConversationMessages",
+          summary: "Get messages in a conversation",
+          description:
+            "Returns a cursor-paginated list of messages for a conversation owned by the " +
+            "authenticated wallet.",
+          tags: ["Conversations"],
+          security: [{ siweSession: [] }],
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "Conversation ID",
+            },
+            {
+              name: "cursor",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Opaque pagination cursor from a previous page",
+            },
+            {
+              name: "limit",
+              in: "query",
+              required: false,
+              schema: { type: "integer", minimum: 1, maximum: 50, default: 50 },
+              description: "Page size (default 50, max 50)",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Paginated conversation messages",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ConversationMessageList" },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid limit",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "401": { description: "Authentication required (missing or invalid SIWE session)" },
+            "403": { description: "Access denied to the requested conversation" },
+            "404": { description: "Conversation not found" },
           },
         },
       },
@@ -1063,6 +1418,251 @@ export function buildOpenApiSpec(): Record<string, unknown> {
           },
           required: ["collection", "tokenId", "title"],
         },
+        NFTOwnershipInfo: {
+          type: "object",
+          description:
+            "NFT ownership record aligned with the Dixie NftOwnershipResolver contract " +
+            "(loa-dixie). Returned by GET /api/identity/wallet/{wallet}/nfts.",
+          properties: {
+            nftId: {
+              type: "string",
+              description: "Canonical NFT identifier (collection + tokenId)",
+            },
+            contractAddress: {
+              type: "string",
+              description: "NFT collection contract address",
+            },
+            tokenId: {
+              type: "integer",
+              description: "Token ID within the collection",
+            },
+            ownerWallet: {
+              type: "string",
+              description: "Wallet address that owns the NFT",
+            },
+            delegatedWallets: {
+              type: "array",
+              items: { type: "string" },
+              description: "Wallets delegated access to this NFT (may be empty)",
+            },
+          },
+          required: ["nftId", "contractAddress", "tokenId", "ownerWallet", "delegatedWallets"],
+        },
+        InvokeRequest: {
+          type: "object",
+          description: "Request body for POST /api/v1/invoke",
+          properties: {
+            agent: {
+              type: "string",
+              description: "Agent/binding identifier to route to",
+            },
+            prompt: {
+              type: "string",
+              description: "Non-empty user prompt to send to the agent",
+            },
+          },
+          required: ["agent", "prompt"],
+        },
+        InvokeResponse: {
+          type: "object",
+          description: "Successful response from POST /api/v1/invoke",
+          properties: {
+            response: {
+              type: "string",
+              description: "Agent response text",
+            },
+            model: {
+              type: "string",
+              description: "Model that produced the response",
+            },
+            usage: {
+              type: "object",
+              properties: {
+                prompt_tokens: { type: "integer" },
+                completion_tokens: { type: "integer" },
+                total_tokens: { type: "integer" },
+              },
+              required: ["prompt_tokens", "completion_tokens", "total_tokens"],
+            },
+            cost_micro: {
+              type: "string",
+              description: "Cost of the invocation in micro-USDC (string for precision)",
+            },
+            trace_id: {
+              type: "string",
+              description: "Distributed trace identifier for the invocation",
+            },
+            knowledge: {
+              type: "object",
+              description: "Optional knowledge-enrichment metadata (present only when applicable)",
+            },
+          },
+          required: ["response", "model", "usage", "cost_micro", "trace_id"],
+        },
+        UsageByModel: {
+          type: "object",
+          description: "Per provider:model usage aggregate",
+          properties: {
+            provider: { type: "string" },
+            model: { type: "string" },
+            requests: { type: "integer" },
+            total_cost_micro: {
+              type: "string",
+              description: "Aggregate cost in micro-USDC (string for precision)",
+            },
+            prompt_tokens: { type: "integer" },
+            completion_tokens: { type: "integer" },
+          },
+          required: [
+            "provider",
+            "model",
+            "requests",
+            "total_cost_micro",
+            "prompt_tokens",
+            "completion_tokens",
+          ],
+        },
+        UsageResponse: {
+          type: "object",
+          description: "Pre-settlement usage aggregate for a tenant",
+          properties: {
+            tenant_id: { type: "string" },
+            period: {
+              type: "object",
+              properties: {
+                days: { type: "integer" },
+                from: { type: "string", format: "date-time" },
+                to: { type: "string", format: "date-time" },
+              },
+              required: ["days", "from", "to"],
+            },
+            total_cost_micro: {
+              type: "string",
+              description: "Total cost over the period in micro-USDC (string for precision)",
+            },
+            total_requests: { type: "integer" },
+            by_model: {
+              type: "array",
+              items: { $ref: "#/components/schemas/UsageByModel" },
+            },
+            settlement_status: {
+              type: "string",
+              const: "pre_settlement",
+              description: "Usage is reported before settlement reconciliation",
+            },
+          },
+          required: [
+            "tenant_id",
+            "period",
+            "total_cost_micro",
+            "total_requests",
+            "by_model",
+            "settlement_status",
+          ],
+        },
+        ConversationMessage: {
+          type: "object",
+          description: "A single message within a conversation",
+          properties: {
+            role: { type: "string", enum: ["user", "assistant"] },
+            content: { type: "string" },
+            timestamp: { type: "integer", description: "Unix epoch milliseconds" },
+            cost_cu: {
+              type: "string",
+              description: "Optional cost in credit units for this message",
+            },
+          },
+          required: ["role", "content", "timestamp"],
+        },
+        Conversation: {
+          type: "object",
+          description: "A conversation between a wallet owner and an NFT-bound agent",
+          properties: {
+            id: { type: "string" },
+            nft_id: { type: "string" },
+            owner_address: { type: "string" },
+            messages: {
+              type: "array",
+              items: { $ref: "#/components/schemas/ConversationMessage" },
+            },
+            created_at: { type: "integer", description: "Unix epoch milliseconds" },
+            updated_at: { type: "integer", description: "Unix epoch milliseconds" },
+            message_count: { type: "integer" },
+            snapshot_offset: { type: "integer" },
+            summary: {
+              oneOf: [{ type: "string" }, { type: "null" }],
+              description: "LLM-generated summary of conversation history (may be null)",
+            },
+            summary_message_count: {
+              type: "integer",
+              description: "Message count when the summary was last generated",
+            },
+          },
+          required: [
+            "id",
+            "nft_id",
+            "owner_address",
+            "messages",
+            "created_at",
+            "updated_at",
+            "message_count",
+            "snapshot_offset",
+            "summary",
+            "summary_message_count",
+          ],
+        },
+        ConversationSummary: {
+          type: "object",
+          description: "Lightweight conversation summary returned by the list endpoint",
+          properties: {
+            id: { type: "string" },
+            nft_id: { type: "string" },
+            created_at: { type: "integer", description: "Unix epoch milliseconds" },
+            updated_at: { type: "integer", description: "Unix epoch milliseconds" },
+            message_count: { type: "integer" },
+            last_message_preview: { type: "string" },
+          },
+          required: [
+            "id",
+            "nft_id",
+            "created_at",
+            "updated_at",
+            "message_count",
+            "last_message_preview",
+          ],
+        },
+        ConversationSummaryList: {
+          type: "object",
+          description: "Cursor-paginated list of conversation summaries",
+          properties: {
+            items: {
+              type: "array",
+              items: { $ref: "#/components/schemas/ConversationSummary" },
+            },
+            cursor: {
+              oneOf: [{ type: "string" }, { type: "null" }],
+              description: "Cursor for the next page, or null when there are no more pages",
+            },
+            has_more: { type: "boolean" },
+          },
+          required: ["items", "cursor", "has_more"],
+        },
+        ConversationMessageList: {
+          type: "object",
+          description: "Cursor-paginated list of conversation messages",
+          properties: {
+            items: {
+              type: "array",
+              items: { $ref: "#/components/schemas/ConversationMessage" },
+            },
+            cursor: {
+              oneOf: [{ type: "string" }, { type: "null" }],
+              description: "Cursor for the next page, or null when there are no more pages",
+            },
+            has_more: { type: "boolean" },
+          },
+          required: ["items", "cursor", "has_more"],
+        },
         Error: {
           type: "object",
           properties: {
@@ -1101,6 +1701,14 @@ export function buildOpenApiSpec(): Record<string, unknown> {
           description:
             "Admin JWT with aud: \"loa-finn-admin\" and role: \"admin\". Used for administrative endpoints.",
         },
+        tenantJwt: {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT",
+          description:
+            "Tenant JWT (aud: \"loa-finn\") carrying tenant_id and tier claims, issued by the " +
+            "upstream gateway. Required for /api/v1/invoke and /api/v1/usage.",
+        },
       },
     },
     tags: [
@@ -1108,6 +1716,8 @@ export function buildOpenApiSpec(): Record<string, unknown> {
       { name: "Keys", description: "API key lifecycle management" },
       { name: "Auth", description: "SIWE (Sign-In With Ethereum) authentication" },
       { name: "x402", description: "x402 on-chain payment endpoints" },
+      { name: "Conversations", description: "Conversation lifecycle and message history" },
+      { name: "Billing", description: "Usage reporting and pre-settlement cost ledger" },
       { name: "Admin", description: "Administrative endpoints for feature flags and allowlist management" },
       { name: "Identity", description: "NFT identity resolution and wallet-based lookups" },
       { name: "Discovery", description: "Agent discovery and documentation" },
