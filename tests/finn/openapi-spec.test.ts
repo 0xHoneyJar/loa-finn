@@ -115,3 +115,114 @@ describe("OpenAPI Specification (T7.1)", () => {
     expect(servers[0].url).toContain("finn.honeyjar.xyz")
   })
 })
+
+// ===========================================================================
+// OpenAPI Augmentation (T3.1 · bd-14wv) — bring the spec in line with the
+// live route surface mounted in server.ts: the tenant-authenticated invoke /
+// usage endpoints, conversation CRUD, and the Dixie-aligned identity shapes.
+// ===========================================================================
+
+describe("OpenAPI Augmentation (T3.1 · bd-14wv)", () => {
+  const spec = buildOpenApiSpec()
+  const paths = spec.paths as Record<string, Record<string, Record<string, unknown>>>
+  const schemas = (spec.components as Record<string, Record<string, unknown>>).schemas as Record<string, Record<string, unknown>>
+  const securitySchemes = (spec.components as Record<string, Record<string, unknown>>).securitySchemes as Record<string, unknown>
+
+  it("documents the tenant-authenticated POST /api/v1/invoke endpoint", () => {
+    const invoke = paths["/api/v1/invoke"]
+    expect(invoke).toBeDefined()
+    expect(invoke.post).toBeDefined()
+    const security = invoke.post.security as Array<Record<string, unknown>>
+    expect(security[0]).toHaveProperty("tenantJwt")
+    const responses = invoke.post.responses as Record<string, unknown>
+    expect(responses["200"]).toBeDefined()
+    expect(responses["402"]).toBeDefined() // BUDGET_EXCEEDED maps to 402
+    expect(responses["500"]).toBeDefined() // unexpected error → INTERNAL_ERROR (routes/invoke.ts)
+  })
+
+  it("documents the tenant-authenticated GET /api/v1/usage endpoint with days param", () => {
+    const usage = paths["/api/v1/usage"]
+    expect(usage).toBeDefined()
+    expect(usage.get).toBeDefined()
+    const security = usage.get.security as Array<Record<string, unknown>>
+    expect(security[0]).toHaveProperty("tenantJwt")
+    const params = usage.get.parameters as Array<Record<string, unknown>>
+    expect(params.some((p) => p.name === "days" && p.in === "query")).toBe(true)
+    // /api/v1/usage passes through rateLimitMiddleware (server.ts) → 429 reachable
+    expect((usage.get.responses as Record<string, unknown>)["429"]).toBeDefined()
+  })
+
+  it("documents conversation CRUD endpoints under SIWE session auth", () => {
+    expect(paths["/api/v1/conversations"]).toBeDefined()
+    expect(paths["/api/v1/conversations"].post).toBeDefined()
+    expect(paths["/api/v1/conversations"].get).toBeDefined()
+    expect(paths["/api/v1/conversations/{id}/messages"]).toBeDefined()
+    expect(paths["/api/v1/conversations/{id}/messages"].get).toBeDefined()
+
+    const createSec = paths["/api/v1/conversations"].post.security as Array<Record<string, unknown>>
+    expect(createSec[0]).toHaveProperty("siweSession")
+  })
+
+  it("documents the deprecated singular identity /nft endpoint (RFC 8594)", () => {
+    const singular = paths["/api/identity/wallet/{wallet}/nft"]
+    expect(singular).toBeDefined()
+    expect(singular.get.deprecated).toBe(true)
+    const ok = (singular.get.responses as Record<string, Record<string, unknown>>)["200"]
+    const headers = ok.headers as Record<string, unknown>
+    expect(headers).toHaveProperty("Deprecation")
+    expect(headers).toHaveProperty("Sunset")
+  })
+
+  it("aligns the plural /nfts response with the Dixie NFTOwnershipInfo shape", () => {
+    const plural = paths["/api/identity/wallet/{wallet}/nfts"]
+    const ok = (plural.get.responses as Record<string, Record<string, unknown>>)["200"]
+    const content = ok.content as Record<string, Record<string, Record<string, unknown>>>
+    const schema = content["application/json"].schema as Record<string, Record<string, unknown>>
+    // No phantom `total` field — the live handler returns only { nfts: [...] }
+    expect(Object.keys(schema.properties)).toEqual(["nfts"])
+    const items = (schema.properties.nfts as Record<string, Record<string, string>>).items
+    expect(items.$ref).toBe("#/components/schemas/NFTOwnershipInfo")
+  })
+
+  it("defines the tenantJwt security scheme", () => {
+    expect(securitySchemes["tenantJwt"]).toBeDefined()
+  })
+
+  it("defines the augmentation component schemas", () => {
+    expect(schemas["InvokeResponse"]).toBeDefined()
+    expect(schemas["UsageResponse"]).toBeDefined()
+    expect(schemas["Conversation"]).toBeDefined()
+    expect(schemas["ConversationSummaryList"]).toBeDefined()
+    expect(schemas["ConversationMessageList"]).toBeDefined()
+    expect(schemas["NFTOwnershipInfo"]).toBeDefined()
+  })
+
+  it("NFTOwnershipInfo carries the Dixie ownership fields", () => {
+    const props = schemas["NFTOwnershipInfo"].properties as Record<string, unknown>
+    expect(props).toHaveProperty("nftId")
+    expect(props).toHaveProperty("contractAddress")
+    expect(props).toHaveProperty("tokenId")
+    expect(props).toHaveProperty("ownerWallet")
+    expect(props).toHaveProperty("delegatedWallets")
+  })
+
+  it("every $ref resolves to a defined component schema (contract integrity)", () => {
+    const refs: string[] = []
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) {
+        node.forEach(walk)
+      } else if (node && typeof node === "object") {
+        for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+          if (k === "$ref" && typeof v === "string") refs.push(v)
+          else walk(v)
+        }
+      }
+    }
+    walk(spec)
+    expect(refs.length).toBeGreaterThan(0)
+    for (const ref of refs) {
+      const name = ref.replace("#/components/schemas/", "")
+      expect(schemas[name], `unresolved $ref: ${ref}`).toBeDefined()
+    }
+  })
+})
