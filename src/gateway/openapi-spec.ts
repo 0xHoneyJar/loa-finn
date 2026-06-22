@@ -849,6 +849,12 @@ export function buildOpenApiSpec(): Record<string, unknown> {
                 "application/json": { schema: { $ref: "#/components/schemas/Error" } },
               },
             },
+            "500": {
+              description: "Unexpected internal error (INTERNAL_ERROR)",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
             "502": {
               description: "Upstream provider unavailable (PROVIDER_UNAVAILABLE)",
               content: {
@@ -900,6 +906,18 @@ export function buildOpenApiSpec(): Record<string, unknown> {
             },
             "401": {
               description: "Missing or invalid tenant JWT",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+              },
+            },
+            "429": {
+              description: "Rate limit exceeded (RATE_LIMITED). Carries a Retry-After header.",
+              headers: {
+                "Retry-After": {
+                  description: "Seconds to wait before retrying",
+                  schema: { type: "integer" },
+                },
+              },
               content: {
                 "application/json": { schema: { $ref: "#/components/schemas/Error" } },
               },

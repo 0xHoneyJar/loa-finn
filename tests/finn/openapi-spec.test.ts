@@ -137,6 +137,7 @@ describe("OpenAPI Augmentation (T3.1 · bd-14wv)", () => {
     const responses = invoke.post.responses as Record<string, unknown>
     expect(responses["200"]).toBeDefined()
     expect(responses["402"]).toBeDefined() // BUDGET_EXCEEDED maps to 402
+    expect(responses["500"]).toBeDefined() // unexpected error → INTERNAL_ERROR (routes/invoke.ts)
   })
 
   it("documents the tenant-authenticated GET /api/v1/usage endpoint with days param", () => {
@@ -147,6 +148,8 @@ describe("OpenAPI Augmentation (T3.1 · bd-14wv)", () => {
     expect(security[0]).toHaveProperty("tenantJwt")
     const params = usage.get.parameters as Array<Record<string, unknown>>
     expect(params.some((p) => p.name === "days" && p.in === "query")).toBe(true)
+    // /api/v1/usage passes through rateLimitMiddleware (server.ts) → 429 reachable
+    expect((usage.get.responses as Record<string, unknown>)["429"]).toBeDefined()
   })
 
   it("documents conversation CRUD endpoints under SIWE session auth", () => {
