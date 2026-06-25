@@ -93,6 +93,17 @@ def agent(obs_dict: dict[str, Any]) -> list[int]:
         elif policy == "v5":
             from .heuristic_v5 import choose as choose_v5
             chosen = choose_v5(obs_dict, load_deck())
+        elif policy == "v7":
+            # v7 — OUR threat-aware + expert-sequencing pilot (true-damage KO, opp-threat retreat, attach-last).
+            # Our own implementation of the v8-class ideas that beat v4/v6 in the farm (heuristic_v7.py).
+            from .heuristic_v7 import choose as choose_v7
+            chosen = choose_v7(obs_dict, load_deck())
+        elif policy == "v8":
+            # v8 — the "Powerful Hand" Alakazam pilot: a FOCUSED extension of v7 that HOARDS the hand and
+            # swings the hand-scaling attack at a full hand (fixing the dump-then-swing anti-synergy that
+            # collapses the Alakazam deck), favors the Abra→Kadabra→Alakazam line, and defers to v7 otherwise.
+            from .heuristic_v8 import choose as choose_v8
+            chosen = choose_v8(obs_dict, load_deck())
         else:  # v6 (default) — v4 + one term (energy economy), the minimal pilot
             from .heuristic_v6 import choose as choose_v6
             chosen = choose_v6(obs_dict, load_deck())
