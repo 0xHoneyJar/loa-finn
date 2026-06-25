@@ -15,7 +15,24 @@ Built, pre-screened, and **pre-registered (logged before outcome)**. Kaggle cred
 p=0.40) but **pre-screened do-harm** (rank #7, 0.19 vs the Crustle wall; gygax's v7-hand-dumping warning confirmed twice).
 Its forecast stays **logged + unresolved** (the pre-screen caught it before it cost a ladder slot — that is its job).
 
-## Submit steps (Kaggle UI or CLI)
+## ✅ SUBMITTED 2026-06-25 19:55 UTC (refs for resolution)
+
+| Swing | ref | score |
+|---|---|---|
+| MIRROR — hammer-v4 (`cleanse-enhanced-hammer-v4-mirror`, p=0.40) | **54051345** | _pending_ |
+| STRUCTURAL — alakazam-v8 (`deck-alakazam-v8-powerful-hand`, p=0.20) | **54051347** | _pending_ |
+
+Pre-registration committed first (`df5d8438`) — logged before outcome, trust root intact. Kaggle CLI is authenticated
+(no `~/.kaggle/kaggle.json`, but creds resolve from cache/env). When scores settle, resolve both via
+`resolveRegisteredDecision`.
+
+**LIVE LADDER INTEL (pulled at submit time — the meta is eroding the cleanse edge, as the non-stationary theory predicted):**
+- cleanse (53955582) **826.4** — down from 986 peak / 956 → 826 (status-clear is being adapted-to).
+- **pivot (53957915) 816.8 — it WAS submitted + HELD** (+62 over the ~754.9 base; my prior "not submitted" was wrong →
+  resolve `deck-pivot-vs-burst` p=0.30 as HELD). v8-dwebble 808.9 · charm 772.2 · dwebble-v4 754.9 · cage 600.0.
+- So the **current PB-to-beat is ~826, not 986** — a lower bar, and the structural counter-meta swing is timely.
+
+## Submit steps (Kaggle UI or CLI) — DONE above; kept for reference
 
 The bundle IS the Kaggle submission (`./main.py` + `./deck.csv` + `./cabt/` + `./cg/`). Either:
 - **UI:** upload the `.tar.gz` to the competition's submission page, OR
