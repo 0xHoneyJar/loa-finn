@@ -1,4 +1,4 @@
-CREATE SCHEMA "finn";
+CREATE SCHEMA IF NOT EXISTS "finn";
 --> statement-breakpoint
 CREATE TABLE "finn"."finn_api_keys" (
 	"id" text PRIMARY KEY NOT NULL,
