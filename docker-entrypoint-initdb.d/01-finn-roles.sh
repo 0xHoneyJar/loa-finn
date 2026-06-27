@@ -33,6 +33,11 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   END
   \$\$;
 
+  -- Migrations may create Drizzle metadata schemas before app tables exist.
+  -- Grant database-level CREATE to the migrator only; runtime app role remains
+  -- scoped to DML on explicitly granted schemas/tables.
+  GRANT CREATE ON DATABASE "$POSTGRES_DB" TO finn_migrate;
+
   -- Grant schema access
   GRANT ALL ON SCHEMA finn TO finn_migrate;
   GRANT USAGE ON SCHEMA finn TO finn_app;
