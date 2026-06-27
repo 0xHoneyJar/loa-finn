@@ -36,7 +36,15 @@ Therefore the long E2E tests now distinguish two modes:
 - **Finn-only mode:** `E2E_FREESIDE_URL` and `E2E_DIXIE_URL` absent. Tests prove Finn liveness/readiness, metrics, JWT shape, and local admin/runtime behavior.
 - **Three-service mode:** both `E2E_FREESIDE_URL` and `E2E_DIXIE_URL` present. Tests additionally assert Freeside and Dixie reachability and cross-service behavior.
 
-Final acceptance still requires an explicit workflow or documented command that runs the three-service mode.
+## Three-service workflow
+
+`.github/workflows/e2e-three-service.yml` provides an explicit manual workflow for the full Finn/Freeside/Dixie path. It requires:
+
+- `finn_url`
+- `freeside_url`
+- `dixie_url`
+
+The workflow sets `E2E_FINN_URL`, `E2E_FREESIDE_URL`, and `E2E_DIXIE_URL`, then runs `pnpm run test:e2e`. This preserves full integration coverage without requiring the default Finn-only PR workflow to boot all three services.
 
 ## Remaining follow-up
 
@@ -46,4 +54,4 @@ This PR does not yet complete:
 - health route contract documentation;
 - release smoke evidence;
 - dependency-audit policy cleanup;
-- explicit three-service CI wiring.
+- automated scheduled three-service CI with provisioned Freeside/Dixie services.
