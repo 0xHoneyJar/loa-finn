@@ -15,6 +15,11 @@ const FREESIDE_URL = process.env.E2E_FREESIDE_URL
 const DIXIE_URL = process.env.E2E_DIXIE_URL
 const THREE_LEG_ENABLED = Boolean(FREESIDE_URL && DIXIE_URL)
 
+const describeWhen = (condition: boolean) => condition ? describe : describe.skip
+const describeWhenFreeside = describeWhen(Boolean(FREESIDE_URL))
+const describeWhenDixie = describeWhen(Boolean(DIXIE_URL))
+const describeWhenThreeLeg = describeWhen(THREE_LEG_ENABLED)
+
 const KEYS_DIR = resolve(import.meta.dirname ?? __dirname, "keys")
 
 function loadPem(name: string): string {
@@ -48,29 +53,12 @@ describe("E2E: Full Flow Integration", () => {
       .sign(adminPrivateKey)
   }
 
-  describe("health verification", () => {
-    it("finn is healthy, and optional Freeside/Dixie legs are healthy when configured", async () => {
+  describe("Finn-only health verification", () => {
+    it("finn is healthy", async () => {
       const finnRes = await fetch(`${FINN_URL}/healthz`, {
         signal: AbortSignal.timeout(5000),
       })
       expect(finnRes.status).toBe(200)
-
-      if (!THREE_LEG_ENABLED) {
-        return
-      }
-
-      const freesideRes = await fetch(`${FREESIDE_URL}/v1/health`, {
-        signal: AbortSignal.timeout(5000),
-      })
-      expect(freesideRes.status).toBe(200)
-
-      const dixieRes = await fetch(`${DIXIE_URL}/health`, {
-        signal: AbortSignal.timeout(5000),
-      }).catch(() => null)
-
-      if (dixieRes) {
-        expect([200, 404]).toContain(dixieRes.status)
-      }
     })
 
     it("finn readiness includes local dependencies", async () => {
@@ -90,39 +78,27 @@ describe("E2E: Full Flow Integration", () => {
     })
   })
 
-  describe("inference → billing → reputation flow", () => {
-    it("finn accepts billing seed setup and checks Freeside only when configured", async () => {
-      const authToken = process.env.FINN_AUTH_TOKEN
-      if (authToken) {
-        await fetch(`${FINN_URL}/api/v1/admin/seed-credits`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            wallet_address: "0x00000000000000000000000000000000deadbeef",
-            credits: 10000,
-          }),
-          signal: AbortSignal.timeout(5000),
-        })
-      }
-
-      if (!FREESIDE_URL) {
-        return
-      }
-
-      const freesideHealth = await fetch(`${FREESIDE_URL}/v1/health`, {
+  describeWhenFreeside("Freeside integration checks (requires E2E_FREESIDE_URL)", () => {
+    it("Freeside health endpoint is reachable", async () => {
+      const freesideRes = await fetch(`${FREESIDE_URL}/v1/health`, {
         signal: AbortSignal.timeout(5000),
       })
-      expect(freesideHealth.status).toBe(200)
+      expect(freesideRes.status).toBe(200)
+    })
+  })
+
+  describeWhenDixie("Dixie integration checks (requires E2E_DIXIE_URL)", () => {
+    it("Dixie health endpoint is reachable when available", async () => {
+      const dixieRes = await fetch(`${DIXIE_URL}/health`, {
+        signal: AbortSignal.timeout(5000),
+      }).catch(() => null)
+
+      if (dixieRes) {
+        expect([200, 404]).toContain(dixieRes.status)
+      }
     })
 
-    it("reputation query returns data or null gracefully when Dixie is configured", async () => {
-      if (!DIXIE_URL) {
-        return
-      }
-
+    it("reputation query returns data or null gracefully", async () => {
       const res = await fetch(`${DIXIE_URL}/reputation/nft-test-001`, {
         headers: { Accept: "application/json" },
         signal: AbortSignal.timeout(5000),
@@ -135,6 +111,48 @@ describe("E2E: Full Flow Integration", () => {
           expect(body.score).toBeLessThanOrEqual(1)
         }
       }
+    })
+  })
+
+  describeWhenThreeLeg("Three-service integration checks (requires E2E_FREESIDE_URL and E2E_DIXIE_URL)", () => {
+    it("all configured service legs are reachable", async () => {
+      const finnRes = await fetch(`${FINN_URL}/healthz`, {
+        signal: AbortSignal.timeout(5000),
+      })
+      const freesideRes = await fetch(`${FREESIDE_URL}/v1/health`, {
+        signal: AbortSignal.timeout(5000),
+      })
+      const dixieRes = await fetch(`${DIXIE_URL}/health`, {
+        signal: AbortSignal.timeout(5000),
+      }).catch(() => null)
+
+      expect(finnRes.status).toBe(200)
+      expect(freesideRes.status).toBe(200)
+      if (dixieRes) {
+        expect([200, 404]).toContain(dixieRes.status)
+      }
+    })
+  })
+
+  describe("inference → billing → reputation flow", () => {
+    it("finn accepts billing seed setup when an admin seed token is configured", async () => {
+      const authToken = process.env.FINN_AUTH_TOKEN
+      if (!authToken) {
+        return
+      }
+
+      await fetch(`${FINN_URL}/api/v1/admin/seed-credits`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          wallet_address: "0x00000000000000000000000000000000deadbeef",
+          credits: 10000,
+        }),
+        signal: AbortSignal.timeout(5000),
+      })
     })
   })
 
