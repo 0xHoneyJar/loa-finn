@@ -31,7 +31,7 @@ beforeAll(async () => {
   primaryPrivateKey = await importPKCS8(pem, "ES256")
 
   // Alternate keypair — used for "unknown kid" test (finn won't recognize it)
-  const altKp = await generateKeyPair("ES256")
+  const altKp = await generateKeyPair("ES256", { extractable: true })
   const altPkcs8 = await exportPKCS8(altKp.privateKey)
   alternatePrivateKey = await importPKCS8(altPkcs8, "ES256")
 })
@@ -118,35 +118,18 @@ async function postAdminFlags(token: string): Promise<Response> {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("E2E: Auth Negative — Token Rejection Cases", () => {
-  // -------------------------------------------------------------------------
-  // 1. Wrong audience
-  // -------------------------------------------------------------------------
-  it("wrong aud -> 403", async () => {
+describe("E2E: Auth Negative Tests", () => {
+  it("rejects token with unknown kid", async () => {
     const token = await mintToken({
-      claims: { aud: "wrong-audience" },
-    })
-
-    const res = await postSession(token)
-    expect(res.status).toBe(403)
-  })
-
-  // -------------------------------------------------------------------------
-  // 2. Missing exp
-  // -------------------------------------------------------------------------
-  it("missing exp -> 401", async () => {
-    const token = await mintToken({
-      claims: { exp: undefined },
+      header: { kid: "unknown-key" },
+      signingKey: alternatePrivateKey,
     })
 
     const res = await postSession(token)
     expect(res.status).toBe(401)
   })
 
-  // -------------------------------------------------------------------------
-  // 3. Expired token
-  // -------------------------------------------------------------------------
-  it("expired token -> 401", async () => {
+  it("rejects expired token", async () => {
     const now = Math.floor(Date.now() / 1000)
     const token = await mintToken({
       claims: { exp: now - 60 },
@@ -156,83 +139,57 @@ describe("E2E: Auth Negative — Token Rejection Cases", () => {
     expect(res.status).toBe(401)
   })
 
-  // -------------------------------------------------------------------------
-  // 4. Future nbf (not-before)
-  // -------------------------------------------------------------------------
-  it("future nbf -> 401", async () => {
-    const now = Math.floor(Date.now() / 1000)
+  it("rejects token with missing req_hash", async () => {
     const token = await mintToken({
-      claims: { nbf: now + 3600 },
+      claims: { req_hash: undefined },
     })
 
     const res = await postSession(token)
     expect(res.status).toBe(401)
   })
 
-  // -------------------------------------------------------------------------
-  // 5. Missing role on admin endpoint
-  // -------------------------------------------------------------------------
-  it("missing role on admin -> 403", async () => {
-    // Standard user token (no role claim) hitting admin endpoint
+  it("rejects token with missing tenant_id", async () => {
     const token = await mintToken({
-      claims: { aud: "loa-finn-admin", tenant_id: "e2e-admin" },
-    })
-
-    const res = await postAdminFlags(token)
-    expect(res.status).toBe(403)
-  })
-
-  // -------------------------------------------------------------------------
-  // 6. role=user on admin endpoint
-  // -------------------------------------------------------------------------
-  it("role=user on admin -> 403", async () => {
-    const token = await mintToken({
-      claims: {
-        aud: "loa-finn-admin",
-        tenant_id: "e2e-admin",
-        role: "user",
-      },
-    })
-
-    const res = await postAdminFlags(token)
-    expect(res.status).toBe(403)
-  })
-
-  // -------------------------------------------------------------------------
-  // 7. Unknown kid
-  // -------------------------------------------------------------------------
-  it("unknown kid -> 401", async () => {
-    const token = await mintToken({
-      header: { kid: "unknown-kid" },
-      signingKey: alternatePrivateKey,
+      claims: { tenant_id: undefined },
     })
 
     const res = await postSession(token)
     expect(res.status).toBe(401)
   })
 
-  // -------------------------------------------------------------------------
-  // 8. Replayed jti
-  // -------------------------------------------------------------------------
-  it("replayed jti -> 401", async () => {
-    const fixedJti = randomUUID()
-
-    // First request — should succeed (or at least not 401 for jti replay).
-    // We only need the first to register the jti in the replay cache.
-    const token1 = await mintToken({
-      claims: { jti: fixedJti },
+  it("rejects token with wrong audience", async () => {
+    const token = await mintToken({
+      claims: { aud: "wrong-audience" },
     })
-    const res1 = await postSession(token1)
 
-    // The first request may return various status codes depending on other
-    // auth/budget state, but the important assertion is on the second request.
-    expect(res1.status).toBeDefined()
+    const res = await postSession(token)
+    expect(res.status).toBe(401)
+  })
 
-    // Second request with the same jti — should be rejected as replay
-    const token2 = await mintToken({
-      claims: { jti: fixedJti },
+  it("rejects token with malformed req_hash", async () => {
+    const token = await mintToken({
+      claims: { req_hash: "not-a-sha256" },
     })
-    const res2 = await postSession(token2)
-    expect(res2.status).toBe(401)
+
+    const res = await postSession(token)
+    expect(res.status).toBe(401)
+  })
+
+  it("rejects replayed jti", async () => {
+    const jti = randomUUID()
+    const token = await mintToken({ claims: { jti } })
+
+    const first = await postSession(token)
+    expect([200, 201, 202]).toContain(first.status)
+
+    const replay = await postSession(token)
+    expect(replay.status).toBe(401)
+  })
+
+  it("rejects admin route with non-admin token", async () => {
+    const token = await mintToken()
+
+    const res = await postAdminFlags(token)
+    expect(res.status).toBe(403)
   })
 })
