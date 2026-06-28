@@ -12,6 +12,10 @@ const FINN_URL = process.env.E2E_FINN_URL ?? process.env.FINN_URL ?? "http://loc
 const FREESIDE_URL = process.env.E2E_FREESIDE_URL
 const DIXIE_URL = process.env.E2E_DIXIE_URL
 
+const describeWhen = (condition: boolean) => condition ? describe : describe.skip
+const describeWhenFreeside = describeWhen(Boolean(FREESIDE_URL))
+const describeWhenDixie = describeWhen(Boolean(DIXIE_URL))
+
 const KEYS_DIR = resolve(import.meta.dirname ?? __dirname, "keys")
 
 function loadPem(name: string): string {
@@ -46,8 +50,8 @@ describe("E2E: JWT Exchange", () => {
     })
   })
 
-  describe("finn → freeside (billing JWT)", () => {
-    it("finn-signed JWT has valid structure and Freeside is checked only when configured", async () => {
+  describe("finn-signed JWT structure", () => {
+    it("billing JWT has a valid compact-JWS shape", async () => {
       const token = await new SignJWT({
         sub: "billing-request",
         wallet: "0xdeadbeef",
@@ -63,31 +67,9 @@ describe("E2E: JWT Exchange", () => {
       const parts = token.split(".")
       expect(parts.length).toBe(3)
       expect(parts.every(p => p.length > 0)).toBe(true)
-
-      if (!FREESIDE_URL) {
-        return
-      }
-
-      const healthRes = await fetch(`${FREESIDE_URL}/v1/health`)
-      expect(healthRes.status).toBe(200)
-    })
-  })
-
-  describe("finn → dixie (reputation query)", () => {
-    it("finn can query dixie reputation endpoint when configured", async () => {
-      if (!DIXIE_URL) {
-        return
-      }
-
-      const res = await fetch(`${DIXIE_URL}/reputation/nft-test-001`, {
-        headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(5000),
-      })
-
-      expect([200, 404]).toContain(res.status)
     })
 
-    it("finn-signed JWT can be verified against finn JWKS", async () => {
+    it("finn-signed reputation JWT can be verified against finn JWKS", async () => {
       const token = await new SignJWT({
         sub: "reputation-query",
         nftId: "nft-test-001",
@@ -108,6 +90,24 @@ describe("E2E: JWT Exchange", () => {
 
       expect(payload.sub).toBe("reputation-query")
       expect(payload.nftId).toBe("nft-test-001")
+    })
+  })
+
+  describeWhenFreeside("finn → freeside billing JWT checks (requires E2E_FREESIDE_URL)", () => {
+    it("Freeside health endpoint is reachable before cross-service billing JWT assertions", async () => {
+      const healthRes = await fetch(`${FREESIDE_URL}/v1/health`)
+      expect(healthRes.status).toBe(200)
+    })
+  })
+
+  describeWhenDixie("finn → dixie reputation checks (requires E2E_DIXIE_URL)", () => {
+    it("finn can query dixie reputation endpoint", async () => {
+      const res = await fetch(`${DIXIE_URL}/reputation/nft-test-001`, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(5000),
+      })
+
+      expect([200, 404]).toContain(res.status)
     })
   })
 
