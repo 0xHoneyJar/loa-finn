@@ -37,6 +37,8 @@ interface SeedCreditsRequest {
 }
 
 const VALID_MODES = new Set<string>(["enabled", "disabled", "shadow"])
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
+const MAX_SEED_CREDITS = 1_000_000
 
 // Per-subject rate limit: track mode changes per subject per hour
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
@@ -267,9 +269,23 @@ export function createAdminRoutes(deps: AdminRouteDeps): Hono {
       )
     }
 
-    if (body.credits == null || typeof body.credits !== "number" || !Number.isFinite(body.credits) || body.credits < 0) {
+    if (!EVM_ADDRESS_RE.test(body.wallet_address)) {
       return c.json(
-        { error: "credits is required and must be a non-negative number", code: "INVALID_REQUEST" },
+        { error: "wallet_address must be a 0x-prefixed 20-byte hex address", code: "INVALID_WALLET_ADDRESS" },
+        400,
+      )
+    }
+
+    if (
+      body.credits == null ||
+      typeof body.credits !== "number" ||
+      !Number.isFinite(body.credits) ||
+      !Number.isSafeInteger(body.credits) ||
+      body.credits < 0 ||
+      body.credits > MAX_SEED_CREDITS
+    ) {
+      return c.json(
+        { error: `credits must be a safe integer between 0 and ${MAX_SEED_CREDITS}`, code: "INVALID_CREDITS" },
         400,
       )
     }

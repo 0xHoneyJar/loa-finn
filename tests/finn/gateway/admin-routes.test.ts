@@ -67,6 +67,17 @@ function createTestApp(overrides?: Partial<AdminRouteDeps>) {
   return { app, deps, auditLog }
 }
 
+async function seedCreditsRequest(app: Hono, wallet_address: string, credits: number) {
+  return app.request("/admin/seed-credits", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-secret-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ wallet_address, credits }),
+  })
+}
+
 // --- Tests ---
 
 beforeEach(async () => {
@@ -276,7 +287,7 @@ describe("Admin API — seed-credits (legacy auth)", () => {
         Authorization: "Bearer some-token",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ wallet_address: "0x123", credits: 100 }),
+      body: JSON.stringify({ wallet_address: "0x0000000000000000000000000000000000000123", credits: 100 }),
     })
 
     expect(res.status).toBe(503)
@@ -284,18 +295,64 @@ describe("Admin API — seed-credits (legacy auth)", () => {
 
   it("accepts valid FINN_AUTH_TOKEN", async () => {
     process.env.FINN_AUTH_TOKEN = "test-secret-token"
-    const { app } = createTestApp()
+    const { app, deps } = createTestApp()
 
-    const res = await app.request("/admin/seed-credits", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer test-secret-token",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ wallet_address: "0xABC", credits: 50 }),
-    })
+    const res = await seedCreditsRequest(app, "0x0000000000000000000000000000000000000ABC", 50)
 
     expect(res.status).toBe(200)
+    const body = await res.json() as { wallet_address: string; credits: number; seeded: boolean }
+    expect(body.wallet_address).toBe("0x0000000000000000000000000000000000000abc")
+    expect(body.credits).toBe(50)
+    expect(body.seeded).toBe(true)
+    expect(deps.setCreditBalance).toHaveBeenCalledWith("0x0000000000000000000000000000000000000abc", 50)
+    delete process.env.FINN_AUTH_TOKEN
+  })
+
+  it("accepts zero and exact maximum credit seeds", async () => {
+    process.env.FINN_AUTH_TOKEN = "test-secret-token"
+    const { app, deps } = createTestApp()
+    const wallet = "0x0000000000000000000000000000000000000abc"
+
+    for (const credits of [0, 1_000_000]) {
+      const res = await seedCreditsRequest(app, wallet, credits)
+      expect(res.status).toBe(200)
+      const body = await res.json() as { credits: number; seeded: boolean }
+      expect(body.credits).toBe(credits)
+      expect(body.seeded).toBe(true)
+    }
+
+    expect(deps.setCreditBalance).toHaveBeenCalledWith(wallet, 0)
+    expect(deps.setCreditBalance).toHaveBeenCalledWith(wallet, 1_000_000)
+    delete process.env.FINN_AUTH_TOKEN
+  })
+
+  it("rejects malformed wallet addresses", async () => {
+    process.env.FINN_AUTH_TOKEN = "test-secret-token"
+    const { app, deps } = createTestApp()
+
+    for (const wallet_address of ["0xABC", "0000000000000000000000000000000000000abc", "0x0000000000000000000000000000000000000abz"]) {
+      const res = await seedCreditsRequest(app, wallet_address, 50)
+      expect(res.status).toBe(400)
+      const body = await res.json() as { code: string }
+      expect(body.code).toBe("INVALID_WALLET_ADDRESS")
+    }
+
+    expect(deps.setCreditBalance).not.toHaveBeenCalled()
+    delete process.env.FINN_AUTH_TOKEN
+  })
+
+  it("rejects fractional and over-limit credits", async () => {
+    process.env.FINN_AUTH_TOKEN = "test-secret-token"
+    const { app, deps } = createTestApp()
+
+    for (const credits of [1.5, 1_000_001]) {
+      const res = await seedCreditsRequest(app, "0x0000000000000000000000000000000000000abc", credits)
+      expect(res.status).toBe(400)
+      const body = await res.json() as { code: string }
+      expect(body.code).toBe("INVALID_CREDITS")
+    }
+
+    expect(deps.setCreditBalance).not.toHaveBeenCalled()
     delete process.env.FINN_AUTH_TOKEN
   })
 })
