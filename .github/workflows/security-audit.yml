@@ -41,7 +41,7 @@ jobs:
         if: steps.check-deps.outputs.has_deps == 'true'
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -116,15 +116,15 @@ jobs:
 
       - name: Initialize CodeQL
         if: steps.check-code.outputs.has_code == 'true'
-        uses: github/codeql-action/init@2588666de8825e1e9dc4e2329a4c985457d55b32 # v3.32.1
+        uses: github/codeql-action/init@2588666de8825e1e9dc4e2329d4c985457d55b32 # v3.32.1
         with:
           languages: typescript, javascript
           queries: security-extended
 
       - name: Autobuild
         if: steps.check-code.outputs.has_code == 'true'
-        uses: github/codeql-action/autobuild@2588666de8825e1e9dc4e2329a4c985457d55b32 # v3.32.1
+        uses: github/codeql-action/autobuild@2588666de8825e1e9dc4e2329d4c985457d55b32 # v3.32.1
 
       - name: Perform CodeQL Analysis
         if: steps.check-code.outputs.has_code == 'true'
-        uses: github/codeql-action/analyze@2588666de8825e1e9dc4e2329a4c985457d55b32 # v3.32.1
+        uses: github/codeql-action/analyze@2588666de8825e1e9dc4e2329d4c985457d55b32 # v3.32.1
