@@ -18,9 +18,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Create .env.docker
+      - name: Create E2E environment files
         run: |
-          cat > .env.docker << 'ENVEOF'
+          openssl ecparam -name prime256v1 -genkey -noout -out e2e-private-sec1.pem
+          openssl pkcs8 -topk8 -nocrypt -in e2e-private-sec1.pem -out e2e-private-pkcs8.pem
+          E2E_PRIVATE_KEY_B64=$(base64 -w0 e2e-private-pkcs8.pem)
+
+          mkdir -p tests/e2e
+          cat > tests/e2e/.env.e2e << ENVEOF
+          E2E_ES256_PRIVATE_KEY=${E2E_PRIVATE_KEY_B64}
+          FINN_S2S_PRIVATE_KEY=${E2E_PRIVATE_KEY_B64}
+          ENVEOF
+          chmod 600 tests/e2e/.env.e2e
+
+          cat > .env.docker << ENVEOF
           ANTHROPIC_API_KEY=sk-ant-test-placeholder
           POSTGRES_PASSWORD=postgres_ci
           FINN_APP_PASSWORD=finn_app_ci
@@ -33,6 +44,8 @@ jobs:
           SANDBOX_MODE=disabled
           CHEVAL_MODE=mock
           DATA_DIR=/data
+          E2E_ES256_PRIVATE_KEY=${E2E_PRIVATE_KEY_B64}
+          FINN_S2S_PRIVATE_KEY=${E2E_PRIVATE_KEY_B64}
           ENVEOF
 
       - name: Build and start services
