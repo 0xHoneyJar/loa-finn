@@ -67,6 +67,8 @@ export class MockTimeProvider implements TimeProvider {
 export interface ClockDriftConfig {
   /** Maximum acceptable drift in milliseconds (default: 1000) */
   maxDriftMs?: number
+  /** Optional injected time source; defaults to the system clock */
+  timeProvider?: TimeProvider
   /** Callback when drift is detected */
   onDrift?: (driftMs: number) => void
 }
@@ -96,7 +98,7 @@ export function measureClockDrift(
   config: ClockDriftConfig = {},
 ): ClockDriftResult {
   const maxDriftMs = config.maxDriftMs ?? 1000
-  const systemMs = Date.now()
+  const systemMs = config.timeProvider?.now() ?? Date.now()
   const driftMs = Math.abs(systemMs - referenceTimeMs)
   const withinTolerance = driftMs <= maxDriftMs
 
