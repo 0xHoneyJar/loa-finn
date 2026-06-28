@@ -24,6 +24,37 @@ Likely scope includes `src/gateway/server.ts`, `src/gateway/routes/admin.ts`, `s
 
 Allowed: focused gateway/runtime code, tests, fixtures, and docs. Not allowed: unrelated package metadata, compatibility matrix, or full validation script work owned by the companion runtime-evidence lane.
 
+## Implemented sub-scope in this PR
+
+The current implementation evidence is intentionally narrower than the full lane title:
+
+- admin `seed-credits` wallet-shape validation and lowercase normalization;
+- safe-integer credit bounds for `seed-credits`, including the documented `0..1_000_000` inclusive operator/CI cap;
+- admin route tests for mixed-case EVM input, malformed wallets, zero credit seed, exact maximum seed, fractional seed, and over-limit seed;
+- Finn-only E2E harness alignment so Freeside/Dixie checks are not implied unless the relevant service URLs are configured;
+- a seed-credit operator policy document at `docs/gateway-admin-seed-credits-policy.md`.
+
+This sub-scope does not complete the full gateway/admin/ownership/public-URL lane.
+
+## Cross-lane dependency note
+
+The DB-init and E2E harness changes overlap with the runtime-evidence lane, but they are kept here because the gateway/admin safety tests depend on deterministic Finn-only setup:
+
+- migrations should own application schema creation instead of relying on Docker init pre-creation;
+- Finn-only CI should not fail because unrelated Freeside/Dixie URLs are absent;
+- full three-service E2E remains a separate configured evidence path, not silently removed from the product contract.
+
+## Remaining lane work before broad acceptance
+
+The following items remain outside the connector-safe patch completed here and should not be considered closed by this PR:
+
+- Host-derived/public URL generation policy and tests;
+- conversation ownership enforcement and negative tests;
+- route skip/guard matrix generation and drift detection;
+- multi-instance/distributed admin rate-limiting semantics;
+- dependency-audit remediation requiring package graph plus `pnpm-lock.yaml` regeneration;
+- long legacy E2E artifact classification/reproduction.
+
 ## Decision
 
 Use one gateway safety PR because these issues share one root contract: externally reachable gateway behavior and mutation paths must be explicit, bounded, and verifiable.
