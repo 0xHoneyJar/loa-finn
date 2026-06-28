@@ -111,6 +111,37 @@ describe("measureClockDrift", () => {
     expect(result.referenceMs).toBe(ref)
     expect(result.systemMs).toBeGreaterThan(0)
   })
+
+  it("uses an injected provider for exact deterministic drift", () => {
+    const provider = new MockTimeProvider(10_000)
+    const result = measureClockDrift(8_500, {
+      maxDriftMs: 2_000,
+      timeProvider: provider,
+    })
+
+    expect(result.systemMs).toBe(10_000)
+    expect(result.referenceMs).toBe(8_500)
+    expect(result.driftMs).toBe(1_500)
+    expect(result.withinTolerance).toBe(true)
+  })
+
+  it("passes exact injected-clock drift to onDrift", () => {
+    const provider = new MockTimeProvider(20_000)
+    let driftValue = 0
+
+    const result = measureClockDrift(16_250, {
+      maxDriftMs: 1_000,
+      timeProvider: provider,
+      onDrift: (drift) => {
+        driftValue = drift
+      },
+    })
+
+    expect(result.systemMs).toBe(20_000)
+    expect(result.driftMs).toBe(3_750)
+    expect(result.withinTolerance).toBe(false)
+    expect(driftValue).toBe(3_750)
+  })
 })
 
 describe("defaultTimeProvider", () => {
