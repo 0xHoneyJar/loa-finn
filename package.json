@@ -39,7 +39,7 @@
     "@mariozechner/pi-coding-agent": "~0.52.6",
     "@sinclair/typebox": "^0.34.48",
     "bcrypt": "^6.0.0",
-    "canonicalize": "^2.1.0",
+    "canonicalize": "^3.0.0",
     "croner": "^10.0.1",
     "drizzle-orm": "^0.45.1",
     "effect": "^3.10.0",
