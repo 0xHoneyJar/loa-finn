@@ -13,6 +13,10 @@ import { resolve } from "node:path"
 const FINN_URL = process.env.E2E_FINN_URL ?? "http://localhost:3001"
 const FREESIDE_URL = process.env.E2E_FREESIDE_URL ?? "http://localhost:3002"
 const DIXIE_URL = process.env.E2E_DIXIE_URL ?? "http://localhost:3003"
+const HAS_EXPLICIT_FREESIDE_TARGET = Boolean(process.env.E2E_FREESIDE_URL?.trim())
+const HAS_EXPLICIT_DIXIE_TARGET = Boolean(process.env.E2E_DIXIE_URL?.trim())
+const describeWhenFreesideConfigured = HAS_EXPLICIT_FREESIDE_TARGET ? describe : describe.skip
+const describeWhenDixieConfigured = HAS_EXPLICIT_DIXIE_TARGET ? describe : describe.skip
 
 const KEYS_DIR = resolve(import.meta.dirname ?? __dirname, "keys")
 
@@ -47,31 +51,36 @@ describe("E2E: Full Flow Integration (three-leg)", () => {
       .sign(adminPrivateKey)
   }
 
-  describe("three-leg health verification", () => {
-    it("all three services are healthy", async () => {
-      // Finn liveness
+  describe("health verification", () => {
+    it("finn is healthy", async () => {
       const finnRes = await fetch(`${FINN_URL}/healthz`, {
         signal: AbortSignal.timeout(5000),
       })
       expect(finnRes.status).toBe(200)
-
-      // Freeside health
-      const freesideRes = await fetch(`${FREESIDE_URL}/v1/health`, {
-        signal: AbortSignal.timeout(5000),
-      })
-      expect(freesideRes.status).toBe(200)
-
-      // Dixie health (may have different path)
-      const dixieRes = await fetch(`${DIXIE_URL}/health`, {
-        signal: AbortSignal.timeout(5000),
-      }).catch(() => null)
-
-      if (dixieRes) {
-        expect([200, 404]).toContain(dixieRes.status)
-      }
     })
 
-    it("finn readiness includes all dependencies", async () => {
+    describeWhenFreesideConfigured("freeside health — requires E2E_FREESIDE_URL", () => {
+      it("freeside is healthy", async () => {
+        const freesideRes = await fetch(`${FREESIDE_URL}/v1/health`, {
+          signal: AbortSignal.timeout(5000),
+        })
+        expect(freesideRes.status).toBe(200)
+      })
+    })
+
+    describeWhenDixieConfigured("dixie health — requires E2E_DIXIE_URL", () => {
+      it("dixie is reachable", async () => {
+        const dixieRes = await fetch(`${DIXIE_URL}/health`, {
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => null)
+
+        if (dixieRes) {
+          expect([200, 404]).toContain(dixieRes.status)
+        }
+      })
+    })
+
+    it("finn readiness includes local dependencies", async () => {
       const res = await fetch(`${FINN_URL}/health/deps`, {
         signal: AbortSignal.timeout(5000),
       })
@@ -91,47 +100,51 @@ describe("E2E: Full Flow Integration (three-leg)", () => {
   })
 
   describe("inference → billing → reputation flow", () => {
-    it("finn processes request with billing integration", async () => {
-      // Seed credits via admin endpoint so billing flow has funds
-      const authToken = process.env.FINN_AUTH_TOKEN
-      if (authToken) {
-        await fetch(`${FINN_URL}/api/v1/admin/seed-credits`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            wallet_address: "0x00000000000000000000000000000000deadbeef",
-            credits: 10000,
-          }),
+    describeWhenFreesideConfigured("billing integration — requires E2E_FREESIDE_URL", () => {
+      it("finn processes request with billing integration", async () => {
+        // Seed credits via admin endpoint so billing flow has funds
+        const authToken = process.env.FINN_AUTH_TOKEN
+        if (authToken) {
+          await fetch(`${FINN_URL}/api/v1/admin/seed-credits`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              wallet_address: "0x00000000000000000000000000000000deadbeef",
+              credits: 10000,
+            }),
+            signal: AbortSignal.timeout(5000),
+          })
+        }
+
+        // Verify freeside billing endpoint is reachable from our test harness
+        const freesideHealth = await fetch(`${FREESIDE_URL}/v1/health`, {
           signal: AbortSignal.timeout(5000),
         })
-      }
-
-      // Verify freeside billing endpoint is reachable from our test harness
-      const freesideHealth = await fetch(`${FREESIDE_URL}/v1/health`, {
-        signal: AbortSignal.timeout(5000),
+        expect(freesideHealth.status).toBe(200)
       })
-      expect(freesideHealth.status).toBe(200)
     })
 
-    it("reputation query returns data or null gracefully", async () => {
-      // Direct reputation query to dixie
-      const res = await fetch(`${DIXIE_URL}/reputation/nft-test-001`, {
-        headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(5000),
-      }).catch(() => null)
+    describeWhenDixieConfigured("reputation query — requires E2E_DIXIE_URL", () => {
+      it("reputation query returns data or null gracefully", async () => {
+        // Direct reputation query to dixie
+        const res = await fetch(`${DIXIE_URL}/reputation/nft-test-001`, {
+          headers: { Accept: "application/json" },
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => null)
 
-      if (res && res.status === 200) {
-        const body = await res.json() as Record<string, unknown>
-        // ReputationResponse shape: { score, version, ... }
-        if (typeof body.score === "number") {
-          expect(body.score).toBeGreaterThanOrEqual(0)
-          expect(body.score).toBeLessThanOrEqual(1)
+        if (res && res.status === 200) {
+          const body = await res.json() as Record<string, unknown>
+          // ReputationResponse shape: { score, version, ... }
+          if (typeof body.score === "number") {
+            expect(body.score).toBeGreaterThanOrEqual(0)
+            expect(body.score).toBeLessThanOrEqual(1)
+          }
         }
-      }
-      // 404 or connection error = no reputation data yet (acceptable)
+        // 404 or connection error = no reputation data yet (acceptable)
+      })
     })
   })
 

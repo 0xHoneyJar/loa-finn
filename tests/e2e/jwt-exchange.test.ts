@@ -15,6 +15,10 @@ import { resolve } from "node:path"
 const FINN_URL = process.env.E2E_FINN_URL ?? "http://localhost:3001"
 const FREESIDE_URL = process.env.E2E_FREESIDE_URL ?? "http://localhost:3002"
 const DIXIE_URL = process.env.E2E_DIXIE_URL ?? "http://localhost:3003"
+const HAS_EXPLICIT_FREESIDE_TARGET = Boolean(process.env.E2E_FREESIDE_URL?.trim())
+const HAS_EXPLICIT_DIXIE_TARGET = Boolean(process.env.E2E_DIXIE_URL?.trim())
+const describeWhenFreesideConfigured = HAS_EXPLICIT_FREESIDE_TARGET ? describe : describe.skip
+const describeWhenDixieConfigured = HAS_EXPLICIT_DIXIE_TARGET ? describe : describe.skip
 
 const KEYS_DIR = resolve(import.meta.dirname ?? __dirname, "keys")
 
@@ -54,7 +58,7 @@ describe("E2E: JWT Exchange (three-leg)", () => {
     })
   })
 
-  describe("finn → freeside (billing JWT)", () => {
+  describeWhenFreesideConfigured("finn → freeside (billing JWT) — requires E2E_FREESIDE_URL", () => {
     it("finn-signed JWT is accepted by freeside billing endpoint", async () => {
       // Sign a billing JWT as finn
       const token = await new SignJWT({
@@ -80,7 +84,7 @@ describe("E2E: JWT Exchange (three-leg)", () => {
     })
   })
 
-  describe("finn → dixie (reputation query)", () => {
+  describeWhenDixieConfigured("finn → dixie (reputation query) — requires E2E_DIXIE_URL", () => {
     it("finn can query dixie reputation endpoint", async () => {
       // Query dixie reputation (may return 404 for unknown NFT — that's fine)
       const res = await fetch(`${DIXIE_URL}/reputation/nft-test-001`, {
@@ -91,7 +95,9 @@ describe("E2E: JWT Exchange (three-leg)", () => {
       // Dixie is up and responding (200 or 404 both valid)
       expect([200, 404]).toContain(res.status)
     })
+  })
 
+  describe("finn-signed JWT shape", () => {
     it("finn-signed JWT can be verified against finn JWKS", async () => {
       // Step 1: Finn signs a JWT
       const token = await new SignJWT({
