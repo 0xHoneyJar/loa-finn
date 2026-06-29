@@ -36,13 +36,13 @@ importers:
         version: 1.19.14(hono@4.12.16)
       '@mariozechner/pi-agent-core':
         specifier: ~0.52.6
-        version: 0.52.12(ws@8.20.0)(zod@3.25.76)
+        version: 0.52.12(ws@8.21.0)(zod@3.25.76)
       '@mariozechner/pi-ai':
         specifier: ~0.52.10
-        version: 0.52.12(ws@8.20.0)(zod@3.25.76)
+        version: 0.52.12(ws@8.21.0)(zod@3.25.76)
       '@mariozechner/pi-coding-agent':
         specifier: ~0.52.6
-        version: 0.52.12(ws@8.20.0)(zod@3.25.76)
+        version: 0.52.12(ws@8.21.0)(zod@3.25.76)
       '@sinclair/typebox':
         specifier: ^0.34.48
         version: 0.34.49
@@ -83,27 +83,14 @@ importers:
         specifier: ^2.46.2
         version: 2.48.8(typescript@5.9.3)(zod@3.25.76)
       ws:
-        specifier: ^8.19.0
-        version: 8.20.0
+        specifier: ^8.21.0
+        version: 8.21.0
       yaml:
         specifier: ^2.8.0
         version: 2.8.4
       zod:
         specifier: ^3.25.76
         version: 3.25.76
-    optionalDependencies:
-      '@opentelemetry/exporter-trace-otlp-grpc':
-        specifier: ^0.57.0
-        version: 0.57.2(@opentelemetry/api@1.9.1)
-      '@opentelemetry/resources':
-        specifier: ^1.30.0
-        version: 1.30.1(@opentelemetry/api@1.9.1)
-      '@opentelemetry/sdk-trace-node':
-        specifier: ^1.30.0
-        version: 1.30.1(@opentelemetry/api@1.9.1)
-      '@opentelemetry/semantic-conventions':
-        specifier: ^1.30.0
-        version: 1.40.0
     devDependencies:
       '@types/bcrypt':
         specifier: ^6.0.0
@@ -144,6 +131,19 @@ importers:
       vitest:
         specifier: ^4.0.18
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(vite@8.0.10(@types/node@22.19.17)(esbuild@0.27.7)(tsx@4.21.0)(yaml@2.8.4))
+    optionalDependencies:
+      '@opentelemetry/exporter-trace-otlp-grpc':
+        specifier: ^0.57.0
+        version: 0.57.2(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources':
+        specifier: ^1.30.0
+        version: 1.30.1(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-node':
+        specifier: ^1.30.0
+        version: 1.30.1(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions':
+        specifier: ^1.30.0
+        version: 1.40.0
 
 packages:
 
@@ -996,26 +996,30 @@ packages:
   '@mariozechner/pi-agent-core@0.52.12':
     resolution: {integrity: sha512-fBQdwLMvTteHUP9nJxMjtMpEHH4I8tdGnkerOoCFnS9y03AHdqy96IhtL+zZjw9N3dmVCOVqh8gwGjAGLZT31Q==}
     engines: {node: '>=20.0.0'}
+    deprecated: please use @earendil-works/pi-agent-core instead going forward
 
   '@mariozechner/pi-ai@0.52.12':
     resolution: {integrity: sha512-oF7OMJu1aUx7MXJeJoJ/3JDXzD2a5SqK9nHVK3mCA8DRQaykv9g+wcFZaANcCl0vAR2QSDr5KN3ZMARlFNWiVg==}
     engines: {node: '>=20.0.0'}
+    deprecated: please use @earendil-works/pi-ai instead going forward
     hasBin: true
 
   '@mariozechner/pi-coding-agent@0.52.12':
     resolution: {integrity: sha512-6Zmh57vUoRiN+rfRJxWErII/CNC5/3yX5nCU7tK+Eud2Ko+RcVZoBccwjdIUzsJib3Liw/yv9T1EWvz6ZdGbhw==}
     engines: {node: '>=20.0.0'}
+    deprecated: please use @earendil-works/pi-coding-agent instead going forward
     hasBin: true
 
   '@mariozechner/pi-tui@0.52.12':
     resolution: {integrity: sha512-QQ4LUlAYKN2BvT3EMU63+kYLlIkyr706+rUFBGWvkiT8ZyMy5if3oaVJpO5qAndsMB+MaUnttIBPh3iHiaJ01g==}
     engines: {node: '>=20.0.0'}
+    deprecated: please use @earendil-works/pi-tui instead going forward
 
   '@mistralai/mistralai@1.10.0':
     resolution: {integrity: sha512-tdIgWs4Le8vpvPiUEWne6tK0qbVc+jMenujnvTqOjogrJUsCSQhus0tHTU1avDDh5//Rq2dFgP9mWRAdIEoBqg==}
 
-  '@napi-rs/wasm-runtime@1.1.4':
-    resolution: {integrity: sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow==}
+  '@napi-rs/wasm-runtime@1.1.5':
+    resolution: {integrity: sha512-AWPoBRJ9tsnVhor4sjO7rkni+7p+2IAEFj6cx06UgP10jkQHqay/36uRV/bFkgrh18D9vb4cr8Q0Pthskgzy+Q==}
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
@@ -2601,8 +2605,8 @@ packages:
     resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
     engines: {node: '>=12'}
 
-  postcss@8.5.14:
-    resolution: {integrity: sha512-SoSL4+OSEtR99LHFZQiJLkT59C5B1amGO1NzTwj7TT1qCUgUO6hxOvzkOYxD+vMrXBM3XJIKzokoERdqQq/Zmg==}
+  postcss@8.5.15:
+    resolution: {integrity: sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A==}
     engines: {node: ^10 || ^12 || >=14}
 
   postgres@3.4.9:
@@ -2778,6 +2782,10 @@ packages:
 
   tinyglobby@0.2.16:
     resolution: {integrity: sha512-pn99VhoACYR8nFHhxqix+uvsbXineAasWm5ojXoN8xEwK5Kd3/TrhNn1wByuD52UxWRLy8pu+kRMniEi6Eq9Zg==}
+    engines: {node: '>=12.0.0'}
+
+  tinyglobby@0.2.17:
+    resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
     engines: {node: '>=12.0.0'}
 
   tinyrainbow@3.1.0:
@@ -2983,8 +2991,8 @@ packages:
       utf-8-validate:
         optional: true
 
-  ws@8.20.0:
-    resolution: {integrity: sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA==}
+  ws@8.21.0:
+    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -3908,7 +3916,7 @@ snapshots:
       google-auth-library: 10.6.2
       p-retry: 4.6.2
       protobufjs: 7.5.6
-      ws: 8.20.0
+      ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -4004,9 +4012,9 @@ snapshots:
       std-env: 3.10.0
       yoctocolors: 2.1.2
 
-  '@mariozechner/pi-agent-core@0.52.12(ws@8.20.0)(zod@3.25.76)':
+  '@mariozechner/pi-agent-core@0.52.12(ws@8.21.0)(zod@3.25.76)':
     dependencies:
-      '@mariozechner/pi-ai': 0.52.12(ws@8.20.0)(zod@3.25.76)
+      '@mariozechner/pi-ai': 0.52.12(ws@8.21.0)(zod@3.25.76)
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - aws-crt
@@ -4016,7 +4024,7 @@ snapshots:
       - ws
       - zod
 
-  '@mariozechner/pi-ai@0.52.12(ws@8.20.0)(zod@3.25.76)':
+  '@mariozechner/pi-ai@0.52.12(ws@8.21.0)(zod@3.25.76)':
     dependencies:
       '@anthropic-ai/sdk': 0.73.0(zod@3.25.76)
       '@aws-sdk/client-bedrock-runtime': 3.1041.0
@@ -4026,7 +4034,7 @@ snapshots:
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       chalk: 5.6.2
-      openai: 6.10.0(ws@8.20.0)(zod@3.25.76)
+      openai: 6.10.0(ws@8.21.0)(zod@3.25.76)
       partial-json: 0.1.7
       proxy-agent: 6.5.0
       undici: 7.24.0
@@ -4040,11 +4048,11 @@ snapshots:
       - ws
       - zod
 
-  '@mariozechner/pi-coding-agent@0.52.12(ws@8.20.0)(zod@3.25.76)':
+  '@mariozechner/pi-coding-agent@0.52.12(ws@8.21.0)(zod@3.25.76)':
     dependencies:
       '@mariozechner/jiti': 2.6.5
-      '@mariozechner/pi-agent-core': 0.52.12(ws@8.20.0)(zod@3.25.76)
-      '@mariozechner/pi-ai': 0.52.12(ws@8.20.0)(zod@3.25.76)
+      '@mariozechner/pi-agent-core': 0.52.12(ws@8.21.0)(zod@3.25.76)
+      '@mariozechner/pi-ai': 0.52.12(ws@8.21.0)(zod@3.25.76)
       '@mariozechner/pi-tui': 0.52.12
       '@silvia-odwyer/photon-node': 0.3.4
       chalk: 5.6.2
@@ -4082,7 +4090,7 @@ snapshots:
       zod: 3.25.76
       zod-to-json-schema: 3.25.2(zod@3.25.76)
 
-  '@napi-rs/wasm-runtime@1.1.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)':
+  '@napi-rs/wasm-runtime@1.1.5(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)':
     dependencies:
       '@emnapi/core': 1.10.0
       '@emnapi/runtime': 1.10.0
@@ -4290,7 +4298,7 @@ snapshots:
     dependencies:
       '@emnapi/core': 1.10.0
       '@emnapi/runtime': 1.10.0
-      '@napi-rs/wasm-runtime': 1.1.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
+      '@napi-rs/wasm-runtime': 1.1.5(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
     optional: true
 
   '@rolldown/binding-win32-arm64-msvc@1.0.0-rc.17':
@@ -5670,9 +5678,9 @@ snapshots:
 
   obug@2.1.1: {}
 
-  openai@6.10.0(ws@8.20.0)(zod@3.25.76):
+  openai@6.10.0(ws@8.21.0)(zod@3.25.76):
     optionalDependencies:
-      ws: 8.20.0
+      ws: 8.21.0
       zod: 3.25.76
 
   optionator@0.9.4:
@@ -5765,7 +5773,7 @@ snapshots:
 
   picomatch@4.0.4: {}
 
-  postcss@8.5.14:
+  postcss@8.5.15:
     dependencies:
       nanoid: 3.3.12
       picocolors: 1.1.1
@@ -5956,6 +5964,11 @@ snapshots:
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
 
+  tinyglobby@0.2.17:
+    dependencies:
+      fdir: 6.5.0(picomatch@4.0.4)
+      picomatch: 4.0.4
+
   tinyrainbow@3.1.0: {}
 
   token-types@6.1.2:
@@ -6033,9 +6046,9 @@ snapshots:
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.4
-      postcss: 8.5.14
+      postcss: 8.5.15
       rolldown: 1.0.0-rc.17
-      tinyglobby: 0.2.16
+      tinyglobby: 0.2.17
     optionalDependencies:
       '@types/node': 22.19.17
       esbuild: 0.27.7
@@ -6094,7 +6107,7 @@ snapshots:
 
   ws@8.18.3: {}
 
-  ws@8.20.0: {}
+  ws@8.21.0: {}
 
   y18n@5.0.8: {}
 
