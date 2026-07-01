@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload test results
         if: always() && steps.check-token.outputs.available == 'true'
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-v2-test-results
           path: test-results/e2e-v2-results.xml
@@ -80,7 +80,7 @@ jobs:
 
       - name: Upload logs artifact
         if: failure() && steps.check-token.outputs.available == 'true'
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-v2-logs
           path: e2e-v2-logs.txt
