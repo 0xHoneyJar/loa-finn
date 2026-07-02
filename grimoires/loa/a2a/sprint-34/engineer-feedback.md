@@ -21,8 +21,8 @@
 | 6 | /flatline-review architecture.md no BLOCKERs | DEFERRED — requires external skill invocation |
 | 7 | PROCESS.md disambiguation header | PASS — "This document describes the Loa development framework, not the Finn application" |
 | 8 | INSTALLATION.md disambiguation header | PASS — "This document describes Loa framework setup, not Finn deployment" |
-| 9 | @janitooor sign-off on SECURITY.md | DEFERRED — will be requested via PR |
-| 10 | @janitooor review of README.md | DEFERRED — will be requested via PR |
+| 9 | @deep-name sign-off on SECURITY.md | DEFERRED — will be requested via PR |
+| 10 | @deep-name review of README.md | DEFERRED — will be requested via PR |
 | 11 | All 16 documents pass quality-gates.sh | PASS — 16/16 pass, 9/9 gates each |
 | 12 | Total documentation <5000 lines | PASS — 2341 lines |
 

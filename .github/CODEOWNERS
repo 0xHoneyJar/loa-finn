@@ -8,35 +8,35 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Default owner — catch-all for any file not matched below
 # ─────────────────────────────────────────────────────────────────────────────
-*                               @janitooor
+*                               @deep-name
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Framework core (System Zone)
 # ─────────────────────────────────────────────────────────────────────────────
-.claude/                        @janitooor
-.loa.config.yaml                @janitooor
-.loa.config.yaml.example        @janitooor
+.claude/                        @deep-name
+.loa.config.yaml                @deep-name
+.loa.config.yaml.example        @deep-name
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Project configuration & documentation
 # ─────────────────────────────────────────────────────────────────────────────
-CLAUDE.md                       @janitooor
-PROCESS.md                      @janitooor
-CONTRIBUTING.md                 @janitooor
-SECURITY.md                     @janitooor
-CHANGELOG.md                    @janitooor
+CLAUDE.md                       @deep-name
+PROCESS.md                      @deep-name
+CONTRIBUTING.md                 @deep-name
+SECURITY.md                     @deep-name
+CHANGELOG.md                    @deep-name
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CI / GitHub configuration
 # ─────────────────────────────────────────────────────────────────────────────
-.github/                        @janitooor
+.github/                        @deep-name
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Eval baselines (require explicit review for regression threshold changes)
 # ─────────────────────────────────────────────────────────────────────────────
-evals/baselines/                @janitooor
+evals/baselines/                @deep-name
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Grimoire state (State Zone)
 # ─────────────────────────────────────────────────────────────────────────────
-grimoires/                      @janitooor
+grimoires/                      @deep-name

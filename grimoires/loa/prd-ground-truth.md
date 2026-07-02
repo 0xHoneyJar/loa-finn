@@ -2,7 +2,7 @@
 
 > **Version**: 1.1.0
 > **Date**: 2026-02-10
-> **Author**: @janitooor (via BridgeBuilder voice)
+> **Author**: @deep-name (via BridgeBuilder voice)
 > **Status**: Draft
 > **Voice**: BridgeBuilder persona (loa-finn#24)
 > **Related**: loa#247 (Meeting Geometries), loa-finn#24 (BridgeBuilder)

@@ -380,8 +380,8 @@ Each degradation is logged with severity for monitoring.
 
 | Question | Owner | Status |
 |----------|-------|--------|
-| Which 5 team-owned tokenIds for soft launch? | @janitooor | Open |
-| `collectionSalt` for `nameKDF()` in production? | @janitooor | Open |
+| Which 5 team-owned tokenIds for soft launch? | @deep-name | Open |
+| `collectionSalt` for `nameKDF()` in production? | @deep-name | Open |
 | Experience flush: every epoch or batched? | Engineering | Open (recommend: every epoch) |
 
 ---

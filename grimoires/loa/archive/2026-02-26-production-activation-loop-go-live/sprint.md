@@ -7,7 +7,7 @@
 > **SDD**: v1.2.0 (GPT-5.2 APPROVED iter 2, Flatline: 5 HIGH integrated, 2 BLOCKERS deferred)
 > **Global Sprint IDs**: 144-147
 > **Total Tasks**: 30
-> **Team**: Solo (@janitooor + Claude Opus 4.6)
+> **Team**: Solo (@deep-name + Claude Opus 4.6)
 
 ---
 

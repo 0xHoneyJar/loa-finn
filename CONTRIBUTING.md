@@ -235,7 +235,7 @@ git commit -s -m "feat(gateway): add WebSocket rate limiting"
 ### Code Review
 
 <!-- provenance: OPERATIONAL -->
-All PRs require review from @janitooor (configured in `.github/CODEOWNERS`). The reviewer checks:
+All PRs require review from @deep-name (configured in `.github/CODEOWNERS`). The reviewer checks:
 
 <!-- provenance: OPERATIONAL -->
 - Correctness and completeness

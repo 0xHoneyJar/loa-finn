@@ -9,7 +9,7 @@
 | `CHANGELOG.md` | YES | Keep-a-Changelog + semver; includes glossary |
 | `CONTRIBUTING.md` | YES | 9KB — dev setup, workflow, standards |
 | `SECURITY.md` | YES | 15KB — auth architecture, audit trail, vuln reporting |
-| `.github/CODEOWNERS` | YES | Auto-assigns reviewers (maintainer @janitooor) |
+| `.github/CODEOWNERS` | YES | Auto-assigns reviewers (maintainer @deep-name) |
 | Semver tags | YES | **230 tags** (latest reachable from `feature/score-phase1` HEAD = `v1.67.0`) — disciplined release cadence |
 | `LICENSE.md` | YES | GNU AGPL-3.0 |
 | ADRs | PARTIAL | Only 2 (`docs/adr/ADR-001`, `ADR-002`) — both about provenance taxonomy |

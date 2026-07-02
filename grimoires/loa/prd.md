@@ -63,7 +63,7 @@ This cycle delivers the soft launch: 5-10 team members chatting with distinct, o
 
 | Stakeholder | Interest | Involvement |
 |-------------|----------|-------------|
-| @janitooor | Primary maintainer, PR reviewer | Approval on all implementation |
+| @deep-name | Primary maintainer, PR reviewer | Approval on all implementation |
 | Team members | Soft launch testers | Quality feedback on personality distinctiveness |
 
 > Sources: Issue #133 Gate 5 (access control), Phase 3 interview

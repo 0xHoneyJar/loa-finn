@@ -132,7 +132,7 @@ docker compose up                 # or run containerized
 
 ## Status & License
 
-Active. The experiment program is at **EXP-004 (graduation gate)**; the runtime is in production-shaped use. Maintainer: [@janitooor](https://github.com/janitooor).
+Active. The experiment program is at **EXP-004 (graduation gate)**; the runtime is in production-shaped use. Maintainer: [@deep-name](https://github.com/deep-name).
 
 [AGPL-3.0](LICENSE.md) — use, modify, distribute freely; network deployments must release source. Commercial licenses available.
 

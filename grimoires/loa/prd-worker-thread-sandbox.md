@@ -2,7 +2,7 @@
 
 > **Cycle**: 005 — Worker Thread Sandbox
 > **Status**: Draft
-> **Author**: @janitooor
+> **Author**: @deep-name
 > **Date**: 2026-02-08
 > **Issue**: [#28 — pi rust port](https://github.com/0xHoneyJar/loa-finn/issues/28)
 > **Branch**: `feature/worker-thread-sandbox`
