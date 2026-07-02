@@ -41,6 +41,7 @@ import { createAgentChatRoutes, type AgentChatDeps } from "./routes/agent-chat.j
 import { createOwnershipMiddleware, verifyOwnership, type OwnershipGateConfig } from "../nft/ownership-gate.js"
 import { parseNftId } from "../nft/nft-id.js"
 import { buildSessionWsUrl } from "./public-url.js"
+import { isSelfGuardedApiV1Path } from "./route-policy.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
@@ -259,18 +260,11 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     app.route("/api/v1/oracle", oracleApp)
   }
 
-  // Skip guard for Oracle path — defense-in-depth against Hono routing edge cases
-  const isOraclePath = (path: string) =>
-    path === "/api/v1/oracle" || path.startsWith("/api/v1/oracle/")
-
-  // Skip guard for product/admin/x402/identity paths — these use their own auth (SIWE, none, FINN_AUTH_TOKEN, x402 payment, or public)
-  const isProductApiPath = (path: string) =>
-    path === "/api/v1/public" || path.startsWith("/api/v1/public/") ||
-    path === "/api/v1/conversations" || path.startsWith("/api/v1/conversations/") ||
-    path === "/api/v1/admin" || path.startsWith("/api/v1/admin/") ||
-    path === "/api/v1/x402" || path.startsWith("/api/v1/x402/") ||
-    path === "/api/v1/pay" || path.startsWith("/api/v1/pay/") ||
-    path === "/api/identity" || path.startsWith("/api/identity/")
+  // Self-guarded route groups (Oracle, product, admin, x402) are excluded from
+  // the shared /api/v1 chain because each declares its OWN guard. The predicate
+  // is DERIVED from the declarative policy registry — the guard for every
+  // skipped prefix is documented and tested there (#202, #221, #226, #228).
+  // Registry: src/gateway/route-policy.ts · Matrix: docs/gateway-route-policy.md
 
   // WHY: Zero-trust defense — strip x-internal-reservation-id before ANY processing.
   // External clients could inject this header to spoof reservations. Even though JWT
@@ -278,20 +272,21 @@ export function createApp(config: FinnConfig, options: AppOptions) {
   // surface entirely. Google BeyondCorp: "never trust the network."
   // See Bridgebuilder Finding #4 PRAISE + Finding #9 (PR #68).
   app.use("/api/v1/*", async (c, next) => {
-    if (isOraclePath(c.req.path) || isProductApiPath(c.req.path)) return next()
+    if (isSelfGuardedApiV1Path(c.req.path)) return next()
     c.req.raw.headers.delete("x-internal-reservation-id")
     return next()
   })
 
   // JWT auth for arrakis-originated requests (T-A.2)
-  // Skip Oracle path — handled by oracleApp's own middleware chain
-  // Skip product API paths — /public needs no auth, /conversations uses SIWE
+  // Self-guarded groups (see route-policy.ts) carry their own auth:
+  // Oracle → API-key chain, /public → public by design, /conversations → SIWE,
+  // /admin → JWKS JWT / injected token, /x402 + /pay → payment verification.
   app.use("/api/v1/*", async (c, next) => {
-    if (isOraclePath(c.req.path) || isProductApiPath(c.req.path)) return next()
+    if (isSelfGuardedApiV1Path(c.req.path)) return next()
     return rateLimitMiddleware(config)(c, next)
   })
   app.use("/api/v1/*", async (c, next) => {
-    if (isOraclePath(c.req.path) || isProductApiPath(c.req.path)) return next()
+    if (isSelfGuardedApiV1Path(c.req.path)) return next()
     return hounfourAuth(config)(c, next)
   })
 
