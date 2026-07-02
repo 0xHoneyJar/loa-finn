@@ -38,7 +38,8 @@ import { corpusVersionMiddleware } from "./corpus-version.js"
 import type { ConversationManager } from "../nft/conversation.js"
 import type { PersonalityProvider } from "../nft/personality-provider.js"
 import { createAgentChatRoutes, type AgentChatDeps } from "./routes/agent-chat.js"
-import { createOwnershipMiddleware, type OwnershipGateConfig } from "../nft/ownership-gate.js"
+import { createOwnershipMiddleware, verifyOwnership, type OwnershipGateConfig } from "../nft/ownership-gate.js"
+import { parseNftId } from "../nft/nft-id.js"
 import { buildSessionWsUrl } from "./public-url.js"
 
 export interface AppOptions {
@@ -498,9 +499,25 @@ export function createApp(config: FinnConfig, options: AppOptions) {
 
   // Conversation CRUD — SIWE auth, mounted under /api/v1/conversations (T2.8)
   if (options.conversationManager && config.siwe.jwtSecret) {
+    const ownershipGateConfig = options.ownershipGateConfig
+    if (!ownershipGateConfig) {
+      console.warn(
+        "[gateway] conversation routes mounted WITHOUT NFT ownership verification " +
+        "(ownership gate not configured) — conversation creation is not ownership-gated (#197)",
+      )
+    }
     const convDeps: ConversationRouteDeps = {
       conversationManager: options.conversationManager,
       jwtSecret: config.siwe.jwtSecret,
+      // Enforce ConversationManager.create()'s documented ownership
+      // precondition at the route (#197, #206, #219, #231)
+      verifyNftOwnership: ownershipGateConfig
+        ? async (nftId, wallet) => {
+            const tokenId = parseNftId(nftId)?.tokenId ?? nftId
+            const result = await verifyOwnership(ownershipGateConfig, tokenId, wallet)
+            return { verified: result.verified, message: result.message }
+          }
+        : undefined,
     }
     app.route("/api/v1/conversations", createConversationRoutes(convDeps))
   }
