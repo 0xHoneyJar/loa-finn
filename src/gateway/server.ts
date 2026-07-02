@@ -31,7 +31,7 @@ import { createAgentHomepageRoutes, type AgentHomepageDeps } from "./routes/agen
 import { createAgentPublicApiRoutes, type AgentPublicApiDeps } from "./routes/agent-public-api.js"
 import { createConversationRoutes, type ConversationRouteDeps } from "./routes/conversations.js"
 import { cspMiddleware } from "./csp.js"
-import { createAdminRoutes, type AdminRouteDeps } from "./routes/admin.js"
+import { createAdminRoutes, RedisAdminRateLimiter, type AdminRouteDeps } from "./routes/admin.js"
 import { x402Routes, createX402InvokeHandler, type X402RouteDeps } from "./x402-routes.js"
 import { createIdentityRoutes, type IdentityRouteDeps } from "./routes/identity.js"
 import { corpusVersionMiddleware } from "./corpus-version.js"
@@ -82,7 +82,7 @@ export interface AppOptions {
   /** DynamoDB health for /health/deps (cycle-035 T-1.3) */
   dynamoHealth?: () => Promise<{ reachable: boolean; latencyMs: number }>
   /** Admin JWKS key resolver for JWT auth (cycle-035 T-2.1) */
-  adminJwksResolver?: (protectedHeader: { kid?: string; alg?: string }, token: { payload: unknown }) => Promise<import("jose").KeyLike | Uint8Array>
+  adminJwksResolver?: (protectedHeader: { kid?: string; alg?: string }, token: { payload: unknown }) => Promise<CryptoKey | Uint8Array>
   /** RuntimeConfig for admin mode changes (cycle-035 T-2.1) */
   runtimeConfig?: import("../hounfour/runtime-config.js").RuntimeConfig
   /** Audit append function for admin audit-first semantics (cycle-035 T-2.1) */
@@ -566,9 +566,13 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       setCreditBalance: async (_wallet: string, _credits: number) => {
         // TODO: Wire to real credit store when billing is fully integrated.
       },
+      // Injected from config (#204) — no process.env read inside the route module
+      authToken: config.auth.bearerToken || undefined,
       runtimeConfig: options.runtimeConfig,
       auditAppend: options.auditAppend,
       jwksKeyResolver: options.adminJwksResolver,
+      // Shared (cross-replica) rate limiting when Redis is available (#199, #223)
+      rateLimiter: options.redisClient ? new RedisAdminRateLimiter(options.redisClient) : undefined,
     }
     app.route("/api/v1/admin", createAdminRoutes(adminDeps))
   }
