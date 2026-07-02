@@ -39,6 +39,7 @@ import type { ConversationManager } from "../nft/conversation.js"
 import type { PersonalityProvider } from "../nft/personality-provider.js"
 import { createAgentChatRoutes, type AgentChatDeps } from "./routes/agent-chat.js"
 import { createOwnershipMiddleware, type OwnershipGateConfig } from "../nft/ownership-gate.js"
+import { buildSessionWsUrl } from "./public-url.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
@@ -384,7 +385,13 @@ export function createApp(config: FinnConfig, options: AppOptions) {
         {
           sessionId,
           created: new Date().toISOString(),
-          wsUrl: `ws://${c.req.header("Host") ?? "localhost:3000"}/ws/${sessionId}`,
+          // Trusted config first; validated Host header only as dev fallback (#198, #224)
+          wsUrl: buildSessionWsUrl({
+            publicBaseUrl: config.publicBaseUrl,
+            hostHeader: c.req.header("Host"),
+            port: config.port,
+            sessionId,
+          }),
           ...(personalityMeta && { personality: personalityMeta }),
         },
         201,
