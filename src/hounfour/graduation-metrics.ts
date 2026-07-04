@@ -135,6 +135,19 @@ class Histogram {
     lines.push(`# HELP ${this.name} ${this.help}`)
     lines.push(`# TYPE ${this.name} histogram`)
 
+    // Prometheus exposition format: a histogram with no observations still
+    // exposes a zero-valued bucket series (label-less) so scrapers and
+    // dashboards see the metric shape from first scrape, not first
+    // observation. Once real observations exist, only labeled series emit.
+    if (this.buckets.size === 0) {
+      for (const boundary of this.boundaries) {
+        lines.push(`${this.name}_bucket{le="${boundary}"} 0`)
+      }
+      lines.push(`${this.name}_bucket{le="+Inf"} 0`)
+      lines.push(`${this.name}_sum 0`)
+      lines.push(`${this.name}_count 0`)
+    }
+
     for (const [key, bucket] of this.buckets) {
       const baseLabels = key ? `${key},` : ""
       let cumulative = 0

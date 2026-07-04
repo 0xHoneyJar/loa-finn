@@ -586,8 +586,17 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       runtimeConfig: options.runtimeConfig,
       auditAppend: options.auditAppend,
       jwksKeyResolver: options.adminJwksResolver,
-      // Shared (cross-replica) rate limiting when Redis is available (#199, #223)
-      rateLimiter: options.redisClient ? new RedisAdminRateLimiter(options.redisClient) : undefined,
+      // Shared (cross-replica) rate limiting when Redis is available (#199, #223).
+      // FINN_ADMIN_MODE_RATE_LIMIT overrides the per-hour ceiling (e.g. CI
+      // suites that legitimately exercise many mode changes); default stays 5.
+      rateLimiter: options.redisClient
+        ? new RedisAdminRateLimiter(
+            options.redisClient,
+            Number(process.env.FINN_ADMIN_MODE_RATE_LIMIT) > 0
+              ? Number(process.env.FINN_ADMIN_MODE_RATE_LIMIT)
+              : undefined,
+          )
+        : undefined,
     }
     app.route("/api/v1/admin", createAdminRoutes(adminDeps))
   }

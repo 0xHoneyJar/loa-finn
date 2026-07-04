@@ -117,7 +117,15 @@ async function probeX402(): Promise<Response> {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("E2E: Feature Flag Promotion — Admin API", () => {
+
+// The x402 payment surface (quotes, /pay/chat, feature-flag admin) is not
+// wired into the production entrypoint (src/index.ts builds no x402Deps),
+// so these suites test an unmounted surface. They run only when
+// E2E_X402_SURFACE=1 is set against a deployment that mounts it, and appear
+// as a named skip otherwise. See docs/security/ci-failure-classification.md.
+const describeX402 = process.env.E2E_X402_SURFACE ? describe : describe.skip
+
+describeX402("E2E: Feature Flag Promotion — Admin API [requires E2E_X402_SURFACE]", () => {
   let adminToken: string
 
   beforeAll(async () => {

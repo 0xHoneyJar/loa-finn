@@ -36,6 +36,11 @@ jobs:
           FINN_REPUTATION_ROUTING=shadow
           FINN_S2S_KEY_ENCODING=base64
           FINN_S2S_KID=e2e-v1
+          FINN_JWT_ENABLED=true
+          FINN_JWT_ISSUER=e2e-harness
+          FINN_JWT_AUDIENCE=loa-finn
+          FINN_JWKS_URL=http://localhost:3000/.well-known/jwks.json
+          FINN_ADMIN_MODE_RATE_LIMIT=100
           ENVEOF
           # S2S signing + admin verification keys (committed E2E test keypairs;
           # kids e2e-v1 / admin-e2e-v1 match the harness signers)

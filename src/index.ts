@@ -455,8 +455,13 @@ async function main() {
   // Algorithm selection: FINN_S2S_JWT_ALG (explicit) > auto-detect from key material
   let billingFinalizeClient: import("./hounfour/billing-finalize-client.js").BillingFinalizeClient | undefined
   let s2sSigner: import("./hounfour/s2s-jwt.js").S2SJwtSigner | undefined
+  // The S2S signer is independent of billing: it serves the public JWKS at
+  // /.well-known/jwks.json and signs outbound S2S JWTs whenever key material
+  // is configured. The billing finalize client additionally requires
+  // ARRAKIS_BILLING_URL + hounfour. Previously the whole block was gated on
+  // the billing URL, so deployments without billing served an empty JWKS.
   const billingUrl = process.env.ARRAKIS_BILLING_URL
-  if (billingUrl && hounfour) {
+  {
     const rawS2sPrivateKey = process.env.FINN_S2S_PRIVATE_KEY
 
     const decodeBase64Env = (name: string, value: string) => {
@@ -519,20 +524,25 @@ async function main() {
       if (s2sConfig) {
         s2sSigner = new S2SJwtSigner(s2sConfig)
         await s2sSigner.init()
-        billingFinalizeClient = new BillingFinalizeClient({
-          billingUrl,  // base URL — client appends /api/internal/finalize
-          s2sSigner,
-          dlqStore,
-          aofVerified: dlqAofVerified,
-        })
-        billingFinalizeClient.startReplayTimer()
-        hounfour.setBillingFinalize(billingFinalizeClient)
-        console.log(`[finn] billing finalize client initialized: alg=${s2sConfig.alg} url=${billingUrl}`)
-      } else {
+        console.log(`[finn] s2s signer initialized: alg=${s2sConfig.alg}`)
+        if (billingUrl && hounfour) {
+          billingFinalizeClient = new BillingFinalizeClient({
+            billingUrl,  // base URL — client appends /api/internal/finalize
+            s2sSigner,
+            dlqStore,
+            aofVerified: dlqAofVerified,
+          })
+          billingFinalizeClient.startReplayTimer()
+          hounfour.setBillingFinalize(billingFinalizeClient)
+          console.log(`[finn] billing finalize client initialized: alg=${s2sConfig.alg} url=${billingUrl}`)
+        } else {
+          console.log("[finn] billing finalize disabled (no ARRAKIS_BILLING_URL) — s2s signer still serves JWKS")
+        }
+      } else if (billingUrl) {
         console.warn("[finn] ARRAKIS_BILLING_URL set but no S2S key material — billing finalize disabled")
       }
     } catch (err) {
-      console.error(`[finn] billing finalize init failed (non-fatal):`, (err as Error).message)
+      console.error(`[finn] s2s/billing finalize init failed (non-fatal):`, (err as Error).message)
     }
   }
 
