@@ -68,7 +68,15 @@ async function mintJWT(overrides: Record<string, unknown> = {}): Promise<string>
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("E2E: Budget Conservation — Exhausted Budget Returns 429", () => {
+
+// Same surface mismatch as full-loop: this suite sends hounfour JWTs to the
+// legacy /api/sessions route, which the deployed gateway guards with the
+// FINN_AUTH_TOKEN bearer (JWT auth covers /api/v1/*). Runs only when
+// E2E_FULL_LOOP=1 targets a deployment wired for it; named skip otherwise.
+// See docs/security/ci-failure-classification.md.
+const describeFullLoop = process.env.E2E_FULL_LOOP ? describe : describe.skip
+
+describeFullLoop("E2E: Budget Conservation — Exhausted Budget Returns 429 [requires E2E_FULL_LOOP]", () => {
   it("budget exhaustion returns 429", async () => {
     // -----------------------------------------------------------------------
     // 1. Set a very low budget for the tenant via Redis

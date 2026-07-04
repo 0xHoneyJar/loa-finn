@@ -302,6 +302,7 @@ async function main() {
             goodhartRuntime.goodhartConfig = recovered.goodhartConfig
             goodhartRuntime.routingState = recovered.routingState as RoutingState
             goodhartRuntime.goodhartMetrics = recovered.goodhartMetrics
+            goodhartRuntime.runtimeConfig = recovered.runtimeConfig
             goodhartConfig = recovered.goodhartConfig
             routingState = recovered.routingState as RoutingState
             goodhartMetrics = recovered.goodhartMetrics
@@ -767,11 +768,33 @@ async function main() {
   // supports: /metrics (graduation metrics), admin mode changes (RuntimeConfig
   // + kill switch), and Redis-backed admin rate limiting.
   const gatewayRedisClient = redis?.isConnected() ? redis.getClient() : undefined
+
+  // The gateway gets its OWN RuntimeConfig over the same prefixed Redis keys
+  // the goodhart kill switch reads. Constructing it here (instead of borrowing
+  // the instance from initGoodhartStack) keeps /api/v1/admin/mode functional
+  // across goodhart init_failed -> recovery cycles: RuntimeConfig is a thin
+  // accessor over one Redis key, so same-key instances stay consistent.
+  let gatewayRuntimeConfig = goodhartRuntime.runtimeConfig
+  if (!gatewayRuntimeConfig && gatewayRedisClient) {
+    try {
+      const { createPrefixedRedisClient } = await import("./hounfour/infra/prefixed-redis.js")
+      const { RuntimeConfig } = await import("./hounfour/runtime-config.js")
+      const prefixed = await createPrefixedRedisClient(
+        gatewayRedisClient,
+        process.env.FINN_REDIS_PREFIX ?? "armitage:",
+        parseInt(process.env.FINN_REDIS_DB ?? "0", 10),
+      )
+      gatewayRuntimeConfig = new RuntimeConfig(prefixed)
+    } catch (err) {
+      console.warn(`[finn] gateway RuntimeConfig init failed (non-fatal): ${(err as Error).message}`)
+    }
+  }
+
   const { app, router } = createApp(config, {
     activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient,
     billingConservationGuard: billingGuard, ledgerPath,
     graduationMetrics: goodhartMetrics,
-    runtimeConfig: goodhartRuntime.runtimeConfig,
+    runtimeConfig: gatewayRuntimeConfig,
     adminJwksResolver,
     redisClient: gatewayRedisClient,
     goodhartHealth: goodhartMetrics

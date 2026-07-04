@@ -31,7 +31,7 @@ beforeAll(async () => {
   primaryPrivateKey = await importPKCS8(pem, "ES256")
 
   // Alternate keypair — used for "unknown kid" test (finn won't recognize it)
-  const altKp = await generateKeyPair("ES256")
+  const altKp = await generateKeyPair("ES256", { extractable: true })
   const altPkcs8 = await exportPKCS8(altKp.privateKey)
   alternatePrivateKey = await importPKCS8(altPkcs8, "ES256")
 })

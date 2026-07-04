@@ -60,3 +60,22 @@ mask): Freeside/Dixie-dependent suites in `tests/e2e/full-flow.test.ts` and
 Finn-only evidence can never masquerade as three-service coverage. Full
 three-service coverage remains available by setting the env vars against a
 complete stack.
+
+## 5. Aspirational suites — surfaces not wired in the entrypoint
+
+Two groups of e2e suites exercise gateway surfaces that exist in
+`src/gateway/` but are not wired into the production entrypoint
+(`src/index.ts`), so they can never pass against the compose deployment:
+
+- **x402 payment surface** (`x402-flow`, `flag-promotion`): `createApp` is
+  never given `x402Deps`, so `/api/v1/x402/*`, `/pay/chat`, and the
+  feature-flag admin routes are unmounted (404). Gated behind
+  `E2E_X402_SURFACE=1`.
+- **JWT on legacy `/api/*` routes** (`full-loop`, `budget-conservation`):
+  these suites send hounfour JWTs to `/api/sessions`, which the deployed
+  gateway guards with the `FINN_AUTH_TOKEN` bearer; JWT auth covers
+  `/api/v1/*` only. Gated behind `E2E_FULL_LOOP=1`.
+
+Both appear as named skips in CI output. Wiring those surfaces (x402Deps
+construction; JWT auth on the legacy session routes) is real feature work
+that should be scheduled as its own change, not smuggled through CI fixes.
