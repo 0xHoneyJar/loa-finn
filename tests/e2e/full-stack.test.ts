@@ -27,8 +27,20 @@ function createE2ERedis(): RedisCommandClient {
       return next
     }),
     expire: vi.fn(async () => true),
-    eval: vi.fn(async (_script: string, _numkeys: number, balanceKey: string, requiredAmount: string) => {
-      // Mock atomic Lua script for applyCreditNotes
+    eval: vi.fn(async (script: string, _numkeys: number, balanceKey: string, ...args: string[]) => {
+      // Emulate both credit-note Lua scripts, dispatched on script content.
+      if (script.includes("CAP_EXCEEDED")) {
+        // CREDIT_BALANCE_INCR_SCRIPT: ARGV = [delta, cap, ttl]
+        const delta = Number(args[0])
+        const cap = Number(args[1])
+        const current = Number(store.get(balanceKey as string) ?? "0")
+        if (current + delta > cap) return "CAP_EXCEEDED"
+        const next = current + delta
+        store.set(balanceKey as string, String(next))
+        return String(next)
+      }
+      // APPLY_CREDIT_LUA: ARGV = [requiredAmount, ttl]
+      const requiredAmount = args[0]
       const balanceStr = store.get(balanceKey as string)
       if (!balanceStr) return ["0", "0"]
       const balance = Number(balanceStr)
@@ -92,7 +104,9 @@ describe("E2E: Wallet → Allowlist → NFT → Personality → Credit → Chat"
       redis,
       ownershipService: { verifyOwnership: async () => true } as any,
       personalityService: {
-        get: async () => { throw new Error("not found") },
+        // Service contract: get() returns null for a missing personality
+        // (OnboardingService branches on the falsy return, it does not catch)
+        get: async () => null,
         create: async () => ({ id: "p1" }),
         update: async () => ({ id: "p1" }),
       } as any,

@@ -41,8 +41,8 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   -- so Drizzle's migrator can run CREATE SCHEMA IF NOT EXISTS "drizzle" for
   -- its __drizzle_migrations bookkeeping table (Postgres checks the CREATE
   -- privilege before the IF NOT EXISTS existence check). finn_app stays
-  -- DML-only.
-  GRANT CREATE ON DATABASE finn TO finn_migrate;
+  -- DML-only. Targets the configured database, not a hard-coded name.
+  GRANT CREATE ON DATABASE "${POSTGRES_DB}" TO finn_migrate;
 
   -- Default privileges: finn_migrate owns tables, finn_app gets DML
   ALTER DEFAULT PRIVILEGES FOR ROLE finn_migrate IN SCHEMA finn

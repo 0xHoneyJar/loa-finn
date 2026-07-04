@@ -33,7 +33,22 @@ jobs:
           SANDBOX_MODE=disabled
           CHEVAL_MODE=mock
           DATA_DIR=/data
+          FINN_REPUTATION_ROUTING=shadow
+          FINN_S2S_KEY_ENCODING=base64
+          FINN_S2S_KID=e2e-v1
           ENVEOF
+          # S2S signing + admin verification keys (committed E2E test keypairs;
+          # kids e2e-v1 / admin-e2e-v1 match the harness signers)
+          echo "FINN_S2S_PRIVATE_KEY=$(base64 -w0 tests/e2e/keys/finn-private.pem)" >> .env.docker
+          echo "FINN_ADMIN_PUBLIC_KEY=$(base64 -w0 tests/e2e/keys/admin-public.pem)" >> .env.docker
+
+      - name: Create tests/e2e/.env.e2e for the test harness
+        run: |
+          {
+            echo "# generated in CI — matches the finn container's S2S key"
+            echo "E2E_ES256_PRIVATE_KEY=$(base64 -w0 tests/e2e/keys/finn-private.pem)"
+            echo "FINN_S2S_PRIVATE_KEY=$(base64 -w0 tests/e2e/keys/finn-private.pem)"
+          } > tests/e2e/.env.e2e
 
       - name: Build and start services
         run: |

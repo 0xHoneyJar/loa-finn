@@ -22,6 +22,9 @@ export interface GoodhartRuntime {
   goodhartConfig: MechanismConfig | undefined
   routingState: RoutingState
   goodhartMetrics: GraduationMetrics | undefined
+  /** RuntimeConfig backing the kill switch — exposed so the gateway admin
+   *  /mode endpoints operate on the same instance the router honors. */
+  runtimeConfig?: import("../runtime-config.js").RuntimeConfig
 }
 
 // --- Init Function ---
@@ -108,7 +111,7 @@ export async function initGoodhartStack(deps: GoodhartInitDeps): Promise<Goodhar
     }
     const routingState: RoutingState = deps.requestedMode as RoutingState
     goodhartMetrics.setRoutingMode(routingState)
-    return { goodhartConfig, routingState, goodhartMetrics }
+    return { goodhartConfig, routingState, goodhartMetrics, runtimeConfig }
   }
 
   // Redis unavailable — not init_failed (known condition)

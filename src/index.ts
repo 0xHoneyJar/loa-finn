@@ -268,6 +268,7 @@ async function main() {
       goodhartRuntime.goodhartConfig = result.goodhartConfig
       goodhartRuntime.routingState = result.routingState
       goodhartRuntime.goodhartMetrics = result.goodhartMetrics
+      goodhartRuntime.runtimeConfig = result.runtimeConfig
 
       // Emit state transition event (T-4.6)
       if (result.routingState !== "disabled") {
@@ -734,7 +735,44 @@ async function main() {
 
   // 7. Create gateway (with executor for sandbox, pool for health stats)
   const ledgerPath = join(config.dataDir, "hounfour", "cost-ledger.jsonl")
-  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient, billingConservationGuard: billingGuard, ledgerPath, ...personalityAppOptions })
+
+  // Admin JWT verification key (cycle-035 T-2.1). FINN_ADMIN_PUBLIC_KEY holds
+  // an ES256 SPKI public key — raw PEM or base64-encoded PEM. Without it the
+  // /api/v1/admin/mode endpoints answer 503 ADMIN_DISABLED (fail-closed).
+  let adminJwksResolver: ((protectedHeader: { kid?: string; alg?: string }, token: { payload: unknown }) => Promise<CryptoKey | Uint8Array>) | undefined
+  const rawAdminPublicKey = process.env.FINN_ADMIN_PUBLIC_KEY
+  if (rawAdminPublicKey) {
+    const adminPem = rawAdminPublicKey.includes("-----BEGIN")
+      ? rawAdminPublicKey
+      : Buffer.from(rawAdminPublicKey, "base64").toString("utf-8")
+    const { importSPKI } = await import("jose")
+    const adminKeyPromise = importSPKI(adminPem, "ES256")
+    adminJwksResolver = async () => (await adminKeyPromise) as CryptoKey
+    console.log("[finn] admin JWT verification: enabled (FINN_ADMIN_PUBLIC_KEY)")
+  } else {
+    console.warn("[finn] FINN_ADMIN_PUBLIC_KEY not set — /api/v1/admin/mode endpoints will answer 503 ADMIN_DISABLED")
+  }
+
+  // Wire the goodhart observability + control surfaces the gateway already
+  // supports: /metrics (graduation metrics), admin mode changes (RuntimeConfig
+  // + kill switch), and Redis-backed admin rate limiting.
+  const gatewayRedisClient = redis?.isConnected() ? redis.getClient() : undefined
+  const { app, router } = createApp(config, {
+    activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient,
+    billingConservationGuard: billingGuard, ledgerPath,
+    graduationMetrics: goodhartMetrics,
+    runtimeConfig: goodhartRuntime.runtimeConfig,
+    adminJwksResolver,
+    redisClient: gatewayRedisClient,
+    goodhartHealth: goodhartMetrics
+      ? () => ({
+          status: goodhartRuntime.routingState,
+          killSwitch: goodhartRuntime.runtimeConfig ? "runtime-config" : "unavailable",
+          explorationEnabled: goodhartRuntime.goodhartConfig !== undefined,
+        })
+      : undefined,
+    ...personalityAppOptions,
+  })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()
