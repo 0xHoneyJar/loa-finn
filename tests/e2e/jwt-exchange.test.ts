@@ -18,6 +18,16 @@ const DIXIE_URL = process.env.E2E_DIXIE_URL ?? "http://localhost:3003"
 
 const KEYS_DIR = resolve(import.meta.dirname ?? __dirname, "keys")
 
+// #242 — three-service coverage is opt-in and visible: Freeside/Dixie legs run
+// only when their target URL is explicitly configured, and appear as named
+// skips otherwise (instead of failing on default localhost ports the CI
+// compose stack does not provision).
+const FREESIDE_CONFIGURED = Boolean(process.env.E2E_FREESIDE_URL)
+const DIXIE_CONFIGURED = Boolean(process.env.E2E_DIXIE_URL)
+const describeFreeside = FREESIDE_CONFIGURED ? describe : describe.skip
+const describeDixie = DIXIE_CONFIGURED ? describe : describe.skip
+
+
 function loadPem(name: string): string {
   return readFileSync(resolve(KEYS_DIR, `${name}.pem`), "utf-8")
 }
@@ -54,7 +64,7 @@ describe("E2E: JWT Exchange (three-leg)", () => {
     })
   })
 
-  describe("finn → freeside (billing JWT)", () => {
+  describeFreeside("finn → freeside (billing JWT) [requires E2E_FREESIDE_URL]", () => {
     it("finn-signed JWT is accepted by freeside billing endpoint", async () => {
       // Sign a billing JWT as finn
       const token = await new SignJWT({
@@ -80,7 +90,7 @@ describe("E2E: JWT Exchange (three-leg)", () => {
     })
   })
 
-  describe("finn → dixie (reputation query)", () => {
+  describeDixie("finn → dixie (reputation query) [requires E2E_DIXIE_URL]", () => {
     it("finn can query dixie reputation endpoint", async () => {
       // Query dixie reputation (may return 404 for unknown NFT — that's fine)
       const res = await fetch(`${DIXIE_URL}/reputation/nft-test-001`, {

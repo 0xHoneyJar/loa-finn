@@ -16,6 +16,14 @@ const DIXIE_URL = process.env.E2E_DIXIE_URL ?? "http://localhost:3003"
 
 const KEYS_DIR = resolve(import.meta.dirname ?? __dirname, "keys")
 
+
+// #242 — Freeside/Dixie-dependent suites run only when their target URLs are
+// explicitly configured; they appear as named skips otherwise. Finn-only
+// checks below keep running against the CI compose stack.
+const FREESIDE_CONFIGURED = Boolean(process.env.E2E_FREESIDE_URL)
+const DIXIE_CONFIGURED = Boolean(process.env.E2E_DIXIE_URL)
+const describeThreeLeg = FREESIDE_CONFIGURED && DIXIE_CONFIGURED ? describe : describe.skip
+
 function loadPem(name: string): string {
   return readFileSync(resolve(KEYS_DIR, `${name}.pem`), "utf-8")
 }
@@ -47,7 +55,7 @@ describe("E2E: Full Flow Integration (three-leg)", () => {
       .sign(adminPrivateKey)
   }
 
-  describe("three-leg health verification", () => {
+  describeThreeLeg("three-leg health verification [requires E2E_FREESIDE_URL + E2E_DIXIE_URL]", () => {
     it("all three services are healthy", async () => {
       // Finn liveness
       const finnRes = await fetch(`${FINN_URL}/healthz`, {
@@ -90,7 +98,7 @@ describe("E2E: Full Flow Integration (three-leg)", () => {
     })
   })
 
-  describe("inference → billing → reputation flow", () => {
+  describeThreeLeg("inference → billing → reputation flow [requires E2E_FREESIDE_URL + E2E_DIXIE_URL]", () => {
     it("finn processes request with billing integration", async () => {
       // Seed credits via admin endpoint so billing flow has funds
       const authToken = process.env.FINN_AUTH_TOKEN
