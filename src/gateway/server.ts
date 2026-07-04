@@ -151,7 +151,10 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     return c.json({ status: allHealthy ? "ready" : "not_ready", checks }, status)
   })
 
-  // Legacy /health → 301 → /healthz (backward compat)
+  // /health — Full diagnostic health document (JSON, always 200 when the
+  // process can respond). NOT a redirect: returns aggregated status, billing
+  // DLQ metrics, protocol info, and subsystem health. Use /healthz for
+  // liveness probes and /health/deps for readiness gating (#207, #218).
   app.get("/health", async (c) => {
     // Billing DLQ metrics — never throws
     let billing: Record<string, unknown> = {

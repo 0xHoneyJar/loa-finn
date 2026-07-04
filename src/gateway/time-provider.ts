@@ -69,6 +69,8 @@ export interface ClockDriftConfig {
   maxDriftMs?: number
   /** Callback when drift is detected */
   onDrift?: (driftMs: number) => void
+  /** Time source for the system-side reading (default: Date.now()). Inject for deterministic tests. */
+  timeProvider?: TimeProvider
 }
 
 export interface ClockDriftResult {
@@ -96,7 +98,7 @@ export function measureClockDrift(
   config: ClockDriftConfig = {},
 ): ClockDriftResult {
   const maxDriftMs = config.maxDriftMs ?? 1000
-  const systemMs = Date.now()
+  const systemMs = config.timeProvider?.now() ?? Date.now()
   const driftMs = Math.abs(systemMs - referenceTimeMs)
   const withinTolerance = driftMs <= maxDriftMs
 
