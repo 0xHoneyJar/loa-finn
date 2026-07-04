@@ -118,7 +118,18 @@ async function postAdminFlags(token: string): Promise<Response> {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("E2E: Auth Negative — Token Rejection Cases", () => {
+
+// Same aspirational surface as full-loop/budget-conservation: these cases
+// assume hounfour-JWT semantics on the legacy /api/sessions route (the
+// deployed gateway guards it with the FINN_AUTH_TOKEN bearer, which rejects
+// ANY JWT with 401 — so the 401 cases pass coincidentally and the 403 cases
+// cannot) and a feature-flag admin surface that is not wired in the
+// entrypoint. JWT rejection semantics are covered by unit suites
+// (tests/finn/jwt-auth.test.ts, tests/finn/s2s-jwt.test.ts). Runs only when
+// E2E_FULL_LOOP=1 targets a deployment wired for it.
+const describeFullLoop = process.env.E2E_FULL_LOOP ? describe : describe.skip
+
+describeFullLoop("E2E: Auth Negative — Token Rejection Cases [requires E2E_FULL_LOOP]", () => {
   // -------------------------------------------------------------------------
   // 1. Wrong audience
   // -------------------------------------------------------------------------
