@@ -39,10 +39,22 @@ describe("validatePublicBaseUrl", () => {
 })
 
 describe("sanitizeHostHeader", () => {
-  it("accepts plain hostnames and host:port", () => {
-    expect(sanitizeHostHeader("finn.honeyjar.xyz")).toBe("finn.honeyjar.xyz")
+  it("accepts loopback/local hosts and host:port", () => {
     expect(sanitizeHostHeader("localhost:3000")).toBe("localhost:3000")
-    expect(sanitizeHostHeader("10.0.0.5:8080")).toBe("10.0.0.5:8080")
+    expect(sanitizeHostHeader("localhost")).toBe("localhost")
+    expect(sanitizeHostHeader("app.localhost:8080")).toBe("app.localhost:8080")
+    expect(sanitizeHostHeader("127.0.0.1:8080")).toBe("127.0.0.1:8080")
+    expect(sanitizeHostHeader("0.0.0.0:3000")).toBe("0.0.0.0:3000")
+  })
+
+  it("rejects syntactically valid but NON-local hosts — the Host-forgery class", () => {
+    // A well-formed public hostname must never become the advertised WS
+    // origin: without PUBLIC_BASE_URL a forged Host header would otherwise
+    // redirect WS clients to an attacker host in a misconfigured deployment.
+    expect(sanitizeHostHeader("finn.honeyjar.xyz")).toBeNull()
+    expect(sanitizeHostHeader("evil.example.com:443")).toBeNull()
+    expect(sanitizeHostHeader("10.0.0.5:8080")).toBeNull()
+    expect(sanitizeHostHeader("128.0.0.1")).toBeNull() // not 127.0.0.0/8
   })
 
   it("rejects missing/empty values", () => {
@@ -122,6 +134,16 @@ describe("buildSessionWsUrl", () => {
       const url = buildSessionWsUrl({ publicBaseUrl: "", hostHeader, port: 3000, sessionId: SESSION_ID })
       expect(url).toBe(`ws://localhost:3000/ws/${SESSION_ID}`)
     }
+  })
+
+  it("falls back to localhost:<port> for well-formed but non-local Host headers", () => {
+    const url = buildSessionWsUrl({
+      publicBaseUrl: "",
+      hostHeader: "evil.example.com",
+      port: 3000,
+      sessionId: SESSION_ID,
+    })
+    expect(url).toBe(`ws://localhost:3000/ws/${SESSION_ID}`)
   })
 
   it("falls back to localhost:<port> when Host header is missing", () => {

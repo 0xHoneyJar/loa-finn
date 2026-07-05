@@ -38,7 +38,7 @@ import { corpusVersionMiddleware } from "./corpus-version.js"
 import type { ConversationManager } from "../nft/conversation.js"
 import type { PersonalityProvider } from "../nft/personality-provider.js"
 import { createAgentChatRoutes, type AgentChatDeps } from "./routes/agent-chat.js"
-import { createOwnershipMiddleware, verifyOwnership, type OwnershipGateConfig } from "../nft/ownership-gate.js"
+import { createOwnershipMiddleware, verifyOwnership, makeCollectionScopedVerifier, type OwnershipGateConfig } from "../nft/ownership-gate.js"
 import { parseNftId } from "../nft/nft-id.js"
 import { buildSessionWsUrl } from "./public-url.js"
 import { isSelfGuardedApiV1Path } from "./route-policy.js"
@@ -61,6 +61,14 @@ export interface AppOptions {
   oracleRateLimiter?: OracleRateLimiter
   /** Redis client for Oracle auth (Phase 1) */
   redisClient?: RedisCommandClient
+  /**
+   * Late-binding Redis resolver for the admin rate limiter. Production boot
+   * passes this whenever Redis is CONFIGURED (even if not yet connected at
+   * createApp time) so the shared limiter is never silently replaced by the
+   * in-memory per-process one. Returns null while disconnected — the
+   * limiter fails closed until Redis is up.
+   */
+  adminRedisResolver?: () => RedisCommandClient | null
   /** Personality provider for agent homepage & public API (Sprint 2) */
   personalityProvider?: PersonalityProvider
   /** Conversation manager for CRUD routes (Sprint 2) */
@@ -508,13 +516,24 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       conversationManager: options.conversationManager,
       jwtSecret: config.siwe.jwtSecret,
       // Enforce ConversationManager.create()'s documented ownership
-      // precondition at the route (#197, #206, #219, #231)
+      // precondition at the route (#197, #206, #219, #231).
+      // Collection identity is part of the ownership claim: the gate's
+      // readOwner() resolves tokenIds against the single configured
+      // contract, so a composite id like "other:42" must be REJECTED, not
+      // silently reduced to token 42 of that contract. Allowed collection
+      // slugs come from FINN_ALLOWED_COLLECTIONS (comma-separated,
+      // default "mibera").
       verifyNftOwnership: ownershipGateConfig
-        ? async (nftId, wallet) => {
-            const tokenId = parseNftId(nftId)?.tokenId ?? nftId
-            const result = await verifyOwnership(ownershipGateConfig, tokenId, wallet)
-            return { verified: result.verified, message: result.message }
-          }
+        ? makeCollectionScopedVerifier(
+            ownershipGateConfig,
+            new Set(
+              (process.env.FINN_ALLOWED_COLLECTIONS ?? "mibera")
+                .split(",")
+                .map((s) => s.trim().toLowerCase())
+                .filter(Boolean),
+            ),
+            parseNftId,
+          )
         : undefined,
     }
     app.route("/api/v1/conversations", createConversationRoutes(convDeps))
@@ -587,11 +606,14 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       auditAppend: options.auditAppend,
       jwksKeyResolver: options.adminJwksResolver,
       // Shared (cross-replica) rate limiting when Redis is available (#199, #223).
+      // adminRedisResolver takes precedence: it late-binds the client so a
+      // Redis that connects after boot is still used (never a silent
+      // in-memory fallback when Redis is configured).
       // FINN_ADMIN_MODE_RATE_LIMIT overrides the per-hour ceiling (e.g. CI
       // suites that legitimately exercise many mode changes); default stays 5.
-      rateLimiter: options.redisClient
+      rateLimiter: (options.adminRedisResolver || options.redisClient)
         ? new RedisAdminRateLimiter(
-            options.redisClient,
+            options.adminRedisResolver ?? options.redisClient!,
             Number(process.env.FINN_ADMIN_MODE_RATE_LIMIT) > 0
               ? Number(process.env.FINN_ADMIN_MODE_RATE_LIMIT)
               : undefined,

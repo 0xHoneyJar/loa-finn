@@ -9,12 +9,22 @@
 // - When PUBLIC_BASE_URL is configured, it is the single source of truth.
 //   https:// → wss://, http:// → ws://.
 // - When not configured (dev/local only), the Host header is used as a
-//   fallback ONLY after strict syntactic validation (hostname[:port] shape,
-//   no scheme, no path, no CR/LF, no quotes). Anything suspicious falls back
-//   to localhost:<port>.
+//   fallback ONLY when it is syntactically valid AND names a loopback/local
+//   host (localhost, *.localhost, 127.0.0.0/8, 0.0.0.0). A syntactically
+//   valid but non-local Host header is NEVER echoed back — that would
+//   preserve the Host-header URL-forgery class in a misconfigured
+//   production deployment. Anything else falls back to localhost:<port>.
 
 /** RFC-952/1123-ish hostname (or IPv4) with optional :port. No underscores, schemes, paths, or whitespace. */
 const HOST_HEADER_RE = /^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,253}[a-zA-Z0-9])?(:\d{1,5})?$/
+
+/** Loopback/local hostnames eligible for the dev Host-header fallback. */
+function isLoopbackHost(host: string): boolean {
+  const hostname = host.replace(/:\d{1,5}$/, "").toLowerCase()
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true
+  if (hostname === "0.0.0.0") return true
+  return /^127(\.\d{1,3}){3}$/.test(hostname)
+}
 
 /**
  * Validate a configured public base URL. Returns the normalized origin
@@ -37,11 +47,16 @@ export function validatePublicBaseUrl(raw: string): string {
   return url.origin
 }
 
-/** Validate an untrusted Host header value. Returns the host if safe, null otherwise. */
+/**
+ * Validate an untrusted Host header value for the DEV fallback. Returns the
+ * host only when it is syntactically safe AND loopback/local — a forged but
+ * well-formed public hostname must never become the advertised WS origin.
+ */
 export function sanitizeHostHeader(hostHeader: string | undefined): string | null {
   if (!hostHeader) return null
   if (hostHeader.length > 260) return null
   if (!HOST_HEADER_RE.test(hostHeader)) return null
+  if (!isLoopbackHost(hostHeader)) return null
   return hostHeader
 }
 

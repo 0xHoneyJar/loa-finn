@@ -797,6 +797,13 @@ async function main() {
     runtimeConfig: gatewayRuntimeConfig,
     adminJwksResolver,
     redisClient: gatewayRedisClient,
+    // Late-binding resolver: whenever Redis is CONFIGURED, the admin rate
+    // limiter must be the shared Redis-backed one — even if the connection
+    // races boot. Fails closed while disconnected (#audit: no silent
+    // in-memory fallback in production).
+    adminRedisResolver: redis
+      ? () => (redis!.isConnected() ? redis!.getClient() : null)
+      : undefined,
     goodhartHealth: goodhartMetrics
       ? () => ({
           status: goodhartRuntime.routingState,

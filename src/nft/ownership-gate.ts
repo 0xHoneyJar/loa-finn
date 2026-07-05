@@ -128,6 +128,35 @@ export async function verifyOwnership(
 }
 
 /**
+ * Build a composite-nftId verifier that preserves collection identity.
+ *
+ * The gate's readOwner() resolves bare tokenIds against the single
+ * configured contract, so a composite id like "other:42" must be REJECTED
+ * for unknown collections — never silently reduced to token 42 of that
+ * contract (ownership of the wrong asset would be "proven").
+ *
+ * Bare token ids (no collection component) keep working unchanged.
+ */
+export function makeCollectionScopedVerifier(
+  config: OwnershipGateConfig,
+  allowedCollections: Set<string>,
+  parse: (nftId: string) => { collection: string; tokenId: string } | null,
+): (nftId: string, wallet: string) => Promise<{ verified: boolean; message?: string }> {
+  return async (nftId, wallet) => {
+    const parsed = parse(nftId)
+    if (parsed && !allowedCollections.has(parsed.collection.toLowerCase())) {
+      return {
+        verified: false,
+        message: `Unknown NFT collection "${parsed.collection}" — ownership cannot be verified against the configured contract`,
+      }
+    }
+    const tokenId = parsed?.tokenId ?? nftId
+    const result = await verifyOwnership(config, tokenId, wallet)
+    return { verified: result.verified, message: result.message }
+  }
+}
+
+/**
  * Invalidate auth-layer ownership cache for a tokenId.
  * Called by transfer-listener.ts on NFT Transfer events.
  */

@@ -475,14 +475,20 @@ describe("Admin API — injectable rate limiter (#199, #214, #223)", () => {
 
   it("RedisAdminRateLimiter shares counts via Redis and fails closed on errors", async () => {
     const { RedisAdminRateLimiter } = await import("../../../src/gateway/routes/admin.js")
+    // Fake Redis that executes the INCR+EXPIRE Lua script atomically —
+    // the single eval round-trip is the atomicity fix (a partial
+    // INCR-then-EXPIRE failure could leave an immortal key).
     const store = new Map<string, number>()
+    const ttls = new Map<string, number>()
     const fakeRedis = {
-      incr: vi.fn(async (key: string) => {
+      eval: vi.fn(async (script: string, _numkeys: number, key: string, ttl: number) => {
+        expect(script).toContain("INCR")
+        expect(script).toContain("EXPIRE")
         const n = (store.get(key) ?? 0) + 1
         store.set(key, n)
+        if (n === 1) ttls.set(key, Number(ttl))
         return n
       }),
-      expire: vi.fn(async () => 1),
     }
     // Two limiter instances (two replicas) sharing one Redis
     const limiterA = new RedisAdminRateLimiter(fakeRedis as never)
@@ -492,12 +498,63 @@ describe("Admin API — injectable rate limiter (#199, #214, #223)", () => {
     for (let i = 0; i < 2; i++) expect(await limiterB.check("subj")).toBe(true)
     expect(await limiterA.check("subj")).toBe(false)
     expect(await limiterB.check("subj")).toBe(false)
-    // TTL set exactly once (on first increment)
-    expect(fakeRedis.expire).toHaveBeenCalledTimes(1)
+    // Every counter key carries a TTL from its first increment — no
+    // immortal-key window.
+    expect(ttls.get("finn:admin:mode-rl:subj")).toBe(3600)
 
     // Fail-closed on Redis errors
-    const brokenRedis = { incr: vi.fn(async () => { throw new Error("redis down") }), expire: vi.fn() }
+    const brokenRedis = { eval: vi.fn(async () => { throw new Error("redis down") }) }
     const failing = new RedisAdminRateLimiter(brokenRedis as never)
     expect(await failing.check("subj")).toBe(false)
+  })
+
+  it("RedisAdminRateLimiter accepts a late-binding resolver and fails closed while disconnected", async () => {
+    const { RedisAdminRateLimiter } = await import("../../../src/gateway/routes/admin.js")
+    const store = new Map<string, number>()
+    const fakeRedis = {
+      eval: vi.fn(async (_s: string, _n: number, key: string) => {
+        const n = (store.get(key) ?? 0) + 1
+        store.set(key, n)
+        return n
+      }),
+    }
+    let connected = false
+    const limiter = new RedisAdminRateLimiter((() => (connected ? fakeRedis : null)) as never)
+
+    // Redis configured but not yet connected → fail closed, never in-memory
+    expect(await limiter.check("subj")).toBe(false)
+    expect(fakeRedis.eval).not.toHaveBeenCalled()
+
+    // Connection established after boot → limiter picks it up on next use
+    connected = true
+    expect(await limiter.check("subj")).toBe(true)
+    expect(fakeRedis.eval).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("Admin API — missing audit dependency fails closed", () => {
+  it("POST /mode returns 503 AUDIT_FAILED when auditAppend is not configured", async () => {
+    const { app, deps } = createTestApp({ auditAppend: undefined })
+    const token = await signToken({ role: "operator", sub: "op-1" })
+    const res = await app.request("/admin/mode", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "enabled" }),
+    })
+    expect(res.status).toBe(503)
+    expect((await res.json()).code).toBe("AUDIT_FAILED")
+    expect((deps.runtimeConfig as any).setMode).not.toHaveBeenCalled()
+  })
+
+  it("POST /seed-credits returns 503 AUDIT_FAILED when auditAppend is not configured — balance untouched", async () => {
+    const { app, deps } = createTestApp({ auditAppend: undefined, authToken: "tok-1" })
+    const res = await app.request("/admin/seed-credits", {
+      method: "POST",
+      headers: { Authorization: "Bearer tok-1", "Content-Type": "application/json" },
+      body: JSON.stringify({ wallet_address: `0x${"a".repeat(40)}`, credits: 10 }),
+    })
+    expect(res.status).toBe(503)
+    expect((await res.json()).code).toBe("AUDIT_FAILED")
+    expect(deps.setCreditBalance).not.toHaveBeenCalled()
   })
 })

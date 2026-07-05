@@ -112,24 +112,55 @@ export class InMemoryAdminRateLimiter implements AdminRateLimiter {
 
 /**
  * Redis-backed fixed-window limiter — shared across all replicas.
- * Fixed window (INCR + EXPIRE) is sufficient for a 5/hour operator action.
- * Fails CLOSED on Redis errors: a mode change is a privileged, low-frequency
- * operation; denying it during a Redis outage is safer than unbounded changes.
+ * Fixed window is sufficient for a 5/hour operator action.
+ *
+ * Atomicity: INCR and EXPIRE run in one Lua script, so a partial failure
+ * can never leave a counter without a TTL (an immortal key would
+ * permanently rate-limit the subject until manual deletion).
+ *
+ * Fails CLOSED on Redis errors/unavailability: a mode change is a
+ * privileged, low-frequency operation; denying it during a Redis outage is
+ * safer than unbounded changes.
+ *
+ * Accepts either a connected client or a resolver returning the currently
+ * connected client (or null). The resolver form lets production boot wire
+ * the limiter even when Redis connects after createApp() — the limiter
+ * picks the client up on first use instead of silently degrading to the
+ * in-memory per-process limiter.
  */
+const RATE_LIMIT_LUA = `local c = redis.call('INCR', KEYS[1])
+if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return c`
+
 export class RedisAdminRateLimiter implements AdminRateLimiter {
+  private readonly resolve: () => RedisCommandClient | null
+
   constructor(
-    private readonly redis: RedisCommandClient,
+    redis: RedisCommandClient | (() => RedisCommandClient | null),
     private readonly max: number = RATE_LIMIT_MAX,
     private readonly windowMs: number = RATE_LIMIT_WINDOW_MS,
-  ) {}
+  ) {
+    this.resolve = typeof redis === "function" ? redis : () => redis
+  }
 
   async check(subject: string): Promise<boolean> {
     const key = `finn:admin:mode-rl:${subject}`
     try {
-      const count = await this.redis.incr(key)
-      if (count === 1) {
-        await this.redis.expire(key, Math.ceil(this.windowMs / 1000))
+      const client = this.resolve()
+      if (!client) {
+        console.error(JSON.stringify({
+          metric: "admin.rate_limit_redis_unavailable",
+          subject,
+          timestamp: Date.now(),
+        }))
+        return false // fail-closed: Redis configured but not connected
       }
+      const count = (await client.eval(
+        RATE_LIMIT_LUA,
+        1,
+        key,
+        Math.ceil(this.windowMs / 1000),
+      )) as number
       return count <= this.max
     } catch (err) {
       console.error(JSON.stringify({
@@ -247,29 +278,41 @@ export function createAdminRoutes(deps: AdminRouteDeps): Hono {
     const previousMode = await deps.runtimeConfig.getMode()
     const newMode = body.mode as RoutingMode
 
-    // Step 1: Write audit intent BEFORE Redis set (audit-first semantics)
-    if (deps.auditAppend) {
-      try {
-        await deps.auditAppend("routing_mode_change", {
-          intent: "mode_change",
-          from: previousMode,
-          to: newMode,
-          subject,
-          timestamp: new Date().toISOString(),
-        })
-      } catch (err) {
-        // Audit failure → 503 (fail-closed)
-        console.error(JSON.stringify({
-          metric: "admin.audit_intent_failed",
-          error: (err as Error).message,
-          subject,
-          timestamp: Date.now(),
-        }))
-        return c.json(
-          { error: "Audit system unavailable — mode change blocked (fail-closed)", code: "AUDIT_FAILED" },
-          503,
-        )
-      }
+    // Step 1: Write audit intent BEFORE Redis set (audit-first semantics).
+    // A missing audit dependency is itself AUDIT_FAILED — a privileged
+    // mutation must never proceed without an audit record (fail-closed).
+    if (!deps.auditAppend) {
+      console.error(JSON.stringify({
+        metric: "admin.audit_intent_failed",
+        error: "auditAppend dependency not configured",
+        subject,
+        timestamp: Date.now(),
+      }))
+      return c.json(
+        { error: "Audit system unavailable — mode change blocked (fail-closed)", code: "AUDIT_FAILED" },
+        503,
+      )
+    }
+    try {
+      await deps.auditAppend("routing_mode_change", {
+        intent: "mode_change",
+        from: previousMode,
+        to: newMode,
+        subject,
+        timestamp: new Date().toISOString(),
+      })
+    } catch (err) {
+      // Audit failure → 503 (fail-closed)
+      console.error(JSON.stringify({
+        metric: "admin.audit_intent_failed",
+        error: (err as Error).message,
+        subject,
+        timestamp: Date.now(),
+      }))
+      return c.json(
+        { error: "Audit system unavailable — mode change blocked (fail-closed)", code: "AUDIT_FAILED" },
+        503,
+      )
     }
 
     // Step 2: Apply mode change to Redis
@@ -403,25 +446,36 @@ export function createAdminRoutes(deps: AdminRouteDeps): Hono {
     const wallet = body.wallet_address.toLowerCase()
 
     // Audit-first (#225, #234): record the mutation intent before applying it.
-    if (deps.auditAppend) {
-      try {
-        await deps.auditAppend("seed_credits", {
-          intent: "seed_credits",
-          wallet_address: wallet,
-          credits: body.credits,
-          timestamp: new Date().toISOString(),
-        })
-      } catch (err) {
-        console.error(JSON.stringify({
-          metric: "admin.seed_credits_audit_failed",
-          error: (err as Error).message,
-          timestamp: Date.now(),
-        }))
-        return c.json(
-          { error: "Audit system unavailable — credit seeding blocked (fail-closed)", code: "AUDIT_FAILED" },
-          503,
-        )
-      }
+    // A missing audit dependency is itself AUDIT_FAILED — a real
+    // setCreditBalance must never mutate balances without an audit record.
+    if (!deps.auditAppend) {
+      console.error(JSON.stringify({
+        metric: "admin.seed_credits_audit_failed",
+        error: "auditAppend dependency not configured",
+        timestamp: Date.now(),
+      }))
+      return c.json(
+        { error: "Audit system unavailable — credit seeding blocked (fail-closed)", code: "AUDIT_FAILED" },
+        503,
+      )
+    }
+    try {
+      await deps.auditAppend("seed_credits", {
+        intent: "seed_credits",
+        wallet_address: wallet,
+        credits: body.credits,
+        timestamp: new Date().toISOString(),
+      })
+    } catch (err) {
+      console.error(JSON.stringify({
+        metric: "admin.seed_credits_audit_failed",
+        error: (err as Error).message,
+        timestamp: Date.now(),
+      }))
+      return c.json(
+        { error: "Audit system unavailable — credit seeding blocked (fail-closed)", code: "AUDIT_FAILED" },
+        503,
+      )
     }
 
     try {
