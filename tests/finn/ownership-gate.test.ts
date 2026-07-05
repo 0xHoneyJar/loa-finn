@@ -4,7 +4,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import {
   verifyOwnership,
   invalidateOwnershipCache,
+  makeCollectionScopedVerifier,
 } from "../../src/nft/ownership-gate.js"
+import { parseNftId } from "../../src/nft/nft-id.js"
 import type { OwnershipGateConfig } from "../../src/nft/ownership-gate.js"
 
 // ---------------------------------------------------------------------------
@@ -144,6 +146,47 @@ describe("verifyOwnership", () => {
       const result = await verifyOwnership(config, "42", OWNER_ADDRESS)
       expect(result.verified).toBe(true)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// makeCollectionScopedVerifier — composite id collection identity
+// ---------------------------------------------------------------------------
+
+describe("makeCollectionScopedVerifier", () => {
+  it("verifies allowed-collection composite ids against the configured contract", async () => {
+    const config = createConfig()
+    const verify = makeCollectionScopedVerifier(config, new Set(["mibera"]), parseNftId)
+
+    const result = await verify("mibera:42", OWNER_ADDRESS)
+    expect(result.verified).toBe(true)
+    expect(config.readOwner).toHaveBeenCalledWith("42")
+  })
+
+  it("REJECTS unknown collections instead of reducing to the bare token id", async () => {
+    const config = createConfig()
+    const verify = makeCollectionScopedVerifier(config, new Set(["mibera"]), parseNftId)
+
+    const result = await verify("other:42", OWNER_ADDRESS)
+    expect(result.verified).toBe(false)
+    expect(result.message).toContain('Unknown NFT collection "other"')
+    // The configured contract must never be consulted for a foreign collection
+    expect(config.readOwner).not.toHaveBeenCalled()
+  })
+
+  it("collection matching is case-insensitive", async () => {
+    const config = createConfig()
+    const verify = makeCollectionScopedVerifier(config, new Set(["mibera"]), parseNftId)
+    const result = await verify("MIBERA:42", OWNER_ADDRESS)
+    expect(result.verified).toBe(true)
+  })
+
+  it("bare token ids (no collection) keep working", async () => {
+    const config = createConfig()
+    const verify = makeCollectionScopedVerifier(config, new Set(["mibera"]), parseNftId)
+    const result = await verify("42", OWNER_ADDRESS)
+    expect(result.verified).toBe(true)
+    expect(config.readOwner).toHaveBeenCalledWith("42")
   })
 })
 

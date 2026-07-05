@@ -31,14 +31,17 @@ import { createAgentHomepageRoutes, type AgentHomepageDeps } from "./routes/agen
 import { createAgentPublicApiRoutes, type AgentPublicApiDeps } from "./routes/agent-public-api.js"
 import { createConversationRoutes, type ConversationRouteDeps } from "./routes/conversations.js"
 import { cspMiddleware } from "./csp.js"
-import { createAdminRoutes, type AdminRouteDeps } from "./routes/admin.js"
+import { createAdminRoutes, RedisAdminRateLimiter, type AdminRouteDeps } from "./routes/admin.js"
 import { x402Routes, createX402InvokeHandler, type X402RouteDeps } from "./x402-routes.js"
 import { createIdentityRoutes, type IdentityRouteDeps } from "./routes/identity.js"
 import { corpusVersionMiddleware } from "./corpus-version.js"
 import type { ConversationManager } from "../nft/conversation.js"
 import type { PersonalityProvider } from "../nft/personality-provider.js"
 import { createAgentChatRoutes, type AgentChatDeps } from "./routes/agent-chat.js"
-import { createOwnershipMiddleware, type OwnershipGateConfig } from "../nft/ownership-gate.js"
+import { createOwnershipMiddleware, verifyOwnership, makeCollectionScopedVerifier, type OwnershipGateConfig } from "../nft/ownership-gate.js"
+import { parseNftId } from "../nft/nft-id.js"
+import { buildSessionWsUrl } from "./public-url.js"
+import { isSelfGuardedApiV1Path } from "./route-policy.js"
 
 export interface AppOptions {
   healthAggregator?: HealthAggregator
@@ -58,6 +61,14 @@ export interface AppOptions {
   oracleRateLimiter?: OracleRateLimiter
   /** Redis client for Oracle auth (Phase 1) */
   redisClient?: RedisCommandClient
+  /**
+   * Late-binding Redis resolver for the admin rate limiter. Production boot
+   * passes this whenever Redis is CONFIGURED (even if not yet connected at
+   * createApp time) so the shared limiter is never silently replaced by the
+   * in-memory per-process one. Returns null while disconnected — the
+   * limiter fails closed until Redis is up.
+   */
+  adminRedisResolver?: () => RedisCommandClient | null
   /** Personality provider for agent homepage & public API (Sprint 2) */
   personalityProvider?: PersonalityProvider
   /** Conversation manager for CRUD routes (Sprint 2) */
@@ -81,7 +92,7 @@ export interface AppOptions {
   /** DynamoDB health for /health/deps (cycle-035 T-1.3) */
   dynamoHealth?: () => Promise<{ reachable: boolean; latencyMs: number }>
   /** Admin JWKS key resolver for JWT auth (cycle-035 T-2.1) */
-  adminJwksResolver?: (protectedHeader: { kid?: string; alg?: string }, token: { payload: unknown }) => Promise<import("jose").KeyLike | Uint8Array>
+  adminJwksResolver?: (protectedHeader: { kid?: string; alg?: string }, token: { payload: unknown }) => Promise<CryptoKey | Uint8Array>
   /** RuntimeConfig for admin mode changes (cycle-035 T-2.1) */
   runtimeConfig?: import("../hounfour/runtime-config.js").RuntimeConfig
   /** Audit append function for admin audit-first semantics (cycle-035 T-2.1) */
@@ -148,7 +159,10 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     return c.json({ status: allHealthy ? "ready" : "not_ready", checks }, status)
   })
 
-  // Legacy /health → 301 → /healthz (backward compat)
+  // /health — Full diagnostic health document (JSON, always 200 when the
+  // process can respond). NOT a redirect: returns aggregated status, billing
+  // DLQ metrics, protocol info, and subsystem health. Use /healthz for
+  // liveness probes and /health/deps for readiness gating (#207, #218).
   app.get("/health", async (c) => {
     // Billing DLQ metrics — never throws
     let billing: Record<string, unknown> = {
@@ -257,18 +271,11 @@ export function createApp(config: FinnConfig, options: AppOptions) {
     app.route("/api/v1/oracle", oracleApp)
   }
 
-  // Skip guard for Oracle path — defense-in-depth against Hono routing edge cases
-  const isOraclePath = (path: string) =>
-    path === "/api/v1/oracle" || path.startsWith("/api/v1/oracle/")
-
-  // Skip guard for product/admin/x402/identity paths — these use their own auth (SIWE, none, FINN_AUTH_TOKEN, x402 payment, or public)
-  const isProductApiPath = (path: string) =>
-    path === "/api/v1/public" || path.startsWith("/api/v1/public/") ||
-    path === "/api/v1/conversations" || path.startsWith("/api/v1/conversations/") ||
-    path === "/api/v1/admin" || path.startsWith("/api/v1/admin/") ||
-    path === "/api/v1/x402" || path.startsWith("/api/v1/x402/") ||
-    path === "/api/v1/pay" || path.startsWith("/api/v1/pay/") ||
-    path === "/api/identity" || path.startsWith("/api/identity/")
+  // Self-guarded route groups (Oracle, product, admin, x402) are excluded from
+  // the shared /api/v1 chain because each declares its OWN guard. The predicate
+  // is DERIVED from the declarative policy registry — the guard for every
+  // skipped prefix is documented and tested there (#202, #221, #226, #228).
+  // Registry: src/gateway/route-policy.ts · Matrix: docs/gateway-route-policy.md
 
   // WHY: Zero-trust defense — strip x-internal-reservation-id before ANY processing.
   // External clients could inject this header to spoof reservations. Even though JWT
@@ -276,20 +283,21 @@ export function createApp(config: FinnConfig, options: AppOptions) {
   // surface entirely. Google BeyondCorp: "never trust the network."
   // See Bridgebuilder Finding #4 PRAISE + Finding #9 (PR #68).
   app.use("/api/v1/*", async (c, next) => {
-    if (isOraclePath(c.req.path) || isProductApiPath(c.req.path)) return next()
+    if (isSelfGuardedApiV1Path(c.req.path)) return next()
     c.req.raw.headers.delete("x-internal-reservation-id")
     return next()
   })
 
   // JWT auth for arrakis-originated requests (T-A.2)
-  // Skip Oracle path — handled by oracleApp's own middleware chain
-  // Skip product API paths — /public needs no auth, /conversations uses SIWE
+  // Self-guarded groups (see route-policy.ts) carry their own auth:
+  // Oracle → API-key chain, /public → public by design, /conversations → SIWE,
+  // /admin → JWKS JWT / injected token, /x402 + /pay → payment verification.
   app.use("/api/v1/*", async (c, next) => {
-    if (isOraclePath(c.req.path) || isProductApiPath(c.req.path)) return next()
+    if (isSelfGuardedApiV1Path(c.req.path)) return next()
     return rateLimitMiddleware(config)(c, next)
   })
   app.use("/api/v1/*", async (c, next) => {
-    if (isOraclePath(c.req.path) || isProductApiPath(c.req.path)) return next()
+    if (isSelfGuardedApiV1Path(c.req.path)) return next()
     return hounfourAuth(config)(c, next)
   })
 
@@ -384,7 +392,13 @@ export function createApp(config: FinnConfig, options: AppOptions) {
         {
           sessionId,
           created: new Date().toISOString(),
-          wsUrl: `ws://${c.req.header("Host") ?? "localhost:3000"}/ws/${sessionId}`,
+          // Trusted config first; validated Host header only as dev fallback (#198, #224)
+          wsUrl: buildSessionWsUrl({
+            publicBaseUrl: config.publicBaseUrl,
+            hostHeader: c.req.header("Host"),
+            port: config.port,
+            sessionId,
+          }),
           ...(personalityMeta && { personality: personalityMeta }),
         },
         201,
@@ -491,9 +505,36 @@ export function createApp(config: FinnConfig, options: AppOptions) {
 
   // Conversation CRUD — SIWE auth, mounted under /api/v1/conversations (T2.8)
   if (options.conversationManager && config.siwe.jwtSecret) {
+    const ownershipGateConfig = options.ownershipGateConfig
+    if (!ownershipGateConfig) {
+      console.warn(
+        "[gateway] conversation routes mounted WITHOUT NFT ownership verification " +
+        "(ownership gate not configured) — conversation creation is not ownership-gated (#197)",
+      )
+    }
     const convDeps: ConversationRouteDeps = {
       conversationManager: options.conversationManager,
       jwtSecret: config.siwe.jwtSecret,
+      // Enforce ConversationManager.create()'s documented ownership
+      // precondition at the route (#197, #206, #219, #231).
+      // Collection identity is part of the ownership claim: the gate's
+      // readOwner() resolves tokenIds against the single configured
+      // contract, so a composite id like "other:42" must be REJECTED, not
+      // silently reduced to token 42 of that contract. Allowed collection
+      // slugs come from FINN_ALLOWED_COLLECTIONS (comma-separated,
+      // default "mibera").
+      verifyNftOwnership: ownershipGateConfig
+        ? makeCollectionScopedVerifier(
+            ownershipGateConfig,
+            new Set(
+              (process.env.FINN_ALLOWED_COLLECTIONS ?? "mibera")
+                .split(",")
+                .map((s) => s.trim().toLowerCase())
+                .filter(Boolean),
+            ),
+            parseNftId,
+          )
+        : undefined,
     }
     app.route("/api/v1/conversations", createConversationRoutes(convDeps))
   }
@@ -559,9 +600,25 @@ export function createApp(config: FinnConfig, options: AppOptions) {
       setCreditBalance: async (_wallet: string, _credits: number) => {
         // TODO: Wire to real credit store when billing is fully integrated.
       },
+      // Injected from config (#204) — no process.env read inside the route module
+      authToken: config.auth.bearerToken || undefined,
       runtimeConfig: options.runtimeConfig,
       auditAppend: options.auditAppend,
       jwksKeyResolver: options.adminJwksResolver,
+      // Shared (cross-replica) rate limiting when Redis is available (#199, #223).
+      // adminRedisResolver takes precedence: it late-binds the client so a
+      // Redis that connects after boot is still used (never a silent
+      // in-memory fallback when Redis is configured).
+      // FINN_ADMIN_MODE_RATE_LIMIT overrides the per-hour ceiling (e.g. CI
+      // suites that legitimately exercise many mode changes); default stays 5.
+      rateLimiter: (options.adminRedisResolver || options.redisClient)
+        ? new RedisAdminRateLimiter(
+            options.adminRedisResolver ?? options.redisClient!,
+            Number(process.env.FINN_ADMIN_MODE_RATE_LIMIT) > 0
+              ? Number(process.env.FINN_ADMIN_MODE_RATE_LIMIT)
+              : undefined,
+          )
+        : undefined,
     }
     app.route("/api/v1/admin", createAdminRoutes(adminDeps))
   }

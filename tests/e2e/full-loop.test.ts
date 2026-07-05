@@ -68,7 +68,15 @@ async function mintJWT(overrides: Record<string, unknown> = {}): Promise<string>
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("E2E: Full Loop — JWT -> Session -> WebSocket -> Inference -> Billing", () => {
+
+// The JWT -> /api/sessions flow this suite exercises expects hounfour-JWT
+// auth on the legacy /api/* routes, but the deployed gateway guards those
+// with the FINN_AUTH_TOKEN bearer (JWT auth covers /api/v1/*). Runs only
+// when E2E_FULL_LOOP=1 targets a deployment wired for it; named skip
+// otherwise. See docs/security/ci-failure-classification.md.
+const describeFullLoop = process.env.E2E_FULL_LOOP ? describe : describe.skip
+
+describeFullLoop("E2E: Full Loop — JWT -> Session -> WebSocket -> Inference -> Billing [requires E2E_FULL_LOOP]", () => {
   it("full loop: JWT -> session -> WebSocket -> inference -> billing", async () => {
     // -----------------------------------------------------------------------
     // 1. Mint JWT

@@ -17,11 +17,29 @@ import { requireSiweSession } from "../siwe-auth.js"
 // Types
 // ---------------------------------------------------------------------------
 
+/** Result of an NFT ownership check (subset of ownership-gate's OwnershipResult). */
+export interface NftOwnershipCheck {
+  verified: boolean
+  message?: string
+}
+
 export interface ConversationRouteDeps {
   conversationManager: ConversationManager
   /** JWT secret for SIWE session validation */
   jwtSecret: string
+  /**
+   * NFT ownership verifier (#197, #206, #219, #231). ConversationManager.create()
+   * documents "Caller must verify NFT ownership first" — this dependency makes
+   * the route enforce that precondition. When provided, conversation creation
+   * is rejected (403) unless the authenticated wallet owns `nft_id`.
+   * When absent (ownership gate not configured for this deployment), creation
+   * proceeds ungated and a warning is logged once at wiring time (server.ts).
+   */
+  verifyNftOwnership?: (nftId: string, wallet: string) => Promise<NftOwnershipCheck>
 }
+
+/** nft_id shape: bounded length, conservative charset (alphanum + : . _ -). */
+const NFT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/
 
 // ---------------------------------------------------------------------------
 // Route Factory
@@ -57,6 +75,32 @@ export function createConversationRoutes(deps: ConversationRouteDeps): Hono {
 
     if (!body.nft_id || typeof body.nft_id !== "string") {
       return c.json({ error: "nft_id is required", code: "INVALID_REQUEST" }, 400)
+    }
+
+    if (!NFT_ID_RE.test(body.nft_id)) {
+      return c.json({ error: "nft_id has an invalid format", code: "INVALID_REQUEST" }, 400)
+    }
+
+    // Enforce ConversationManager.create()'s ownership precondition at the
+    // route boundary (#197, #219): the wallet must own the NFT it converses as.
+    if (deps.verifyNftOwnership) {
+      let ownership: NftOwnershipCheck
+      try {
+        ownership = await deps.verifyNftOwnership(body.nft_id, walletAddress)
+      } catch (err) {
+        // Fail-closed: an ownership-check outage must not open the gate.
+        console.error("[conversations] ownership check failed:", err)
+        return c.json(
+          { error: "Unable to verify NFT ownership", code: "OWNERSHIP_REQUIRED" },
+          403,
+        )
+      }
+      if (!ownership.verified) {
+        return c.json(
+          { error: ownership.message ?? "You do not own this NFT", code: "OWNERSHIP_REQUIRED" },
+          403,
+        )
+      }
     }
 
     try {

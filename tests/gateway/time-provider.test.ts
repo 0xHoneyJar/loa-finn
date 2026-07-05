@@ -113,6 +113,50 @@ describe("measureClockDrift", () => {
   })
 })
 
+// #246 — deterministic drift measurement via injected TimeProvider: exact
+// systemMs/driftMs/callback assertions instead of loose wall-clock bounds.
+describe("measureClockDrift with injected TimeProvider", () => {
+  const T0 = 1_750_000_000_000
+
+  it("reports exact systemMs and driftMs from the provider", () => {
+    const clock = new MockTimeProvider(T0 + 250)
+    const result = measureClockDrift(T0, { timeProvider: clock })
+    expect(result.systemMs).toBe(T0 + 250)
+    expect(result.referenceMs).toBe(T0)
+    expect(result.driftMs).toBe(250)
+    expect(result.withinTolerance).toBe(true) // default 1000ms tolerance
+  })
+
+  it("flags drift beyond maxDriftMs and fires onDrift with the exact value", () => {
+    const clock = new MockTimeProvider(T0 + 1500)
+    let driftValue = -1
+    const result = measureClockDrift(T0, {
+      timeProvider: clock,
+      maxDriftMs: 1000,
+      onDrift: (drift) => {
+        driftValue = drift
+      },
+    })
+    expect(result.withinTolerance).toBe(false)
+    expect(result.driftMs).toBe(1500)
+    expect(driftValue).toBe(1500)
+  })
+
+  it("measures behind-reference drift as an exact absolute value", () => {
+    const clock = new MockTimeProvider(T0 - 2000)
+    const result = measureClockDrift(T0, { timeProvider: clock, maxDriftMs: 1000 })
+    expect(result.driftMs).toBe(2000)
+    expect(result.withinTolerance).toBe(false)
+  })
+
+  it("advancing the mock clock changes subsequent measurements deterministically", () => {
+    const clock = new MockTimeProvider(T0)
+    expect(measureClockDrift(T0, { timeProvider: clock }).driftMs).toBe(0)
+    clock.advance(750)
+    expect(measureClockDrift(T0, { timeProvider: clock }).driftMs).toBe(750)
+  })
+})
+
 describe("defaultTimeProvider", () => {
   it("is a SystemTimeProvider instance", () => {
     expect(defaultTimeProvider).toBeInstanceOf(SystemTimeProvider)

@@ -359,13 +359,23 @@ export class ConversationManager {
       if (cursorIdx >= 0) startIdx = cursorIdx + 1
     }
 
-    const candidates = allIds.slice(startIdx, startIdx + effectiveLimit + 1)
+    // Filter-aware pagination (#216): the NFT index may contain conversations
+    // owned by multiple wallets (e.g. created before/after an NFT transfer).
+    // Walk the index counting only the caller's conversations so pages fill up
+    // and cursor/has_more reflect the FILTERED stream, not raw index slices.
     const items: ConversationSummary[] = []
+    let hasMore = false
 
-    for (const id of candidates.slice(0, effectiveLimit)) {
-      const conv = await this.load(id)
+    for (let i = startIdx; i < allIds.length; i++) {
+      const conv = await this.load(allIds[i])
       if (!conv) continue
       if (conv.owner_address !== normalizedWallet) continue
+
+      if (items.length === effectiveLimit) {
+        // At least one more owned conversation exists beyond this page
+        hasMore = true
+        break
+      }
 
       items.push({
         id: conv.id,
@@ -381,8 +391,9 @@ export class ConversationManager {
 
     return {
       items,
-      cursor: candidates.length > effectiveLimit ? candidates[effectiveLimit] : null,
-      has_more: candidates.length > effectiveLimit,
+      // Cursor = last returned conversation id; the next page resumes after it.
+      cursor: hasMore && items.length > 0 ? items[items.length - 1].id : null,
+      has_more: hasMore,
     }
   }
 

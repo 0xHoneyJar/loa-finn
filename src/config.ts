@@ -2,6 +2,7 @@
 
 import type { ThinkingLevel } from "@mariozechner/pi-ai"
 import { availableParallelism } from "node:os"
+import { validatePublicBaseUrl } from "./gateway/public-url.js"
 
 export interface FinnConfig {
   // Agent
@@ -12,6 +13,13 @@ export interface FinnConfig {
   // Gateway
   port: number
   host: string
+  /**
+   * Trusted public base URL (e.g. "https://finn.honeyjar.xyz") used to build
+   * client-facing URLs such as the session WebSocket URL. Empty when unset —
+   * a validated Host-header fallback is then used (dev only).
+   * See src/gateway/public-url.ts (#198, #224, #230).
+   */
+  publicBaseUrl: string
 
   // Persistence
   dataDir: string
@@ -220,6 +228,10 @@ export function loadConfig(): FinnConfig {
 
     port: parseIntEnv("PORT", "3000"),
     host: process.env.HOST ?? "0.0.0.0",
+    // Validated at startup — invalid values fail fast (#224)
+    publicBaseUrl: process.env.PUBLIC_BASE_URL
+      ? validatePublicBaseUrl(process.env.PUBLIC_BASE_URL)
+      : "",
 
     dataDir,
     sessionDir: `${dataDir}/sessions`,

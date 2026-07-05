@@ -37,6 +37,13 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT ALL ON SCHEMA finn TO finn_migrate;
   GRANT USAGE ON SCHEMA finn TO finn_app;
 
+  -- finn_migrate is the DDL/migration role: it needs database-level CREATE
+  -- so Drizzle's migrator can run CREATE SCHEMA IF NOT EXISTS "drizzle" for
+  -- its __drizzle_migrations bookkeeping table (Postgres checks the CREATE
+  -- privilege before the IF NOT EXISTS existence check). finn_app stays
+  -- DML-only. Targets the configured database, not a hard-coded name.
+  GRANT CREATE ON DATABASE "${POSTGRES_DB}" TO finn_migrate;
+
   -- Default privileges: finn_migrate owns tables, finn_app gets DML
   ALTER DEFAULT PRIVILEGES FOR ROLE finn_migrate IN SCHEMA finn
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO finn_app;

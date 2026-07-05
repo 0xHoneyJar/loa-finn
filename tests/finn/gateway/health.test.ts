@@ -49,6 +49,49 @@ function createTestApp(deps: {
   return app
 }
 
+// /health — full diagnostic JSON document (#207, #218). The route returns a
+// JSON body (never a redirect); this mirrors the contract in
+// src/gateway/server.ts and docs/gateway-health.md.
+function createHealthDocApp() {
+  const app = new Hono()
+  app.get("/health", (c) => {
+    return c.json({
+      status: "healthy",
+      uptime: process.uptime(),
+      checks: { agent: { status: "ok" }, sessions: { active: 0 } },
+      billing: { dlq_size: null, dlq_durable: false },
+      protocol: { contract_version: "8.3.0", finn_min_supported: "7.0.0" },
+      ready_for_billing: true,
+    })
+  })
+  return app
+}
+
+describe("/health (diagnostic document)", () => {
+  it("returns 200 with a JSON health document — not a redirect", async () => {
+    const app = createHealthDocApp()
+    const res = await app.request("/health")
+
+    expect(res.status).toBe(200) // legacy comment claimed 301 → /healthz; actual contract is JSON
+    expect(res.headers.get("location")).toBeNull()
+    expect(res.headers.get("content-type")).toContain("application/json")
+
+    const body = await res.json() as Record<string, unknown>
+    expect(body).toHaveProperty("status")
+    expect(body).toHaveProperty("checks")
+    expect(body).toHaveProperty("billing")
+    expect(body).toHaveProperty("protocol")
+  })
+
+  it("source comment for /health does not claim redirect behavior", async () => {
+    const { readFileSync } = await import("node:fs")
+    const src = readFileSync("src/gateway/server.ts", "utf-8")
+    const healthSection = src.slice(src.indexOf('app.get("/health"') - 600, src.indexOf('app.get("/health"'))
+    expect(healthSection).not.toMatch(/301/)
+    expect(healthSection).not.toMatch(/Legacy \/health →/)
+  })
+})
+
 describe("/healthz (ALB liveness)", () => {
   it("returns 200 always", async () => {
     const app = createTestApp({})

@@ -14,7 +14,7 @@ import { describe, it, expect, beforeAll } from "vitest"
 // ---------------------------------------------------------------------------
 
 const FINN_URL = process.env.FINN_URL ?? "http://localhost:3000"
-const ADMIN_URL = `${FINN_URL}/admin`
+const ADMIN_URL = `${FINN_URL}/api/v1/admin`
 const METRICS_URL = `${FINN_URL}/metrics`
 
 // Admin JWT for testing (matches localstack-init-v3.sh seeded JWKS)

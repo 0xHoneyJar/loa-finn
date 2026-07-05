@@ -95,9 +95,16 @@ function makeMessage(role: "user" | "assistant", content: string): ConversationM
  * Build a Hono app with the conversation routes mounted.
  * Routes use internal SIWE JWT auth via jwtSecret.
  */
-function buildApp(manager: ConversationManager): Hono {
+function buildApp(
+  manager: ConversationManager,
+  verifyNftOwnership?: (nftId: string, wallet: string) => Promise<{ verified: boolean; message?: string }>,
+): Hono {
   const app = new Hono()
-  const routes = createConversationRoutes({ conversationManager: manager, jwtSecret: TEST_JWT_SECRET })
+  const routes = createConversationRoutes({
+    conversationManager: manager,
+    jwtSecret: TEST_JWT_SECRET,
+    verifyNftOwnership,
+  })
   app.route("/api/v1/conversations", routes)
   return app
 }
@@ -456,5 +463,95 @@ describe("Conversation CRUD Routes", () => {
       const body = await res.json()
       expect(body.code).toBe("ACCESS_DENIED")
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// NFT ownership enforcement at the route boundary (#197, #206, #219, #231)
+// ---------------------------------------------------------------------------
+
+describe("POST / — NFT ownership enforcement", () => {
+  let mocks: ReturnType<typeof createMockConversationManager>
+
+  beforeEach(() => {
+    mocks = createMockConversationManager()
+    mocks.mockCreate.mockResolvedValue(makeConversation())
+  })
+
+  function post(app: Hono, nftId: string, wallet: string = WALLET) {
+    return authHeaders(wallet).then((headers) =>
+      app.request("/api/v1/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ nft_id: nftId }),
+      }),
+    )
+  }
+
+  it("creates when the verifier confirms ownership", async () => {
+    const verifier = vi.fn(async () => ({ verified: true }))
+    const app = buildApp(mocks.manager, verifier)
+
+    const res = await post(app, NFT_ID)
+    expect(res.status).toBe(200)
+    expect(verifier).toHaveBeenCalledWith(NFT_ID, WALLET)
+    expect(mocks.mockCreate).toHaveBeenCalledWith(NFT_ID, WALLET)
+  })
+
+  it("returns 403 OWNERSHIP_REQUIRED for a non-owner — create never called", async () => {
+    const verifier = vi.fn(async () => ({ verified: false, message: "You do not own this token" }))
+    const app = buildApp(mocks.manager, verifier)
+
+    const res = await post(app, NFT_ID, OTHER_WALLET)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.code).toBe("OWNERSHIP_REQUIRED")
+    expect(mocks.mockCreate).not.toHaveBeenCalled()
+  })
+
+  it("fails closed (403) when the ownership check throws — create never called", async () => {
+    const verifier = vi.fn(async () => { throw new Error("rpc down") })
+    const app = buildApp(mocks.manager, verifier)
+
+    const res = await post(app, NFT_ID)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.code).toBe("OWNERSHIP_REQUIRED")
+    expect(mocks.mockCreate).not.toHaveBeenCalled()
+  })
+
+  it("rejects malformed nft_id (400) before the ownership check", async () => {
+    const verifier = vi.fn(async () => ({ verified: true }))
+    const app = buildApp(mocks.manager, verifier)
+
+    for (const bad of [
+      "nft with spaces",
+      "../../etc/passwd",
+      "nft\r\ninjection",
+      ":leading-colon",
+      "a".repeat(200),
+      "<script>",
+    ]) {
+      const res = await post(app, bad)
+      expect(res.status).toBe(400)
+    }
+    expect(verifier).not.toHaveBeenCalled()
+    expect(mocks.mockCreate).not.toHaveBeenCalled()
+  })
+
+  it("accepts canonical collection:tokenId ids", async () => {
+    const verifier = vi.fn(async () => ({ verified: true }))
+    const app = buildApp(mocks.manager, verifier)
+
+    const res = await post(app, "mibera:42")
+    expect(res.status).toBe(200)
+  })
+
+  it("creates without a verifier (deployment without ownership gate — documented fallback)", async () => {
+    const app = buildApp(mocks.manager, undefined)
+
+    const res = await post(app, NFT_ID)
+    expect(res.status).toBe(200)
+    expect(mocks.mockCreate).toHaveBeenCalledWith(NFT_ID, WALLET)
   })
 })

@@ -39,6 +39,14 @@ Describe how you tested these changes:
 - [ ] I have added tests that prove my fix/feature works
 - [ ] New and existing tests pass locally
 
+## Admin / status route changes (if applicable)
+
+If this PR touches `src/gateway/routes/admin.ts` or gateway health/status routes, include the evidence below (#209, #212):
+
+- [ ] Test output for admin auth, rate limiting, audit-first behavior, and invalid-input bounds (`npx vitest run tests/finn/gateway/admin-routes.test.ts`)
+- [ ] Test output for health/status route status codes and response shapes (`npx vitest run tests/finn/gateway/health.test.ts`)
+- [ ] `docs/gateway-health.md` / `docs/gateway-admin-seed-credits-policy.md` updated if behavior changed
+
 ## Documentation
 
 - [ ] README.md updated (if applicable)

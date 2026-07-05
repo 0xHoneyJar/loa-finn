@@ -31,6 +31,8 @@ import { serve } from "@hono/node-server"
 import { WebSocketServer } from "ws"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { appendFile, mkdir } from "node:fs/promises"
+import { createHash } from "node:crypto"
 
 async function main() {
   const bootStart = Date.now()
@@ -268,6 +270,7 @@ async function main() {
       goodhartRuntime.goodhartConfig = result.goodhartConfig
       goodhartRuntime.routingState = result.routingState
       goodhartRuntime.goodhartMetrics = result.goodhartMetrics
+      goodhartRuntime.runtimeConfig = result.runtimeConfig
 
       // Emit state transition event (T-4.6)
       if (result.routingState !== "disabled") {
@@ -301,6 +304,7 @@ async function main() {
             goodhartRuntime.goodhartConfig = recovered.goodhartConfig
             goodhartRuntime.routingState = recovered.routingState as RoutingState
             goodhartRuntime.goodhartMetrics = recovered.goodhartMetrics
+            goodhartRuntime.runtimeConfig = recovered.runtimeConfig
             goodhartConfig = recovered.goodhartConfig
             routingState = recovered.routingState as RoutingState
             goodhartMetrics = recovered.goodhartMetrics
@@ -454,8 +458,13 @@ async function main() {
   // Algorithm selection: FINN_S2S_JWT_ALG (explicit) > auto-detect from key material
   let billingFinalizeClient: import("./hounfour/billing-finalize-client.js").BillingFinalizeClient | undefined
   let s2sSigner: import("./hounfour/s2s-jwt.js").S2SJwtSigner | undefined
+  // The S2S signer is independent of billing: it serves the public JWKS at
+  // /.well-known/jwks.json and signs outbound S2S JWTs whenever key material
+  // is configured. The billing finalize client additionally requires
+  // ARRAKIS_BILLING_URL + hounfour. Previously the whole block was gated on
+  // the billing URL, so deployments without billing served an empty JWKS.
   const billingUrl = process.env.ARRAKIS_BILLING_URL
-  if (billingUrl && hounfour) {
+  {
     const rawS2sPrivateKey = process.env.FINN_S2S_PRIVATE_KEY
 
     const decodeBase64Env = (name: string, value: string) => {
@@ -518,20 +527,25 @@ async function main() {
       if (s2sConfig) {
         s2sSigner = new S2SJwtSigner(s2sConfig)
         await s2sSigner.init()
-        billingFinalizeClient = new BillingFinalizeClient({
-          billingUrl,  // base URL — client appends /api/internal/finalize
-          s2sSigner,
-          dlqStore,
-          aofVerified: dlqAofVerified,
-        })
-        billingFinalizeClient.startReplayTimer()
-        hounfour.setBillingFinalize(billingFinalizeClient)
-        console.log(`[finn] billing finalize client initialized: alg=${s2sConfig.alg} url=${billingUrl}`)
-      } else {
+        console.log(`[finn] s2s signer initialized: alg=${s2sConfig.alg}`)
+        if (billingUrl && hounfour) {
+          billingFinalizeClient = new BillingFinalizeClient({
+            billingUrl,  // base URL — client appends /api/internal/finalize
+            s2sSigner,
+            dlqStore,
+            aofVerified: dlqAofVerified,
+          })
+          billingFinalizeClient.startReplayTimer()
+          hounfour.setBillingFinalize(billingFinalizeClient)
+          console.log(`[finn] billing finalize client initialized: alg=${s2sConfig.alg} url=${billingUrl}`)
+        } else {
+          console.log("[finn] billing finalize disabled (no ARRAKIS_BILLING_URL) — s2s signer still serves JWKS")
+        }
+      } else if (billingUrl) {
         console.warn("[finn] ARRAKIS_BILLING_URL set but no S2S key material — billing finalize disabled")
       }
     } catch (err) {
-      console.error(`[finn] billing finalize init failed (non-fatal):`, (err as Error).message)
+      console.error(`[finn] s2s/billing finalize init failed (non-fatal):`, (err as Error).message)
     }
   }
 
@@ -734,7 +748,91 @@ async function main() {
 
   // 7. Create gateway (with executor for sandbox, pool for health stats)
   const ledgerPath = join(config.dataDir, "hounfour", "cost-ledger.jsonl")
-  const { app, router } = createApp(config, { activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient, billingConservationGuard: billingGuard, ledgerPath, ...personalityAppOptions })
+
+  // Admin JWT verification key (cycle-035 T-2.1). FINN_ADMIN_PUBLIC_KEY holds
+  // an ES256 SPKI public key — raw PEM or base64-encoded PEM. Without it the
+  // /api/v1/admin/mode endpoints answer 503 ADMIN_DISABLED (fail-closed).
+  let adminJwksResolver: ((protectedHeader: { kid?: string; alg?: string }, token: { payload: unknown }) => Promise<CryptoKey | Uint8Array>) | undefined
+  const rawAdminPublicKey = process.env.FINN_ADMIN_PUBLIC_KEY
+  if (rawAdminPublicKey) {
+    const adminPem = rawAdminPublicKey.includes("-----BEGIN")
+      ? rawAdminPublicKey
+      : Buffer.from(rawAdminPublicKey, "base64").toString("utf-8")
+    const { importSPKI } = await import("jose")
+    const adminKeyPromise = importSPKI(adminPem, "ES256")
+    adminJwksResolver = async () => (await adminKeyPromise) as CryptoKey
+    console.log("[finn] admin JWT verification: enabled (FINN_ADMIN_PUBLIC_KEY)")
+  } else {
+    console.warn("[finn] FINN_ADMIN_PUBLIC_KEY not set — /api/v1/admin/mode endpoints will answer 503 ADMIN_DISABLED")
+  }
+
+  // Wire the goodhart observability + control surfaces the gateway already
+  // supports: /metrics (graduation metrics), admin mode changes (RuntimeConfig
+  // + kill switch), and Redis-backed admin rate limiting.
+  const gatewayRedisClient = redis?.isConnected() ? redis.getClient() : undefined
+
+  // The gateway gets its OWN RuntimeConfig over the same prefixed Redis keys
+  // the goodhart kill switch reads. Constructing it here (instead of borrowing
+  // the instance from initGoodhartStack) keeps /api/v1/admin/mode functional
+  // across goodhart init_failed -> recovery cycles: RuntimeConfig is a thin
+  // accessor over one Redis key, so same-key instances stay consistent.
+  let gatewayRuntimeConfig = goodhartRuntime.runtimeConfig
+  if (!gatewayRuntimeConfig && gatewayRedisClient) {
+    try {
+      const { createPrefixedRedisClient } = await import("./hounfour/infra/prefixed-redis.js")
+      const { RuntimeConfig } = await import("./hounfour/runtime-config.js")
+      const prefixed = await createPrefixedRedisClient(
+        gatewayRedisClient,
+        process.env.FINN_REDIS_PREFIX ?? "armitage:",
+        parseInt(process.env.FINN_REDIS_DB ?? "0", 10),
+      )
+      gatewayRuntimeConfig = new RuntimeConfig(prefixed)
+    } catch (err) {
+      console.warn(`[finn] gateway RuntimeConfig init failed (non-fatal): ${(err as Error).message}`)
+    }
+  }
+
+  const { app, router } = createApp(config, {
+    activityFeed, executor, pool, hounfour, s2sSigner, billingFinalizeClient,
+    billingConservationGuard: billingGuard, ledgerPath,
+    graduationMetrics: goodhartMetrics,
+    runtimeConfig: gatewayRuntimeConfig,
+    adminJwksResolver,
+    redisClient: gatewayRedisClient,
+    // Admin mutations (mode change, seed-credits) are audit-first
+    // FAIL-CLOSED: without an audit sink they 503. Wire a durable
+    // append-only JSONL sink under the data dir so the gate is satisfiable
+    // in every deployment; a write failure surfaces as AUDIT_FAILED.
+    auditAppend: (() => {
+      const auditPath = join(config.dataDir, "admin-audit.jsonl")
+      let dirReady = false
+      return async (action: string, payload: Record<string, unknown>) => {
+        if (!dirReady) {
+          await mkdir(config.dataDir, { recursive: true })
+          dirReady = true
+        }
+        const record = { action, ...payload, recorded_at: new Date().toISOString() }
+        const line = JSON.stringify(record)
+        await appendFile(auditPath, line + "\n", "utf8")
+        return createHash("sha256").update(line).digest("hex")
+      }
+    })(),
+    // Late-binding resolver: whenever Redis is CONFIGURED, the admin rate
+    // limiter must be the shared Redis-backed one — even if the connection
+    // races boot. Fails closed while disconnected (#audit: no silent
+    // in-memory fallback in production).
+    adminRedisResolver: redis
+      ? () => (redis!.isConnected() ? redis!.getClient() : null)
+      : undefined,
+    goodhartHealth: goodhartMetrics
+      ? () => ({
+          status: goodhartRuntime.routingState,
+          killSwitch: goodhartRuntime.runtimeConfig ? "runtime-config" : "unavailable",
+          explorationEnabled: goodhartRuntime.goodhartConfig !== undefined,
+        })
+      : undefined,
+    ...personalityAppOptions,
+  })
 
   // 8. Set up scheduler with registered tasks (T-4.4)
   const scheduler = new Scheduler()
