@@ -31,6 +31,8 @@ import { serve } from "@hono/node-server"
 import { WebSocketServer } from "ws"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { appendFile, mkdir } from "node:fs/promises"
+import { createHash } from "node:crypto"
 
 async function main() {
   const bootStart = Date.now()
@@ -797,6 +799,24 @@ async function main() {
     runtimeConfig: gatewayRuntimeConfig,
     adminJwksResolver,
     redisClient: gatewayRedisClient,
+    // Admin mutations (mode change, seed-credits) are audit-first
+    // FAIL-CLOSED: without an audit sink they 503. Wire a durable
+    // append-only JSONL sink under the data dir so the gate is satisfiable
+    // in every deployment; a write failure surfaces as AUDIT_FAILED.
+    auditAppend: (() => {
+      const auditPath = join(config.dataDir, "admin-audit.jsonl")
+      let dirReady = false
+      return async (action: string, payload: Record<string, unknown>) => {
+        if (!dirReady) {
+          await mkdir(config.dataDir, { recursive: true })
+          dirReady = true
+        }
+        const record = { action, ...payload, recorded_at: new Date().toISOString() }
+        const line = JSON.stringify(record)
+        await appendFile(auditPath, line + "\n", "utf8")
+        return createHash("sha256").update(line).digest("hex")
+      }
+    })(),
     // Late-binding resolver: whenever Redis is CONFIGURED, the admin rate
     // limiter must be the shared Redis-backed one — even if the connection
     // races boot. Fails closed while disconnected (#audit: no silent
