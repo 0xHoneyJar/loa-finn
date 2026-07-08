@@ -42,7 +42,9 @@ Finn's runtime already contains a **feature-flagged, fail-closed PostgreSQL inte
 
 ### 3.2 No semantic ownership creep into Finn
 
-Finn's existing PostgreSQL surface stores Finn-local operational records only (see companion evidence document §3). Finn does not define, and this packet does not propose that Finn define, any canonical-store semantics on Straylight's behalf. The prior gate #9 evidence result already flagged semantic-ownership creep as the risk class to guard against; this response reaffirms that Finn's role, if any lane is ever authorized, is **enforce/emit/persist under externally-defined semantics** — never canonical semantic ownership.
+Finn's existing PostgreSQL surface stores Finn-local operational records only (see companion evidence document §3). Finn does not define, and this packet does not propose that Finn define, any canonical-store semantics on Straylight's behalf. The no-creep claim in this section is supportable **for the PostgreSQL storage surface** specifically.
+
+Scope qualification: the predecessor evidence result ([`docs/STRAYLIGHT-ADR-022E-GATE-9-RUNTIME-EVIDENCE-RESULT.md`](STRAYLIGHT-ADR-022E-GATE-9-RUNTIME-EVIDENCE-RESULT.md) §9) documents two **unresolved** semantic-ownership-creep findings on other surfaces — `TIER_TRUST_MAP` (`src/hounfour/economic-boundary.ts`) and `CRITICAL_ACTIONS` (`src/hounfour/audit/buffered-audit-chain.ts`) locally *define* classifications rather than enforcing externally-supplied ones — and those findings are part of why that result is `PARTIAL` and gate #9 remains held. This packet does not claim they are resolved; resolving them would be implementation, which is out of scope here. The statement that Finn's role is **enforce/emit/persist under externally-defined semantics — never canonical semantic ownership** is therefore recorded as Finn's *committed target posture* for any future authorized lane, with the two documented creep findings still requiring separate treatment before Finn could host the gate #9 responsibility cleanly.
 
 ### 3.3 Preservation of Straylight as semantic owner of the canonical-store boundary
 
