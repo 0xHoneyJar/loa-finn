@@ -1,11 +1,12 @@
 {
   "simstim_id": "simstim-20260226-staging-readiness",
   "schema_version": 1,
-  "state": "RUNNING",
+  "state": "HALTED",
   "phase": "implementation",
+  "halt_reason": "Stale RUNNING state from cycle-036 (last activity 2026-02-26) was soft-blocking the run-mode stop guard for all sessions. Halted with maintainer authorization on 2026-07-08; resume cycle-036 implementation via /run-resume if still desired.",
   "timestamps": {
     "started": "2026-02-26T12:00:00Z",
-    "last_activity": "2026-02-26T08:30:00Z"
+    "last_activity": "2026-07-08T07:02:38Z"
   },
   "phases": {
     "preflight": "completed",
