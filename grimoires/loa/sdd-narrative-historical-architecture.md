@@ -18,8 +18,9 @@ hivemind:
 # SDD — Finn's Shop: Narrative & Historical Architecture
 
 > **Software Design Document.** Design law: minimalism as enforced shape (the k3s
-> thesis). Everything here is grimoire docs + three small deterministic TS tools.
-> No services, no daemons, no new state stores. The CLI (Track 3) is a READER.
+> thesis). Everything here is grimoire docs + four small deterministic TS tools
+> (~480 loc total). No services, no daemons, no new state stores beyond one
+> append-only probe-results ledger. The CLI (Track 3) is a READER.
 
 ## 1. Architecture overview
 
@@ -31,16 +32,17 @@ hivemind:
    │ lab/corpus/       │ │ lab/GADGETS.md (gadget ledger)  │ ◄── │ cite-check.ts (validator)│
    │  intake/ (tiered) │ │ lab/SETTLES.md (existing)       │     │ probe.ts (G1 runner)     │
    │  + redaction gate │ ├─ lineage ──────────────────────┤     │ ledger-check.ts (G3)     │
-   └───────────────────┘ │ lore/lineage.md · roster/*.md   │     └──────────────────────────┘
-                         │ context/<date>-*-testimony.md   │                ▲
+   │  (corpus-scrub.ts)│ │ lore/lineage.md · roster/*.md   │     │ + probe-results.jsonl    │
+   └───────────────────┘ │ context/<date>-*-testimony.md   │     └──────────────────────────┘
+                         │                                 │                ▲
                          └────────────────────────────────┘                │ reads only
                                         ▲                                   │
                           consultations (protocol doc) ──── finn-cli (spec; v0 gated)
 ```
 
-One flow: **record → cite → check.** Docs hold the truth with citations; the three
-tools mechanically verify citations, ledger completeness, and the G1 probe; the
-CLI (later) surfaces the same reads as verbs.
+One flow: **record → cite → check.** Docs hold the truth with citations; the four
+tools mechanically verify citations, ledger completeness, intake hygiene, and the
+G1 probe; the CLI (later) surfaces the same reads as verbs.
 
 ## 2. Components
 
@@ -64,19 +66,33 @@ machine-readable mirror; the table is the human view, the YAML is what tools
 parse — one file, no drift between two files):
 
 ```yaml
-# ledger.yaml block schema (v1)
+# ledger.yaml block schema (schema_version: 1; closed enums throughout)
 - id: gadget-001-realness-verdict
   what: SETTLE verdict math as a pure module
   status: KEEP            # CANDIDATE | KEEP | SELL | THROW  (closed vocab)
   home: grimoires/loa/lab/gadgets/realness-verdict
-  check: {cmd: "npx vitest run <path>", exit: zero-is-pass, timeout_s: 120, contract: declared}
+  check:
+    runner: vitest          # CLOSED enum: vitest | node-script | py-compile — NEVER a free shell string
+    target: grimoires/loa/lab/gadgets/realness-verdict   # must resolve INSIDE the repo root
+    args: []                # argv list, no shell interpolation (injection surface closed)
+    exit: zero-is-pass
+    timeout_s: 120
+    contract: declared      # declared | pending
   graduation: src-imported   # lab-only | src-imported | pending
   evidence: {commit: "…", note: "5/5 green 2026-06-14"}
 ```
 
+The human table in GADGETS.md is **generated FROM the YAML block**
+(`ledger-check.ts --render` rewrites it) — single source, zero drift; a stale
+table is a ledger-check failure, not a judgment call.
+
 - **Closed discovery boundary** (PRD FR-2): enrollment = `lab/gadgets/*` ∪
   `src/lab/metabolism/*` ∪ explicit rows. `ledger-check.ts` reconciles the
-  enumeration against the rows both ways.
+  enumeration against the rows both ways. Enumeration rules (deterministic):
+  depth-1 directories only under `lab/gadgets/`; `.ts` modules (excluding
+  `*.test.ts` and `types.ts`) under `src/lab/metabolism/`; symlinks NOT followed;
+  rows whose `home` resolves outside the repo root are validation errors;
+  duplicate ids are validation errors.
 - Legacy instruments may carry `check.contract: pending` — visible debt, never a
   silent exemption.
 - **Lifecycle doc** (FR-6): one section in GADGETS.md header — intake → build
@@ -95,8 +111,14 @@ with the epistemic boundary stated as a testable rule:
 Testimony records: `grimoires/loa/context/<date>-<subject>-testimony.md` with
 frontmatter `{subject, questions[], verdicts[]: {q, verdict, confidence, citations[]}, corpus_map}`.
 A testimony is VALID iff cite-check resolves all citations and each confidence
-matches the recorded derivation rule. Person-subject records inherit the ethics
-line from roster/jani.md (internal-only, never-as-them, retire-on-objection).
+matches the recorded derivation rule. **Confidence derivation (deterministic,
+v1):** citations are *independent* iff they differ in BOTH source artifact and
+provenance tier-origin (two captures of one Discord message = one source).
+HIGH = ≥2 independent citations with ≥1 at git-verbatim/account-verbatim tier;
+MEDIUM = 1 primary OR ≥2 captured; LOW = captured/claimed only; conflicting
+citations (evidence on both sides) → ABSTAIN with both cited — never averaged.
+Person-subject records inherit the ethics line from roster/jani.md
+(internal-only, never-as-them, retire-on-objection).
 
 ### 2.4 Corpus intake (Track 1, FR-5)
 
@@ -107,20 +129,31 @@ via a ~40-line `corpus-scrub.ts` pass (report + redact in place; third-party
 content minimized); (3) stamp `provenance.yaml`: `{source, acquired, tier:
 git-verbatim|account-verbatim|captured|claimed, privacy: internal-only, guards[]}`.
 Misattribution guards are entries in `guards[]`, carried into any consultation
-that cites the source. Operator-gated V1 items tracked in INTAKE.md as
-`DONE | OPEN(owner: operator)` — open items narrow the corpus, never block.
+that cites the source. **Retention policy:** after the scrub, the RAW export is
+DELETED — only the redacted copy + a `manifest.yaml` (per-file sha256 of raw and
+redacted, redaction counts by pattern) is retained, so provenance is provable
+without holding unscrubbed content. Operator-gated V1 items tracked in INTAKE.md
+as `DONE | OPEN(owner: operator)` — open items narrow the corpus, never block.
 
-### 2.5 The three tools (Track 1-2; small, deterministic, no deps beyond repo)
+### 2.5 The four tools (Track 1-2; small, deterministic, no deps beyond repo)
 
 | Tool | ~size | Contract |
 |---|---|---|
-| `src/lab/shop/cite-check.ts` | ~150 loc | input: file(s) with citations (`path[:Lx-Ly][@sha]`, `ledger:<row-id>`, `commit:<sha>`); resolves each against the working tree / git; exit 0 iff all resolve; JSON report |
-| `src/lab/shop/ledger-check.ts` | ~100 loc | parses GADGETS.md YAML block; reconciles boundary enumeration ↔ rows; validates closed vocab + check contracts; exit 0 iff reconciled |
-| `src/lab/shop/probe.ts` | ~120 loc | loads probe fixtures (`lab/probe-fixtures.yaml`: 4 dimensions → required citation classes); given a probe ANSWER file, runs cite-check on it + asserts each dimension's required classes present; exit 0 = probe pass |
+| `src/lab/shop/cite-check.ts` | ~180 loc | input: file(s) with citations (`path[:Lx-Ly][@sha]`, `ledger:<row-id>`, `commit:<sha>`); exit 0 iff all resolve; JSON report |
+| `src/lab/shop/ledger-check.ts` | ~120 loc | parses GADGETS.md YAML block; reconciles boundary enumeration ↔ rows; validates closed enums + check contracts; `--render` regenerates the human table; exit 0 iff reconciled |
+| `src/lab/shop/probe.ts` | ~120 loc | loads probe fixtures (`lab/probe-fixtures.yaml`: 4 dimensions → required citation classes); given a probe ANSWER file, runs cite-check + asserts each dimension's required classes; **appends result to `lab/probe-results.jsonl`** (the persisted artifact `finn doctor` reads); exit 0 = pass |
+| `src/lab/shop/corpus-scrub.ts` | ~60 loc | redaction gate (2.4): applies secret_scanning patterns + writes manifest.yaml; exit 0 = scrubbed |
 
-All three: vitest-covered, integer/boolean outputs, no LLM, no network. They ARE
-gadgets — enrolled in the ledger with their own checks (the shop's tools live on
-its own shelves).
+**cite-check resolution semantics:** citations with `@sha` resolve via
+`git show sha:path` (immune to later rewrites); pathless-SHA citations resolve
+iff the commit exists and is an ancestor of HEAD; working-tree citations resolve
+against a CLEAN tracked file (dirty target → `dirty` failure, not a pass);
+symlinks are not followed; a path that exists with a drifted range reports
+`moved`, a missing path/commit reports `dead` — both fail, distinctly.
+
+All four: vitest-covered, integer/boolean outputs, no LLM, no network. They ARE
+gadgets — enrolled in the ledger with their own checks and LOC ceilings (the
+shop's tools live on its own shelves).
 
 ### 2.6 finn-cli (Track 3 — SPEC in this cycle; v0 build gated)
 
@@ -128,7 +161,7 @@ Contract (absorbs flatline root E):
 
 | Verb | Reads | Output | Errors |
 |---|---|---|---|
-| `finn doctor` | claim-inventory + GADGETS + corpus provenance + probe fixtures | health table: identity claims resolve? ledger reconciled? corpus tiers? last probe result | exit 1 on any red; `--json` for tooling |
+| `finn doctor` | claim-inventory + GADGETS + corpus provenance + `lab/probe-results.jsonl` (persisted — the CLI stays read-only) | health table: identity claims resolve? ledger reconciled? corpus tiers? last probe result | exit 1 on any red; `--json` for tooling |
 | `finn gadgets [id]` | GADGETS.md YAML block | list/status/check per gadget; `--run-check <id>` executes the row's check under its contract | exit = check exit; unknown id → 2 |
 | `finn consult <subject> -q <file>` | CONSULTATIONS.md protocol + corpus | scaffolds a testimony record (pre-registered questions); SETTLE side calls cite-check | refuses person-subjects lacking an ethics header (privacy filter) |
 | `finn settles` | lab/SETTLES.md | list settled verdicts + evidence links | — |
@@ -143,16 +176,23 @@ v0 build (FR-9, gated on T1+T2 acceptance): `doctor` + `gadgets` only.
 
 Defined above in-place: ledger row (2.2), testimony frontmatter (2.3),
 provenance.yaml (2.4), claim-inventory entry (2.1), probe fixture
-(`{dimension, question, required_citation_classes[]}`). Where shapes touch the
-Corpus Engine's substrate (settle verdicts, calibration), its schemas are
-canonical (PRD §6 sibling precedence) — this cycle only READS them.
+(`{dimension, question, required_citation_classes[]}`), probe result line
+(`{ts, fixtures_version, pass, dimensions: {..}, validator_report_path}`).
+Every shape carries `schema_version: 1` with closed enums; validators reject
+unknown versions/fields (fail-closed compat). **Sibling consumption pinned:**
+this cycle reads exactly two Corpus Engine artifacts — `lab/SETTLES.md`
+(verdict entries, display only) and the `gadgets/realness-verdict` module id —
+at their in-repo state on this branch; nothing else is imported, and neither is
+modified here.
 
 ## 4. Security & privacy
 
 - Intake redaction gate before anything enters corpus (2.4); secret patterns
-  reused from flatline config — one pattern SoT.
-- `internal-only` provenance is enforced at the two egress points: consultation
-  testimony (citations only, no raw bodies) and CLI output (privacy filter, 2.6).
+  reused from flatline config — one pattern SoT; raw exports not retained.
+- `internal-only` provenance is enforced at EVERY egress, not just testimony and
+  CLI stdout: cite-check/probe JSON reports, diagnostics, and check output emit
+  citations/metadata only — a shared `refOnly()` formatter is the single place
+  corpus content could leak, and its test asserts raw bodies never appear.
 - Person-construct ethics: consult verb refuses subjects without an ethics
   header; roster brief is the header's home.
 - No network calls in any tool; no new secrets; nothing here touches auth paths.
@@ -168,9 +208,15 @@ Corpus Engine's engine directly (sibling precedence — consume, don't fork).
 ## 6. Sprint-shaped seams (input to Phase 5)
 
 S1 Identity+ledger substrate (FR-1..3 + cite-check/ledger-check) →
-S2 Consultation protocol + corpus intake (FR-4..5 + probe + consultation #2) →
+S2 Consultation protocol + corpus intake (FR-4..5 + probe + corpus-scrub +
+consultation #2) →
 S3 Probe run vs baseline + CLI spec ratification (FR-8; G1 measured) →
 S4 (gated) finn-cli v0 `doctor`+`gadgets` (FR-9).
+
+Sprint-plan requirement (flatline): every task carries measurable pass/fail ACs
+including NEGATIVE tests — malformed ledger rows, dangling/moved/dirty
+citations, out-of-boundary homes, unknown schema versions, redaction misses —
+not just happy paths.
 
 ## 7. Risks (design-level)
 
