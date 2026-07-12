@@ -1,0 +1,39 @@
+# claim-inventory.yaml — the load-bearing identity claims, each with a citation
+# the validator resolves mechanically (PRD FR-1; checked by
+# `npx tsx src/lab/shop/cite-check.ts --yaml grimoires/loa/identity/claim-inventory.yaml`).
+# class: observed (evidence read/ran) | claimed (a doc asserts it)
+schema_version: 1
+claims:
+  - claim: finn began as a minimal persistent Loa agent — the k3s counter-thesis to loa-beauvoir
+    cite: "commit:421f4a44"
+    class: observed
+  - claim: the founding research doc states the minimalism thesis verbatim
+    cite: "grimoires/loa/context/research-minimal-pi.md"
+    class: observed
+  - claim: the operator reframed finn as a research engine / appraiser in June 2026
+    cite: "commit:7887268b"
+    class: observed
+  - claim: the gadget-factory operating shape is the operator's own 2026-06-14 frame
+    cite: "grimoires/loa/context/gadget-factory-brief.md"
+    class: observed
+  - claim: the PSRO metabolism toy loop turns end-to-end, deterministically
+    cite: "commit:9ff050ae"
+    class: observed
+  - claim: every shop instrument is enrolled on one shelf with a binding check
+    cite: "grimoires/loa/lab/GADGETS.md"
+    class: observed
+  - claim: the realness filter settled x402 as ~99.3% self-dealing wash (SETTLE-001)
+    cite: "grimoires/loa/lab/SETTLES.md"
+    class: observed
+  - claim: the lab's epistemology is pre-register, deterministic settle, abstain over fabricate
+    cite: "grimoires/loa/lab/METHODOLOGY.md"
+    class: observed
+  - claim: the runtime half is built but not deployed (all recorded ECS deploys failed; no live endpoint)
+    cite: "grimoires/loa/lore/lineage.md"
+    class: observed
+  - claim: custody passed from the founder to the operator in April-May 2026 (grant summarized in lineage)
+    cite: "grimoires/loa/lore/lineage.md"
+    class: claimed
+  - claim: the Predecessor Desk answers origin-intent questions from the record, fail-closed
+    cite: "grimoires/loa/lab/roster/jani.md"
+    class: observed
