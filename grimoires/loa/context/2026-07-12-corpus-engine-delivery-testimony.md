@@ -34,7 +34,7 @@ the PRD).
 ## Q2 — Did it meet its own V1 bar? · HIGH
 
 **No.** The bar is written into the PRD: *"unattended, for ≥2 consecutive
-scheduled cycles"* (`grimoires/loa/prd.md:L42`). No scheduled run ever
+scheduled cycles"* (`grimoires/loa/prd.md:L42-L42`). No scheduled run ever
 happened: the dispatch path (FR-1) is unbuilt, and the lab's calibration
 ledger (`grimoires/loa/lab/cabt-calibration-logged.jsonl`) records hand-run
 entries only. The external blocker (dune-meter 405) cleared 2026-06-24 via
