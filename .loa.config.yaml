@@ -1542,6 +1542,66 @@ prompt_enhancement:
 # Route Flatline calls through cheval.py adapter (supports Gemini + all providers)
 hounfour:
   flatline_routing: true
+  # ==========================================================================
+  # Frontier-voice overrides — SYNCED from loa-freeside 2026-07-12 (operator:
+  # "use the Loa config from bonfire with Cursor Grok and 5.6 Sol"; canonical
+  # wiring authored in loa-freeside 2026-07-09, both dispatch paths PROVEN).
+  # NAME↔PAYLOAD workaround (loa#1199): flatline's allowlist reads the SoT
+  # defaults only, so known-good NAMES (codex-headless / grok-headless /
+  # cursor-headless) carry the new payloads via extra.cli_model deep-merge.
+  # ==========================================================================
+  providers:
+    openai:
+      models:
+        # GPT-5.6 SOL — PRIMARY path: native codex CLI (CodexHeadlessAdapter).
+        # cli_model is the exact id codex exec --model accepts (proven 0.144.0, 2026-07-09).
+        gpt-5.6-sol:
+          auth_type: headless
+          dispatch_group: openai-gpt
+          kind: cli
+          capabilities: [chat, code]
+          context_window: 1000000 # GPT-5.6 Sol 1M
+          # No pricing entry — codex subscription, metered at $0.
+          # No fallback_chain: cheval blocks cross-company entries; voice-drop is
+          # the mechanism when the codex subscription caps.
+          extra:
+            cli_model: gpt-5.6-sol
+        # FLATLINE VOICE OVERRIDE: known-good NAME codex-headless carries the SOL
+        # payload (deep-merge overrides only these keys; SoT entry stands).
+        codex-headless:
+          context_window: 1000000
+          extra:
+            cli_model: gpt-5.6-sol # was gpt-5.5
+    cursor:
+      models:
+        # GPT-5.6 SOL — FALLBACK broker (activates when codex chain exhausts).
+        gpt-5.6-sol:
+          auth_type: headless
+          dispatch_group: cursor-agent
+          kind: cli
+          capabilities: [chat, code]
+          context_window: 1000000
+          extra:
+            cli_model: gpt-5.6-sol-high # cursor-agent id: GPT-5.6 Sol 1M High
+        # Grok 4.5 via Cursor subscription. PROVEN 2026-07-09 (loa-freeside).
+        grok-4.5:
+          auth_type: headless
+          dispatch_group: cursor-agent
+          kind: cli
+          capabilities: [chat, code]
+          context_window: 256000
+          extra:
+            cli_model: grok-4.5-xhigh # cursor-agent id: Cursor Grok 4.5
+    xai:
+      models:
+        # FLATLINE VOICE OVERRIDE: native grok CLI dropped 'grok-build' — repoint
+        # the known-good NAME grok-headless at grok-4.5 (the CLI's default).
+        grok-build:
+          extra:
+            cli_model: grok-4.5
+  aliases:
+    gpt-5.6-sol: "openai:gpt-5.6-sol"
+    grok-4.5: "cursor:grok-4.5"
 
 # =============================================================================
 # Multi-model adversarial review for planning documents
@@ -1555,17 +1615,16 @@ flatline_protocol:
 
   # Models for adversarial review
   models:
-    # Primary model — Claude voice. NOTE: to run headless ("Cursor Claude" / native claude-code,
-    # no ANTHROPIC_API_KEY), flatline-orchestrator's validate_model must accept the `native` alias —
-    # it currently rejects it (only remote gpt/claude/gemini patterns). That's a Loa framework gap
-    # (System Zone), filed separately. Until then this remote `opus` needs ANTHROPIC_API_KEY.
-    primary: "opus"
-    # Secondary model — GPT voice routed through CODEX (was gpt-5.2). Aligns with the cheval agent
-    # bindings (flatline-reviewer/skeptic → reviewer/reasoning = openai:gpt-5.3-codex) and uses the
-    # present OPENAI_API_KEY via the Responses API. Bump to gpt-5.5-codex once that model id is confirmed.
-    secondary: "gpt-5.3-codex"
-    # Tertiary model
-    tertiary: "gemini-2.5-flash"
+    # SYNCED from loa-freeside 2026-07-12 (frontier voices wired there 2026-07-09).
+    # Dispatch (via hounfour extra.cli_model overrides above):
+    #   codex-headless  → gpt-5.6-sol   (codex exec, PROVEN 0.144.0)
+    #   cursor-headless → composer-2.5  (SoT default; Cursor corpus anchor)
+    #   grok-headless   → grok-4.5      (native grok CLI default; grok-build id dead)
+    # Three companies, three CLIs — all subscription-auth headless, no API keys.
+    # Rename to honest names (gpt-5.6-sol / grok-4.5) once loa#1199 lands.
+    primary: "codex-headless"
+    secondary: "cursor-headless"
+    tertiary: "grok-headless"
 
   # Consensus thresholds (0-1000 scale)
   thresholds:
