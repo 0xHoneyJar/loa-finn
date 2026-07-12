@@ -16,8 +16,6 @@ hivemind:
 
 # Sprint Plan — Finn's Shop (bd-1vp7)
 
-**Supersedes (active slot):** `sprint.archived-2026-07-12-pre-shop-corpus-engine.md` (Corpus Engine V1 draft, simstim aborted — preserved, not deleted)
-
 > 4 sprints. Every task has pass/fail ACs including NEGATIVE tests (SDD §6).
 > Code tasks run through /implement inside /run; doc tasks are grimoire-zone.
 > S4 is GATED: begins only when S1–S3 ACs are green via the aggregate runner.
