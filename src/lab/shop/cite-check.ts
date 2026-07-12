@@ -35,7 +35,7 @@ import {
 // only reading of an at-sign (a blob-sha suffix must hit the sha branch, not
 // be swallowed into the path — adversarial finding #4's regex root cause).
 const CITE_RE =
-  /^(?:commit:(?<commit>[0-9a-f]{7,40})|ledger:(?<ledger>[A-Za-z0-9][A-Za-z0-9._-]*)|(?<path>[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+)(?::L(?<a>\d+)-L(?<b>\d+))?(?:@(?<sha>[0-9a-f]{7,40}))?)$/
+  /^(?:commit:(?<commit>[0-9a-f]{7,40})|ledger:(?<ledger>[A-Za-z0-9][A-Za-z0-9._-]*)|(?<path>[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)(?::L(?<a>\d+)-L(?<b>\d+))?(?:@(?<sha>[0-9a-f]{7,40}))?)$/
 
 const DEFAULT_LEDGER = "grimoires/loa/lab/GADGETS.md"
 
@@ -54,9 +54,10 @@ function git(args: string[], cwd: string): string | null {
 function looksLikeCite(tok: string): boolean {
   if (tok.includes(" ")) return false
   if (tok.startsWith("commit:") || tok.startsWith("ledger:")) return true
-  if (!tok.includes("/")) return false
   const qualified = /:L\d+/.test(tok) || /@[^/]+$/.test(tok)
-  const lastSegHasExt = (tok.split("@")[0].split(":")[0].split("/").pop() ?? "").includes(".")
+  // Slash optional: root files (`README.md`) are citable. A multi-dot version
+  // string or bare word without a path-like extension stays prose.
+  const lastSegHasExt = /\.[a-z]{2,6}$/i.test(tok.split("@")[0].split(":")[0].split("/").pop() ?? "")
   return qualified || lastSegHasExt
 }
 

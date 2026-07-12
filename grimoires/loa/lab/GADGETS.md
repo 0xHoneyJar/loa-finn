@@ -103,6 +103,22 @@ past the ceiling forces a split-or-graduate decision before merge.
   graduation: src-imported
   loc_ceiling: 200
   evidence: {note: "bd-1vp7 S1-T1.2; validates its own ledger (this file)"}
+- id: shop-probe
+  what: self-legibility probe runner — G1's instrument; appends probe-results.jsonl
+  status: KEEP
+  home: src/lab/shop/probe.ts
+  check: {runner: vitest, target: src/lab/shop, args: [], exit: zero-is-pass, timeout_s: 120, contract: declared}
+  graduation: src-imported
+  loc_ceiling: 150
+  evidence: {note: "bd-1vp7 S2-T2.4; dimension/class/dangling negatives tested"}
+- id: shop-corpus-scrub
+  what: corpus intake redaction gate — flatline secret patterns SoT, manifest hashes
+  status: KEEP
+  home: src/lab/shop/corpus-scrub.ts
+  check: {runner: vitest, target: src/lab/shop, args: [], exit: zero-is-pass, timeout_s: 120, contract: declared}
+  graduation: src-imported
+  loc_ceiling: 100
+  evidence: {note: "bd-1vp7 S2-T2.1; refuses to scrub blind; raw hashes retained, raws deleted"}
 - id: candidate-002-survival-forecaster
   what: survival-forecast service over the realness filter (gadget-factory-brief #002)
   status: CANDIDATE
@@ -135,6 +151,8 @@ past the ceiling forces a split-or-graduate decision before merge.
 | metabolism-verify | independent re-checker — re-derives a run's claims, fail-closed (verify.py-equivalent) | KEEP | vitest | declared | src-imported |
 | shop-cite-check | citation validator — the self-legibility probe's primary gate | KEEP | vitest | declared | src-imported |
 | shop-ledger-check | gadget-ledger validator — closed enums, constrained runner, boundary reconcile, --render | KEEP | vitest | declared | src-imported |
+| shop-probe | self-legibility probe runner — G1's instrument; appends probe-results.jsonl | KEEP | vitest | declared | src-imported |
+| shop-corpus-scrub | corpus intake redaction gate — flatline secret patterns SoT, manifest hashes | KEEP | vitest | declared | src-imported |
 | candidate-002-survival-forecaster | survival-forecast service over the realness filter (gadget-factory-brief | CANDIDATE | vitest | pending | pending |
 | candidate-003-realness-score | realness-score service (gadget-factory-brief | CANDIDATE | vitest | pending | pending |
 <!-- ledger-table:end -->
