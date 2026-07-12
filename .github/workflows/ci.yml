@@ -16,8 +16,6 @@ jobs:
   # =============================================================================
   template-guard:
     name: Template Protection
-    # Only run on the loa template repo — deployed instances (loa-finn, etc.) have these files legitimately
-    if: github.repository == '0xHoneyJar/loa'
     runs-on: ubuntu-latest
 
     steps:
@@ -57,12 +55,13 @@ jobs:
 
           VIOLATIONS=()
 
-          # Only check files newly added by this PR/push (diff-filter=A).
-          # Existing project files on consumer repos should not trip the template guard.
+          # Only check paths newly introduced by this PR/push. Disabling rename
+          # detection makes a rename destination appear as an addition, so a
+          # forbidden path cannot bypass this guard through a rename.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            CHANGED_FILES=$(git diff --name-only --diff-filter=A "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" 2>/dev/null || echo "")
+            CHANGED_FILES=$(git diff --name-only --no-renames --diff-filter=A "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" 2>/dev/null || echo "")
           else
-            CHANGED_FILES=$(git diff --name-only --diff-filter=A "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null || echo "")
+            CHANGED_FILES=$(git diff --name-only --no-renames --diff-filter=A "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null || echo "")
           fi
 
           if [ -z "$CHANGED_FILES" ]; then
