@@ -37,6 +37,13 @@ describe("resolveCite — positive", () => {
   it("resolves a fitting line range", () => {
     expect(resolveCite("docs/a.md:L1-L3", root).status).toBe("ok")
   })
+  it(":Ln sugar resolves as Ln-Ln (probe run #1 gap)", () => {
+    expect(resolveCite("docs/a.md:L1", root).status).toBe("ok")
+    expect(resolveCite("docs/a.md:L9", root).status).toBe("moved")
+  })
+  it("comma-list ranges stay illegal", () => {
+    expect(resolveCite("docs/a.md:L1,L2-L3", root).status).toBe("dead")
+  })
   it("resolves path@sha immune to later edits", () => {
     writeFileSync(join(root, "docs/a.md"), "line1\n")
     expect(resolveCite(`docs/a.md:L1-L3@${sha}`, root).status).toBe("ok")

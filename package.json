@@ -109,5 +109,8 @@
         "GHSA-gv7w-rqvm-qjhr"
       ]
     }
+  },
+  "bin": {
+    "finn": "./src/lab/shop/finn-cli.ts"
   }
 }

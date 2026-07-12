@@ -34,8 +34,11 @@ import {
 // Path segments deliberately exclude '@' so the trailing @sha group is the
 // only reading of an at-sign (a blob-sha suffix must hit the sha branch, not
 // be swallowed into the path — adversarial finding #4's regex root cause).
+// `:Ln` is sugar for `:Ln-Ln` (single-line citations are natural; probe run #1
+// showed fresh readers reach for them). Comma-lists stay illegal — one range
+// per citation.
 const CITE_RE =
-  /^(?:commit:(?<commit>[0-9a-f]{7,40})|ledger:(?<ledger>[A-Za-z0-9][A-Za-z0-9._-]*)|(?<path>[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)(?::L(?<a>\d+)-L(?<b>\d+))?(?:@(?<sha>[0-9a-f]{7,40}))?)$/
+  /^(?:commit:(?<commit>[0-9a-f]{7,40})|ledger:(?<ledger>[A-Za-z0-9][A-Za-z0-9._-]*)|(?<path>[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)(?::L(?<a>\d+)(?:-L(?<b>\d+))?)?(?:@(?<sha>[0-9a-f]{7,40}))?)$/
 
 const DEFAULT_LEDGER = "grimoires/loa/lab/GADGETS.md"
 
@@ -106,7 +109,7 @@ export function resolveCite(tok: string, repoRoot: string, ledgerPath = DEFAULT_
 
   const path = g.path
   const a = g.a ? parseInt(g.a, 10) : null
-  const b = g.b ? parseInt(g.b, 10) : null
+  const b = g.b ? parseInt(g.b, 10) : a // :Ln sugar → Ln-Ln
   if (a !== null && b !== null && (a < 1 || b < a))
     return { cite: tok, status: "dead", detail: "invalid line range" }
 
