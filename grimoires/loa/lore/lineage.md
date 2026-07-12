@@ -22,7 +22,7 @@ minimalist counter-move to loa-beauvoir's fork-the-cathedral approach —
 moment"* (`grimoires/loa/context/research-minimal-pi.md`, born in
 `commit:421f4a44`; v0.1.0 = `commit:9c92ae69`). The name is the thesis:
 Count Zero's Finn, the fence/fixer with minimal apparatus and deep knowledge —
-formalized later as "narrative architecture" (`commit:03a513ad`).
+formalized later as "narrative architecture" (`docs/ecosystem-architecture.md`).
 
 ## The cosmology
 
@@ -36,7 +36,7 @@ Finn = deliberately NOT a loa — the construct with a shopfront
 ## The founder's arc and exit
 
 Hardening (defer-to-upstream WAL, worker sandbox) → the commercial turn
-(hounfour Phase 5, finnNFT routing — `commit:11e0e634`) → launch march
+(hounfour Phase 5, finnNFT routing — absorbed and live in `src/hounfour/router.ts`) → launch march
 (x402, the Goodhart loop; cycle-035's own words: *"it scores but doesn't
 route, it verifies but doesn't settle"*) → the final thesis, Per-NFT
 Personality on Mibera (`commit:0eda3ed3`) → last mainline commit 2026-04-05
