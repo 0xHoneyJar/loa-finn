@@ -24,6 +24,9 @@ SKILLS_DIR="${SKILLS_DIR:-$PROJECT_ROOT/.claude/skills}"
 # shellcheck source=yq-safe.sh
 source "$SCRIPT_DIR/yq-safe.sh"
 
+# shellcheck source=lib/dx-utils.sh
+source "$SCRIPT_DIR/lib/dx-utils.sh"
+
 # --- CLI flags ---
 STRICT=false
 JSON_OUTPUT=false
@@ -33,7 +36,15 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --strict) STRICT=true; shift ;;
         --json) JSON_OUTPUT=true; shift ;;
-        --skill) SINGLE_SKILL="$2"; shift 2 ;;
+        --skill)
+            # R-010 (bd-m1o6): '--skill' as the last arg used to leak a raw
+            # bash '$2: unbound variable' error under set -u.
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --skill requires a skill name (e.g. --skill reviewing-code)" >&2
+                echo "Usage: validate-skill-capabilities.sh [--strict] [--json] [--skill NAME]" >&2
+                exit 2
+            fi
+            SINGLE_SKILL="$2"; shift 2 ;;
         -h|--help)
             echo "Usage: validate-skill-capabilities.sh [--strict] [--json] [--skill NAME]"
             echo "  --strict   Promote warnings to errors"
@@ -41,12 +52,46 @@ while [[ $# -gt 0 ]]; do
             echo "  --skill    Validate single skill"
             exit 0
             ;;
-        *) echo "Unknown arg: $1" >&2; exit 2 ;;
+        *)
+            dx_unknown_flag "$1" "Usage: validate-skill-capabilities.sh [--strict] [--json] [--skill NAME]" \
+                --strict --json --skill --help
+            exit 2
+            ;;
     esac
 done
 
 # --- Internal sub-skills to skip ---
 SKIP_SKILLS=("flatline-reviewer" "flatline-scorer" "flatline-skeptic" "gpt-reviewer")
+
+# --- Cycle-108 T1.D: role/primary_role validation constants ---
+# Valid role enum (PRD §5 FR-3, SDD §4.1)
+VALID_ROLES=("planning" "review" "implementation")
+# cycle-114 FR-3: valid values for the optional `effort:` frontmatter key
+# (maps to the Anthropic output_config.effort control on Opus 4.5+/Sonnet 4.6).
+VALID_EFFORTS=("low" "medium" "high" "xhigh" "max")
+# cycle-114 FR-4: review skills that legitimately retain Write because they
+# author STATE-zone artifacts (reports, vision/lore). For these the C-PROC-001
+# "no application code" boundary is enforced by ZONES, not by removing Write.
+# Adding a new write-capable review skill is intentionally a one-line edit here
+# with reviewer visibility (mirrors WRITE_CAPABLE_AGENTS).
+REVIEW_WRITE_EXCEPTIONS=("red-teaming" "bridgebuilder-review" "spiraling" "autonomous-agent" "run-bridge" "run-mode")
+
+# Review-class keywords for heuristic linter (SDD §20.5 ATK-A13)
+# Skills declaring role: review|audit MUST have >=2 of these in body
+REVIEW_CLASS_KEYWORDS=(
+    "review" "audit" "validate" "verify" "score"
+    "consensus" "adversarial" "inspect" "findings" "regression"
+)
+REVIEW_KEYWORD_MIN=2
+
+# Advisor-wins-ties tiebreaker (SDD §4.1, IMP-012):
+# When primary_role != role, only these downgrades are permitted (most-restrictive wins).
+# review beats planning beats implementation. Permitted primary_role:role pairs:
+ADVISOR_WINS_PAIRS=(
+    "review:planning"
+    "review:implementation"
+    "planning:implementation"
+)
 
 should_skip() {
     local name="$1"
@@ -70,6 +115,207 @@ is_write_capable_agent() {
     return 1
 }
 
+# --- Cycle-119 C13: model:/agent: frontmatter invariants ---
+# (a) role: review|audit is the Claude-harness twin of NFR-Sec1: these skills
+#     MUST NOT declare model: or agent: frontmatter (they run in-session,
+#     verdict-bearing, and must not be routed to a cheaper model/agent type).
+# (b) Any SKILL.md that declares model: must use one of these literal forms —
+#     catches typos (e.g. "sonet") that would otherwise silently fall back to
+#     the caller's inherited model.
+VALID_MODEL_REGEX='^(haiku|sonnet|opus|fable|inherit|claude-[a-z0-9.-]+)$'
+
+# Args: skill_name frontmatter role
+validate_skill_model_agent() {
+    local skill_name="$1"
+    local frontmatter="$2"
+    local role="$3"
+    local ok=true
+
+    local model_val agent_val
+    model_val=$(echo "$frontmatter" | yq eval '.model // ""' - 2>/dev/null) || model_val=""
+    agent_val=$(echo "$frontmatter" | yq eval '.agent // ""' - 2>/dev/null) || agent_val=""
+
+    if [[ "$role" == "review" || "$role" == "audit" ]]; then
+        if [[ -n "$model_val" && "$model_val" != "null" ]]; then
+            log_error "$skill_name" "role: $role MUST NOT declare model: frontmatter (cycle-119 C13a — Claude-harness twin of NFR-Sec1)"
+            ok=false
+        fi
+        if [[ -n "$agent_val" && "$agent_val" != "null" ]]; then
+            log_error "$skill_name" "role: $role MUST NOT declare agent: frontmatter (cycle-119 C13a — Claude-harness twin of NFR-Sec1)"
+            ok=false
+        fi
+    fi
+
+    if [[ -n "$model_val" && "$model_val" != "null" ]]; then
+        if ! [[ "$model_val" =~ $VALID_MODEL_REGEX ]]; then
+            log_error "$skill_name" "Invalid model: '$model_val' (must match $VALID_MODEL_REGEX — cycle-119 C13b, catches silent-inherit typos)"
+            ok=false
+        fi
+    fi
+
+    [[ "$ok" == "true" ]]
+}
+
+# --- Cycle-108 T1.D helpers ---
+
+is_valid_role() {
+    local role="$1"
+    for r in "${VALID_ROLES[@]}"; do
+        [[ "$role" == "$r" ]] && return 0
+    done
+    return 1
+}
+
+is_permitted_role_pair() {
+    # Args: primary_role role
+    # Returns 0 if the (primary_role:role) combination is allowed under advisor-wins-ties
+    local pair="$1:$2"
+    for p in "${ADVISOR_WINS_PAIRS[@]}"; do
+        [[ "$pair" == "$p" ]] && return 0
+    done
+    return 1
+}
+
+count_review_keywords_in_body() {
+    # Count occurrences of review-class keywords in the SKILL.md body (after frontmatter)
+    # Args: path-to-SKILL.md
+    # Output: integer count of UNIQUE keywords matched
+    local skill_md="$1"
+    local body
+    # Strip first frontmatter block to get body
+    body=$(awk '/^---$/{n++; next} n>=2' "$skill_md")
+    if [[ -z "$body" ]]; then
+        echo 0
+        return 0
+    fi
+    local hits=0
+    for kw in "${REVIEW_CLASS_KEYWORDS[@]}"; do
+        # Word-boundary, case-insensitive match
+        if echo "$body" | grep -qiwF "$kw"; then
+            hits=$((hits + 1))
+        fi
+    done
+    echo "$hits"
+}
+
+has_review_exempt_comment() {
+    # Returns 0 if SKILL.md body contains a # REVIEW-EXEMPT: comment
+    local skill_md="$1"
+    grep -qE '^[[:space:]]*#[[:space:]]*REVIEW-EXEMPT:[[:space:]]+\S+' "$skill_md"
+}
+
+has_role_change_authorization() {
+    # Returns 0 if SKILL.md body contains a valid # ROLE-CHANGE-AUTHORIZED-BY: comment.
+    # Format: # ROLE-CHANGE-AUTHORIZED-BY: <operator> ON <YYYY-MM-DD>
+    local skill_md="$1"
+    grep -qE '^[[:space:]]*#[[:space:]]*ROLE-CHANGE-AUTHORIZED-BY:[[:space:]]+\S+[[:space:]]+ON[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}' "$skill_md"
+}
+
+# Reads previous role from git for diff-aware role-change rule.
+# Output: previous role value, or empty string if file is untracked / no prior role.
+previous_role_from_git() {
+    local skill_md="$1"
+    # Only attempt git lookup if we're inside a git repo
+    if ! git -C "$PROJECT_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+        echo ""
+        return 0
+    fi
+    # If file is untracked (first commit), no previous role exists
+    if ! git -C "$PROJECT_ROOT" ls-files --error-unmatch "$skill_md" >/dev/null 2>&1; then
+        echo ""
+        return 0
+    fi
+    # Extract previous role from HEAD version of the file
+    local prev_content prev_role
+    prev_content=$(git -C "$PROJECT_ROOT" show "HEAD:$skill_md" 2>/dev/null) || prev_content=""
+    if [[ -z "$prev_content" ]]; then
+        echo ""
+        return 0
+    fi
+    local prev_frontmatter
+    prev_frontmatter=$(echo "$prev_content" | awk '/^---$/{if(n++) exit; next} n')
+    prev_role=$(echo "$prev_frontmatter" | yq eval '.role // ""' - 2>/dev/null) || prev_role=""
+    echo "$prev_role"
+}
+
+# Cycle-108 T1.D: validate role/primary_role/review-keyword/diff-aware rules
+# Args: skill_name skill_md frontmatter
+# Returns 0 if all checks pass; sets has_error=true in caller scope on failure
+# (mirrors the rest of this script's error-propagation convention).
+validate_skill_role() {
+    local skill_name="$1"
+    local skill_md="$2"
+    local frontmatter="$3"
+
+    local role primary_role
+    role=$(echo "$frontmatter" | yq eval '.role // ""' - 2>/dev/null) || role=""
+    primary_role=$(echo "$frontmatter" | yq eval '.primary_role // ""' - 2>/dev/null) || primary_role=""
+
+    # 1. role field is REQUIRED
+    if [[ -z "$role" || "$role" == "null" ]]; then
+        log_error "$skill_name" "Missing required 'role' field (one of: ${VALID_ROLES[*]}) — cycle-108 T1.D"
+        return 1
+    fi
+
+    # 2. role is a valid enum value
+    if ! is_valid_role "$role"; then
+        log_error "$skill_name" "Invalid role '$role' (must be one of: ${VALID_ROLES[*]}) — cycle-108 T1.D"
+        return 1
+    fi
+
+    # 3. primary_role consistency check (advisor-wins-ties)
+    if [[ -n "$primary_role" && "$primary_role" != "null" ]]; then
+        if ! is_valid_role "$primary_role"; then
+            log_error "$skill_name" "Invalid primary_role '$primary_role' (must be one of: ${VALID_ROLES[*]}) — cycle-108 T1.D"
+            return 1
+        fi
+        # primary_role == role is always fine
+        if [[ "$primary_role" != "$role" ]]; then
+            # Disagreement permitted only under advisor-wins-ties rule
+            if ! is_permitted_role_pair "$primary_role" "$role"; then
+                log_error "$skill_name" "primary_role '$primary_role' does not satisfy advisor-wins-ties rule against role '$role' (permitted: ${ADVISOR_WINS_PAIRS[*]}) — cycle-108 T1.D"
+                return 1
+            fi
+        fi
+    fi
+
+    # 4. Heuristic linter for role=review skills (ATK-A13)
+    # (SDD §20.5: role: review|audit must have >=2 review-class keywords in body
+    # unless REVIEW-EXEMPT magic comment is present.)
+    if [[ "$role" == "review" ]]; then
+        if ! has_review_exempt_comment "$skill_md"; then
+            local kw_count
+            kw_count=$(count_review_keywords_in_body "$skill_md")
+            if [[ "$kw_count" -lt "$REVIEW_KEYWORD_MIN" ]]; then
+                # Soft warning per SDD §20.5 step 1 (failure produces a soft warning unless REVIEW-EXEMPT)
+                log_warning "$skill_name" "role: review but body has only $kw_count review-class keyword(s) (>=$REVIEW_KEYWORD_MIN expected from: ${REVIEW_CLASS_KEYWORDS[*]}). Add '# REVIEW-EXEMPT: <rationale>' to opt out. — cycle-108 T1.D" || return 1
+            fi
+        fi
+    fi
+
+    # 5. Diff-aware role-change rule (SDD §20.10 ATK-A2 + §4.2 step 3)
+    # When role: changes on an existing SKILL.md (detected via git), require
+    # # ROLE-CHANGE-AUTHORIZED-BY: <operator> ON <YYYY-MM-DD> comment.
+    # In particular: review|audit -> implementation transitions MUST be co-signed.
+    local prev_role
+    prev_role=$(previous_role_from_git "$skill_md")
+    if [[ -n "$prev_role" && "$prev_role" != "$role" ]]; then
+        # Role change detected — check authorization
+        if ! has_role_change_authorization "$skill_md"; then
+            # Stricter for downgrades from review/audit
+            if [[ "$prev_role" == "review" && "$role" != "review" ]]; then
+                log_error "$skill_name" "role changed from '$prev_role' to '$role' without '# ROLE-CHANGE-AUTHORIZED-BY: <operator> ON <YYYY-MM-DD>' comment (cycle-108 T1.D ATK-A2: review->non-review downgrade requires explicit co-sign)"
+                return 1
+            else
+                # Softer warning for other changes
+                log_warning "$skill_name" "role changed from '$prev_role' to '$role' without '# ROLE-CHANGE-AUTHORIZED-BY: <operator> ON <YYYY-MM-DD>' comment — cycle-108 T1.D" || return 1
+            fi
+        fi
+    fi
+
+    return 0
+}
+
 # --- Counters ---
 total=0
 errors=0
@@ -77,11 +323,18 @@ warnings=0
 passed=0
 results_json="[]"
 
-# --- Colors ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+# --- Colors (respect NO_COLOR — https://no-color.org/) ---
+if [[ -z "${NO_COLOR:-}" ]] && [[ -t 1 ]]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    NC='\033[0m'
+else
+    RED=''
+    GREEN=''
+    YELLOW=''
+    NC=''
+fi
 
 log_error() {
     local skill="$1" msg="$2"
@@ -105,6 +358,19 @@ log_warning() {
     results_json=$(echo "$results_json" | jq --arg s "$skill" --arg m "$msg" '. + [{"skill": $s, "level": "warning", "message": $m}]')
 }
 
+log_advisory() {
+    # # ICM-L2-INPUTS-LINT: advisory WARN, NEVER promoted to error (even under --strict).
+    # Used by the inputs rot-lint: a declared-but-absent input is a glass-box DRIFT
+    # signal, not a gate. There is deliberately no fail-closed declared-but-not-read
+    # rule (conditional-by-phase reads make undeclared-read flagging wrong-by-construction).
+    local skill="$1" msg="$2"
+    warnings=$((warnings + 1))
+    if [[ "$JSON_OUTPUT" == "false" ]]; then
+        echo -e "  ${YELLOW}WARN${NC}: $msg"
+    fi
+    results_json=$(echo "$results_json" | jq --arg s "$skill" --arg m "$msg" '. + [{"skill": $s, "level": "advisory", "message": $m}]')
+}
+
 log_pass() {
     local skill="$1"
     passed=$((passed + 1))
@@ -120,6 +386,35 @@ has_tool() {
     # Use word-boundary matching to prevent substring false positives
     # (e.g., "WriteConfig" should not match "Write")
     echo "$allowed" | grep -qiwF "$tool"
+}
+
+# # ICM-L2-INPUTS-LINT: ICM Layer-2 advisory inputs manifest rot-lint.
+# Reads the optional top-level `inputs:` frontmatter list (each entry: path[, why]).
+# For each DECLARED path, WARNs (advisory only) if it is absent on disk — a drift
+# signal that the skill's known-failures-first / context inputs have moved. It NEVER
+# flags an undeclared read and NEVER fails the build. Absence of a manifest is fine.
+validate_skill_inputs() {
+    local skill_name="$1" frontmatter="$2"
+    local inputs_raw n i p
+    inputs_raw=$(echo "$frontmatter" | yq eval '.inputs' - 2>/dev/null) || inputs_raw="null"
+    [[ "$inputs_raw" == "null" || -z "$inputs_raw" ]] && return 0
+    local itype; itype=$(echo "$frontmatter" | yq eval '.inputs | type' - 2>/dev/null) || itype=""
+    [[ "$itype" == "!!seq" ]] || { log_advisory "$skill_name" "inputs: is not a list (manifest ignored)"; return 0; }
+    n=$(echo "$frontmatter" | yq eval '.inputs | length' - 2>/dev/null) || n=0
+    [[ "$n" =~ ^[0-9]+$ ]] || return 0
+    for ((i=0; i<n; i++)); do
+        p=$(echo "$frontmatter" | yq eval ".inputs[$i].path // \"\"" - 2>/dev/null) || p=""
+        if [[ -z "$p" ]]; then
+            log_advisory "$skill_name" "inputs[$i] declares no 'path' (advisory manifest entry ignored)"
+            continue
+        fi
+        if [[ "$p" == *'*'* ]]; then
+            compgen -G "$PROJECT_ROOT/$p" >/dev/null 2>&1 || log_advisory "$skill_name" "declared input not found on disk (drift): $p"
+        else
+            [[ -e "$PROJECT_ROOT/$p" ]] || log_advisory "$skill_name" "declared input not found on disk (drift): $p"
+        fi
+    done
+    return 0
 }
 
 validate_skill() {
@@ -250,6 +545,50 @@ validate_skill() {
         fi
     fi
 
+    # --- cycle-114 FR-3: optional `effort:` validation ---
+    # effort is optional. When present it must be a valid level. A
+    # deep-reasoning (xhigh/max) effort paired with a lightweight cost-profile
+    # is a suspicious combination (cheap-tier skill asking for the deepest
+    # reasoning) → WARN, not ERROR.
+    local effort
+    effort=$(echo "$frontmatter" | yq eval '.effort // ""' - 2>/dev/null) || effort=""
+    if [[ -n "$effort" ]]; then
+        local effort_valid=false
+        local e
+        for e in "${VALID_EFFORTS[@]}"; do
+            [[ "$effort" == "$e" ]] && effort_valid=true && break
+        done
+        if [[ "$effort_valid" == "false" ]]; then
+            log_error "$skill_name" "Invalid effort '$effort' (must be one of: ${VALID_EFFORTS[*]}) — cycle-114 FR-3"
+            has_error=true
+        elif [[ "$cp" == "lightweight" && ( "$effort" == "xhigh" || "$effort" == "max" ) ]]; then
+            log_warning "$skill_name" "cost-profile: lightweight but effort: $effort (deep reasoning on a cheap-tier skill — correlation mismatch)" || has_error=true
+        fi
+    fi
+
+    # --- cycle-114 FR-4: review skills must mechanically disallow Write ---
+    # A role:review skill that can write_files but neither disallows Write nor
+    # is a documented write-exception leaves C-PROC-001 ("no application code
+    # outside /implement") enforced only by prose. Surface that gap as a WARN.
+    local fr4_role
+    fr4_role=$(echo "$frontmatter" | yq eval '.role // ""' - 2>/dev/null) || fr4_role=""
+    if [[ "$fr4_role" == "review" ]]; then
+        local fr4_wf
+        fr4_wf=$(echo "$frontmatter" | yq eval '.capabilities.write_files // "null"' - 2>/dev/null) || fr4_wf="null"
+        if [[ "$fr4_wf" == "true" ]]; then
+            local disallowed
+            disallowed=$(echo "$frontmatter" | yq eval '(.disallowed-tools // []) | join(",")' - 2>/dev/null) || disallowed=""
+            local is_exception=false
+            local x
+            for x in "${REVIEW_WRITE_EXCEPTIONS[@]}"; do
+                [[ "$skill_name" == "$x" ]] && is_exception=true && break
+            done
+            if [[ "$is_exception" == "false" ]] && ! has_tool "$disallowed" "Write"; then
+                log_warning "$skill_name" "role: review with capabilities.write_files: true but Write not in disallowed-tools and not a documented write-exception — C-PROC-001 is enforced only by prose (cycle-114 FR-4)" || has_error=true
+            fi
+        fi
+    fi
+
     # --- Agent type vs write-capability invariant (Issue #553) ---
     # When agent: is set to a restricted type (e.g. Plan, Explore) but the skill
     # declares write capability via capabilities.write_files: true OR allowed-tools
@@ -272,6 +611,26 @@ validate_skill() {
             has_error=true
         fi
     fi
+
+    # --- Cycle-108 T1.D: role/primary_role validation ---
+    # Run only if cycle-108 role validation is opt-in (LOA_VALIDATE_ROLE=1)
+    # OR if the skill already declares a role: field (forward-compat: once a
+    # skill opts in, the validator enforces).
+    local declared_role
+    declared_role=$(echo "$frontmatter" | yq eval '.role // ""' - 2>/dev/null) || declared_role=""
+    if [[ "${LOA_VALIDATE_ROLE:-0}" == "1" || -n "$declared_role" ]]; then
+        if ! validate_skill_role "$skill_name" "$skill_md" "$frontmatter"; then
+            has_error=true
+        fi
+    fi
+
+    # --- cycle-119 C13: model:/agent: frontmatter invariants (always on) ---
+    if ! validate_skill_model_agent "$skill_name" "$frontmatter" "$declared_role"; then
+        has_error=true
+    fi
+
+    # # ICM-L2-INPUTS-LINT: advisory inputs manifest drift check (never fails the build)
+    validate_skill_inputs "$skill_name" "$frontmatter"
 
     if [[ "$has_error" == "false" ]]; then
         log_pass "$skill_name"

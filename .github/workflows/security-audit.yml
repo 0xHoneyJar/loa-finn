@@ -15,47 +15,44 @@ on:
   workflow_dispatch:
 
 jobs:
-  pnpm-audit:
-    name: pnpm Security Audit
+  npm-audit:
+    name: NPM Security Audit
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Check if project has dependencies
+      - name: Check if app has dependencies
         id: check-deps
         run: |
-          if [ -f "package.json" ]; then
+          if [ -f "app/package.json" ]; then
             echo "has_deps=true" >> $GITHUB_OUTPUT
           else
             echo "has_deps=false" >> $GITHUB_OUTPUT
-            echo "::notice::No package.json found - skipping pnpm audit (template repo)"
+            echo "::notice::No app/package.json found - skipping NPM audit (template repo)"
           fi
-
-      - name: Setup pnpm
-        if: steps.check-deps.outputs.has_deps == 'true'
-        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
       - name: Setup Node.js
         if: steps.check-deps.outputs.has_deps == 'true'
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '20'
-          cache: 'pnpm'
+          node-version: '18'
 
       - name: Install dependencies
         if: steps.check-deps.outputs.has_deps == 'true'
-        run: pnpm install --frozen-lockfile
+        working-directory: ./app
+        run: npm install
 
-      - name: Run pnpm audit
+      - name: Run npm audit
         if: steps.check-deps.outputs.has_deps == 'true'
-        # Gate on HIGH+ (was: moderate). Moderate transitive-dep advisories are
-        # repo-wide pre-existing noise for a pre-production runtime; gating on them
-        # blocked every PR with no real security benefit. Real high/critical
-        # advisories still fail the build. Documented dev-only exceptions live in
-        # package.json pnpm.auditConfig.ignoreGhsas.
-        run: pnpm audit --audit-level high
+        working-directory: ./app
+        run: npm audit --audit-level=moderate
+
+      - name: Run security check
+        if: steps.check-deps.outputs.has_deps == 'true'
+        working-directory: ./app
+        run: npm run security:check
 
   dependency-review:
     name: Dependency Review
@@ -64,12 +61,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Check if has dependencies to review
         id: check-deps
         run: |
-          if [ -f "package.json" ]; then
+          if [ -f "app/package.json" ] || [ -f "package.json" ]; then
             echo "has_deps=true" >> $GITHUB_OUTPUT
           else
             echo "has_deps=false" >> $GITHUB_OUTPUT
@@ -80,11 +77,7 @@ jobs:
         if: steps.check-deps.outputs.has_deps == 'true'
         uses: actions/dependency-review-action@3c4e3dcb1aa7874d2c16be7d79418e9b7efd6261 # v4.8.2
         with:
-          # high (was: moderate) — consistent with the pnpm-audit gate above (operator-ratified).
-          # The observatory's dev-only Svelte/Vite tree carries moderate transitive advisories that
-          # never reach the production runtime; gating PRs on them blocks docs/UI work for no real
-          # security benefit. Real high/critical advisories in added deps still fail the build.
-          fail-on-severity: high
+          fail-on-severity: moderate
 
       - name: Note if dependency graph not enabled
         if: failure() && steps.check-deps.outputs.has_deps == 'true'
@@ -101,7 +94,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Check if has code to analyze
         id: check-code

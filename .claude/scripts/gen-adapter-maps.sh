@@ -30,6 +30,15 @@
 
 set -euo pipefail
 
+# Pin locale to POSIX C so `sort -u` byte-orders deterministically across hosts.
+# Without this, en_AU/de_DE/etc. produce a different ordering for `gemini-3.1-pro`
+# vs `gemini-3-flash` (locale collation puts `.` < `-`; C puts `-` (0x2D) < `.` (0x2E)).
+# CI runs under `C.UTF-8` and the committed generated-model-maps.sh reflects that
+# byte-order. Latent bug surfaced in cycle-099 Sprint 2E (PR #750) where a local
+# regen under en_AU.UTF-8 produced a different VALID_FLATLINE_MODELS ordering.
+# Canonical convention used by butterfreezone-gen.sh, verify-invariants.sh, etc.
+export LC_ALL=C
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
@@ -80,6 +89,51 @@ fi
 _micro_usd_to_per_1k() {
     local micro="$1"
     awk -v m="$micro" 'BEGIN { printf "%g", m / 1000000000 }'
+}
+
+# bedrock-forward-routing (this PR): when the resolved Bedrock posture is
+# bedrock_only / prefer_bedrock, rewrite aliases that target the direct Anthropic
+# API to their Bedrock equivalent BEFORE emitting the bash maps, so flatline's
+# bash resolve_provider_id agrees with the Python loader. Equivalence comes from
+# each Bedrock model's `fallback_to` (inverted) — no new mapping, no heuristic
+# name matching (SKP-003 compatible). Mirrors loader._apply_bedrock_forward_routing.
+# Produces a temp config that `generate()` then reads via CONFIG_FILE.
+_maybe_apply_bedrock_forward_routing() {
+    local profile
+    profile=$(yq eval -r '.providers.bedrock.compliance_profile // ""' "$CONFIG_FILE" 2>/dev/null || echo "")
+    if [[ "$profile" != "bedrock_only" && "$profile" != "prefer_bedrock" ]]; then
+        return 0  # posture not Bedrock-forward; leave config untouched.
+    fi
+
+    # Build the inverse fallback_to map: { "anthropic:opus": "bedrock:us...opus", ... }
+    local invmap
+    invmap=$(yq eval -o=json '.providers.bedrock.models // {}' "$CONFIG_FILE" 2>/dev/null \
+        | jq -c 'to_entries
+                 | map(select(.value.fallback_to != null and (.value.fallback_to | test(":"))))
+                 | map({ (.value.fallback_to): ("bedrock:" + .key) })
+                 | add // {}')
+    if [[ -z "$invmap" || "$invmap" == "{}" || "$invmap" == "null" ]]; then
+        return 0
+    fi
+
+    # Rewrite each alias whose target appears in the inverse map.
+    local routed_config
+    routed_config="$(mktemp /tmp/loa-model-config-bedrock-routed.XXXXXX)"
+    yq eval -o=json '.' "$CONFIG_FILE" \
+        | jq --argjson inv "$invmap" '
+            .aliases |= ( to_entries
+                | map(.value = ( if (.value | type) == "string" and ($inv[.value] != null)
+                                  then $inv[.value] else .value end ))
+                | from_entries )
+          ' \
+        | yq eval -P '.' - > "$routed_config" 2>/dev/null
+
+    if [[ -s "$routed_config" ]]; then
+        echo "INFO: bedrock-forward-routing active (compliance_profile=$profile): aliases retargeted to Bedrock for codegen" >&2
+        CONFIG_FILE="$routed_config"
+    else
+        rm -f "$routed_config"
+    fi
 }
 
 generate() {
@@ -150,12 +204,54 @@ EOF
         to_entries[]
         | select((.value | split(":")[0]) != "claude-code")
         | select(.value | test("^[^:]+:"))
-        | "    [\"\(.key)\"]=\"\(.value | split(":")[1])\""
+        | "    [\"\(.key)\"]=\"\(.value | (split(":")[1:] | join(":")))\""
     '
 
     yq eval -o=json '.backward_compat_aliases // {}' "$CONFIG_FILE" | jq -r '
         to_entries[]
-        | "    [\"\(.key)\"]=\"\(.value | split(":")[1])\""
+        | "    [\"\(.key)\"]=\"\(.value | (split(":")[1:] | join(":")))\""
+    '
+
+    cat <<EOF
+)
+
+# Cycle-110 sprint-2a T2.5 ([PRD:FR-2.3], SDD §3.2): propagate auth_type +
+# dispatch_group into the generated bash maps so downstream bash callers
+# (resolver, cheval, substrate-health, gen-bb-registry consumer scripts)
+# can look up the same metadata the Python loader validates.
+declare -A MODEL_AUTH_TYPE=(
+EOF
+
+    # BB iter-1 #904 F-002 / jq-null-iteration closure (MED): match Python
+    # loader strictness — every model entry MUST have auth_type;
+    # missing field = jq error with the offending model_id named. Empty
+    # `models` is permitted via `// {}` (matches test_provider_without_models_passes).
+    yq eval -o=json '.providers' "$CONFIG_FILE" | jq -r '
+        to_entries[] as $p
+        | ($p.value.models // {}) | to_entries[] as $m
+        | if ($m.value.auth_type // null) == null
+          then error("[CODEGEN-INVALID] providers.\($p.key).models.\($m.key) missing required auth_type — run gen-adapter-maps after annotating model-config.yaml per SDD §3.2")
+          elif ([$m.value.auth_type] | inside(["headless", "http_api", "aws_iam"]) | not)
+          then error("[CODEGEN-ENUM-INVALID] providers.\($p.key).models.\($m.key).auth_type=\($m.value.auth_type); allowed: headless|http_api|aws_iam")
+          else "    [\"\($m.key)\"]=\"\($m.value.auth_type)\""
+          end
+    '
+
+    cat <<EOF
+)
+
+declare -A MODEL_DISPATCH_GROUP=(
+EOF
+
+    yq eval -o=json '.providers' "$CONFIG_FILE" | jq -r '
+        to_entries[] as $p
+        | ($p.value.models // {}) | to_entries[] as $m
+        | if ($m.value.dispatch_group // null) == null
+          then error("[CODEGEN-INVALID] providers.\($p.key).models.\($m.key) missing required dispatch_group — run gen-adapter-maps after annotating model-config.yaml per SDD §3.2 / C14")
+          elif ($m.value.dispatch_group | test("^[a-z][a-z0-9-]{1,63}$") | not)
+          then error("[CODEGEN-INVALID] providers.\($p.key).models.\($m.key).dispatch_group=\($m.value.dispatch_group); must match ^[a-z][a-z0-9-]{1,63}$")
+          else "    [\"\($m.key)\"]=\"\($m.value.dispatch_group)\""
+          end
     '
 
     cat <<EOF
@@ -176,7 +272,45 @@ EOF
 
     cat <<EOF
 )
+
+# VALID_FLATLINE_MODELS — Sprint-4 T4.2 (closes SDD §1.4 C4 SSOT coverage gap).
+# Hand-maintained array in flatline-orchestrator.sh historically drifted from
+# the YAML during model migrations (cycle-082, cycle-093). Now derived from
+# the same source-of-truth as MODEL_PROVIDERS / MODEL_IDS / COST_*.
+#
+# Contents: union of provider model IDs + aliases + backward-compat aliases.
+# Excludes claude-code: synthetic provider (Claude Code native runtime).
+declare -a VALID_FLATLINE_MODELS=(
 EOF
+
+    _emit_flatline_allowlist
+
+    cat <<EOF
+)
+EOF
+}
+
+_emit_flatline_allowlist() {
+    # Concatenate canonical model IDs across all providers, plus alias keys
+    # and backward-compat alias keys. Sort + dedupe for deterministic output.
+    {
+        yq eval -o=json '.providers' "$CONFIG_FILE" | jq -r '
+            to_entries[] as $p
+            | $p.value.models | keys[]
+        '
+        yq eval -o=json '.aliases // {}' "$CONFIG_FILE" | jq -r '
+            to_entries[]
+            | select((.value | split(":")[0]) != "claude-code")
+            | select(.value | test("^[^:]+:"))
+            | .key
+        '
+        yq eval -o=json '.backward_compat_aliases // {}' "$CONFIG_FILE" | jq -r '
+            to_entries[] | .key
+        '
+    } | sort -u | while IFS= read -r model; do
+        [[ -z "$model" ]] && continue
+        printf '    %s\n' "$model"
+    done
 }
 
 _emit_cost_map() {
@@ -220,6 +354,11 @@ _emit_cost_map() {
         printf '    ["%s"]="%s"\n' "$alias" "$(_micro_usd_to_per_1k "$micro")"
     done
 }
+
+# Apply Bedrock forward-routing to CONFIG_FILE (no-op unless compliance_profile
+# is bedrock_only / prefer_bedrock). Must run before any generate() call so the
+# CHECK, DRY_RUN, and write paths all emit the routed maps.
+_maybe_apply_bedrock_forward_routing
 
 if [[ "$CHECK" == "true" ]]; then
     tmpfile=$(mktemp)

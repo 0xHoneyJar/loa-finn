@@ -1,0 +1,189 @@
+name: cycle-099 Sprint 1E.b endpoint-validator
+
+# cycle-099 Sprint 1E.b (T1.15) — runs the cross-runtime parity test for the
+# centralized endpoint validator AND the PR-level CI guard that asserts no
+# caller bypasses the validator by importing urllib.parse / running curl/wget
+# / using fetch() outside the canonical module.
+
+on:
+  pull_request:
+    paths:
+      - '.claude/scripts/lib/endpoint-validator.py'
+      - '.claude/scripts/lib/endpoint-validator.sh'
+      - 'tests/integration/endpoint-validator-cross-runtime.bats'
+      - 'tests/integration/cycle099-strict-curl-scan.bats'
+      - 'tests/integration/endpoint-validator-allowlist-host-validation.bats'
+      - 'tests/fixtures/endpoint-validator/**'
+      - '.github/workflows/cycle099-sprint-1e-b-tests.yml'
+      - 'tools/check-no-raw-curl.sh'
+      # The CI-guard step inspects all .py / .sh / .bash / .legacy / .ts
+      # files anywhere in .claude/, plus the model-adapter.sh.legacy file
+      # specifically (cypherpunk C1/M2 remediation: extension blindness).
+      - '.claude/**/*.py'
+      - '.claude/**/*.sh'
+      - '.claude/**/*.bash'
+      - '.claude/**/*.legacy'
+      - '.claude/**/*.ts'
+  push:
+    branches: [main]
+    paths:
+      - '.claude/scripts/lib/endpoint-validator.py'
+      - '.claude/scripts/lib/endpoint-validator.sh'
+      - 'tests/integration/endpoint-validator-cross-runtime.bats'
+      - 'tests/integration/cycle099-strict-curl-scan.bats'
+      - 'tests/integration/endpoint-validator-allowlist-host-validation.bats'
+      - 'tests/fixtures/endpoint-validator/**'
+      - '.github/workflows/cycle099-sprint-1e-b-tests.yml'
+      - 'tools/check-no-raw-curl.sh'
+      # BB iter-2 F13: mirror .bash/.legacy globs to push trigger so a push
+      # to main modifying a .legacy file (e.g., model-adapter.sh.legacy) re-
+      # runs the gate and the scanner sees the change. Without this, only
+      # PR-time gating applies to legacy files.
+      - '.claude/**/*.bash'
+      - '.claude/**/*.legacy'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cycle099-sprint-1e-b-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  endpoint-validator-parity:
+    name: T1.15 endpoint-validator parity tests
+    runs-on: ubuntu-latest
+    steps:
+      # PINNING: SHA verified against actions/checkout v4.3.1 tag
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      # PINNING: SHA matches actions/setup-python v5.3.0 used elsewhere in repo.
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: '3.13'
+
+      - name: Install Python deps (idna)
+        run: |
+          python -m pip install --upgrade pip
+          # idna 3.6+ per SDD §6.5 step 5 (RFC 5891).
+          pip install 'idna==3.13'
+
+      # PINNING: bats-core v1.13.0 — commit SHA verified after clone.
+      - name: Install bats-core v1.13.0
+        run: |
+          git clone --branch v1.13.0 --depth 1 https://github.com/bats-core/bats-core.git /tmp/bats-core
+          cd /tmp/bats-core
+          expected="3bca150ec86275d6d9d5a4fd7d48ab8b6c6f3d87"
+          actual=$(git rev-parse HEAD)
+          if [ "$actual" != "$expected" ]; then
+            echo "ERROR: bats-core commit SHA mismatch — expected $expected, got $actual"
+            exit 1
+          fi
+          sudo ./install.sh /usr/local
+          bats --version
+
+      - name: Run endpoint-validator cross-runtime parity tests
+        run: bats tests/integration/endpoint-validator-cross-runtime.bats
+
+      # cycle-099 Sprint 1E.c.3.c additions: HIGH-2 host wildcard rejection at
+      # load_allowlist + the strict-mode scanner contract pin.
+      - name: Run sprint-1E.c.3.c — load_allowlist host validation (HIGH-2)
+        run: bats tests/integration/endpoint-validator-allowlist-host-validation.bats
+
+      - name: Run sprint-1E.c.3.c — strict curl/wget scanner contract pin
+        run: bats tests/integration/cycle099-strict-curl-scan.bats
+
+  endpoint-validator-import-guard:
+    name: T1.15 import-guard (no urllib.parse / curl / fetch outside validator)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Python — only endpoint-validator.py imports urllib.parse
+        run: |
+          set -euo pipefail
+          # SDD §1.9.1: "endpoint validation must go through endpoint-validator
+          # module". The PR-level guard catches any new caller importing
+          # urllib.parse — directly OR via the parent `import urllib` + later
+          # `urllib.parse.<X>(...)` pattern (gp M2). The gp review also flagged
+          # `__import__("urllib.parse")` and `importlib.import_module("urllib.parse")`
+          # as bypasses. We catch all four forms with one regex.
+          # Scope: .claude/adapters/, .claude/scripts/, tests/, scripts/
+          # (gp M2 — scope expansion). The pre-existing baseline file tracks
+          # files that pre-date Sprint 1E.b for cycle-by-cycle migration.
+          allowed_path='.claude/scripts/lib/endpoint-validator.py'
+          # Search dirs we care about. `--include='*.py'` confines to Python
+          # source; the regex catches:
+          #   - urllib.parse (attribute access)
+          #   - from urllib import parse
+          #   - import urllib (NOT followed by a dot — the bare-import form)
+          #   - __import__("urllib.parse")
+          #   - import_module("urllib.parse")
+          # BB iter-1 F2: extend scope to .claude/skills/ + .claude/commands/.
+          # Skills (e.g., bridgebuilder-review) ship Python helpers; commands
+          # (e.g., constructs-loader) likewise. Future Python additions there
+          # need to go through the validator too.
+          # Pre-filter to only dirs that exist — `grep -rE` on a missing
+          # directory returns exit 2, which `set -e` (workflow default) treats
+          # as fatal. The repo has no top-level `scripts/` today; future
+          # additions to this list should not require workflow edits.
+          scope=()
+          for d in .claude/adapters .claude/scripts .claude/skills .claude/commands .claude/hooks tests scripts; do
+              [[ -d "$d" ]] && scope+=("$d")
+          done
+          violations=$(
+              grep -rEln \
+                  '(urllib\.parse|from urllib import parse|^import urllib($|[^.])|__import__\(.urllib\.parse|import_module\(.urllib\.parse)' \
+                  "${scope[@]}" \
+                  --include='*.py' 2>/dev/null \
+                  | { grep -vF "$allowed_path" || true; } \
+                  | { grep -vFx -f .github/workflows/lint-pre-existing-urllib.txt 2>/dev/null || cat; }
+          )
+          if [[ -n "$violations" ]]; then
+            echo "::error::endpoint validation must go through endpoint-validator module; see SDD §1.9.1"
+            echo "$violations"
+            exit 1
+          fi
+          echo "OK — urllib.parse confined to endpoint-validator.py"
+
+      - name: Bash — STRICT scan for raw curl/wget bypass (Sprint 1E.c.3.c flip)
+        run: |
+          set -euo pipefail
+          # cycle-099 sprint-1E.c.3.c — flipped from informational ::warning::
+          # to STRICT ::error:: + exit 1. After 1E.c.3.a/b migrated 14 of ~15
+          # bash callers through endpoint_validator__guarded_curl, only three
+          # files retain raw curl/wget: the wrapper itself, mount-loa.sh
+          # (bootstrap; can't depend on .venv), and model-health-probe.sh
+          # (legacy operator-supplied dynamic webhook URL — opt-in to
+          # wrapper-routed dispatch via .loa.config.yaml).
+          #
+          # The scanner (tools/check-no-raw-curl.sh) handles:
+          #   - heredoc state tracking (usage / instruction text mentioning
+          #     curl is not an invocation)
+          #   - comment / existence-check / echo-string filtering
+          #   - explicit `# check-no-raw-curl: ok` suppression marker for
+          #     edge cases (rare; reviewable per occurrence)
+          #
+          # Adding a new exempt file requires editing the EXEMPT_FILES array
+          # in tools/check-no-raw-curl.sh — intentionally a code edit (not
+          # an env override) so reviewers see every new exemption.
+          if ! tools/check-no-raw-curl.sh; then
+              echo "::error::raw curl/wget detected; route through endpoint_validator__guarded_curl"
+              echo "::error::see SDD §1.9.1 + tools/check-no-raw-curl.sh --help"
+              exit 1
+          fi
+
+      - name: TS — informational scan for fetch / http.request (Sprint 1E.c codegen)
+        run: |
+          set -euo pipefail
+          # Sprint 1E.c will ship the TS port (Jinja2 codegen from the Python
+          # canonical) and a stricter TS guard. For 1E.b we report any direct
+          # fetch()/http.request usage as INFO so operators see the future
+          # surface area but the build does not fail.
+          if grep -rEln 'fetch\(|http\.request' \
+                .claude/skills/bridgebuilder-review/resources/ \
+                --include='*.ts' 2>/dev/null; then
+              echo "::warning::TS fetch()/http.request usage detected; Sprint 1E.c will gate via codegen."
+          else
+              echo "OK — no TS fetch()/http.request usage."
+          fi

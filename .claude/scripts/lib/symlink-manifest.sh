@@ -11,7 +11,8 @@
 #
 # Output format: Each entry is "link_path:target_path" where target is relative from link parent.
 # Populates global arrays: MANIFEST_DIR_SYMLINKS, MANIFEST_FILE_SYMLINKS,
-#   MANIFEST_SKILL_SYMLINKS, MANIFEST_CMD_SYMLINKS, MANIFEST_CONSTRUCT_SYMLINKS
+#   MANIFEST_SKILL_SYMLINKS, MANIFEST_CMD_SYMLINKS, MANIFEST_AGENT_SYMLINKS,
+#   MANIFEST_CONSTRUCT_SYMLINKS
 #
 # Construct Extension (Sprint 50, vision-008):
 #   Construct packs can declare their own symlink requirements via .loa-construct-manifest.json
@@ -24,12 +25,44 @@ get_symlink_manifest() {
   local repo_root="${2:-$(pwd)}"
 
   # Phase 1: Directory symlinks (top-level .claude/ dirs that map 1:1 to submodule)
+  # Issue #755 fix: cycle-099 introduced the cheval Python adapter at
+  # .claude/adapters/cheval.py and the canonical model registry at
+  # .claude/defaults/model-config.yaml. Both are required by model-invoke +
+  # any Flatline-routed call. Without them, fresh-clone consumer repos see:
+  #   - "cheval.py not found at .claude/adapters/cheval.py"
+  #   - "Available agents: []" (cheval loader's Layer 1 System Zone defaults
+  #     can't read .claude/defaults/model-config.yaml)
+  # Both are framework-managed (System Zone) directories that map 1:1 to
+  # the submodule, same as scripts / protocols / data / schemas.
+  #
+  # #842: `.claude/hooks` is DELIBERATELY excluded from the symlink set and
+  # listed in MANIFEST_COPY_DIRS instead. Claude Code's hook executor on
+  # macOS cannot follow relative symlinks like `.claude/hooks ->
+  # ../.loa/.claude/hooks` from a subprocess context — every hook fails
+  # silently with "No such file or directory". Copying is the only fix
+  # that doesn't require changes to Claude Code itself.
   MANIFEST_DIR_SYMLINKS=(
     ".claude/scripts:../${submodule}/.claude/scripts"
     ".claude/protocols:../${submodule}/.claude/protocols"
-    ".claude/hooks:../${submodule}/.claude/hooks"
     ".claude/data:../${submodule}/.claude/data"
     ".claude/schemas:../${submodule}/.claude/schemas"
+    ".claude/adapters:../${submodule}/.claude/adapters"
+    ".claude/defaults:../${submodule}/.claude/defaults"
+  )
+
+  # #842: items COPIED into the consumer tree instead of symlinked.
+  # Required for files/dirs that Claude Code (or other subprocess-spawned
+  # executors) reads/exec'd at runtime, where relative-symlink resolution
+  # through `..` traversal fails on macOS. Tradeoff: after `git submodule
+  # update --remote`, operators must re-run `mount-submodule.sh --force`
+  # to pick up changes in these paths. The cost is small (~20 files) and
+  # explicit (mount has to run on every submodule bump anyway).
+  MANIFEST_COPY_DIRS=(
+    ".claude/hooks:${submodule}/.claude/hooks"
+  )
+
+  MANIFEST_COPY_FILES=(
+    ".claude/settings.json:${submodule}/.claude/settings.json"
   )
 
   # Phase 2: File and nested symlinks (deeper paths with 2-level relative targets)
@@ -38,7 +71,6 @@ get_symlink_manifest() {
     ".claude/loa/reference:../../${submodule}/.claude/loa/reference"
     ".claude/loa/learnings:../../${submodule}/.claude/loa/learnings"
     ".claude/loa/feedback-ontology.yaml:../../${submodule}/.claude/loa/feedback-ontology.yaml"
-    ".claude/settings.json:../${submodule}/.claude/settings.json"
     ".claude/checksums.json:../${submodule}/.claude/checksums.json"
   )
 
@@ -66,6 +98,20 @@ get_symlink_manifest() {
     done
   fi
 
+  # Phase 4.5: Per-agent symlinks (dynamic — discovered from submodule content)
+  # Mirrors Phase 4 (commands). C12/A6, cycle-119: .claude/agents/ (e.g. loa-scout.md)
+  # must be manifest-covered like skills/commands so mount/verify/eject stay in sync.
+  MANIFEST_AGENT_SYMLINKS=()
+  if [[ -d "${repo_root}/${submodule}/.claude/agents" ]]; then
+    for agent_file in "${repo_root}/${submodule}"/.claude/agents/*.md; do
+      if [[ -f "$agent_file" ]]; then
+        local agent_name
+        agent_name=$(basename "$agent_file")
+        MANIFEST_AGENT_SYMLINKS+=(".claude/agents/${agent_name}:../../${submodule}/.claude/agents/${agent_name}")
+      fi
+    done
+  fi
+
   # Phase 5: Construct pack symlinks (vision-008 — ecosystem extension point)
   # Discover .loa-construct-manifest.json files in construct pack directories
   # and merge validated entries into MANIFEST_CONSTRUCT_SYMLINKS.
@@ -77,7 +123,7 @@ get_symlink_manifest() {
 # Returns all entries combined for iteration
 get_all_manifest_entries() {
   get_symlink_manifest "$@"
-  ALL_MANIFEST_ENTRIES=("${MANIFEST_DIR_SYMLINKS[@]}" "${MANIFEST_FILE_SYMLINKS[@]}" "${MANIFEST_SKILL_SYMLINKS[@]}" "${MANIFEST_CMD_SYMLINKS[@]}" "${MANIFEST_CONSTRUCT_SYMLINKS[@]}")
+  ALL_MANIFEST_ENTRIES=("${MANIFEST_DIR_SYMLINKS[@]}" "${MANIFEST_FILE_SYMLINKS[@]}" "${MANIFEST_SKILL_SYMLINKS[@]}" "${MANIFEST_CMD_SYMLINKS[@]}" "${MANIFEST_AGENT_SYMLINKS[@]}" "${MANIFEST_CONSTRUCT_SYMLINKS[@]}")
 }
 
 # =============================================================================
@@ -98,7 +144,7 @@ _discover_construct_manifests() {
   # Build core link set for conflict detection (O(n) lookup via associative array)
   local -A _core_links=()
   local entry
-  for entry in "${MANIFEST_DIR_SYMLINKS[@]}" "${MANIFEST_FILE_SYMLINKS[@]}" "${MANIFEST_SKILL_SYMLINKS[@]}" "${MANIFEST_CMD_SYMLINKS[@]}"; do
+  for entry in "${MANIFEST_DIR_SYMLINKS[@]}" "${MANIFEST_FILE_SYMLINKS[@]}" "${MANIFEST_SKILL_SYMLINKS[@]}" "${MANIFEST_CMD_SYMLINKS[@]}" "${MANIFEST_AGENT_SYMLINKS[@]}"; do
     local link_path="${entry%%:*}"
     _core_links["$link_path"]=1
   done

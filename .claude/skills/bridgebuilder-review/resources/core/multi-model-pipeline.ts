@@ -5,7 +5,10 @@
  * using dual-track consensus (convergence + diversity), and posts per-model
  * comments followed by a consensus summary.
  */
+import { appendFile, mkdir } from "node:fs/promises";
+import path from "node:path";
 import type { ILLMProvider, ReviewRequest, ReviewResponse } from "../ports/llm-provider.js";
+import type { VerdictQualityEnvelope } from "../ports/llm-provider.js";
 import type { IReviewPoster, PostCommentInput } from "../ports/review-poster.js";
 import type { IOutputSanitizer } from "../ports/output-sanitizer.js";
 import type { ILogger } from "../ports/logger.js";
@@ -21,6 +24,51 @@ import type { ModelFindings, ScoredFinding, ScoringResult } from "./scoring.js";
 import { createAdapter } from "../adapters/adapter-factory.js";
 import { PROVIDER_API_KEY_ENV, validateApiKeys } from "../config.js";
 import type { LoreEntry, PRReviewTemplate } from "./template.js";
+
+/**
+ * Per-model timeout derivation — reasoning-class predicate (multi-provider).
+ *
+ * History:
+ *   - cycle-100 sprint-bug-143 (#789a) introduced the 1_800_000ms (30-min)
+ *     budget for OpenAI `gpt-*-pro` after gpt-5.5-pro hung past 900s on a
+ *     95k-token diff (most of the budget is spent on internal reasoning
+ *     before any visible tokens emit).
+ *   - cycle-111 sprint-bug-165 (#921) extended the predicate to the rest
+ *     of the BB triad. Claude Opus + Gemini Pro are reasoning-class too —
+ *     they were silently SIGTERMing at the 300_000ms ceiling on realistic
+ *     BB prompts (KF-010, recurrence ≥20× by 2026-05-16). Direct provider
+ *     API health was fine; the predicate scope was the bug.
+ *
+ * Detection by model_id pattern is intentionally narrow — we want the longer
+ * budget ONLY where it's needed, not as a blanket increase. To add a new
+ * reasoning-class model: extend the relevant provider's branch. Non-reasoning
+ * variants on the same provider (e.g. claude-sonnet-4-6, gemini-3.1-flash,
+ * gpt-5.3-codex) MUST remain on the tier-based ladder.
+ *
+ * 1_800_000ms = 30min, comfortably above observed 900-1100s end-to-end on
+ * large reviews while keeping operator-visible latency bounded.
+ */
+function isReasoningClass(provider: string, modelId: string): boolean {
+  if (/-headless$/i.test(modelId)) return true;
+  if (provider === "openai" && /^gpt-\d+(\.\d+)?-pro$/i.test(modelId)) return true;
+  if (provider === "anthropic" && /opus/i.test(modelId)) return true;
+  if (provider === "google" && /^gemini-\d+(\.\d+)?-pro/i.test(modelId)) return true;
+  return false;
+}
+
+export function deriveTimeoutMs(
+  provider: string,
+  modelId: string,
+  config: BridgebuilderConfig,
+): number {
+  if (isReasoningClass(provider, modelId)) {
+    return 1_800_000; // 30 minutes
+  }
+  // Existing tiered ladder for non-reasoning paths.
+  return config.maxInputTokens > 100_000 ? 300_000 :
+         config.maxInputTokens > 50_000 ? 180_000 :
+         120_000;
+}
 
 export interface MultiModelReviewResult {
   /** Per-model review results. */
@@ -132,7 +180,7 @@ export async function executeMultiModelReview(
       provider: entry.provider,
       modelId: entry.modelId,
       apiKey,
-      timeoutMs: config.maxInputTokens > 100_000 ? 300_000 : 120_000,
+      timeoutMs: deriveTimeoutMs(entry.provider, entry.modelId, config),
       costRates,
     });
 
@@ -275,7 +323,26 @@ export async function executeMultiModelReview(
   // When enrichment context provided, the first primary model writes a prose
   // review over the consensus findings. Falls back to stats-only if enrichment
   // fails or is disabled.
-  let consensusBody = formatConsensusSummary(consensus, modelAdapters);
+  // cycle-109 Sprint 2 T2.6 — prepend the verdict_quality header
+  // (FR-2.8) before the consensus stats table. Returns empty string when
+  // no per-model envelopes carry verdictQuality (legacy / pre-T2.3
+  // cheval), so legacy review surfaces are unchanged.
+  const verdictHeader = formatVerdictQualityHeader(
+    modelResults.map((r) => ({
+      provider: r.provider,
+      modelId: r.model,
+      verdictQuality: r.response?.verdictQuality,
+    })),
+  );
+  // cycle-118 bd-bb-degraded-verdict-ts — append a DEGRADED/FAILED trajectory
+  // record (same channel/schema as the 3 bash gate writers). No-op when the
+  // aggregate band is APPROVED/clean. Fire-and-forget: never throws.
+  await emitDegradedVerdictTrajectory(
+    item,
+    modelResults.map((r) => ({ verdictQuality: r.response?.verdictQuality })),
+    { repoRoot: config.repoRoot },
+  );
+  let consensusBody = verdictHeader + formatConsensusSummary(consensus, modelAdapters);
 
   if (enrichment && findingsPerModel.length > 0 && modelAdapters.length > 0) {
     try {
@@ -404,6 +471,237 @@ export function extractFindingsFromContent(content: string): Array<{
 /**
  * Format a per-model comment with continuation numbering.
  */
+/**
+ * cycle-109 Sprint 2 T2.6 — render an operator-facing verdict_quality
+ * header for the BB PR comment (FR-2.8 surface).
+ *
+ * Takes per-model results carrying their `verdictQuality` envelopes
+ * (populated by ChevalDelegateAdapter from the LOA_VERDICT_QUALITY_SIDECAR
+ * transport) and produces a short markdown header line:
+ *
+ *   ✓ APPROVED — 3/3 voices, chain ok
+ *   ⚠ DEGRADED — 2/3 voices succeeded
+ *   ❌ FAILED — chain exhausted; verdict unsafe
+ *
+ * Returns an empty string when:
+ *   - The input list is empty.
+ *   - No per-model result carries a `verdictQuality` envelope (legacy /
+ *     pre-T2.3 cheval emits, or the sidecar mechanism is unavailable).
+ *
+ * Note: this is a presentation-layer summary, not the canonical aggregate.
+ * Persistence of the full multi-voice envelope happens at the FL orchestrator
+ * level (T2.4) via the Python aggregator. BB's PR comment surfaces the
+ * status banner derived from per-model envelopes for operator-visibility.
+ */
+/**
+ * cycle-109 Sprint 4 T4.8 — operator-facing chunked-review annotation
+ * for the BB PR comment. Per FR-2.8 + SDD §5.4 IMP-006: when the
+ * substrate dispatched through the chunking package, the PR comment
+ * header surfaces the chunk count + per-chunk degradation distinctly
+ * from the overall verdict_quality status banner.
+ *
+ * Rendered above formatVerdictQualityHeader so operators see the
+ * "chunked: 5 chunks reviewed" annotation BEFORE the verdict banner.
+ * Returns empty string when no chunked review occurred.
+ */
+export function formatChunkedReviewAnnotation(
+  perModelResults: Array<{
+    provider: string;
+    modelId: string;
+    chunkedReview?: {
+      chunked?: boolean;
+      chunks_reviewed?: number;
+      chunks_dropped?: number;
+      chunks_with_findings?: number;
+      cross_chunk_pass?: boolean;
+    };
+  }>,
+): string {
+  const chunked = perModelResults.filter((r) => r.chunkedReview?.chunked === true);
+  if (chunked.length === 0) return "";
+
+  // Aggregate counts across the per-model results
+  const totalChunks = chunked.reduce(
+    (acc, r) => acc + (r.chunkedReview?.chunks_reviewed ?? 0), 0,
+  );
+  const totalDropped = chunked.reduce(
+    (acc, r) => acc + (r.chunkedReview?.chunks_dropped ?? 0), 0,
+  );
+  const totalWithFindings = chunked.reduce(
+    (acc, r) => acc + (r.chunkedReview?.chunks_with_findings ?? 0), 0,
+  );
+  const anyCrossChunkPass = chunked.some(
+    (r) => r.chunkedReview?.cross_chunk_pass === true,
+  );
+
+  const lines: string[] = [
+    `**Chunked review**: ${chunked.length} model${chunked.length > 1 ? "s" : ""} dispatched through chunking package (KF-002 layer-1 closure)`,
+    `- Total chunks reviewed: ${totalChunks}` +
+      (totalDropped > 0 ? ` (⚠ ${totalDropped} dropped)` : "") +
+      ` — ${totalWithFindings} produced findings`,
+  ];
+  if (anyCrossChunkPass) {
+    lines.push("- Cross-chunk pass invoked (boundary-spanning findings)");
+  }
+  return lines.join("\n") + "\n\n";
+}
+
+/**
+ * Compute the aggregate verdict band across a multi-voice cohort.
+ *
+ * Single source of truth for the FAILED > DEGRADED > APPROVED promotion
+ * logic shared by the PR-comment banner (formatVerdictQualityHeader) and the
+ * degraded-verdict trajectory emitter (emitDegradedVerdictTrajectory).
+ *
+ * Returns null when there are no per-model results, or none carry a
+ * verdictQuality envelope (legacy / pre-T2.3 cheval) — a null band renders no
+ * banner and emits no trajectory record.
+ */
+export function computeVerdictBand(
+  perModelResults: Array<{
+    verdictQuality?: { status?: string; chain_health?: string };
+  }>,
+): "APPROVED" | "DEGRADED" | "FAILED" | null {
+  if (perModelResults.length === 0) return null;
+
+  const withEnvelope = perModelResults.filter((r) => r.verdictQuality);
+  if (withEnvelope.length === 0) return null;
+
+  const total = perModelResults.length;
+  const anyFailed = withEnvelope.some((r) => r.verdictQuality?.status === "FAILED");
+  const anyDegraded = withEnvelope.some(
+    (r) => r.verdictQuality?.status === "DEGRADED" || r.verdictQuality?.chain_health === "degraded",
+  );
+  const allApproved = withEnvelope.every((r) => r.verdictQuality?.status === "APPROVED");
+
+  // Promote to FAILED if any voice failed OR if not all voices ran (we
+  // never received envelopes for the missing ones, suggesting they
+  // didn't reach cheval) AND the responding voices are degraded.
+  const missingVoices = total - withEnvelope.length;
+
+  if (anyFailed || missingVoices === total) return "FAILED";
+  if (anyDegraded || missingVoices > 0 || !allApproved) return "DEGRADED";
+  return "APPROVED";
+}
+
+export function formatVerdictQualityHeader(
+  perModelResults: Array<{
+    provider: string;
+    modelId: string;
+    verdictQuality?: {
+      status?: string;
+      voices_succeeded?: number;
+      voices_planned?: number;
+      chain_health?: string;
+    };
+  }>,
+): string {
+  const band = computeVerdictBand(perModelResults);
+  if (band === null) return "";
+
+  // Aggregate stats from per-voice envelopes. Each cheval cmd_invoke
+  // produces a SINGLE-voice envelope (voices_planned=1). For the BB
+  // multi-voice cohort we count the number of envelopes that ended in
+  // each status.
+  const total = perModelResults.length;
+  const withEnvelope = perModelResults.filter((r) => r.verdictQuality);
+  const succeeded = withEnvelope.filter(
+    (r) => r.verdictQuality?.status === "APPROVED" || r.verdictQuality?.status === "DEGRADED",
+  ).length;
+
+  let banner: string;
+  if (band === "FAILED") {
+    banner = `❌ FAILED — ${succeeded}/${total} voices succeeded; verdict unsafe`;
+  } else if (band === "DEGRADED") {
+    banner = `⚠ DEGRADED — ${succeeded}/${total} voices succeeded`;
+  } else {
+    banner = `✓ APPROVED — ${succeeded}/${total} voices, chain ok`;
+  }
+
+  return `**Verdict Quality**: ${banner}\n\n`;
+}
+
+/**
+ * A degraded-verdict trajectory record — byte-compatible with the record
+ * shape written by degraded-verdict-lib.sh (cycle-117 item D). Field set and
+ * ordering intentionally mirror that bash writer and the schema at
+ * .claude/data/trajectory-schemas/degraded-verdict.schema.json
+ * (additionalProperties: false — do NOT add fields).
+ */
+export interface DegradedVerdictRecord {
+  gate: string;
+  verdict_band: "DEGRADED" | "FAILED";
+  degradation_reason: string;
+  degraded_legs?: string[];
+  model_exit_code: number | null;
+  sprint_id: string;
+  ts: string;
+}
+
+/**
+ * Append a degraded-verdict trajectory record when BB's aggregate multi-model
+ * verdict band is DEGRADED or FAILED. No-op for APPROVED/clean/no-envelope
+ * runs — mirrors degraded_verdict_maybe_emit's guard in the bash lib.
+ *
+ * The record is the SAME shape the 3 bash gate writers emit (adversarial-
+ * review.sh, red-team-code-vs-design.sh, flatline-orchestrator.sh via
+ * degraded-verdict-lib.sh) into the SAME date-sharded trajectory file, so a
+ * downstream reader sees one homogeneous channel regardless of runtime.
+ *
+ * Scope (per bd-bb-degraded-verdict-ts-b5bu): trajectory-record emit only.
+ * Paging is deferred — the bash writers page via push-notify-lib.sh, but BB
+ * already surfaces degradation directly in the PR comment via
+ * formatVerdictQualityHeader, a stronger operator-visible signal than a page.
+ *
+ * Fire-and-forget: never throws. A write failure is swallowed (mirrors the
+ * bash lib's "every function ALWAYS returns 0" contract and the appendFile
+ * try/catch precedent in depth-checker.ts). Unlike the bash lib this uses a
+ * single appendFile (no flock): a single-line JSON append is one write()
+ * syscall, atomic on POSIX under the OS write limit — adequate given BB runs
+ * one PR per invocation, not concurrent Node writers on one host.
+ */
+export async function emitDegradedVerdictTrajectory(
+  item: { owner: string; repo: string; pr: { number: number } },
+  perModelResults: Array<{ verdictQuality?: VerdictQualityEnvelope }>,
+  opts?: { repoRoot?: string; gate?: string },
+): Promise<void> {
+  const band = computeVerdictBand(perModelResults);
+  if (band !== "DEGRADED" && band !== "FAILED") return;
+
+  // Flatten dropped voices across every per-model envelope. Can be empty even
+  // on a DEGRADED band (chain-walked-to-a-working-fallback: chain_health
+  // "degraded" with no formal drop) — omit degraded_legs (schema minItems: 1
+  // rejects []) and fall back to the bash lib's own "unknown" reason default.
+  const droppedAll = perModelResults.flatMap((r) => r.verdictQuality?.voices_dropped ?? []);
+  const degradedLegs = droppedAll.length > 0 ? droppedAll.map((d) => d.voice) : undefined;
+  const degradationReason = droppedAll[0]?.reason ?? "unknown";
+  const modelExitCode = droppedAll[0]?.exit_code ?? null;
+  const gate = opts?.gate ?? "bridgebuilder:multi-model";
+  const sprintId = `${item.owner}/${item.repo}#${item.pr.number}`;
+
+  const record: DegradedVerdictRecord = {
+    gate,
+    verdict_band: band,
+    degradation_reason: degradationReason,
+    ...(degradedLegs ? { degraded_legs: degradedLegs } : {}),
+    model_exit_code: modelExitCode,
+    sprint_id: sprintId,
+    ts: new Date().toISOString(),
+  };
+
+  const dir =
+    process.env.LOA_DEGRADED_VERDICT_DIR ??
+    path.join(opts?.repoRoot ?? process.cwd(), "grimoires/loa/a2a/trajectory");
+  const dateShard = new Date().toISOString().slice(0, 10);
+  const file = path.join(dir, `degraded-verdict-${dateShard}.jsonl`);
+  try {
+    await mkdir(dir, { recursive: true });
+    await appendFile(file, JSON.stringify(record) + "\n");
+  } catch {
+    // Side-channel: never change the caller's control flow on a write failure.
+  }
+}
+
 function formatModelComment(
   provider: string,
   modelId: string,

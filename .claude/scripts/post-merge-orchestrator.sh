@@ -39,12 +39,14 @@ DOWNSTREAM=false
 # lore_promote (cycle-061, #484) runs after release for every PR type when
 # enabled in config — turns the operator-triggered HARVEST consumer into a
 # spiral-driven step. Default-disabled in config; opt-in per repo.
-declare -A CYCLE_PHASES=( [classify]=1 [semver]=1 [changelog]=1 [gt_regen]=1 [rtfm]=1 [tag]=1 [release]=1 [lore_promote]=1 [notify]=1 )
-declare -A BUGFIX_PHASES=( [classify]=1 [semver]=1 [changelog]=1 [tag]=1 [release]=1 [lore_promote]=1 [notify]=1 )
-declare -A OTHER_PHASES=( [classify]=1 [semver]=1 [tag]=1 [lore_promote]=1 [notify]=1 )
+declare -A CYCLE_PHASES=( [classify]=1 [semver]=1 [version_bump]=1 [changelog]=1 [gt_regen]=1 [rtfm]=1 [tag]=1 [release]=1 [lore_promote]=1 [notify]=1 )
+declare -A BUGFIX_PHASES=( [classify]=1 [semver]=1 [version_bump]=1 [changelog]=1 [tag]=1 [release]=1 [lore_promote]=1 [notify]=1 )
+declare -A OTHER_PHASES=( [classify]=1 [semver]=1 [version_bump]=1 [tag]=1 [lore_promote]=1 [notify]=1 )
 
-# Ordered phase list
-PHASE_ORDER=(classify semver changelog gt_regen rtfm tag release lore_promote notify)
+# Ordered phase list. version_bump runs after semver and before tag so the
+# eventual annotated tag captures a commit whose framework markers already
+# name the new version (bd-...-header-self-stamp-ze52).
+PHASE_ORDER=(classify semver version_bump changelog gt_regen rtfm tag release lore_promote notify)
 
 # =============================================================================
 # Usage
@@ -119,6 +121,7 @@ init_state() {
       phases: {
         classify: {status: "pending", result: null},
         semver: {status: "pending", result: null},
+        version_bump: {status: "pending", result: null},
         changelog: {status: "pending", result: null},
         gt_regen: {status: "pending", result: null},
         rtfm: {status: "pending", result: null},
@@ -311,14 +314,121 @@ phase_semver() {
 }
 
 # =============================================================================
+# Framework version-marker self-stamp (bd-...-header-self-stamp-ze52)
+# =============================================================================
+# Loa's own release pipeline never re-stamped its own framework markers
+# (.loa-version.json + .claude/loa/CLAUDE.loa.md:1 header), so the header
+# drifted a full release behind on every cycle and was only ever caught up by
+# manual one-shot invocations of update-loa-bump-version.sh (df191ea0, 5ca083b0).
+#
+# This phase closes that gap by driving the already-built, unit-tested resolver
+# with the just-computed semver target — BEFORE the tag phase, so the annotated
+# tag captures a commit whose markers already name the new version.
+#
+# Runs only for loa's OWN repo. A downstream consumer's framework markers track
+# the UPSTREAM loa version they synced via /update-loa Phase 5.6 — never their
+# own local project semver — so this phase must not fire when DOWNSTREAM=true.
+phase_version_bump() {
+  update_phase "version_bump" "in_progress"
+
+  # Downstream guard: a consumer repo's CLAUDE.loa.md/.loa-version.json follow
+  # the upstream framework version, not this repo's own release cadence. Stamping
+  # their own local semver here would be semantically wrong.
+  if [[ "$DOWNSTREAM" == "true" ]]; then
+    update_phase "version_bump" "skipped" '{"reason": "downstream repo — framework markers tracked via /update-loa, not own release"}'
+    increment_metric "phases_skipped"
+    echo "[VERSION_BUMP] Downstream repo — skipped (markers sync via /update-loa)"
+    return 0
+  fi
+
+  local version
+  version=$(read_state '.phases.semver.result.next // empty')
+  if [[ -z "$version" ]]; then
+    update_phase "version_bump" "skipped" '{"reason": "no version from semver phase"}'
+    increment_metric "phases_skipped"
+    echo "[VERSION_BUMP] No version available — skipped"
+    return 0
+  fi
+
+  local bump_script="${SCRIPT_DIR}/update-loa-bump-version.sh"
+  if [[ ! -f "$bump_script" ]]; then
+    update_phase "version_bump" "skipped" '{"reason": "update-loa-bump-version.sh not found"}'
+    increment_metric "phases_skipped"
+    echo "[VERSION_BUMP] update-loa-bump-version.sh not found — skipped"
+    return 0
+  fi
+
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "[VERSION_BUMP] Would sync framework markers to v${version} (dry-run)"
+    update_phase "version_bump" "completed" "{\"version\": \"${version}\", \"dry_run\": true}"
+    increment_metric "phases_completed"
+    return 0
+  fi
+
+  # Drive the existing idempotent resolver. bump_version_json /
+  # bump_claude_loa_header no-op when already at target and re-stamp the bug-989
+  # integrity hash via marker-utils.sh, so re-runs are safe.
+  if ! "$bump_script" --target "$version"; then
+    update_phase "version_bump" "failed" "{\"reason\": \"update-loa-bump-version.sh failed\", \"version\": \"${version}\"}"
+    log_error "version_bump" "update-loa-bump-version.sh --target ${version} exited non-zero"
+    increment_metric "phases_failed"
+    echo "[VERSION_BUMP] Failed — bump script exited non-zero (non-blocking per C-MERGE-003)"
+    return 0
+  fi
+
+  # Read-back verification: both markers must now equal the target and the
+  # header must not still carry the bootstrap PLACEHOLDER suffix. Fail loud but
+  # non-blocking (a marker gap must not halt a release — same convention as
+  # rtfm/gt_regen/lore_promote).
+  local vjson_ver header_line header_ver
+  vjson_ver=$(jq -r '.framework_version // ""' "${PROJECT_ROOT}/.loa-version.json" 2>/dev/null || echo "")
+  header_line=$(head -n 1 "${PROJECT_ROOT}/.claude/loa/CLAUDE.loa.md" 2>/dev/null || echo "")
+  header_ver=$(echo "$header_line" | sed -nE 's/.*version:[[:space:]]*([^[:space:]|]+).*/\1/p')
+
+  if [[ "$vjson_ver" != "$version" || "$header_ver" != "$version" || "$header_line" == *PLACEHOLDER* ]]; then
+    update_phase "version_bump" "failed" \
+      "$(jq -nc --arg v "$version" --arg vj "$vjson_ver" --arg h "$header_ver" \
+        '{reason: "read-back mismatch", expected: $v, version_json: $vj, header: $h}')"
+    log_error "version_bump" "read-back mismatch: expected ${version}, .loa-version.json=${vjson_ver}, CLAUDE.loa.md header=${header_ver}, placeholder=$([[ "$header_line" == *PLACEHOLDER* ]] && echo yes || echo no)"
+    increment_metric "phases_failed"
+    echo "[VERSION_BUMP] Read-back verification FAILED — expected v${version}, json=${vjson_ver} header=${header_ver} (non-blocking)"
+    return 0
+  fi
+
+  # Commit only when the bump produced changes (idempotent — a no-op re-run
+  # leaves a clean index and skips the commit; same guard as changelog/gt_regen).
+  git -C "$PROJECT_ROOT" add .loa-version.json .claude/loa/CLAUDE.loa.md 2>/dev/null || true
+  local committed=false
+  if ! git -C "$PROJECT_ROOT" diff --cached --quiet 2>/dev/null; then
+    git -C "$PROJECT_ROOT" commit -m "chore(release): v${version} — sync framework version markers" --quiet 2>/dev/null || true
+    committed=true
+  fi
+
+  update_phase "version_bump" "completed" \
+    "$(jq -nc --arg v "$version" --argjson c "$committed" '{version: $v, committed: $c}')"
+  increment_metric "phases_completed"
+  echo "[VERSION_BUMP] Synced framework markers to v${version} (committed: ${committed})"
+}
+
+# =============================================================================
 # CHANGELOG Auto-Generation (FR-1, cycle-016)
 # =============================================================================
 
 # Generate a CHANGELOG entry from PR metadata and conventional commits
 # when no [Unreleased] section is maintained by developers.
+#
+# Issue #697 Defect 2: accepts an optional pathspec argument so multi-changelog
+# repos route framework-zone vs project-zone commits to the correct file.
+# When pathspec is empty (single-changelog default), behavior matches pre-fix.
+#
+# Args:
+#   $1 — version (e.g. "1.1.0")
+#   $2 — changelog file path
+#   $3 — git pathspec for `git log -- <pathspec>` filter (optional; empty = no filter)
 auto_generate_changelog_entry() {
   local version="$1"
   local changelog="$2"
+  local pathspec="${3:-}"
   local date_str
   date_str=$(date +%Y-%m-%d)
 
@@ -340,13 +450,36 @@ auto_generate_changelog_entry() {
     grep -v "^v${version}$" | head -1)
   local range="${prev_tag:+${prev_tag}..HEAD}"
 
+  # Build pathspec args for `git log`. Empty pathspec → no filter (single-
+  # changelog backward-compat). Non-empty → `-- <pathspec>` so commits outside
+  # the target domain are excluded.
+  local -a pathspec_args=()
+  if [[ -n "$pathspec" ]]; then
+    pathspec_args=(--)
+    # Allow space-separated multi-pathspec input (callers may pass exclude patterns).
+    # shellcheck disable=SC2206
+    local extra=($pathspec)
+    pathspec_args+=("${extra[@]}")
+  fi
+
   local feat_commits fix_commits
   if [[ -n "$range" ]]; then
-    feat_commits=$(git -C "$PROJECT_ROOT" log "$range" --format='%s' 2>/dev/null | grep -E '^feat' || true)
-    fix_commits=$(git -C "$PROJECT_ROOT" log "$range" --format='%s' 2>/dev/null | grep -E '^fix' || true)
+    feat_commits=$(git -C "$PROJECT_ROOT" log "$range" --format='%s' \
+        ${pathspec_args[@]+"${pathspec_args[@]}"} 2>/dev/null | grep -E '^feat' || true)
+    fix_commits=$(git -C "$PROJECT_ROOT" log "$range" --format='%s' \
+        ${pathspec_args[@]+"${pathspec_args[@]}"} 2>/dev/null | grep -E '^fix' || true)
   else
-    feat_commits=$(git -C "$PROJECT_ROOT" log --format='%s' 2>/dev/null | grep -E '^feat' || true)
-    fix_commits=$(git -C "$PROJECT_ROOT" log --format='%s' 2>/dev/null | grep -E '^fix' || true)
+    feat_commits=$(git -C "$PROJECT_ROOT" log --format='%s' \
+        ${pathspec_args[@]+"${pathspec_args[@]}"} 2>/dev/null | grep -E '^feat' || true)
+    fix_commits=$(git -C "$PROJECT_ROOT" log --format='%s' \
+        ${pathspec_args[@]+"${pathspec_args[@]}"} 2>/dev/null | grep -E '^fix' || true)
+  fi
+
+  # If pathspec filtering left no commits in this domain, skip writing entirely
+  # — the entry would be vacuous. Caller (phase_changelog) treats this as
+  # "no domain content for this version".
+  if [[ -z "$feat_commits" && -z "$fix_commits" ]]; then
+    return 1
   fi
 
   # 3. Extract subtitle from PR title
@@ -448,16 +581,70 @@ auto_generate_changelog_entry() {
   mv "$tmpfile" "$changelog"
 }
 
-phase_changelog() {
-  update_phase "changelog" "in_progress"
+# Issue #697 Defect 2: discover sibling changelog files in the repo root.
+# Returns paths newline-separated on stdout. Filters out backups, .claude/,
+# node_modules, archive directories.
+#
+# The convention this honors: a repo with a single `CHANGELOG.md` is the
+# common case (Loa upstream itself). Downstream Loa-mounted projects layer
+# a `<PROJECT>-CHANGELOG.md` next to it; the unprefixed `CHANGELOG.md` then
+# tracks framework changes (`.claude/**`) while `*-CHANGELOG.md` tracks
+# project changes.
+_discover_changelogs() {
+  find "$PROJECT_ROOT" -maxdepth 2 -type f -name '*CHANGELOG.md' \
+      -not -path '*/.claude/*' \
+      -not -path '*/node_modules/*' \
+      -not -path '*/grimoires/*' \
+      -not -path '*/.cycle-archive/*' \
+      -not -name '*.bak' \
+      2>/dev/null | sort
+}
 
-  local changelog="${PROJECT_ROOT}/CHANGELOG.md"
-  if [[ ! -f "$changelog" ]]; then
-    update_phase "changelog" "skipped" '{"reason": "CHANGELOG.md not found"}'
-    increment_metric "phases_skipped"
-    echo "[CHANGELOG] No CHANGELOG.md found — skipped"
+# Issue #697 Defect 2: write a single domain entry to a target changelog,
+# honoring pathspec partitioning. Returns 0 if entry written, 1 if skipped
+# (no domain commits, idempotent, or `[Unreleased]` finalization).
+#
+# Args:
+#   $1 — version
+#   $2 — changelog file
+#   $3 — pathspec (empty for single-changelog/default)
+#   $4 — domain label for log output ("framework", "project", or "")
+_write_changelog_entry() {
+  local version="$1" changelog="$2" pathspec="$3" domain_label="${4:-changelog}"
+
+  # Per-target idempotency: skip if this version already documented in this file.
+  if grep -q "## \[${version}\]" "$changelog"; then
+    echo "[CHANGELOG/$domain_label] v${version} already in $changelog — skipped"
+    return 1
+  fi
+
+  # If `[Unreleased]` exists, finalize it (existing pre-#697 behavior — applies
+  # equally per-file in multi-changelog repos so each curated section lands).
+  if grep -q '## \[Unreleased\]' "$changelog"; then
+    local date_str
+    date_str=$(date +%Y-%m-%d)
+    local tmpfile
+    tmpfile=$(mktemp)
+    sed "s/## \[Unreleased\]/## [Unreleased]\\
+\\
+## [${version}] — ${date_str}/" "$changelog" > "$tmpfile" && mv "$tmpfile" "$changelog"
+    echo "[CHANGELOG/$domain_label] Finalized v${version} in $(basename "$changelog")"
     return 0
   fi
+
+  # Auto-generate path: respect pathspec filter so commits outside this domain
+  # do not leak into this file. `auto_generate_changelog_entry` returns 1 if
+  # the pathspec filter left no commits in scope.
+  if auto_generate_changelog_entry "$version" "$changelog" "$pathspec"; then
+    echo "[CHANGELOG/$domain_label] Auto-generated v${version} in $(basename "$changelog")"
+    return 0
+  fi
+  echo "[CHANGELOG/$domain_label] No commits in domain for v${version} — $(basename "$changelog") unchanged"
+  return 1
+}
+
+phase_changelog() {
+  update_phase "changelog" "in_progress"
 
   # Get version from semver phase result
   local version
@@ -469,53 +656,113 @@ phase_changelog() {
     return 0
   fi
 
-  # Check if version already exists (idempotency)
-  if grep -q "## \[${version}\]" "$changelog"; then
+  # Issue #697 Defect 2: discover sibling *-CHANGELOG.md files. If only one
+  # changelog exists (the Loa-upstream default), preserve pre-fix behavior.
+  # If multiple exist, partition by .claude/** vs project paths.
+  local changelogs
+  changelogs=$(_discover_changelogs)
+  local changelog_count
+  changelog_count=$(printf '%s\n' "$changelogs" | grep -c . || true)
+
+  if [[ "$changelog_count" -eq 0 ]]; then
+    update_phase "changelog" "skipped" '{"reason": "no CHANGELOG.md found"}'
+    increment_metric "phases_skipped"
+    echo "[CHANGELOG] No CHANGELOG files found — skipped"
+    return 0
+  fi
+
+  # Pre-check idempotency across ALL discovered changelogs. If every target
+  # already documents this version, short-circuit with "already" reason —
+  # preserves backward-compat with the existing dry-run idempotency test
+  # (post-merge-int: CHANGELOG idempotent).
+  local all_have=true
+  while IFS= read -r _cl; do
+    [[ -z "$_cl" ]] && continue
+    if ! grep -q "## \[${version}\]" "$_cl"; then
+      all_have=false
+      break
+    fi
+  done <<< "$changelogs"
+
+  if [[ "$all_have" == "true" ]]; then
     update_phase "changelog" "skipped" '{"reason": "version already in CHANGELOG"}'
     increment_metric "phases_skipped"
-    echo "[CHANGELOG] Version ${version} already exists — skipped"
+    echo "[CHANGELOG] Version ${version} already exists in all changelogs — skipped"
     return 0
   fi
 
   if [[ "$DRY_RUN" == true ]]; then
-    echo "[CHANGELOG] Would finalize v${version} (dry-run)"
+    echo "[CHANGELOG] Would finalize v${version} across ${changelog_count} changelog(s) (dry-run)"
     update_phase "changelog" "completed" '{"dry_run": true}'
     increment_metric "phases_completed"
     return 0
   fi
 
-  # Check if [Unreleased] section exists
-  if grep -q '## \[Unreleased\]' "$changelog"; then
-    # Existing behavior: finalize [Unreleased] section with versioned header
-    local date_str
-    date_str=$(date +%Y-%m-%d)
-    local tmpfile
-    tmpfile=$(mktemp)
-    sed "s/## \[Unreleased\]/## [Unreleased]\\
-\\
-## [${version}] — ${date_str}/" "$changelog" > "$tmpfile" && mv "$tmpfile" "$changelog"
-
-    git -C "$PROJECT_ROOT" add "$changelog"
-    if ! git -C "$PROJECT_ROOT" diff --cached --quiet; then
-      git -C "$PROJECT_ROOT" commit -m "chore(release): v${version} — finalize CHANGELOG"
+  if [[ "$changelog_count" -eq 1 ]]; then
+    # Single changelog (Loa upstream default). No pathspec filter — preserves
+    # backward-compat with existing test suite + production behavior.
+    local changelog="$changelogs"
+    if _write_changelog_entry "$version" "$changelog" "" "default"; then
+      git -C "$PROJECT_ROOT" add "$changelog"
+      if ! git -C "$PROJECT_ROOT" diff --cached --quiet; then
+        git -C "$PROJECT_ROOT" commit -m "chore(release): v${version} — finalize CHANGELOG"
+      fi
+      update_phase "changelog" "completed" '{"mode": "single-changelog"}'
+      increment_metric "phases_completed"
+    else
+      update_phase "changelog" "skipped" '{"reason": "version already documented or no commits"}'
+      increment_metric "phases_skipped"
     fi
+    return 0
+  fi
 
-    update_phase "changelog" "completed" '{"mode": "finalized"}'
+  # Multi-changelog repo (e.g. CHANGELOG.md + ECHELON-CHANGELOG.md).
+  # The unprefixed `CHANGELOG.md` is the framework changelog (filters to
+  # `.claude/**` only). Any prefixed `*-CHANGELOG.md` is the project changelog
+  # (excludes `.claude/**`).
+  local framework_changelog="" project_changelog=""
+  while IFS= read -r cl; do
+    [[ -z "$cl" ]] && continue
+    local base
+    base=$(basename "$cl")
+    if [[ "$base" == "CHANGELOG.md" ]]; then
+      framework_changelog="$cl"
+    else
+      # First non-CHANGELOG.md match wins. Multi-project routing (3+ files) is
+      # deferred to a future cycle (per .loa.config.yaml `changelog.routes`
+      # schema) — heuristic detection is sufficient for cycle-105.5 use case.
+      [[ -z "$project_changelog" ]] && project_changelog="$cl"
+    fi
+  done <<< "$changelogs"
+
+  echo "[CHANGELOG] Multi-changelog routing: framework=${framework_changelog:-none} project=${project_changelog:-none}"
+
+  local any_written=false
+  local any_committed=false
+
+  if [[ -n "$framework_changelog" ]]; then
+    if _write_changelog_entry "$version" "$framework_changelog" ".claude/" "framework"; then
+      git -C "$PROJECT_ROOT" add "$framework_changelog"
+      any_written=true
+    fi
+  fi
+  if [[ -n "$project_changelog" ]]; then
+    if _write_changelog_entry "$version" "$project_changelog" ":!.claude/" "project"; then
+      git -C "$PROJECT_ROOT" add "$project_changelog"
+      any_written=true
+    fi
+  fi
+
+  if [[ "$any_written" == "true" ]]; then
+    if ! git -C "$PROJECT_ROOT" diff --cached --quiet; then
+      git -C "$PROJECT_ROOT" commit -m "chore(release): v${version} — finalize multi-changelog routing"
+      any_committed=true
+    fi
+    update_phase "changelog" "completed" "{\"mode\": \"multi-changelog\", \"committed\": ${any_committed}}"
     increment_metric "phases_completed"
-    echo "[CHANGELOG] Finalized v${version}"
   else
-    # New behavior (FR-1): auto-generate CHANGELOG entry from PR metadata + commits
-    echo "[CHANGELOG] No [Unreleased] section — auto-generating entry"
-    auto_generate_changelog_entry "$version" "$changelog"
-
-    git -C "$PROJECT_ROOT" add "$changelog"
-    if ! git -C "$PROJECT_ROOT" diff --cached --quiet; then
-      git -C "$PROJECT_ROOT" commit -m "chore(release): v${version} — auto-generate CHANGELOG entry"
-    fi
-
-    update_phase "changelog" "completed" '{"mode": "auto-generated"}'
-    increment_metric "phases_completed"
-    echo "[CHANGELOG] Auto-generated entry for v${version}"
+    update_phase "changelog" "skipped" '{"reason": "no domain content for either target", "mode": "multi-changelog"}'
+    increment_metric "phases_skipped"
   fi
 }
 
@@ -544,8 +791,30 @@ phase_gt_regen() {
     return 0
   fi
 
-  local gt_exit=0
-  "$gt_script" --mode checksums 2>/dev/null || gt_exit=$?
+  # Issue #697 Defect 1: ground-truth-gen.sh requires --reality-dir AND
+  # --output-dir for `--mode checksums`. Pre-fix the orchestrator omitted both
+  # and silenced stderr via 2>/dev/null, so gt_regen was silently failing on
+  # every cycle ship since the script's flag requirement landed.
+  local gt_reality_dir="${PROJECT_ROOT}/grimoires/loa/reality"
+  local gt_output_dir="${PROJECT_ROOT}/grimoires/loa/ground-truth"
+
+  # Reality dir is the source of truth for what gets checksummed. If the repo
+  # has not been onboarded via /ride, gracefully skip rather than fail.
+  if [[ ! -d "$gt_reality_dir" ]]; then
+    update_phase "gt_regen" "skipped" '{"reason": "reality dir not present (project not onboarded via /ride)"}'
+    increment_metric "phases_skipped"
+    echo "[GT_REGEN] No reality dir at $gt_reality_dir — skipped"
+    return 0
+  fi
+
+  local gt_stderr gt_exit=0
+  gt_stderr=$(mktemp)
+  # NOTE: stderr captured to tmpfile (no 2>/dev/null swallow) so failures
+  # surface diagnostic detail in the errors[] array.
+  "$gt_script" --mode checksums \
+      --reality-dir "$gt_reality_dir" \
+      --output-dir "$gt_output_dir" \
+      2>"$gt_stderr" || gt_exit=$?
 
   if [[ "$gt_exit" -eq 0 ]]; then
     # Commit if there are changes
@@ -557,11 +826,15 @@ phase_gt_regen() {
     increment_metric "phases_completed"
     echo "[GT_REGEN] Ground truth checksums updated"
   else
+    local gt_stderr_content
+    gt_stderr_content=$(cat "$gt_stderr" 2>/dev/null || echo "")
     update_phase "gt_regen" "failed" "{\"exit_code\": $gt_exit}"
-    log_error "gt_regen" "ground-truth-gen.sh failed with exit code $gt_exit"
+    log_error "gt_regen" "ground-truth-gen.sh failed (exit $gt_exit): ${gt_stderr_content}"
     increment_metric "phases_failed"
     echo "[GT_REGEN] Failed — exit code $gt_exit"
+    [[ -n "$gt_stderr_content" ]] && echo "[GT_REGEN] stderr: $gt_stderr_content"
   fi
+  rm -f "$gt_stderr"
 }
 
 phase_rtfm() {
@@ -874,6 +1147,15 @@ phase_notify() {
         [[ -n "$curr" ]] && result_str="${curr} → ${next} (${bump})"
         ;;
       tag) result_str=$(read_state '.phases.tag.result.tag // ""') ;;
+      version_bump)
+        local vb_ver
+        vb_ver=$(read_state '.phases.version_bump.result.version // ""')
+        if [[ -n "$vb_ver" && "$vb_ver" != "null" ]]; then
+          result_str="v${vb_ver}"
+        else
+          result_str=$(read_state '.phases.version_bump.result.reason // ""')
+        fi
+        ;;
       rtfm)
         local gaps
         gaps=$(read_state '.phases.rtfm.result.gap_count // ""')
@@ -921,7 +1203,14 @@ phase_notify() {
 # Ledger Integration
 # =============================================================================
 
-# Archive the active cycle in the Sprint Ledger when a cycle PR merges
+# Archive the active cycle in the Sprint Ledger when a cycle PR merges.
+#
+# Issue #674 (sprint-bug-140): pre-archive completeness gate. Pre-fix the
+# orchestrator blindly marked the active cycle as archived even when its
+# sprints were still in `planned` / `in_progress` state. The integrity guard
+# (post-merge.yml) caught this and reverted on every merge — pipeline failed
+# on every cycle PR. The gate transforms the integrity guard from "routine
+# recovery" into a true safety net.
 archive_cycle_in_ledger() {
   local ledger="${PROJECT_ROOT}/grimoires/loa/ledger.json"
   if [[ ! -f "$ledger" ]]; then
@@ -942,6 +1231,21 @@ archive_cycle_in_ledger() {
     active_cycle=$(jq -r '.cycles[] | select(.status == "active") | .id' "$ledger" 2>/dev/null || echo "")
     if [[ -z "$active_cycle" ]]; then
       echo "[LEDGER] No active cycle found — skipping"
+      return 0
+    fi
+
+    # Issue #674: pre-archive gate — count sprints whose status is not
+    # "completed". Skip-and-continue (return 0) on incomplete state so the
+    # post-merge pipeline doesn't fail on cycle PRs whose remaining sprints
+    # are still in flight. The cycle remains `active` until every sprint
+    # closes; subsequent merges retry the gate idempotently.
+    local incomplete_count
+    incomplete_count=$(jq -r --arg cycle "$active_cycle" \
+      '[(.cycles[] | select(.id == $cycle)).sprints[]? | select(.status != "completed")] | length' \
+      "$ledger" 2>/dev/null || echo "0")
+
+    if [[ "${incomplete_count:-0}" -gt 0 ]]; then
+      echo "[LEDGER] Cycle ${active_cycle} has ${incomplete_count} incomplete sprint(s); skipping archive"
       return 0
     fi
 
