@@ -36,8 +36,9 @@ provenance tier-origin (two captures of one Discord message = one source).
    `guards[]` travel with their source).
 3. **Verdict** per question: verdict text + confidence per the rules + the
    citations. Honest ABSTAIN is a first-class outcome.
-4. **Persist** the testimony: `grimoires/loa/context/<date>-<subject>-testimony.md`
-   with frontmatter `{subject, questions[], verdicts[], corpus_map}`.
+4. **Persist** the testimony at *grimoires/loa/context/DATE-SUBJECT-testimony.md*
+   (a path template, not a citation) with frontmatter
+   `{subject, questions[], verdicts[], corpus_map}`.
 5. **Settle**: run cite-check over the testimony; VALID iff green + confidences
    re-derive. Record the run in the testimony footer.
 

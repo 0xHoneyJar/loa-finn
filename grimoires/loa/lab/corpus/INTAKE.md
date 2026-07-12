@@ -31,5 +31,6 @@
 | Custody-grant vault capture signed (one cockpit gesture) | operator | OPEN | vault frontmatter `operator_signed` |
 | Dead `~/hivemind` symlink fixed in bonfire CLAUDE.md | operator | OPEN | pointer resolves to `~/Documents/GitHub/hivemind` |
 
-Backlog (beads): the missing "Jester Arc" essay · `merlin/agentic-base.md` —
-referenced-but-lost; recover if any copy surfaces.
+Backlog (beads): the missing "Jester Arc" essay · the *merlin/agentic-base.md*
+memo — both referenced-but-lost (deliberately not backticked: a citation here
+would be dead by definition); recover if any copy surfaces.
