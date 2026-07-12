@@ -32,7 +32,8 @@
     "indexing:capture": "tsx src/research/indexing-capture.ts add",
     "indexing:read": "tsx src/research/indexing-read.ts",
     "test:indexing": "vitest run src/research/indexing-ledger.test.ts src/research/indexing-crossover.test.ts",
-    "postinstall": "bash scripts/build-hounfour-dist.sh"
+    "postinstall": "bash scripts/build-hounfour-dist.sh",
+    "shop:check": "vitest run src/lab/shop && tsx src/lab/shop/ledger-check.ts && tsx src/lab/shop/cite-check.ts --yaml grimoires/loa/identity/claim-inventory.yaml && tsx src/lab/shop/cite-check.ts grimoires/loa/lore/lineage.md grimoires/loa/BEAUVOIR.md README.md grimoires/loa/lab/CONSULTATIONS.md grimoires/loa/lab/corpus/INTAKE.md grimoires/loa/context/2026-07-12-jani-construct-testimony.md grimoires/loa/context/2026-07-12-corpus-engine-delivery-testimony.md"
   },
   "dependencies": {
     "@0xhoneyjar/loa-hounfour": "github:0xHoneyJar/loa-hounfour#v8.3.1",

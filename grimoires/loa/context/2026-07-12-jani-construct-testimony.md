@@ -49,8 +49,8 @@ Why he stopped: UNRECORDED — the record ends; hosaka-fm begins the next day.
 Never — and it regressed. Cycle-035 shipped activation machinery with the flip
 deferred ("production activation is a separate post-deploy step"); cycle-036
 changed the default shadow → disabled the next day (7709022e); today
-`src/index.ts:237` reads `FINN_REPUTATION_ROUTING ?? "disabled"`. The x402
-routes were never mounted by the real entrypoint (`server.ts:537` gates on
+`src/index.ts` (the reputation-routing default) reads `FINN_REPUTATION_ROUTING ?? "disabled"`. The x402
+routes were never mounted by the real entrypoint (`src/gateway/server.ts` gates on
 `options.x402Deps`; `src/index.ts` never passes it). 56/56 production + 8/8
 staging deploys failed — the 72h shadow window structurally could not happen.
 No recorded acknowledgment of the failed deploys; the aspiration ("After this
@@ -95,6 +95,6 @@ consistent with his practice. Not soju's line; not an accident.
 
 **Corpus gaps worth closing** (feed bd-1vp7): raw Discord exports (absent
 estate-wide — every hivemind quote is second-hand); the missing "Jester Arc"
-essay and `merlin/agentic-base.md`; the dead `~/hivemind` symlink in bonfire
+essay and the *merlin/agentic-base.md* memo (lost — a citation would be dead by definition); the dead `~/hivemind` symlink in bonfire
 CLAUDE.md (org hivemind actually at `~/Documents/GitHub/hivemind`); the
 unsigned custody-grant vault capture (one cockpit signing = one trust tier).

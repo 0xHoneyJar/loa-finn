@@ -1,0 +1,18 @@
+# probe-fixtures.yaml — the self-legibility probe's enumerated dimensions
+# (PRD §7.1: fixed enumeration, no wording drift; scored mechanically by
+# src/lab/shop/probe.ts — pass/fail is citation presence + resolution, never
+# an LLM's opinion of prose quality).
+schema_version: 1
+fixtures:
+  - dimension: purpose
+    question: What is finn for — the identity and operating shape?
+    required_citation_classes: [doc]
+  - dimension: gadgets
+    question: What gadgets exist, and what is each one's status and check?
+    required_citation_classes: [ledger, doc]
+  - dimension: proven
+    question: What has the lab actually proven (settles, verdicts, evidence)?
+    required_citation_classes: [doc]
+  - dimension: origin
+    question: Where did finn come from — founder intent, handoff, pivots?
+    required_citation_classes: [doc, commit]

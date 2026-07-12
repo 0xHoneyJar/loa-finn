@@ -27,6 +27,8 @@ It answers one question — **what's real?** — by experiment instead of opinio
 
 Underneath sits the runtime that makes the experiments cheap and durable: multi-model routing, a write-ahead log, a cron system, a tool sandbox, and a checksummed cost meter that closes the bill before the response returns. The program is the soul; the runtime is the body it rides.
 
+**The operating shape is a shop, not a monolith.** Finn grinds *small gadgets* — minimal, falsifiable instruments — tests each against reality, and **keeps, sells, or throws** it. Every instrument lives on one shelf with its binding check: the gadget ledger (`grimoires/loa/lab/GADGETS.md`). The thesis is as old as the repo — *"start with nothing, add only what's load-bearing"* (`grimoires/loa/context/research-minimal-pi.md`) — and the shop's history is governed record, not folklore (`grimoires/loa/lore/lineage.md`).
+
 ## Why "Finn"?
 
 In Gibson's *Neuromancer*, **the Finn** is a Sprawl fence — a dealer in hardware and information who can tell you what a thing is worth and whether it's real. When the AI **Wintermute** needs a face to speak to Case, it wears the Finn's: an intelligence putting on the appraiser to tell the real from the counterfeit. That's the patron — not a scientist (the Finn never was), but something better-fit: the one who could tell real from counterfeit and *prove the price*. This repo gives that instinct a method. The appraiser's question — *what's real, and what's it worth* — answered by experiment instead of opinion.
@@ -137,7 +139,7 @@ docker compose up                 # or run containerized
 
 ## Status & License
 
-Active. The experiment program is at **EXP-004 (graduation gate)**; the runtime is in production-shaped use. Maintainer: [@janitooor](https://github.com/janitooor).
+Active as a **lab**. The experiment program is at EXP-004 (graduation gate); the lab spine (settle instruments, PSRO metabolism, gadget ledger) is live and tested. The runtime half is **built but not deployed** — every recorded Deploy-to-ECS run has failed and no finn endpoint is currently served; treat runtime claims as code-reality, not production-reality (evidence: `grimoires/loa/identity/claim-inventory.yaml`). Founded by [@deep-name](https://github.com/deep-name) (né @janitooor); operated by [@zkSoju](https://github.com/zkSoju) since 2026-05 (custody record: `grimoires/loa/lore/lineage.md`).
 
 [AGPL-3.0](LICENSE.md) — use, modify, distribute freely; network deployments must release source. Commercial licenses available.
 
