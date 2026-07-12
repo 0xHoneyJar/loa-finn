@@ -95,6 +95,6 @@ consistent with his practice. Not soju's line; not an accident.
 
 **Corpus gaps worth closing** (feed bd-1vp7): raw Discord exports (absent
 estate-wide — every hivemind quote is second-hand); the missing "Jester Arc"
-essay and `merlin/agentic-base.md`; the dead `~/hivemind` symlink in bonfire
+essay and the *merlin/agentic-base.md* memo (lost — a citation would be dead by definition); the dead `~/hivemind` symlink in bonfire
 CLAUDE.md (org hivemind actually at `~/Documents/GitHub/hivemind`); the
 unsigned custody-grant vault capture (one cockpit signing = one trust tier).

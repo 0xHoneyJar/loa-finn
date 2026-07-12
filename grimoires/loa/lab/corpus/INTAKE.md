@@ -9,10 +9,10 @@
 1. **Drop** the raw export into `intake/<source>/`.
 2. **Scrub**: `npx tsx src/lab/shop/corpus-scrub.ts intake/<source>` — applies
    the flatline `secret_scanning` patterns (ONE pattern SoT), redacts in place,
-   writes `manifest.yaml` (sha256 raw + redacted, redaction counts).
+   writes a *manifest.yaml* (sha256 raw + redacted, redaction counts).
 3. **Verify + delete raws**: check the manifest, then delete any unscrubbed
    copies — retention is redacted-only + manifest hashes (SDD 2.4).
-4. **Stamp** `provenance.yaml`:
+4. **Stamp** a *provenance.yaml*:
    ```yaml
    schema_version: 1
    source: <where this came from>
@@ -27,7 +27,7 @@
 
 | Item | Owner | Status | Evidence when done |
 |---|---|---|---|
-| Discord export (ERR-era channels + the 2026-05-04 custody-grant conversation) | operator | OPEN | `intake/discord-2026/manifest.yaml` |
+| Discord export (ERR-era channels + the 2026-05-04 custody-grant conversation) | operator | OPEN | *intake/discord-2026/manifest.yaml* (future) |
 | Custody-grant vault capture signed (one cockpit gesture) | operator | OPEN | vault frontmatter `operator_signed` |
 | Dead `~/hivemind` symlink fixed in bonfire CLAUDE.md | operator | OPEN | pointer resolves to `~/Documents/GitHub/hivemind` |
 
