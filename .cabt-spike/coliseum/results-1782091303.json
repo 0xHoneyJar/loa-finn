@@ -1,0 +1,54 @@
+{
+  "n_per_seat": 2,
+  "entrants": [
+    {
+      "name": "v6dw-bundle",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/build_v6dw"
+    },
+    {
+      "name": "greedy",
+      "owner": "lab",
+      "pilot": "greedy"
+    }
+  ],
+  "elo": {
+    "v6dw-bundle": 926.4,
+    "greedy": 1073.6
+  },
+  "order": [
+    "greedy",
+    "v6dw-bundle"
+  ],
+  "wins": {
+    "v6dw-bundle": {
+      "v6dw-bundle": 0,
+      "greedy": 1
+    },
+    "greedy": {
+      "v6dw-bundle": 3,
+      "greedy": 0
+    }
+  },
+  "games": {
+    "v6dw-bundle": {
+      "v6dw-bundle": 0,
+      "greedy": 4
+    },
+    "greedy": {
+      "v6dw-bundle": 4,
+      "greedy": 0
+    }
+  },
+  "drawn": 0,
+  "field_trust": {
+    "real": 0,
+    "internal": 2,
+    "sparring": 0,
+    "distinct_real_owners": 0,
+    "trust": "none",
+    "verdict": "SYNTHETIC \u2014 field is our own variants + clones only; GAMES-014 says this CANNOT reproduce the ladder. Do NOT trust this ranking. Recruit real teammate agents."
+  },
+  "total_matches": 4,
+  "elapsed_s": 0.7
+}

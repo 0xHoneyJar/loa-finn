@@ -1,0 +1,6 @@
+{"entrants":[
+ {"name":"charm","owner":"lab","pilot":"bundle:.cabt-spike/build_charm","deck":".cabt-spike/build_charm/deck.csv"},
+ {"name":"cleanse","owner":"lab","pilot":"bundle:.cabt-spike/build_cleanse","deck":".cabt-spike/build_cleanse/deck.csv"},
+ {"name":"cage","owner":"lab","pilot":"bundle:.cabt-spike/build_cage","deck":".cabt-spike/build_cage/deck.csv"},
+ {"name":"greedy","owner":"lab","pilot":"greedy","deck":".cabt-spike/build_charm/deck.csv"}
+]}

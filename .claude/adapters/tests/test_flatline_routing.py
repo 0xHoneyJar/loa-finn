@@ -199,14 +199,17 @@ class TestModelInvokeDryRun:
         data = self._dry_run("flatline-reviewer")
         assert data["agent"] == "flatline-reviewer"
         assert data["resolved_provider"] == "openai"
-        # cycle-040 PR #414 migrated the `reviewer` alias from gpt-5.2 → gpt-5.3-codex;
-        # this assertion lagged the config change and was caught during cycle-082 audit.
-        assert data["resolved_model"] == "gpt-5.3-codex"
+        # cycle-040 PR #414: gpt-5.2 → gpt-5.3-codex.
+        # cycle-095 Sprint 2 (Task 2.1): gpt-5.3-codex → gpt-5.5 (cost-safe
+        # non-pro default; Sprint 3 ships prefer_pro_models opt-in for gpt-5.5-pro).
+        assert data["resolved_model"] == "gpt-5.5"
 
     def test_flatline_scorer_dry_run(self):
         data = self._dry_run("flatline-scorer")
         assert data["agent"] == "flatline-scorer"
-        assert data["resolved_provider"] == "openai"
+        # cycle-114 FR-13: flatline-scorer rebound from reviewer (openai:gpt-5.5)
+        # to the cheap tier (anthropic:claude-sonnet-4-6) — mechanical scoring.
+        assert data["resolved_provider"] == "anthropic"
 
     def test_flatline_dissenter_dry_run(self):
         data = self._dry_run("flatline-dissenter")

@@ -29,7 +29,7 @@ import {
   createRatingEntry,
   readRatingWithTimeout,
 } from "./core/rating.js";
-import { truncateFiles } from "./core/truncation.js";
+import { truncateFiles, deriveCallConfig } from "./core/truncation.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -556,7 +556,10 @@ async function main(): Promise<void> {
     for (const item of items) {
       // Use convergence prompt so models return findings JSON parseable by
       // extractFindingsFromContent() (bug-20260413-9f9b39).
-      const truncated = truncateFiles(item.files, config);
+      // #796 / vision-013 + BB-004: deriveCallConfig is the single chokepoint.
+      // BB iter-1 on PR #797 caught a missing call site here; iter-2 caught
+      // duplicate spread shape. Centralizing prevents both classes of regression.
+      const truncated = truncateFiles(item.files, deriveCallConfig(config, item.pr));
       const systemPrompt = template.buildConvergenceSystemPrompt();
 
       // A4 (#464): per-item cross-repo wiring. Manual refs were fetched once
@@ -579,10 +582,18 @@ async function main(): Promise<void> {
           (r) => !manualKeys.has(`${r.owner}/${r.repo}#${r.number ?? ""}`),
         );
 
+        // #1014: auto-detected refs are parsed from the UNTRUSTED PR title.
+        // Constrain authenticated cross-repo fetches to the PR own org plus any
+        // operator-configured allowed_owners (org-only by default).
+        const allowedOwners = new Set<string>([
+          item.owner.toLowerCase(),
+          ...(config.multiModel.cross_repo?.allowed_owners ?? []).map((o) => o.toLowerCase()),
+        ]);
+
         let detectedContext: Awaited<ReturnType<typeof fetchCrossRepoContext>> | null = null;
         if (detectedNew.length > 0) {
           const fetchStart = Date.now();
-          detectedContext = await fetchCrossRepoContext(detectedNew, adapters.logger);
+          detectedContext = await fetchCrossRepoContext(detectedNew, adapters.logger, allowedOwners);
           adapters.logger.info(
             `[bridgebuilder] cross-repo (auto, per-item): fetched ${detectedContext.context.length}/${detectedNew.length} refs ` +
             `(${detectedContext.errors.length} errors) in ${Date.now() - fetchStart}ms`,

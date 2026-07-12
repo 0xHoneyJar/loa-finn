@@ -2,6 +2,39 @@
 
 ## Session Continuity
 
+### Session 2026-06-22 (ARCH+scar+ARTISAN) — Coliseum hardening: honest + fresh + fluid (all SHIPPED live)
+Made the live coliseum board trustworthy without breaking the GAMES-014 honesty guard. Two FAGAN-gated
+`code-implement-and-review` runs (both `valid_run`: df844da9, 79579cc7) + live Railway deploys.
+- **The trap (closed):** relabeling owner lab→soju would have falsely flipped the meter SYNTHETIC→TRUSTWORTHY
+  because `app.py:_recompute_field_trust` keyed `real` on owner-in-allowlist. Re-keyed on entrant KIND (pilot
+  prefix + operator-owner exclusion) in BOTH twins (app.py + `coliseum.py:field_trust`, shared `_entrant_kind`).
+  Only a DIVERSE EXTERNAL teammate (e.g. gumi) counts as real; our own soju agents never do. Test pins it.
+- **Live board now honest:** `real=1` (gumi only — the broken meter counted our own *Soju Dash* → real=2), 0 `lab`
+  owners, 26/26 `kind` coverage, BOOTSTRAP. An idempotent boot migration relabels + stamps the PERSISTED board
+  (gumi's 14 rows byte-preserved). **Railway `/data` volume CONFIRMED persistent (1.1/48.8 GB) — staleness was
+  never the volume; it was that WE never submitted our decks.** Submitted cleanse(#4)/v8(#6)/v4(#10) as soju.
+- **UI shipped:** cabt-viewer leaderboard re-skin — rank-sorted, flip rank-transitions (reduced-motion aware),
+  honest Wilson-CI bars (engine formula, real W–L), kind type-badges, 20s auto-refresh. Live at cabt-coliseum.
+- **Follow-up:** `bd-zjrz` (stamp `kind` in `_register` so new submissions are born with it). Detail:
+  `tracks/session-coliseum-hardening-kickoff.md`, `a2a/bug-20260622-e5b852/ops-findings.md`.
+
+### Session 2026-06-20 (TEND) — Estate immune system: diagnose → cure (proven) → metabolism (fired)
+Operator asked KEEPER to diagnose ecosystem cohesion friction, then to design an interval loop to drain backlogs.
+- **Diagnosis (3-lens consilient):** KEEPER felt **"made, not landed"** (work pools at origin, never crosses the
+  seam; every health check measures the origin bank); GECKO grounded it file:line; EULER cut to a single
+  articulation node `X`. Brief: `context/2026-06-20-ecosystem-cohesion-diagnosis.md`.
+- **Cure (PROVEN):** ran the 12-day-unrun `audit-ecosystem-coherence` composition via /compose →
+  `valid_run` (run `20260620-ecocoh`, digest sha256:084f8c8c). It REFUTED the first X — real X = `~/.loa/deployment.yaml`
+  exists but is **write-only/non-binding**. 6-step reversible **cutover teed up in `.run/compose/20260620-ecocoh/`**
+  (operator runs — framework/runtime gated). Inert gates trace to the 578-commits-behind framework lag.
+- **Metabolism loop (FIRED):** designed the **L2-PROPOSE relay** (stage the drain, operator ratifies — auto-apply
+  forbidden by Ostrom/force-chain). Brief: `context/2026-06-20-estate-metabolism-loop-design.md`. Fired once:
+  **8 clews drained** → `construct-minkowski#2` (worldline ×3) + `construct-kranz#11` (kranz ×5), marked `proposed`;
+  **merge flips them `distilled`**. Backlog 29→21. protocol's 4 are homing-ambiguous (noether-authored, protocol-homed).
+  PR-triage organ grounded in Hivemind Labs canon (close GHOST/archived only; label live-rotting; 14d UTC).
+- **Open for operator:** merge the 2 clew PRs · run the X cutover · pick recurring mechanism (session-tick vs cron) ·
+  resolve `claim-grade` (own skill vs `record` check) · confirm protocol clew homing.
+
 ### Session 2026-06-17 (DIG+ARCH) — Finn enters the Kaggle PTCG AI Battle Challenge (cabt)
 Operator handed an AI blueprint (PufferLib+cabt+laplas+gaussian_ladder) + 4 repos; asked to CONTEST it and
 get the mental models strong before building. Grounded + contested:
@@ -1213,3 +1246,529 @@ the stub-smoke missed — fixed (1 line).
   = the real diverse field), NOT synthetic bots. The clones survive only as weak sparring/variety opponents, not a proxy.
   Next: the real-participant coliseum (simstim), once the tree is committed + /update-loa lands the headless framework.
   Standing: Dwebble bet 53868523 still PENDING.
+
+**GAMES-015 — Dwebble bet RESOLVED (HELD, new PB) + the COLISEUM instrument built (2026-06-20).**
+- **DWEBBLE RESOLVED → HELD.** sub 53868523 = **807.5** (COMPLETE) vs v4 baseline 719.1 — the **first deck bet to HIT**
+  and the first forward `held`. Logged to `cabt-calibration-logged.jsonl` (5th forward bet): outcome=held, p=0.45,
+  **Brier 0.3025**, margin +88.4 Elo → ≈0.62 implied H2H (effect=small). Forward track record now **1-held / 4-falsified,
+  mean Brier ≈0.26.** CALIBRATION LESSON: the **lowest-confidence** bet won — the two deck bets we were *most* sure of
+  (mono 0.62, rebuild 0.55) collapsed; Dwebble (cut to 0.45, gun-shy after 0-for-2) hit. What flipped it was GROUNDING
+  QUALITY (converged meta-king list + measured 0.57 pilot-agreement), not gut. → weight grounding evidence over
+  streak-driven gut. (NOT the general "deck is the lever" — that stays falsified for weak pilots; Dwebble worked because
+  bot-friendly deck + pilot already matched its experts.)
+- **OPERATOR DECISION (2026-06-20):** "simstim the live coliseum with our internal team" → resolved the fork to
+  **BUILD THE INSTRUMENT NOW** (not the /update-loa re-baseline — the arena engine doesn't need it; rebaseline deferred).
+- **COLISEUM BUILT (`.cabt-spike/coliseum/`)** — `coliseum.py` + `roster.json` + `README.md`. A round-robin tournament
+  over `(pilot, deck)` entrants in the REAL `cg` engine: Bradley-Terry Elo leaderboard + win-matrix + a `--replay`
+  ride-along (simstim) per-decision trace + a **field-trust meter** (SYNTHETIC→BOOTSTRAP→TRUSTWORTHY by real-owner count).
+  Intake = a Kaggle-shaped `bundle:` dir (`agent(obs)->list[int]` + deck.csv) → a teammate adds one roster line.
+  **VALID RUN** (Docker amd64): 8 internal entrants, N=2 → **112 matches in 6s, 0 non-terminating**; replay mode proven.
+- **CONSILIENCE (the instrument's first finding):** coliseum independently ranks **champion-dwebble #1** (Elo 1246, 89%)
+  — MATCHES the ladder PB (807.5). BUT it mis-ranks v5>v4 (ladder: v4>v5) and puts a CLONE at #2 → field-trust meter
+  correctly fires **SYNTHETIC, do-not-trust-the-fine-ranking**, consilient with GAMES-014. The deck lever is large enough
+  to survive a weak field; the pilot ranking is not. The instrument is honest about its own limits on run 1.
+- **STANDING / NEXT:** coliseum is trustworthy only once **≥3 real teammate agents** enter (until then: a sparring sandbox
+  + a deck-lever confirmer). 4 ladder submissions left in today's budget. Coliseum + calibration ledger uncommitted (tree
+  was clean @ c94b8cdc). Next bet (pacing): #2 meta-king deck (Dragapult, the matchup matrix's runner-up) OR a careful
+  Dwebble-deck tune — the calibration says trust bot-friendly-deck + pilot-already-matches, doubt pilot-complexity bets.
+
+**GAMES-016 — the COLISEUM ↔ cabt-viewer integration sensed + the keystone seam proven (2026-06-20).**
+- **THE WEBSITE = `cabt-viewer` (github.com/charlielockyer-rice/cabt-viewer)**, NOT observatory. A teammate's Svelte 5
+  replay viewer + Docker engine bridge, Railway-ready (`start`=sirv on $PORT), loads replay JSON via
+  `?view=replay&replayUrl=…`. Cloned to `~/Documents/GitHub/cabt-viewer`. **observatory = a view for loa-laplas** (gated
+  agentic workflow) — do NOT conflate or share its design system.
+- **OPERATOR REFRAMES (2026-06-20):** (a) rails = a **live Railway service + CLI/agent-skill** teammates "just send" their
+  Kaggle bundle to (NOT a PR — lower friction, hosted). (b) Home = a **throwaway experiment/gadget folder**; cohesive only
+  at the primitive/methodology level (research loop, cg-engine harness, calibration, replay format), FREE at the UI level
+  — "learning across many fields is the point." Coliseum stays in `.cabt-spike/coliseum/`, not the cohesive zones.
+- **THE REALNESS-LADDER THESIS (operator convergence):** grounding/metacognition requires being grounded in reality;
+  synthetic < teammate-agents < live-ladder. The least-confident Dwebble bet winning *because of grounding* IS the lab's
+  own creed (map≠territory / agents-reason-substrate-verifies / "submit what's calibrated, not what felt strong") scoring a point.
+- **BUILT + PROVEN (valid Docker runs), all in `.cabt-spike/coliseum/`:**
+  - `coliseum.py` — round-robin in the real `cg` engine · Bradley-Terry Elo · win-matrix · `--replay` ride-along ·
+    **field-trust meter** (SYNTHETIC→BOOTSTRAP→TRUSTWORTHY). First run: ranks champion-dwebble #1 (=ladder PB), mis-ranks
+    v4/v5/v6 + clone#2 → meter correctly = SYNTHETIC.
+  - `submit.py` — Kaggle `submission.tar.gz` → **isolated-subprocess** validation (bundle's own cabt/, our engine; the
+    same isolation Kaggle uses) → roster register. Proven on the Dwebble tar (legal, 0 crashes). NOTE: foreign agents play
+    the **deck-as-first-action** protocol, so the FULL round-robin over foreign bundles needs a subprocess match-coordinator
+    (the rails) — that's why the demo scored 0% vs the floor (protocol mismatch, not weakness).
+  - `emit_replay.py` — coliseum match → **schema-valid cabt-viewer replay** (cards/attacks from our own `cg.api`). Proven:
+    champion-dwebble vs greedy → 96 steps, winner correct, 1.5MB; structurally matches their `cabt-match.json` (only delta:
+    optional `lookingCount`, engine-version, likely non-breaking; pending a visual confirm in the live viewer).
+- **THE PATH (sensed):** teammate's Kaggle tar.gz → CLI/skill → **Railway intake service** (isolated validate + coliseum
+  run) → emits `leaderboard.json` + per-match cabt-viewer replays → **cabt-viewer displays** (leaderboard + watch the games).
+- **NEXT INCREMENT:** the Railway intake service (subprocess match-coordinator for foreign agents) + the `cabt-submit`
+  CLI/skill. Deploying live to Railway is an outward action → confirm Railway project/account before deploy. Uncommitted:
+  coliseum/ gadget, calibration ledger, NOTES. cabt-viewer cloned (separate repo, untouched).
+
+**GAMES-016 addendum (2026-06-20) — `cabt-submit` CLI built + the faithful-driver decision + Railway grounded.**
+- **`cabt-submit` CLI built + proven** (`.cabt-spike/coliseum/cabt-submit`, stdlib-only): `cabt-submit <tar|dir> --name --owner`
+  → LOCAL mode = isolated cg-engine validation (wraps submit.py via Docker) + register; `--url` = REMOTE multipart POST to
+  the hosted service. Proven: ingested the Dwebble tar as 'alice', registered. (win% still unreliable for full agent()
+  bundles — the deck-as-first-action issue below — but legality/no-crash is confirmed.)
+- **FAITHFUL-DRIVER DECISION (key):** cabt-viewer's `src/engine/cabt_bridge.py` is ALREADY a correct Kaggle-agent match
+  driver — decks pre-given to `battle_start(d0,d1)`, agents use the SEPARATE `search_begin` API internally (no engine
+  collision with the match), and it SKIPS `select is None` instead of mis-feeding it (that mis-feed = my 0% demo: the full
+  `agent()` returns its 60-card deck on the select=None step, garbage as option-indices). → RIGHT PATH = COMPOSE our
+  orchestration (round-robin, Elo, field-trust, calibration = OUR primitives) with THEIR bridge driver; do NOT reinvent the
+  protocol. The Railway service should import/mirror cabt_bridge's Session driver.
+- **RAILWAY GROUNDED:** authed as soju (underrated@gmail.com), workspace **"the honey jar"**; `finn-cost-of-play` exists,
+  NO coliseum/viewer project yet, no railway config in either repo. Deploy = a NEW project (proposed `cabt-coliseum`).
+  GATED on operator confirm: project name + topology (viewer-only-first vs viewer+intake-service).
+
+**GAMES-017 — LIVE: cabt-viewer deployed to Railway + a real coliseum match watchable on it (2026-06-20, operator "Go").**
+- **LIVE SITE: https://cabt-coliseum-production.up.railway.app** — Railway project `cabt-coliseum` (id 5f1d5b6b-92c5-4226-9231-019103a6ab17,
+  workspace "the honey jar", service e983d190, env production). Deployed FROM the local cabt-viewer clone (nixpacks: npm ci →
+  `npm run build` vite/svelte → `sirv dist` on $PORT). Built clean locally first (231 modules, dist 1.2MB). Online after ~96s.
+- **A real COLISEUM match is on the live site:** staged `emit_replay`'s champion-dwebble-vs-greedy replay into the viewer at
+  `public/game-logs/coliseum-demo.json`; served live (HTTP 200, ok=true, 96 steps, 1267 cards, winner champion-dwebble).
+  **Watch URL:** `…up.railway.app/?view=replay&replayUrl=/game-logs/coliseum-demo.json`. VERIFIED served + schema-valid;
+  PENDING the operator's eyes on whether it RENDERS (the `lookingCount` optional-field caveat — viewer's own samples render regardless).
+- **NOTE:** deployed my local clone (NOT pushed to charlielockyer-rice's GitHub). Railway is NOT yet linked to a GitHub repo for
+  auto-deploy — redeploys are `railway up` from the clone for now.
+- **NEXT (step 4 of the plan):** the INTAKE SERVICE — a SECOND Railway service in `cabt-coliseum` that bundles the cg engine
+  (.cabt-spike/dl) + cabt_bridge's faithful driver + submit.py validation; `POST /submit` (cabt-submit --url) → run vs champion
+  (or round-robin) → write leaderboard.json + replays the viewer reads. Engine-packaging is the main eng decision (vendor the
+  Linux .so + decks + card CSV into the service image).
+
+**GAMES-018 — coliseum UI shipped live: nav + Submit surface + Leaderboard (2026-06-20).**
+- Edited the cabt-viewer clone (within its own teal-glass token system — NOT observatory's): upgraded `AppHeader.svelte`
+  → a fixed nav bar (brand "CABT COLISEUM" + Play/Replays/Leaderboard + a **Submit agent** CTA); new `SubmitPanel.svelte`
+  (`?view=submit`: team framing + the realness-ladder strip + the `cabt-submit` CLI [live] + an upload form [POST to
+  VITE_COLISEUM_API/submit, "coming online" until the service deploys]); new `Leaderboard.svelte` (`?view=leaderboard`:
+  reads `/leaderboard.json`, Elo table + W-L + watch-replay links + a prominent **field-trust banner**). Wired both into
+  App.svelte mirroring the `showPromptGallery` full-screen pattern (additive, board engine untouched).
+- Seeded REAL data: `public/leaderboard.json` from the coliseum run (champion-dwebble #1 @ 1246, trust=none/SYNTHETIC),
+  and added the coliseum match to `public/game-logs/logs.json` (Replays catalog).
+- **Redeployed live** (`railway up --service cabt-coliseum`): https://cabt-coliseum-production.up.railway.app — verified
+  leaderboard.json/replay served + new JS bundle hash matches local build. VISUAL render = operator's eyes (headless can't confirm Svelte paint).
+- Views: `/?view=submit`, `/?view=leaderboard`, `/?view=replay`. NEXT: the intake service (so the upload form goes live), then
+  recruit ≥3 real teammate agents to flip field-trust off SYNTHETIC.
+
+**GAMES-019 — intake service LIVE + viewer wired + ARTISAN padding fix (2026-06-20).**
+- **INTAKE SERVICE LIVE: https://coliseum-api-production.up.railway.app** — 2nd Railway service `coliseum-api` (id
+  1faa41de) in the cabt-coliseum project. FastAPI (`.cabt-spike/coliseum/service/`: app.py + validate.py + Dockerfile +
+  requirements + vendored `engine/` = a copy of .cabt-spike/dl, 3.2MB). `POST /submit` (multipart tar.gz+name+owner) →
+  extract → **isolated-subprocess validate in the real cg engine** (the submit.py smoke) → register on leaderboard +
+  entrants. Also `GET /health|/leaderboard|/entrants`, CORS=*. Built + TESTED locally in Docker, then deployed + TESTED LIVE:
+  submitted the Dwebble tar as owner 'rice' → `✓ legal, 6 smoke matches, 0 crashes` → leaderboard real-owners=1.
+- **VIEWER WIRED** (redeploy, new bundle index-ZEn5qc2U.js): set `VITE_COLISEUM_API` on the cabt-coliseum service →
+  inlined into the build (verified). Submit form POSTs to the service; Leaderboard.svelte fetches `${API}/leaderboard`
+  (falls back to static seed). So the live site's submit + leaderboard are wired to the live service.
+- **ARTISAN padding fix:** SubmitPanel upload card was clipped off-screen-right — grid items default `min-width:auto` so the
+  nowrap CLI `<code>` blew the track past the 1040 container. Fixed with `.card { min-width: 0 }` (code scrolls inside).
+- **CAVEATS (honest):** service `/submit` VALIDATES + REGISTERS only — does NOT yet run the round-robin (entrants show
+  "awaiting matches", no Elo). The match-runner (subprocess coordinator: submitted agent in a subprocess vs the in-process
+  champion, faithful deck-as-first-action protocol per cabt_bridge) is the next increment. Railway disk is EPHEMERAL (resets
+  on redeploy) — add a volume before real use. The live 'rice-dwebble' entry is my test artifact (clears on next redeploy).
+- NEXT: (1) the match-runner so submissions get an Elo + a watchable replay; (2) a Railway volume for persistence;
+  (3) recruit real teammate agents → field-trust off SYNTHETIC.
+
+**GAMES-020 — Sprint 1 MATCH-RUNNER shipped LIVE + a real faithfulness bug found & fixed (2026-06-20).**
+- Formalized via `/sprint-plan` → `sprint-coliseum.md` (4 sprints, match-runner first) + a scoped `/architect` →
+  `sdd-coliseum.md` (3 decisions: subprocess-hardened isolation [Railway can't do kernel isolation], single serialized
+  worker thread, bare-id replay contract). Operator chose **spike-mode build**.
+- BUILT (`.cabt-spike/coliseum/service/`): `sandbox.py` (scrubbed env + setrlimit + privilege-drop-to-nobody + setsid/killpg
+  — **fixes the live os.environ secret-leak** to untrusted code), `agent_worker.py` (JSON-line IPC, protected stdout),
+  `match_runner.py` (coordinator owns cg; brokers each select to the seat's worker; faithful deck-as-first-action /
+  skip-select-None), refactored `app.py` (single `queue.Queue` worker thread → /submit validates fast + enqueues + returns
+  <2s; status validated→queued→running→ranked; `GET /replays/{id}`), vendored `cabt/` champion pilot + `champion/` bundle.
+- **THE BUG (found by validate-then-distrust):** first run = 0-6, then a v6 MIRROR (champion=v6 vs foreign=v6, identical
+  deck+code) = **1-11**, not ~50%. Ruled out obs-fidelity (to_jsonable + JSON faithful), deck (byte-identical), code
+  (md5-identical), hash-seed (choose deterministic across procs), latency. ROOT CAUSE = the **in-process-champion vs
+  subprocess-foreign ASYMMETRY** (the in-proc champion shares the live cg singleton state with the authoritative match;
+  the worker only has the obs). PROVEN: symmetric two-worker mirror = 8-4 (fair) vs in-proc 1-11 (broken).
+- **THE FIX (= the SDD's R1 evolution path):** run BOTH agents as symmetric subprocess workers (champion is now a
+  `champion/` bundle too); the coordinator runs NEITHER agent in-process. Mirror → 8-4 (~fair); **Dwebble (v6) vs champion
+  (v4) → 6-4 local / 5-5 LIVE, winPct 0.5-0.6, elo ~1246-1310, 0 errors** — non-degenerate, faithful, the 0% artifact gone.
+- **LIVE + tested** on Railway: `coliseum-api` redeployed (match-runner + security fix), `cabt-coliseum` viewer redeployed
+  (new bundle index-BDx4xwU1.js; `Leaderboard.replayHref` now builds an absolute, encodeURIComponent'd `${API}/replays/{id}`
+  URL — SDD Decision 3). Live submit → ranked #2 (elo 1246, 5-5) on the board; replay served (216 steps).
+- **Sprint 1 ACs MET:** decisive non-0% result · foreign in own process · select-None skipped · bounded match · /submit <2s
+  async · seat-swap · replay generated · security env-leak fixed. **Caveats:** still EPHEMERAL disk (Sprint 3 volume);
+  seccomp net-block deferred (Sprint 3); the live 'rice-dwebble' is my test entry (clears on next service redeploy).
+  Sprints 2-4 (full round-robin Elo, persistence+sandbox-hardening, E2E+onboarding) remain.
+
+**GAMES-021 — Sprint 2 (ranking + live field-trust + XSS) shipped LIVE, spike-mode (2026-06-20).**
+- Operator chose **spike-mode for Sprints 2-4** (NOT `/run sprint-plan` — which would've targeted the cycle-053 Corpus
+  Engine `sprint.md`, not `sprint-coliseum.md`; I halted + surfaced that targeting hazard before executing).
+- BUILT: a **reference field** as symmetric worker bundles (`service/champion` v4 + `service/field/v6` + `service/field/greedy`,
+  anchored at coliseum Elos 1246/913/872) + `ranker.py` (rate a submission vs each reference, seat-swapped, anchored-implied
+  Elo = anchor + 400·logit(p), averaged — the R5-scoped "fixed reference field", not an O(N²) all-subs round-robin). app.py
+  now ranks via `ranker.rank_submission` (field Elo + per-opponent breakdown), recomputes **live field-trust** from the roster
+  (SYNTHETIC→BOOTSTRAP→TRUSTWORTHY), and sanitizes name/owner. **XSS (R7):** viewer has NO `{@html}` → Svelte auto-escapes;
+  the agent can't inject replay strings (returns only pick indices) → R7 covered by framework + sanitize.
+- **LIVE + tested** (coliseum-api redeployed): submit → ranked vs field → Elo 1154, 13-5, rank #3; leaderboard shows live
+  **BOOTSTRAP** (1 real owner). Per-opponent breakdown stored. Replay (vs champion) served.
+- **REVIEW RIGOR:** dispatched `construct-fagan` (background) on the full service (sandbox/worker/coordinator/ranker/app) —
+  security + correctness adversarial pass (the spike-mode substitute for run-mode's audit gate). Findings pending.
+- **DEVIATION (honest):** used anchored-implied-Elo vs a fixed reference field, NOT a full Bradley-Terry re-fit (sprint AC
+  said "reuse coliseum bradley_terry"). Justified: it's the correct method for incremental rate-vs-anchors + avoids O(N²)
+  recompute (R5); the anchors ARE from the coliseum BT run. Full all-subs round-robin = later enhancement.
+- NEXT: fold FAGAN findings → close Sprint 2. Sprint 3 = persistence (Railway **VOLUME = outward infra, confirm before
+  provisioning**) + sandbox hardening (seccomp net-block needs the Railway-seccomp verification spike) + concurrency (the
+  single-worker-thread + _STATE_LOCK already serializes writes — Sprint 3 AC largely pre-met). Then Sprint 4 (E2E + recruit owners).
+
+**GAMES-022 — FAGAN BLOCK → criticals fixed + the match-runner ACTUALLY works now (2026-06-20). The big correction.**
+- **FAGAN (adversarial review, 3 CONFIRMED-by-repro) returned BLOCK.** Two findings invalidated prior claims:
+  - **F2 (CRITICAL): the match workers never imported the bundle's main.py** — `python <HERE>/agent_worker.py` sets
+    sys.path[0]=the SCRIPT dir, NOT cwd/bundle → `from main import agent` failed → `_agent=None` → EVERY agent silently
+    floored. So ALL Sprint-1/2 matches were **floor-vs-floor**, and the "mirror ≈ 50%" + "fixed the asymmetry" validations
+    were **FALSE POSITIVES** (floor-vs-floor is trivially ~50%). The earlier 1-11 was real-in-proc-champion vs floored-worker.
+    My symmetric-worker "fix" had masked F2 by flooring BOTH sides. **The review caught what my own validation could not.**
+  - **F1 (CRITICAL): live root RCE** — `tarfile.extractall` default on 3.12 = fully_trusted → path-traversal + symlink →
+    arbitrary write as root, BEFORE any sandbox, on the live public endpoint.
+- **RESPONSE:** took `coliseum-api` DOWN immediately (closed the live RCE), then fixed F1 (`_safe_extract`: pre-scan reject
+  traversal/abs/symlink/device + caps + `filter='data'`), F2 (agent_worker `sys.path.insert(0, os.getcwd())` + surface
+  `_import_error` not silent floor), F3 (deadline-bounded binary os.read loop — select-ready≠full-line), F4 (killpg reap +
+  close pipes), F5 (stderr=DEVNULL), F6 (1MB IPC cap), F7 (unconditional respawn after timeout — desync), F8 (sync /submit
+  endpoint → threadpool, unblocks event loop), F9 (supervised worker thread), F10 (sanitize untrusted pick before
+  battle_select), F12 (generic error message). Binary IPC throughout.
+- **RE-VALIDATED BY REPRODUCTION (the moment of truth):** champion(v4) vs greedy = **16-0** (the discriminating strong-vs-weak
+  test — floor-vs-floor would be ~8-8 → agents now REALLY play); mirror v4-vs-v4 = 7-5 (fair); ranker per-opponent SENSIBLE
+  (Dwebble-v6 sub beats ref-v6 6-0 [deck edge], crushes greedy 6-0, even vs v4-champion 3-3); evil traversal+symlink tars
+  REJECTED (live), nothing escaped. Redeployed hardened; live submit → ranked, F1 rejection confirmed live.
+- **DEFERRED (acceptable for internal-team; note before any public/volume traffic):** F11 (no auth/rate-limit/tar-cleanup;
+  sid-collision can clobber a slot), F13 (field-trust 'real owner' = unverified free-text → spoofable; needs auth), F14
+  (draw-code handling, speculative), F15 (per-uid RLIMIT_NPROC, validate-timeout pgid-kill, CORS '*', file ctx-managers).
+- **LESSON:** distrust-then-verify with an adversarial reviewer is load-bearing — my green validations were false positives
+  for ~2 sprints; FAGAN's reproduction-grade review is what surfaced it. Sprints 1-2 are NOW genuinely working + safe.
+
+**GAMES-023 — replay-404 bug fixed + Sprint 3 (persistence + sandbox) shipped LIVE (2026-06-20).**
+- **BUG (operator-reported): leaderboard "watch" → 404** on `/replays/coliseum-demo.json`. Root cause: the viewer routes
+  ALL replay links to `${API}/replays/${replayField}`, but the seed champion row's `replay` was a viewer-LOCAL filename
+  ("coliseum-demo.json") that was never on the API (+ `_safe` mangles dots). Compounded: the Railway volume CAPTURED the
+  pre-fix /data, so a fresh seed wouldn't overwrite the stale field. FIX: baked the demo replay into the service
+  (`replays_seed/coliseum-demo.json`, boot-seeded into /data/replays) + an idempotent boot MIGRATION (strip `.json` from
+  replay fields → bare id). Verified live: `/replays/coliseum-demo → 200`, champion.replay → `coliseum-demo`, watch link resolves.
+- **SPRINT 3 (persistence + hardening) — DONE + verified:**
+  - **3.1/3.2 PERSISTENCE:** provisioned a Railway **volume** `coliseum-api-volume` at `/data` on coliseum-api (CLI
+    `railway volume add` panics unless the dir is linked to the target service first — relinked then it worked). **G-4
+    VERIFIED:** rice-dwebble survived a redeploy (still ranked) — data persists. (Note: adding a volume copies existing
+    mount-path data in → caused the stale-LB issue above; the migration handles it.)
+  - **3.3 field-trust promotion:** live (Sprint 2). **3.5 concurrency:** single worker thread + `_STATE_LOCK` + atomic `_write`.
+  - **3.4 sandbox hardening:** done via the FAGAN fixes (rlimit/scrubbed-env/killpg/caps/privilege-drop). **3.6 ADVERSARIAL
+    VALIDATION (Docker):** adv-hang → per-decision-timeout forfeit in 8s (no permanent hang — F3/DoS fix CONFIRMED);
+    adv-forkbomb → RLIMIT_NPROC capped it, match continued; service `/health` → 200 after both (host survived).
+- **DEFERRED (honest, before any PUBLIC/at-volume traffic):** seccomp net-block (network NOT blocked yet — needs the
+  Railway-seccomp verification spike; env is scrubbed so no secrets to exfil, but agents can still reach the net);
+  F11 (no auth/rate-limit/tar-cleanup; sid-collision); F13 (field-trust 'real owner' = unverified free-text, spoofable).
+  → **internal-team OK; don't broadly share the API URL until auth lands.**
+- **NEXT: Sprint 4** = E2E + recruit ≥3 real teammate owners to flip field-trust off SYNTHETIC → mostly a HUMAN/operator
+  task (real teammates submit). Optional: seccomp spike, F11/F13 auth (gate before public). Sprints 1-3 of 4 live + verified.
+
+**RESEARCH-COUNCIL — the meta-play: a STORM council of our constructs, PROVEN run (2026-06-21).**
+- Authored `compositions/experimentation/research-council.yaml` — STORM method (multi-perspective → contradiction map →
+  synthesis → peer review) with OUR CONSTRUCTS as opposing seats: **gygax** (practitioner) · **worldline** (historian) ·
+  **fagan** (skeptic) · **the-weaver** (synthesis). Modeled on audit-claim's grounding spine. Subject = 5 cabt settled
+  beliefs grounded in `grimoires/loa/research/cabt-settled-beliefs.md`. RE-RUNNABLE each cycle = the methodology deliverable.
+- Ran via `/compose` Form C runtime (run_id `rescouncil-20260621`, 4 opus agents, ~$6.4). **TERMINAL GATE = valid_run**
+  (envelope_digest sha256:b7aed68c…, 4 handoff envelopes + Legba custody chain). First gate read `compiled_run` because I
+  skipped step-4 handoff-wrap; wrapped the 4 seeds → valid_run. Real run, not role-play.
+- **PAPER: `grimoires/loa/research/2026-06-21-cabt-research-paper.md`.** The council BROKE our "settled" beliefs (it did its
+  job): fagan CHANGES_REQUIRED/blocker; reliability B3=70 B4=65 B1=60 B2=55 **B5=35 (BLOCKER)**; paper grade **C+** (research
+  B+). Killer findings:
+  - **F1 (90): ROOT DEFECT = instrument-flattening.** The beliefs doc STRIPS the `resolution_instrument` tag, so
+    ladder-measured facts render at the same confidence as inferred/proxy/zero-evidence claims. One cure: re-attach the tag.
+  - **F3: B4 calibration is OVER-CONFIDENCE, not edge** — mean forward Brier 0.262 vs a constant p=0.20 forecaster's 0.16 →
+    **Brier skill score −0.64, NET NEGATIVE.** Best-calibrated only when forecasting our OWN failure (the humble p=0.40 bets).
+  - **F8 (BLOCKER): B5 teammate-agent rung has ZERO resolved evidence** + is resolved by an instrument with a documented
+    false-positive (GAMES-022 floor-vs-floor) → must be CANDIDATE not SETTLED (the exact false-positive shape FAGAN catches).
+  - **F5: doc↔ledger breach** — doc says 791.1, ledger says 807.5 for the same sub (the held-margin only reconciles vs 807.5).
+  - **Frontier Q:** is v4's 719 a property of the AGENT or of this week's NON-STATIONARY meta? (no belief carries a re-measure trigger.)
+  - **Next bet (council-endorsed, cheapest-highest-value):** the deck⊗pilot FACTORIAL cell (vary BOTH axes — B1's interaction
+    is currently UNMEASURED) + v4+exactly-one-GOOD-term — BEFORE any coliseum spend. The beliefs ENDORSED the expensive
+    coliseum (B5) which the council ranked lowest/least-grounded — the forward-pointing was anti-correlated with the evidence.
+
+**RESEARCH-COUNCIL follow-through — all 3 council recommendations executed (2026-06-21).**
+- **(1) F1 applied** → `grimoires/loa/research/cabt-settled-beliefs.md` rewritten: every claim now tagged by
+  `resolution_instrument` (LADDER-MEASURED / STRUCTURAL / PROXY / ZERO-EVIDENCE), each belief split into measured
+  KERNEL vs inferred SHELL; **B5 demoted to CANDIDATE** (the zero-evidence teammate rung — the council's blocker).
+- **(2) The deck⊗pilot FACTORIAL ran** (the council's endorsed next bet; `grimoires/loa/research/2026-06-21-deck-pilot-factorial.md`).
+  Pre-registered p=0.40 for a clear interaction, hedged "insufficient most likely" (F3 humility). Coliseum 2×2 (v4/v6 ×
+  Dwebble/Abomasnow + greedy), 120 matches: **DECK KERNEL CONFIRMED** — Dwebble cells Elo 1343/1280 vs Abomasnow 869/788,
+  **~470 Elo swing** (large effect, transfers). **INTERACTION = INSUFFICIENT** (measures disagree: vs-greedy saturates at
+  1.0 on Dwebble; h2h v4-beats-v6 0.67 Dwebble vs 0.50 Abomasnow; Elo gap 63 vs 81 — within noise). Correct humble call:
+  the interaction is a near-peer effect the LOCAL band-pass can't settle (B2/§5b) → it's a LADDER-only question. B1 kernel
+  holds, B1 shell stays ladder-only. (Bonus: v6-on-Dwebble [never-run cell] = 1280/83% — the strong deck nearly carries the weak pilot.)
+- **(3) v2 seats added** → `research-council` **v1.1.0**: the full STORM 6-seat council (added **vitalik** academic/verifier
+  stage 2 + **satoshi** economist/cost stage 4 — the v1.0.0 paper's flagged missing perspective). Compiles + validates
+  (exit 3, 6 agent_types resolve, ~$9.6/run). Re-runnable next cycle. NOT re-run now (the operator can fire it next cycle).
+
+**COLISEUM matured + the F13 spoof fixed (2026-06-21).** The realness ladder got REAL.
+- **Real field exists now:** 2 verified owners — **soju** (operator) + **gumi** (teammate, shipped 13 diverse agents
+  v14-v18: sylveon/crustle/firetech/stallmax/mudsdale/archaludon; top gumi-v18-crustle=1308, BEATS our champion 1246).
+- **Soju Dash submitted** (operator's flagship v4+Dwebble, owner soju, Elo 1274). Operator: "all my submissions under soju-*".
+- **F13 FIXED (it was real — I triggered it):** my old test entry "rice" (owner rice) had spoofed the meter to TRUSTWORTHY
+  (3 free-text owners). Operator flagged rice is fake. Fix: `KNOWN_OWNERS` allowlist (soju,gumi) — only verified owners
+  count as real; + a token-gated `DELETE /entrants/{id}` (F11 cleanup). Purged rice → meter now honest: **BOOTSTRAP, 2
+  verified (soju, gumi).** Admin token in /tmp/coliseum-admin-token.txt (not committed). 
+- **B5 BREAKTHROUGH (first real evidence):** the coliseum Elo ORDER now PREDICTS the ladder order for our agents —
+  champion(1246)>v5(954)>v6(913) coliseum == 787>569>497 ladder (SAME ORDER). The council demoted B5 to CANDIDATE on
+  "zero resolved evidence"; this is the first consilience that the coliseum middle-rung tracks the ladder (for large gaps).
+  → B5 moving CANDIDATE → partial-support. The "farm-our-data > synthetic" intuition is now SUPPORTED: gumi's real field
+  (which predicts the ladder) is a pre-screen for big swings BEFORE spending ladder slots.
+- **PuruPuru design system cloned** (~/Documents/GitHub/purupuru-surface) — `--puru-*` token system (bleed-mix washes,
+  old-horai theme, shadcn-composed light/dark). Candidate design language for a cabt-viewer cohesion re-skin (proposed, not done).
+- **Today (2026-06-21): all 5 ladder submissions UNUSED** (latest 06-20 @ 787.2). Operator wants BIG SWINGS — pre-screen via the coliseum.
+- **SAATY swing-rubric fired** (construct-saaty, AHP, CR=0.0008) → `grimoires/loa/research/2026-06-21-saaty-swing-rubric.md`.
+  Dual-score fusion (coliseum + ladder) WITHOUT a hidden average. Weights: C1 ladder-truth 52.4% · C4 info-gain 27.1% ·
+  C2 coliseum-vs-gumi 13.5% · C3 deck-fit 7.0%. **Aggregation = HYBRID** (non-compensatory floor: proxy-only can NEVER
+  spend a slot — over-confidence correction made STRUCTURAL; then compensatory rank). Forks: coliseum→ladder RANK-ONLY;
+  keep C1–C4 (gumi-crustle = C2 sub-screen, don't double-count); split C1→C1a(real,gold)/C1b(map); normalize ideal/reference.
+  saaty installed as a PACK (.claude/constructs/packs/saaty) but no Agent adapter generated — fired via general-purpose embodying the real persona+skills.
+
+**FARM LOOP ran → v8-Dwebble SUBMITTED (sub 53930398 PENDING, 2026-06-21).** The big swing today.
+- Added coliseum admin endpoints: token-gated `DELETE /entrants/{id}` (F11 cleanup) + `GET /entrants/{id}/bundle`
+  (farm-the-field: pull gumi's decks). Admin token in /tmp/coliseum-admin-token.txt.
+- **DISTRUST-THEN-VERIFY paid off AGAIN** (the floor-vs-floor lesson, 3rd time): the farm run (N=6) said v6-on-Dwebble
+  =1277 (top, beat greedy 1.00). I almost submitted it — but the SMOKE test of the actual bundle lost to greedy 1-3,
+  and a diagnostic re-run flipped v6 to 876 (LAST, lost to greedy). Cause: **coliseum.py has NO RNG seed + PTCG is
+  stochastic → ~100-400 Elo noise at N=6-8.** Killed the v6 swing (saved a slot on noise).
+- **ROBUST N=40 (~800-match) re-measure:** gumi-crustle-full 1144 ≈ **v8-Dwebble 1136** > v6 1111 ≈ v4 1104 ≫ greedy 505.
+  Findings: (a) **deck farm BUSTED** — v8-on-our-Dwebble (1136) ≈ gumi's full crustle (1144), so our deck ≈ gumi's;
+  **gumi's edge is the v8 PILOT, not the deck.** (b) v6≈v4 (the 1277 was noise). (c) v8 (gumi's threat-aware+expert-
+  sequencing pilot) > v4 by ~32 Elo (near noise but mechanistically a better pilot + ladder-proven by gumi).
+- **SUBMITTED v8-Dwebble** = gumi's v8 pilot (build_v8dw, their main.py reads deck.csv) + OUR Dwebble deck. Teammate-farm.
+  Pre-registered **p=0.52** (hash-chained: cabt-forecasts.jsonl, decision_id `farm-gumi-v8-pilot-on-dwebble`, anchor bumped
+  to 498832760b83). Resolve when the ladder scores it.
+- **DURABLE FIX NEEDED: seed coliseum.py's RNG + default high N** — low-N coliseum is too noisy to pre-screen near-peer
+  pilots (large effects like the deck axis ~470 Elo survive; pilot ~30 Elo don't). The B5 "coliseum predicts ladder"
+  used the SERVICE's many-match Elos (more stable); local N=6 runs are NOT trustworthy. v8-pilot is also a farm target for OUR own pilot.
+
+**2026-06-22 — SEED-FIX shipped + OUR OWN v7 pilot built + v8-Dwebble ladder HELD.**
+- **Seed-fix (coliseum reliability):** the cg engine (libcg.so) auto-seeds natively + exposes NO Seed() symbol → matches
+  are NOT reproducible from Python. So the fix is HONEST-INSTRUMENT, not true seeding: default `--n` 4→20, a Wilson 95%
+  CI on every win%, and a 🎯 RELIABILITY section flagging adjacent ranks as `✓ robust` vs `⚠ WITHIN-NOISE` (h2h CI
+  straddles 0.50) — the exact guard that would have caught the v6-1277 fluke. `--seed` controls harness randomness only.
+  (coliseum.py: wilson_ci + reliability block + win_ci/reliability in JSON.) Validated.
+- **OUR OWN v7 pilot (src/cabt/heuristic_v7.py):** the v8-class ideas done as OUR code, NOT a copy of gumi's — true-damage
+  KO (base ×2 on real Weakness-type match, v4's #1 gap), threat-aware retreat (energy-aware opp max-dmg; the fix augury's
+  card_aware REGRESSION lacked), expert sequencing (KO>draw>search>evolve>develop>ability>ATTACH-last>attack), recoil
+  safety, safe-promotion/boss-target. Registered: CABT_POLICY=v7 (agent.py) + coliseum _BUILTIN "v7". Added additive
+  accessors to cards.py (weakness_type/energy_type/prize_value/attack_ids/attack_cost/attack_text). Behaviorally FIRES
+  (33% of MAIN decisions differ from v4, card DB loads 1267, 0 errors — not a no-op floor).
+- **v7 validation (seeded N=40, all on Dwebble):** v7 #1 (1127) but the **TOP-4 are ALL WITHIN-NOISE** (v7 1127 ≈ v4 1110
+  ≈ gumi-v8 1096 ≈ v6 1079; all CIs overlap, all adjacent h2h straddle 0.50); only `v6≻greedy` is robust. So **the pilot is
+  a FLAT lever on the strong Dwebble deck** — our v7 successfully MATCHES gumi's v8 (we have our own v8-class pilot), but
+  neither clearly beats v4 here. The trustworthy instrument SAYS so now (the fix earns its keep).
+- **v8-Dwebble ladder HELD (sub 53930398 = 808.9 > v4 baseline 787, +21.9 small positive).** Forecast p=0.52 → **Brier
+  0.2304**, resolved on cabt-calibration-logged.jsonl. Well-calibrated slightly-favored call. The §5b BAND-PASS in action:
+  the pilot is a SMALL-but-real LADDER lever the N=40 coliseum reads as within-noise (near-peer pilot effects are
+  ladder-only-resolvable). deck = big lever, pilot = small lever — reconfirmed. v7 is the candidate to reproduce this small
+  edge with OUR code on the next slot (info-gain) — but HOLD until we see if the pilot edge is worth a scarce slot.
+
+**META OBSERVATORY built (.cabt-spike/coliseum/meta_observatory.py) — the metacognition instrument.**
+- **The reframe (questioned the "loop deck experiments" ask):** the ladder meta is HIDDEN, but every agent we've
+  submitted is a PERMANENT FREE meta-probe — Kaggle re-scores it continuously, so a FROZEN agent's score DRIFT *is*
+  the meta shifting under us. Evidence: v4-Dwebble eroded **807→754.9 in 2 days** (code frozen) = meta hardened ~52pt;
+  v8-Dwebble (808.9) clawed back to where v4 was. So we SENSE the meta for free (drift) + spend the 5 slots as an
+  explore/exploit BANDIT, never to sense.
+- **The instrument (3 lenses, stdlib, runs on Mac):** (1) DRIFT — logs a snapshot per run to
+  `grimoires/loa/lab/cabt-meta-drift.jsonl`, flags probes moving beyond ±30pt as meta-shifts; (2) COLISEUM-FARM —
+  aggregates ALL coliseum result JSONs into a pilot×pilot matchup matrix with Wilson-CI reliability; (3) PROPOSE —
+  explore/exploit slot framing. Re-runnable daily (free). SENSES + PROPOSES; never submits (slots stay SAATY-gated).
+- **Farm finding (8 runs, 1720 games — more power than any single run):** **v7 ROBUSTLY beats v6** (0.61, 49/80,
+  CI≥0.50 ✓) — v6 is the shipped agent.py default + scored only 497.8 on the ladder. All heuristics crush greedy
+  robustly (v8 .97, v7 .96, v4 .92, v6 .80). Everything else among v4/v7/v8 is within-noise (deck-saturated — deck
+  is the lever). Best planted probe = v8-Dwebble 808.9.
+- **NEXT BUILD (the PROPOSE lens's stub):** a deck-variant generator → CI-gated coliseum pre-screen → SAATY rubric →
+  fills the day's explore/exploit proposal with concrete candidates. Optionally wire a daily /schedule cron (free sense+propose).
+
+**FULL ADAPTATION LOOP built + ran end-to-end (2026-06-22).** SENSE → GENERATE → FORGE → PRE-SCREEN → PROPOSE.
+- **Pieces (all in .cabt-spike/coliseum/):** `meta_observatory.py` (sense/drift/farm), `deck_forge.py` (apply swap-specs
+  → legal 60-card variants, validates), `adapt_loop.py` (orchestrator: `--sense` daily / `--adapt SPEC` full pass),
+  `daily_sense.sh` + `com.cabt.dailysense.plist` (launchd daily heartbeat, ready to activate). Generator = the **gygax
+  construct** (deck-building domain) → designed 4 single-axis variants (`gygax-variants.json`), each probing a DIFFERENT
+  meta-hypothesis so the PATTERN is diagnostic: exbelt({ex}-patch via Maximum Belt), boss(gust the wall), pivotheal
+  (anti-attrition), lean(variance null-control).
+- **LOOP EARNED ITS KEEP IMMEDIATELY (distrust-then-verify):** the pre-screen flagged 2 of 4 variants playing 0 games.
+  Diagnosed: **exbelt + pivotheal decks are ENGINE-REJECTED** (battle_start→None, errorType=4). **KEY GOTCHA:
+  EN_Card_Data.csv is a SUPERSET of the engine's constructible set** — Maximum Belt[1158]/Switch[1123]/Poke Vital A[1096]
+  exist in the data but are deck-ILLEGAL in this format. gygax couldn't know (engine is Linux-only). deck_forge's
+  legality check (60/≤4/core) is necessary-but-NOT-sufficient; the ENGINE is the final authority, caught at pre-screen.
+- **VERDICT (the 2 legal variants, N=30 CI-gated, seeded):** crustle-lean 1083 ≈ v4-PB 1108 ≈ gumi-v8 1114 (all
+  WITHIN-NOISE); crustle-boss 1050 (slightly worse). **NO variant robustly beats the PB → nothing to submit today**
+  (honest hold). Diagnostic INCOMPLETE: the strongest hypothesis ({ex}-patch) couldn't be tested (Maximum Belt illegal);
+  lean≈PB hints variance is NOT the drag (erosion is external). Best agent remains v8-Dwebble (808.9, banked).
+- **NEXT FIX:** extract the ENGINE-LEGAL card set (a card-constructibility probe in Docker) → constrain gygax's pool →
+  re-design the {ex}-counter + attrition variants with LEGAL cards → re-run --adapt. THEN the loop proposes real swings.
+- **CRON:** `daily_sense.sh` (free drift+farm+shift-alert) → activate via launchd (`launchctl load com.cabt.dailysense.plist`).
+  Local (cloud cron can't reach the local repo + kaggle CLI + Docker). Submissions stay SAATY-gated.
+
+**Engine-legal-card PROBE built + cap-aware (`card_legal.py` → `legal-cards.json`).** Two layers of the EN_Card_Data.csv⊋engine
+gotcha, both now caught: (1) some cards are flat ILLEGAL (cap 0 — Maximum Belt[1158], Poke Vital A[1096]); (2) some are
+legal-at-1-but-capped (**Hero's Cape[1159] = cap 1**, ACE-SPEC-style — the ONLY card capped below 4 in the 359-card
+trainer/energy pool; 331 legal, 28 illegal). Probe sets the candidate to K copies (4→1 descending) in the legal base,
+battle_start = the cap. `legal-cards.json` carries `caps`/`capped_below_4`/`illegal`/`names`.
+- **gygax SELF-CORRECTED a load-bearing misread (verbatim re-read + consilience):** Crustle[345] "Prevent all damage done
+  to this Pokemon by attacks from your opponent's Pokemon {ex}" → {ex} modifies the ATTACKER, so Crustle **WALLS ex** and
+  is vulnerable to **non-ex / status / non-attack** damage (the OPPOSITE of the first read, which I'd propagated). Consilience:
+  Dwebble/Crustle is most-played + BEATS the ex-heavy field 0.73-0.81 (can't dominate ex if null-vs-ex). The {ex}-patch was
+  DROPPED (solves a won matchup). Confirmed the ability text directly.
+- **DO-NO-HARM RULE (the pivotcleanse lesson):** a variant must NOT cut the draw engine (Lillie's/Waitress/Poffin) — pay for
+  tech from over-floored Basic{G} or marginal Spiky/Mist energy. pivotcleanse regressed (1026) BECAUSE it cut draw; recur
+  (Items only, no draw cut) HELD ≈ PB (1107). The coliseum field lacks the real counters → variants are LADDER info-gain
+  bets (C4); the pre-screen only gates do-no-harm.
+- **STATE:** crustle-recur (chip-grind) = the clean do-no-harm survivor so far. gygax round 3 running = a cap-aware DIAGNOSTIC
+  LADDER SWEEP (4 legal variants, distinct eroding-counter hypotheses; the PATTERN of ladder results is the meta read). The
+  "big swing" honest reframe: Crustle is converged + the pilot is flat → no single big deck swing; leverage = spend the 5
+  slots as a diagnostic sweep to learn which counter erodes us. NO slot spent yet (operator: fix probe + 1 more gygax round first).
+
+**DIAGNOSTIC LADDER SWEEP SUBMITTED (2026-06-22) — 3 slots, the metacognition play.** gygax round 3 (cap-aware) +
+the do-no-harm pre-screen (N=30) yielded 3 legal do-no-harm variants, each probing a DISTINCT non-ex counter-mechanism
+(the PATTERN of which clears the contemporaneous v4-base localizes the eroder). All v4 pilot (proven dwbundle + variant
+deck.csv; v4 fires the tech on-play), all smoke-passed (start+play, no engine-reject):
+- **cage** (sub 53955580, p=0.45) — Battle Cage[1264] blocks bench damage-counters = gygax's top read (the named Alakazam
+  counter, 0.80 vs us ~16%). OUT 2x Spiky / IN 2x Battle Cage.
+- **charm** (sub 53955581, p=0.40) — Sacred Charm[1177] -30 from ability-attackers (active HP-race). OUT 3x Spiky / IN 3x Charm.
+- **cleanse** (sub 53955582, p=0.38) — Switch[1123]+Lumiose Galette[1153] clear status. OUT 4x Basic{G} / IN 2+2 (paid from
+  energy = the do-no-harm fix of the regressed pivotcleanse).
+All 3 pre-registered (hash-chained, cabt-forecasts head 84f51b7b). recur DROPPED (flipped to robust-worse at N=30 — the
+renewable-wall Items are dead in the no-grind mirror). 2 slots reserved; gumi-v8 (808.9) stays the banked best.
+RESOLUTION: when they score, compare each to the CONTEMPORANEOUS v4-base (53868523) via the drift sensor (clean, pilot-held);
+the pattern = the meta read. gygax's caveat: if NONE clears 754, the eroder is the unpatchable active-ability-damage hole or
+an unmodeled mechanism (itself informative). Brier-score each on resolution.
+
+**STORM COUNCIL ran (8 agents) to package our loop for El Capitan [OHM] — who's building a parallel engine (gym/TurnTrace/
+FunSearch/Coach, ready ~cycle-014). Paper → `grimoires/loa/research/2026-06-22-two-evidence-loops.md` (peer-review-passed).**
+The council EARNED ITS KEEP by overturning my own framing + catching 3 over-claims before they reached a teammate:
+- **CORRECTION 1 (the big one): cross-engine AGREEMENT is NOT a new realness rung.** Two field-blind, self-play-rooted
+  instruments grading the same closed engine share the SAME blind spot → agreement = shared bias read twice, not
+  consilience. The informative event is **DISAGREEMENT adjudicated by the ladder.** (Small exception: a RE-IMPLEMENTED
+  engine's agreement rules out per-engine artifacts = minor independent info.) I'd told soju "agreement = consilience" — backwards.
+- **CORRECTION 2 (fagan): the "~470 Elo deck axis" was a distortion** — 807.5−719.1 = +88 (the only constructive deck gain,
+  N=1); 470 was the deck DOWNSIDE (−400/−494). And the pilot is NOT flat on the LADDER (v8 +21.9 UP held; v5/v6 −156/−236).
+  Honest: upside small on BOTH axes (+88 deck / +22 pilot, both N=1, neither coliseum-resolvable); we're on the converged deck
+  so both are near-peer now. Don't call either axis "the lever."
+- **CORRECTION 3 (fagan): frozen-drift senses the meta-shift of ALREADY-submitted agents — it CANNOT evaluate a novel
+  candidate** (a new FunSearch output still needs a slot). And the Brier "we're overconfident" was weaponized humility
+  (~0.257 vs naive 0.24 = near-tie; the loop self-corrected). We also UNDER-rated FunSearch (population extremum-selection
+  out-samples our 6 hand-picked bets) and the SAATY-floor's winner's-curse protection is undemonstrated (the 1277→876 fluke
+  was caught by higher-N, not the floor).
+- **2 missing seats added:** game-theorist (the field is NON-STATIONARY + RPS-triangle → imitating the converged meta is a
+  Red Queen treadmill → counter-meta/exploitability search, not imitation); objective-framing (does "Simulation" score the
+  best AGENT or the best METHODOLOGY? if the latter, the frontier question IS the deliverable).
+- **VERIFIED:** libcg.so exports no Seed symbol (only BattleStart/Select/GameInitialize/SearchBegin/BattleFinish) + re-runs
+  non-deterministic → the no-Seed fact (root of the band-pass + non-causal-attribution) holds. The 2-engine calibration
+  protocol: gate first (same-engine? seedable? eval-baseline?) → spend slots only on ladder-resolvable DISAGREEMENT.
+  FRONTIER: can instrument-independence (how much real-distribution info a gym carries) be measured CHEAPLY before a slot is spent?
+
+**DIAGNOSTIC SWEEP RESOLVED (2026-06-22) — NEW PB 986.1 + the eroding counter localized as STATUS.**
+- **cleanse (status-clear: Switch+Lumiose Galette) = 986.1** → HELD, +231 over v4-base 754.9, +177 over the prior best
+  (v8-Dwebble 808.9). NEW BEST BY FAR. Brier 0.3844 (p=0.38 — UNDER-confident on the winner, Dwebble pattern again).
+- charm (ability-reduction) = 772.2 → INSUFFICIENT (+17, within ladder noise, unscored).
+- cage (bench-spread/Alakazam) = 600.0 → FALSIFIED, −155. Brier 0.2025 (p=0.45 — OVER-confident on the loser).
+- **THE LESSON, sharp: gygax's HIGHEST-confidence read (cage) lost hardest; his LOWEST (cleanse) won biggest.** The
+  poisoned-well runs the wrong way even for the expert (v6-term + floor-vs-floor, now cage, all the same shape). The
+  SWEEP (orchestrated diversity) + the LADDER (ground truth) found what expertise/confidence alone could not. The
+  eroding counter is STATUS (the ex-wall is null to poison/burn placed between turns, not "by an attack").
+- **CONSTRAINT: only 2 submissions live at a time.** Keep **cleanse (986.1) + v8-dwebble (808.9)** live (our 2 best);
+  cage (600, a known regression) + charm (772, marginal) off. NEXT adaptation: DOUBLE DOWN on status (more status-clear
+  / condition-immunity tech, e.g. Festival Grounds) now that status is the confirmed counter — and re-run the sweep
+  pattern as the meta keeps shifting (it's non-stationary).
+
+**CYCLE-2 SWEEP — NEXT-COUNTER explore (2026-06-22, the long-con play; awaiting operator submit).**
+- **SENSE first:** cleanse's latest ladder poll = **955.9 (−30 from its 986.1 PB)** — right at the ±30 noise edge (sub
+  53955582 = "v4/crustle" in observatory labeling). No confirmed meta-shift; status may be near-ceiling/eroding → do NOT
+  pour slots into status-max. Frozen probes (v8 808.9, v4 754.9) flat over the 0.1-day window.
+- **gygax v4 design** (`gygax-variants-v4.json`): 3 distinct, legal, do-no-harm variants off sub_dwebble_v4 (all −3
+  Basic{G}[1] / +3 tech → energy 28≥27; draw engine Lillie's/Waitress/Poffin + heal engine Cook[1212]/Jumbo[1147] +
+  Hero's Cape ALL intact). Card text re-verified in EN_Card_Data.csv. Festival Grounds[1245] text CONFIRMED = passive
+  symmetric condition-immunity for energized Pokémon (a Stadium → bumpable, unlike cleanse's Items).
+  - **crustle-fg** (+3 Festival Grounds): STATUS-MAX exploit. p=0.55.
+  - **crustle-helmet** (+3 Lucky Helmet[1156] draw-2-when-damaged): NEXT-COUNTER, resource-EXHAUSTION hypothesis. p=0.42.
+  - **crustle-pivot** (+3 Air Balloon[1174] retreat −2): NEXT-COUNTER, single-wall-BURST hypothesis. p=0.33.
+- **Pre-screen N=30 (Docker, do-no-harm gate; v7 pilot, 900 matches 0 non-terminating):** ALL 3 pass do-no-harm (none
+  collapses). Ranks helmet **1192 (0.74, robustly #1 over fg)** > fg 1089 > v4-PB-base 1071 > gumi-v8 1066 > pivot 1012
+  (0.48, within-noise at/below base) > greedy 569. NOTE: the coliseum is BAND-PASS + internal-field (real=1) → this is
+  the down-weighted C2 proxy, NOT a ladder prediction. gygax's confident pick (fg) did NOT lead locally — the cage-shape
+  warning again (his top pick lost last cycle too).
+- **SAATY gate → operator chose helmet + pivot** (drop fg). 2-slot ceiling + **"playing for the long con"**: fg refines a
+  possibly-eroding KNOWN status edge (cleanse already banks status live); helmet/pivot are the EXPLORE — a
+  mutually-exclusive pair (only one should move) that LOCALIZES the next counter, the non-stationary-meta priority. A
+  double-flat is itself high-info (residual loss un-teachable from our pool → lever moves off the deck). CONFOUND flagged:
+  built off v4-base (not cleanse), so the bar is "beat base DESPITE not fixing status" → correctly low/C4-info-gain p's.
+- **PRE-REGISTERED (anchor bumped 84f51b7b → 8f74cfad; logged BEFORE outcome):** `deck-helmet-vs-exhaustion` p=0.42,
+  `deck-pivot-vs-burst` p=0.30 (pivot dinged below gygax's 0.33 by its weakest pre-screen). 13 forecasts total, chain intact.
+- **Bundles built + isolated-validated** (`.cabt-spike/build_{helmet,pivot}/` + `submission-{helmet,pivot}.tar.gz`, 23
+  entries each, v4 pilot, decks verified): both ✅ LEGAL, 0 crashes. (Smoke win% 0.00/0.10 is a wall-mirror-vs-floor
+  artifact — the proven cleanse bundle scores 0.10 in the same smoke; legality+no-crash is the real gate.)
+- **AWAITING OPERATOR SUBMIT** (Kaggle creds absent in-session): submit `submission-helmet.tar.gz` +
+  `submission-pivot.tar.gz` to `pokemon-tcg-ai-battle`. cleanse (986.1) stays banked champion. On ladder score:
+  resolve each via `resolveRegisteredDecision` → Brier → read the PATTERN (which loss mode moved) → localize next counter.
+
+---
+
+## TWO BIG SWINGS — belief update + pre-registration (2026-06-25, GAMES-024)
+
+**Frame.** Operator: "two big swings after comprehensively updating beliefs + pre-registering." Embodied
+**gygax** (game-systems) + the calibration discipline. Used `/recall` (federated) + `/compose` (the v8 build ran
+through `code-implement-and-review`, FAGAN-gated). The naive first draft (cleanse+v7 pilot-alone vs raw-Alakazam) was
+**dismantled by gygax** — the dismantling IS the belief update.
+
+**THE EV MAP (gygax + field/echelon, 754 real matches).** We are on the converged top deck, where council §5.2 already
+said BOTH the deck-tweak and pilot axes are SMALL levers. The decisive realization: **the EV-dominant matchup is the
+65% Crustle MIRROR (50-50 over 494 games), NOT the 9% Alakazam hole.** Math: a +5pt mirror lever = **+3.3% overall WR**
+(touches only the mirror, keeps the 91% we already win) vs a full Alakazam solve's +2.7% that *risks* the other 91%.
+The 9%-hole instinct (cage, −155) was a trap; the mirror is where the points are.
+
+**WHY cleanse+v7-alone is FLAT (gygax, file:line-grounded).** Every one of v7's signature features is DEAD in the
+cleanse shell: multi-prize retreat (Crustle is single-prize), Weakness×2 KO (both {G}, never fires in the mirror),
+**Boss-target-best-KO (cleanse runs ZERO Boss's Orders → no card to act on)**, recoil-safety (no recoil). Worse, v7's
+*hand-dumping* sequencing fights the wall-mirror's stall/deck-out rhythm → downside tail "mildly counterproductive."
+
+**WHY raw Alakazam is a TRAP (gygax p~0.15).** Same family as mono(205)/rebuild(225). **THE KILLER: Powerful Hand =
+20×hand-size**, so the optimal line is HOARD-then-swing — but v4/v7 do the OPPOSITE (play hand out, attack last).
+Bot-hostile profile **20P/7E/33T** (vs Dwebble's bot-friendly 31E/8P/21T) + Stage-2 line + Rare Candy timing.
+
+**THE TWO BIG SWINGS (pre-registered, LOGGED before any eval; anchor 8f74cfad → 5faa29f3, 15 forecasts, chain intact):**
+- **SWING 1 — `cleanse-boss-orders-v7-mirror`, p=0.40, effect small.** cleanse deck −2 Basic{G} +2 Boss's Orders[1182],
+  piloted by v7. The EV-dominant mirror lever (gust a benched Dwebble 70HP so Crustle 120 KOs it BEFORE it evolves =
+  setup-denial + tempo) AND the ONE config where Boss's Orders ACTIVATES v7's dead Boss-target feature. Co-designed
+  deck+pilot. POISONED-WELL discount: this is gygax's CONFIDENT #1 read, and his confident reads have been
+  anti-correlated (cage/energy-term falsified; his weakest read, cleanse, won biggest) → middling p by design.
+- **SWING 2 — `deck-alakazam-v8-powerful-hand`, p=0.20, effect large.** The converged Alakazam deck (the field's apex,
+  60.3% WR, beats our Crustle 80%) + a NEW hand-size-aware **v8 "Powerful Hand" pilot** (hoard then swing on a full
+  hand; Stage-2 priority). The counter-meta structural break the 2026-06-22 council named ("imitating the converged
+  meta is a Red Queen treadmill; the move is counter-meta search"). v8 fixes THE KILLER, not the Stage-2/Cage/energy
+  secondaries → a huge-upside, max-info long shot; if it lands it BREAKS the Crustle ceiling, if it fails it fails large.
+  **KILL-GATE (don't submit if pre-screen shows):** mean hand-size when Alakazam attacks ≤4, OR Stage-2-online <60% /
+  median evolve-turn >5, OR coliseum WR vs the Crustle wall <45% (field Alakazam wins 80% — if ours can't clear 50% the
+  pilot threw the edge).
+- gygax's #2 (cleanse + 2 Enhanced Hammer[strip the mirror's 12 special energies] + v4) = the on-deck FALLBACK if
+  Swing 2 is kill-gated, and the natural next mirror probe.
+
+**Build status:** Swing 1 `submission-boss-v7.tar.gz`, Swing 2 `submission-alakazam-v8.tar.gz` (v8 built via `/compose`
+code-implement-and-review, FAGAN-gated + my own review + py_compile), mirror-alt `submission-hammer-v4.tar.gz` — all
+BUILT, does-it-run ✅ (Docker smoke: LEGAL, 0 crashes each). 16 forecasts, chain head 66f3d835.
+
+**PRE-SCREEN VERDICT (coliseum round-robin, Docker, N=8, 448 matches 0 non-terminating; SYNTHETIC/band-pass — KILLS
+collapses, cannot bless edges). The diversity-pair PAID OFF — the mirror swing FLIPS from Boss to Hammer:**
+- **hammer-v4 (gygax #2) = rank #2, 0.59** — beats the Crustle wall (spar-dwebble) 0.56 AND beats the cleanse PB deck
+  0.56. The clean mirror lever (resource-denial, no pilot dependence).
+- **boss-v7 (the v7 mirror bet) = rank #7 (below greedy), 0.48; LOSES to the wall 0.19.** gygax's "v7 hand-dumping is
+  counterproductive in the wall mirror" warning + TWO pre-screens converge → **do-HARM. Pre-screen caught it before a
+  ladder slot (its whole job).** `cleanse-boss-orders-v7-mirror` (p=0.40) stays LOGGED + UNRESOLVED (built, not submitted).
+- **alakazam-v8 = rank #4, 0.55; BEATS the cleanse PB deck 0.62 h2h** (functional, NOT a mono/rebuild collapse) but vs
+  the Crustle wall clone = 0.44 (just under gygax's 45% gate → underpiloted vs its 80%-vs-Crustle ceiling; the Stage-2
+  setup secondaries cost it). A genuine p=0.20 long shot — survives the kill-gate (does-it-run + not-a-collapse), the
+  ladder resolves whether v8 extracts enough of Alakazam's structural edge.
+
+**→ THE TWO SWINGS TO SUBMIT (operator, Kaggle creds absent in-session):**
+1. **MIRROR — `submission-hammer-v4.tar.gz`** (`cleanse-enhanced-hammer-v4-mirror`, p=0.40). [Boss+v7 was the pre-reg
+   but pre-screened do-harm; Hammer is the diversity-pair winner.]
+2. **STRUCTURAL — `submission-alakazam-v8.tar.gz`** (`deck-alakazam-v8-powerful-hand`, p=0.20). The counter-meta break.
+Submit to `pokemon-tcg-ai-battle` (5/day). Resolve each via `resolveRegisteredDecision(id, {instrument:"ladder-measured"},
+marginPpm)` → Brier → the PATTERN localizes whether the 986→ lever is mirror-tech (Hammer) or the structural break (v8).
+**ENV FLAG:** disk hit 100% (118Mi free) mid-session → Docker Desktop crashed; recovered to 4Gi after relaunch. Docker.raw
+is 60GB — operator should reclaim disk (`docker system prune` / trim caches) before the next Docker-heavy pre-screen.
+
+**COMPOSE PAID OFF + a real bug.** v8 authored via `/compose code-implement-and-review` (CONVERGED, 3 iters, FAGAN-
+APPROVED). FAGAN caught what my own review MISSED: `cards.py` has NO public `card()` accessor → the first-built v8's
+`cards.card(id).name` was DEAD (NAME detection silent no-op). Converged v8 reads `cards._CARDS` read-only → Rare-Candy +
+Stage-2 LIVE; rebuilt bundle + re-pre-screen: alakazam-v8 vs the Crustle wall rose **0.44 → 0.56 (clears gygax's 45%
+gate)**. (No `valid_run` custody stamp — the Legba gate correctly refused a post-hoc hand-injected envelope; I did NOT
+forge it. Convergence is real per the workflow completion record.) **LATENT v7 BUG:** `heuristic_v7._hand_card_name`
+(line 144) routes through the same dead `cards.card` → v7's draw/search sequencing is dead (partly explains boss-v7's
+do-harm pre-screen). FOLLOW-UP: add a public `card_name(id)` to cards.py; repoint v7 + v8.

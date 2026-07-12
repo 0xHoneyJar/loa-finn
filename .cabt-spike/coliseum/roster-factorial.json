@@ -1,0 +1,10 @@
+{
+  "_comment": "deck⊗pilot FACTORIAL (research-council next bet, F6/B1). 2 pilots × 2 decks + greedy anchor. Measures the INTERACTION term B1 only inferred: does the pilot (v4-v6) gap depend on the deck? LOCAL coliseum probe (does-it-differ; large effects transfer per the §5b band-pass, B2) — pre-registered, NOT a ladder spend.",
+  "entrants": [
+    {"name": "f-v4-dwebble", "owner": "lab", "pilot": "v4", "deck": ".cabt-spike/sub_dwebble_v4/deck.csv", "note": "cell A: strong pilot × strong deck (the PB cell, ladder 791/807)"},
+    {"name": "f-v6-dwebble", "owner": "lab", "pilot": "v6", "deck": ".cabt-spike/sub_dwebble_v4/deck.csv", "note": "cell B: weak pilot × strong deck — the UNMEASURED cell B1's interaction hinges on"},
+    {"name": "f-v4-abomasnow", "owner": "lab", "pilot": "v4", "deck": ".cabt-spike/sub_v6_validate/deck.csv", "note": "cell C: strong pilot × weak deck (ladder 719)"},
+    {"name": "f-v6-abomasnow", "owner": "lab", "pilot": "v6", "deck": ".cabt-spike/sub_v6_validate/deck.csv", "note": "cell D: weak pilot × weak deck (ladder 497)"},
+    {"name": "greedy-anchor", "owner": "lab", "pilot": "greedy", "deck": ".cabt-spike/sub_v6_validate/deck.csv", "note": "common floor anchor for the Elo scale"}
+  ]
+}

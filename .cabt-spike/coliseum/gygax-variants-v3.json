@@ -1,0 +1,10 @@
+{
+  "_comment": "gygax v3 (2026-06-22) — cap-aware DIAGNOSTIC LADDER SWEEP. 4 legal, cap-respecting, do-no-harm variants (draw engine Lillie's[1227]/Waitress[1235]/Poffin[1086] untouched in ALL; tech paid from Basic{G}[1]/Spiky[14]/Mist[11]; energy>=27). Each probes a DISTINCT non-ex counter-mechanism so the PATTERN of ladder results localizes the hidden counter. Bulk redirected (Hero's Cape cap-1 maxed, no {G} +HP tool legal) to damage-reduction + bench-protection. Pre-screen is do-no-harm only (field lacks the real counters); real test is the ladder (C4 info-gain).",
+  "base": ".cabt-spike/sub_dwebble_v4/deck.csv",
+  "variants": [
+    {"name": "crustle-charm", "out": [{"id": 14, "count": 3}], "in": [{"id": 1177, "count": 3}], "rationale": "HYP A active-damage-reduction (bulk redirect): Sacred Charm[1177] -30 from attacks by ability-having Pokemon (recurring effective-HP vs ability-grinders). cap4, using 3."},
+    {"name": "crustle-cleanse", "out": [{"id": 1, "count": 4}], "in": [{"id": 1123, "count": 2}, {"id": 1153, "count": 2}], "rationale": "HYP B status (wall doesn't stop poison/burn): Switch[1123] (retreat clears conditions) + Lumiose Galette[1153] (heal 20 + remove a Special Condition). Paid from ENERGY (the do-no-harm fix of pivotcleanse). WATCH: 27-energy floor — could regress from starvation (Jumbo 3+ energy / Superb Scissors {G}●●), not tech."},
+    {"name": "crustle-recur", "out": [{"id": 14, "count": 2}, {"id": 11, "count": 1}], "in": [{"id": 1123, "count": 2}, {"id": 1097, "count": 1}], "rationale": "HYP C chip-grind/exhaustion: Night Stretcher[1097] (renewable wall — retrieve KO'd Crustle/energy) + Switch[1123]. KEPT VERBATIM (pre-screen PASS 1107 ~= PB)."},
+    {"name": "crustle-cage", "out": [{"id": 14, "count": 2}], "in": [{"id": 1264, "count": 2}], "rationale": "HYP D bench-spread (gygax's pick — the named Alakazam counter, 0.80 vs us ~16%): Battle Cage[1264] Stadium prevents damage counters on BENCHED Pokemon from attacks+abilities. cap4, using 2. Doubt: protects bench only, not active-ability-damage (the unpatchable hole)."}
+  ]
+}

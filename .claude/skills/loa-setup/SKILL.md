@@ -1,6 +1,7 @@
 ---
 name: loa-setup
 description: "Loa onboarding wizard: environment detection, profile questionnaire, config generation, and post-config explanation in ≤10 turns"
+role: planning
 capabilities:
   schema_version: 1
   read_files: true
@@ -17,7 +18,7 @@ capabilities:
   user_interaction: true
   agent_spawn: false
   task_management: false
-cost-profile: minimal
+cost-profile: lightweight
 ---
 
 # /loa setup — Onboarding Wizard

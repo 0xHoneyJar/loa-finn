@@ -8,35 +8,62 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Default owner — catch-all for any file not matched below
 # ─────────────────────────────────────────────────────────────────────────────
-*                               @janitooor
+*                               @deep-name
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Framework core (System Zone)
 # ─────────────────────────────────────────────────────────────────────────────
-.claude/                        @janitooor
-.loa.config.yaml                @janitooor
-.loa.config.yaml.example        @janitooor
+.claude/                        @deep-name
+.loa.config.yaml                @deep-name
+.loa.config.yaml.example        @deep-name
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Project configuration & documentation
 # ─────────────────────────────────────────────────────────────────────────────
-CLAUDE.md                       @janitooor
-PROCESS.md                      @janitooor
-CONTRIBUTING.md                 @janitooor
-SECURITY.md                     @janitooor
-CHANGELOG.md                    @janitooor
+CLAUDE.md                       @deep-name
+PROCESS.md                      @deep-name
+CONTRIBUTING.md                 @deep-name
+SECURITY.md                     @deep-name
+CHANGELOG.md                    @deep-name
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CI / GitHub configuration
 # ─────────────────────────────────────────────────────────────────────────────
-.github/                        @janitooor
+.github/                        @deep-name
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Eval baselines (require explicit review for regression threshold changes)
 # ─────────────────────────────────────────────────────────────────────────────
-evals/baselines/                @janitooor
+evals/baselines/                @deep-name
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Grimoire state (State Zone)
 # ─────────────────────────────────────────────────────────────────────────────
-grimoires/                      @janitooor
+grimoires/                      @deep-name
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cycle-108 advisor-strategy — security-critical surface
+# Red Team ATK-A1 (skill-role spoofing), ATK-A17 (admin-merge bypass defense),
+# ATK-A18 (CODEOWNERS self-protection), ATK-A20 (pricing manipulation defense).
+# These rules supplement the catch-all .claude/ owner above; left explicit
+# so future grep'ers can audit the cycle-108 attack surface in isolation.
+# ─────────────────────────────────────────────────────────────────────────────
+.claude/data/schemas/advisor-strategy.schema.json   @deep-name
+.claude/adapters/loa_cheval/config/loader.py        @deep-name
+.claude/skills/*/SKILL.md                           @deep-name
+.claude/defaults/model-config.yaml                  @deep-name
+.github/CODEOWNERS                                  @deep-name
+.github/workflows/cycle-108-*.yml                   @deep-name
+
+# Cycle-108 sprint-2 T2.J — pricing baseline + sprint-selection algorithm.
+# ATK-A6 (historical-medians.json) requires the file be CODEOWNERS-protected;
+# silent edits to the medians would distort the cost-cap pre-estimate.
+.run/historical-medians.json                        @deep-name
+.run/cycles/cycle-108-advisor-strategy/             @deep-name
+tests/fixtures/cycle-108/                           @deep-name
+tools/select-benchmark-sprints.py                   @deep-name
+tools/modelinv-rollup.sh                            @deep-name
+tools/sprint-kind-classify.py                       @deep-name
+tools/advisor-benchmark*.sh                         @deep-name
+tools/advisor-benchmark-stats.py                    @deep-name
+tools/modelinv-coverage-audit.py                    @deep-name

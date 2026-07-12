@@ -1,0 +1,240 @@
+{
+  "n_per_seat": 2,
+  "entrants": [
+    {
+      "name": "champion-dwebble",
+      "owner": "lab",
+      "pilot": "v4"
+    },
+    {
+      "name": "v4-abomasnow",
+      "owner": "lab",
+      "pilot": "v4"
+    },
+    {
+      "name": "v5-abomasnow",
+      "owner": "lab",
+      "pilot": "v5"
+    },
+    {
+      "name": "v6-abomasnow",
+      "owner": "lab",
+      "pilot": "v6"
+    },
+    {
+      "name": "greedy-floor",
+      "owner": "lab",
+      "pilot": "greedy"
+    },
+    {
+      "name": "spar-dwebble",
+      "owner": "lab",
+      "pilot": "clone:dwebble_crustle"
+    },
+    {
+      "name": "spar-lucario",
+      "owner": "lab",
+      "pilot": "clone:lucario"
+    },
+    {
+      "name": "spar-alakazam",
+      "owner": "lab",
+      "pilot": "clone:alakazam"
+    }
+  ],
+  "elo": {
+    "champion-dwebble": 1245.7,
+    "v4-abomasnow": 913.2,
+    "v5-abomasnow": 953.8,
+    "v6-abomasnow": 913.2,
+    "greedy-floor": 871.5,
+    "spar-dwebble": 1217.9,
+    "spar-lucario": 849.9,
+    "spar-alakazam": 1034.7
+  },
+  "order": [
+    "champion-dwebble",
+    "spar-dwebble",
+    "spar-alakazam",
+    "v5-abomasnow",
+    "v4-abomasnow",
+    "v6-abomasnow",
+    "greedy-floor",
+    "spar-lucario"
+  ],
+  "wins": {
+    "champion-dwebble": {
+      "champion-dwebble": 0,
+      "v4-abomasnow": 4,
+      "v5-abomasnow": 4,
+      "v6-abomasnow": 4,
+      "greedy-floor": 4,
+      "spar-dwebble": 2,
+      "spar-lucario": 4,
+      "spar-alakazam": 3
+    },
+    "v4-abomasnow": {
+      "champion-dwebble": 0,
+      "v4-abomasnow": 0,
+      "v5-abomasnow": 0,
+      "v6-abomasnow": 3,
+      "greedy-floor": 2,
+      "spar-dwebble": 0,
+      "spar-lucario": 4,
+      "spar-alakazam": 1
+    },
+    "v5-abomasnow": {
+      "champion-dwebble": 0,
+      "v4-abomasnow": 4,
+      "v5-abomasnow": 0,
+      "v6-abomasnow": 3,
+      "greedy-floor": 3,
+      "spar-dwebble": 0,
+      "spar-lucario": 2,
+      "spar-alakazam": 0
+    },
+    "v6-abomasnow": {
+      "champion-dwebble": 0,
+      "v4-abomasnow": 1,
+      "v5-abomasnow": 1,
+      "v6-abomasnow": 0,
+      "greedy-floor": 2,
+      "spar-dwebble": 0,
+      "spar-lucario": 3,
+      "spar-alakazam": 3
+    },
+    "greedy-floor": {
+      "champion-dwebble": 0,
+      "v4-abomasnow": 2,
+      "v5-abomasnow": 1,
+      "v6-abomasnow": 2,
+      "greedy-floor": 0,
+      "spar-dwebble": 0,
+      "spar-lucario": 2,
+      "spar-alakazam": 1
+    },
+    "spar-dwebble": {
+      "champion-dwebble": 2,
+      "v4-abomasnow": 4,
+      "v5-abomasnow": 4,
+      "v6-abomasnow": 4,
+      "greedy-floor": 4,
+      "spar-dwebble": 0,
+      "spar-lucario": 3,
+      "spar-alakazam": 3
+    },
+    "spar-lucario": {
+      "champion-dwebble": 0,
+      "v4-abomasnow": 0,
+      "v5-abomasnow": 2,
+      "v6-abomasnow": 1,
+      "greedy-floor": 2,
+      "spar-dwebble": 1,
+      "spar-lucario": 0,
+      "spar-alakazam": 1
+    },
+    "spar-alakazam": {
+      "champion-dwebble": 1,
+      "v4-abomasnow": 3,
+      "v5-abomasnow": 4,
+      "v6-abomasnow": 1,
+      "greedy-floor": 3,
+      "spar-dwebble": 1,
+      "spar-lucario": 3,
+      "spar-alakazam": 0
+    }
+  },
+  "games": {
+    "champion-dwebble": {
+      "champion-dwebble": 0,
+      "v4-abomasnow": 4,
+      "v5-abomasnow": 4,
+      "v6-abomasnow": 4,
+      "greedy-floor": 4,
+      "spar-dwebble": 4,
+      "spar-lucario": 4,
+      "spar-alakazam": 4
+    },
+    "v4-abomasnow": {
+      "champion-dwebble": 4,
+      "v4-abomasnow": 0,
+      "v5-abomasnow": 4,
+      "v6-abomasnow": 4,
+      "greedy-floor": 4,
+      "spar-dwebble": 4,
+      "spar-lucario": 4,
+      "spar-alakazam": 4
+    },
+    "v5-abomasnow": {
+      "champion-dwebble": 4,
+      "v4-abomasnow": 4,
+      "v5-abomasnow": 0,
+      "v6-abomasnow": 4,
+      "greedy-floor": 4,
+      "spar-dwebble": 4,
+      "spar-lucario": 4,
+      "spar-alakazam": 4
+    },
+    "v6-abomasnow": {
+      "champion-dwebble": 4,
+      "v4-abomasnow": 4,
+      "v5-abomasnow": 4,
+      "v6-abomasnow": 0,
+      "greedy-floor": 4,
+      "spar-dwebble": 4,
+      "spar-lucario": 4,
+      "spar-alakazam": 4
+    },
+    "greedy-floor": {
+      "champion-dwebble": 4,
+      "v4-abomasnow": 4,
+      "v5-abomasnow": 4,
+      "v6-abomasnow": 4,
+      "greedy-floor": 0,
+      "spar-dwebble": 4,
+      "spar-lucario": 4,
+      "spar-alakazam": 4
+    },
+    "spar-dwebble": {
+      "champion-dwebble": 4,
+      "v4-abomasnow": 4,
+      "v5-abomasnow": 4,
+      "v6-abomasnow": 4,
+      "greedy-floor": 4,
+      "spar-dwebble": 0,
+      "spar-lucario": 4,
+      "spar-alakazam": 4
+    },
+    "spar-lucario": {
+      "champion-dwebble": 4,
+      "v4-abomasnow": 4,
+      "v5-abomasnow": 4,
+      "v6-abomasnow": 4,
+      "greedy-floor": 4,
+      "spar-dwebble": 4,
+      "spar-lucario": 0,
+      "spar-alakazam": 4
+    },
+    "spar-alakazam": {
+      "champion-dwebble": 4,
+      "v4-abomasnow": 4,
+      "v5-abomasnow": 4,
+      "v6-abomasnow": 4,
+      "greedy-floor": 4,
+      "spar-dwebble": 4,
+      "spar-lucario": 4,
+      "spar-alakazam": 0
+    }
+  },
+  "drawn": 0,
+  "field_trust": {
+    "real": 0,
+    "internal": 5,
+    "sparring": 3,
+    "distinct_real_owners": 0,
+    "trust": "none",
+    "verdict": "SYNTHETIC \u2014 field is our own variants + clones only; GAMES-014 says this CANNOT reproduce the ladder. Do NOT trust this ranking. Recruit real teammate agents."
+  },
+  "total_matches": 112,
+  "elapsed_s": 6.3
+}

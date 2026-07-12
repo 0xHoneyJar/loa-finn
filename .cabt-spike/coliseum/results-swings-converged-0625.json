@@ -1,0 +1,347 @@
+{
+  "n_per_seat": 8,
+  "seed": null,
+  "entrants": [
+    {
+      "name": "boss-v7",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/build_boss_v7"
+    },
+    {
+      "name": "alakazam-v8",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/build_alakazam_v8"
+    },
+    {
+      "name": "cleanse-ctl",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/build_cleanse"
+    },
+    {
+      "name": "spar-dwebble",
+      "owner": "soju",
+      "pilot": "clone:dwebble_crustle"
+    },
+    {
+      "name": "spar-alakazam",
+      "owner": "soju",
+      "pilot": "clone:alakazam"
+    },
+    {
+      "name": "spar-lucario",
+      "owner": "soju",
+      "pilot": "clone:lucario"
+    },
+    {
+      "name": "greedy",
+      "owner": "soju",
+      "pilot": "greedy"
+    },
+    {
+      "name": "hammer-v4",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/build_hammer_v4"
+    }
+  ],
+  "elo": {
+    "boss-v7": 966.5,
+    "alakazam-v8": 1038.4,
+    "cleanse-ctl": 1005.4,
+    "spar-dwebble": 1077.4,
+    "spar-alakazam": 1077.4,
+    "spar-lucario": 730.1,
+    "greedy": 1032.9,
+    "hammer-v4": 1071.8
+  },
+  "order": [
+    "spar-dwebble",
+    "spar-alakazam",
+    "hammer-v4",
+    "alakazam-v8",
+    "greedy",
+    "cleanse-ctl",
+    "boss-v7",
+    "spar-lucario"
+  ],
+  "win_ci": {
+    "boss-v7": [
+      0.349,
+      0.53
+    ],
+    "alakazam-v8": [
+      0.461,
+      0.642
+    ],
+    "cleanse-ctl": [
+      0.409,
+      0.591
+    ],
+    "spar-dwebble": [
+      0.524,
+      0.701
+    ],
+    "spar-alakazam": [
+      0.524,
+      0.701
+    ],
+    "spar-lucario": [
+      0.076,
+      0.199
+    ],
+    "greedy": [
+      0.452,
+      0.634
+    ],
+    "hammer-v4": [
+      0.515,
+      0.693
+    ]
+  },
+  "reliability": [
+    {
+      "hi": "spar-dwebble",
+      "lo": "spar-alakazam",
+      "verdict": "within_noise",
+      "h2h": 0.438,
+      "ci": [
+        0.231,
+        0.668
+      ]
+    },
+    {
+      "hi": "spar-alakazam",
+      "lo": "hammer-v4",
+      "verdict": "within_noise",
+      "h2h": 0.438,
+      "ci": [
+        0.231,
+        0.668
+      ]
+    },
+    {
+      "hi": "hammer-v4",
+      "lo": "alakazam-v8",
+      "verdict": "within_noise",
+      "h2h": 0.375,
+      "ci": [
+        0.185,
+        0.614
+      ]
+    },
+    {
+      "hi": "alakazam-v8",
+      "lo": "greedy",
+      "verdict": "within_noise",
+      "h2h": 0.562,
+      "ci": [
+        0.332,
+        0.769
+      ]
+    },
+    {
+      "hi": "greedy",
+      "lo": "cleanse-ctl",
+      "verdict": "within_noise",
+      "h2h": 0.625,
+      "ci": [
+        0.386,
+        0.815
+      ]
+    },
+    {
+      "hi": "cleanse-ctl",
+      "lo": "boss-v7",
+      "verdict": "within_noise",
+      "h2h": 0.5,
+      "ci": [
+        0.28,
+        0.72
+      ]
+    },
+    {
+      "hi": "boss-v7",
+      "lo": "spar-lucario",
+      "verdict": "robust",
+      "h2h": 0.938,
+      "ci": [
+        0.717,
+        0.989
+      ]
+    }
+  ],
+  "wins": {
+    "boss-v7": {
+      "boss-v7": 0,
+      "alakazam-v8": 6,
+      "cleanse-ctl": 8,
+      "spar-dwebble": 5,
+      "spar-alakazam": 7,
+      "spar-lucario": 15,
+      "greedy": 4,
+      "hammer-v4": 4
+    },
+    "alakazam-v8": {
+      "boss-v7": 10,
+      "alakazam-v8": 0,
+      "cleanse-ctl": 7,
+      "spar-dwebble": 9,
+      "spar-alakazam": 8,
+      "spar-lucario": 9,
+      "greedy": 9,
+      "hammer-v4": 10
+    },
+    "cleanse-ctl": {
+      "boss-v7": 8,
+      "alakazam-v8": 9,
+      "cleanse-ctl": 0,
+      "spar-dwebble": 8,
+      "spar-alakazam": 4,
+      "spar-lucario": 15,
+      "greedy": 6,
+      "hammer-v4": 6
+    },
+    "spar-dwebble": {
+      "boss-v7": 11,
+      "alakazam-v8": 7,
+      "cleanse-ctl": 8,
+      "spar-dwebble": 0,
+      "spar-alakazam": 7,
+      "spar-lucario": 16,
+      "greedy": 10,
+      "hammer-v4": 10
+    },
+    "spar-alakazam": {
+      "boss-v7": 9,
+      "alakazam-v8": 8,
+      "cleanse-ctl": 12,
+      "spar-dwebble": 9,
+      "spar-alakazam": 0,
+      "spar-lucario": 13,
+      "greedy": 11,
+      "hammer-v4": 7
+    },
+    "spar-lucario": {
+      "boss-v7": 1,
+      "alakazam-v8": 7,
+      "cleanse-ctl": 1,
+      "spar-dwebble": 0,
+      "spar-alakazam": 3,
+      "spar-lucario": 0,
+      "greedy": 2,
+      "hammer-v4": 0
+    },
+    "greedy": {
+      "boss-v7": 12,
+      "alakazam-v8": 7,
+      "cleanse-ctl": 10,
+      "spar-dwebble": 6,
+      "spar-alakazam": 5,
+      "spar-lucario": 14,
+      "greedy": 0,
+      "hammer-v4": 7
+    },
+    "hammer-v4": {
+      "boss-v7": 12,
+      "alakazam-v8": 6,
+      "cleanse-ctl": 10,
+      "spar-dwebble": 6,
+      "spar-alakazam": 9,
+      "spar-lucario": 16,
+      "greedy": 9,
+      "hammer-v4": 0
+    }
+  },
+  "games": {
+    "boss-v7": {
+      "boss-v7": 0,
+      "alakazam-v8": 16,
+      "cleanse-ctl": 16,
+      "spar-dwebble": 16,
+      "spar-alakazam": 16,
+      "spar-lucario": 16,
+      "greedy": 16,
+      "hammer-v4": 16
+    },
+    "alakazam-v8": {
+      "boss-v7": 16,
+      "alakazam-v8": 0,
+      "cleanse-ctl": 16,
+      "spar-dwebble": 16,
+      "spar-alakazam": 16,
+      "spar-lucario": 16,
+      "greedy": 16,
+      "hammer-v4": 16
+    },
+    "cleanse-ctl": {
+      "boss-v7": 16,
+      "alakazam-v8": 16,
+      "cleanse-ctl": 0,
+      "spar-dwebble": 16,
+      "spar-alakazam": 16,
+      "spar-lucario": 16,
+      "greedy": 16,
+      "hammer-v4": 16
+    },
+    "spar-dwebble": {
+      "boss-v7": 16,
+      "alakazam-v8": 16,
+      "cleanse-ctl": 16,
+      "spar-dwebble": 0,
+      "spar-alakazam": 16,
+      "spar-lucario": 16,
+      "greedy": 16,
+      "hammer-v4": 16
+    },
+    "spar-alakazam": {
+      "boss-v7": 16,
+      "alakazam-v8": 16,
+      "cleanse-ctl": 16,
+      "spar-dwebble": 16,
+      "spar-alakazam": 0,
+      "spar-lucario": 16,
+      "greedy": 16,
+      "hammer-v4": 16
+    },
+    "spar-lucario": {
+      "boss-v7": 16,
+      "alakazam-v8": 16,
+      "cleanse-ctl": 16,
+      "spar-dwebble": 16,
+      "spar-alakazam": 16,
+      "spar-lucario": 0,
+      "greedy": 16,
+      "hammer-v4": 16
+    },
+    "greedy": {
+      "boss-v7": 16,
+      "alakazam-v8": 16,
+      "cleanse-ctl": 16,
+      "spar-dwebble": 16,
+      "spar-alakazam": 16,
+      "spar-lucario": 16,
+      "greedy": 0,
+      "hammer-v4": 16
+    },
+    "hammer-v4": {
+      "boss-v7": 16,
+      "alakazam-v8": 16,
+      "cleanse-ctl": 16,
+      "spar-dwebble": 16,
+      "spar-alakazam": 16,
+      "spar-lucario": 16,
+      "greedy": 16,
+      "hammer-v4": 0
+    }
+  },
+  "drawn": 0,
+  "field_trust": {
+    "real": 0,
+    "internal": 5,
+    "sparring": 3,
+    "distinct_real_owners": 0,
+    "trust": "none",
+    "verdict": "SYNTHETIC \u2014 field is our own variants + clones only; GAMES-014 says this CANNOT reproduce the ladder. Do NOT trust this ranking. Recruit diverse external teammate agents."
+  },
+  "total_matches": 448,
+  "elapsed_s": 43.4
+}

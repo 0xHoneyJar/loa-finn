@@ -48,12 +48,29 @@ classify_pr_type() {
         return 0
     fi
 
-    if echo "$title" | grep -qE '\bcycle-[0-9]+\b'; then
+    # cycle-114 #971: case-INSENSITIVE so a capitalized token like "Cycle-114:"
+    # classifies as cycle (PR #970 merge subject was misrouted to "other" by the
+    # prior case-sensitive match, skipping the post-merge Full Pipeline). The
+    # \b word-boundary + [0-9]+ anchors are preserved, so "Precycle-082" and
+    # "Cycle-abc" still classify as "other".
+    if echo "$title" | grep -qiE '\bcycle-[0-9]+\b'; then
         echo "cycle"
         return 0
     fi
 
     if echo "$title" | grep -qE "^(Run Mode|Sprint Plan|feat\(sprint|feat\(cycle)"; then
+        echo "cycle"
+        return 0
+    fi
+
+    # R-005 (bd-m1o6): release merges are cycle-type. A named-release PR is
+    # usually all fix/chore commits (the features shipped in the tags being
+    # rolled up), so nothing above matches and it fell to "other" →
+    # simple-release path → conventional PATCH auto-tag. Live incident
+    # 2026-07-10: PR #1201 (release/v1.196.0-mechanical-floor) was auto-tagged
+    # v1.195.1 and needed a manual delete+retag. Recognize both the
+    # branch-merge subject shape and conventional release(...):/release: prefixes.
+    if echo "$title" | grep -qE "from [^ ]+/release/|^[Rr]elease(\([^)]*\))?:"; then
         echo "cycle"
         return 0
     fi

@@ -1,125 +1,106 @@
-# Sprint Plan: The Corpus Engine — V1
-
-**Status:** Draft
-**Date:** 2026-06-14
-**Cycle:** cycle-053
-**Supersedes (active slot):** `sprint.archived-2026-06-14-pre-corpus-engine.md` (preserved)
-**Traces:** `grimoires/loa/prd.md` (Rev 2) · `grimoires/loa/sdd.md` (Rev 2, §10 overrides) · flatline consensus (PRD + SDD)
-
-> V1 = "Loop + survival re-settle." Deterministic-first phasing (Path B before Path A). Every AC bakes in the flatline §10 fixes. Cross-repo dune-meter fix is the blocking foundation.
-
+---
+status: Draft
+date: 2026-07-12
+bead: bd-1vp7
+traces: prd-narrative-historical-architecture.md (rev 2) · sdd-narrative-historical-architecture.md (rev 2)
+hivemind:
+  schema_version: "1.0"
+  artifact_type: product-spec
+  product_area: "loa-finn — Finn's Shop sprint plan (4 sprints: substrate → protocol → probe → CLI v0)"
+  workstream: experimentation
+  priority: high
+  jtbd: {category: functional, description: "sprint decomposition with mechanical ACs incl. negative tests; S4 gated on S1-S3 acceptance"}
+  learning_status: directionally-correct
+  source: team-internal
 ---
 
-## Sprint 1: Phase a — Deterministic foundation (the cheap floor first)
+# Sprint Plan — Finn's Shop (bd-1vp7)
 
-**T1 — Fix `dune-meter` (governed headless Dune).** *(cross-repo: loa-freeside)*
-- AC1: `dune-meter run <sql> --cap <N> --engine small --json` executes via create-query→execute-by-id (no more HTTP 405) and returns `{executed, credits_consumed, execution_id, atom...}`.
-- AC2: bin is executable; `DUNE_METER_BIN` resolves it (the `src/research/sensors/dune.ts` contract).
-- AC3 (DD-10): version pinned; golden contract test on the JSON; strict output-schema validation; failure taxonomy — 429 = retryable-with-backoff, budget-refuse/cap-abort = terminal→censored.
-- ⚠ Cross-repo: lands in loa-freeside, not loa-finn. Sequencing risk D1.
+**Supersedes (active slot):** `sprint.archived-2026-07-12-pre-shop-corpus-engine.md` (Corpus Engine V1 draft, simstim aborted — preserved, not deleted)
 
-**T2 — `--mock` data-source mode in the dune sensor (flatline H4/DD-2).**
-- AC: `src/research/sensors/dune.ts` accepts `mock: true` returning fixture series; Path B + all schema/orchestration tests run with zero live Dune calls. Unblocks dev while T1 lands.
+> 4 sprints. Every task has pass/fail ACs including NEGATIVE tests (SDD §6).
+> Code tasks run through /implement inside /run; doc tasks are grimoire-zone.
+> S4 is GATED: begins only when S1–S3 ACs are green via the aggregate runner.
 
-**T3 — Graduate GADGET #001 → `src/research/realness-verdict.ts`.**
-- AC: module moved from `grimoires/loa/lab/gadgets/`; vitest grep roots extended to cover it; discrimination test green (Kintara→REAL, x402→THEATER) in CI.
+## Sprint 1 — Identity + ledger substrate (FR-1, FR-2, FR-3 + two tools)
 
-**T4 — `src/corpus/settle.ts` deterministic core (Path B).**
-- AC1: pipeline dune-meter(query) → `realness-verdict` → spine append, metered (cost atom, Contract A).
-- AC2 (DD-3): a settle with NO prior registered `tetlock-forecast` is REJECTED.
-- AC3 (DD-5/DD-10): settle record stores full provenance incl. the FULL resolved SQL text (blob, ref by `sql_template_hash`) + `verdict_module_sha` + `data_window`.
-- AC4: replay of SETTLE-003 (mock or live) reproduces `HELD[real]`; `verifySpineChain()` passes.
+**T1.1 — cite-check.ts** (`src/lab/shop/cite-check.ts`, ~180 loc + tests)
+- Parses citation forms: `path`, `path:Lx-Ly`, `path@sha`, `path:Lx-Ly@sha`, `commit:<sha>`, `ledger:<row-id>`.
+- Resolution per SDD 2.5 semantics (git-anchored, dirty/moved/dead distinct).
+- AC+: fixtures resolve; JSON report shape versioned.
+- AC−: dangling path → `dead` + exit 1; drifted range → `moved` + exit 1; dirty working-tree target → `dirty` + exit 1; unknown schema_version in report request → reject; symlinked path → not followed, `dead`.
 
----
+**T1.2 — ledger-check.ts** (`src/lab/shop/ledger-check.ts`, ~120 loc + tests)
+- Parses GADGETS.md YAML block; validates closed enums + check-runner schema (vitest|node-script|py-compile, argv list, in-repo target); reconciles boundary enumeration ↔ rows (SDD 2.2 rules); `--render` regenerates the human table.
+- AC+: seeded ledger reconciles; render is idempotent.
+- AC−: free-string `cmd` field → reject; out-of-root `home` → reject; duplicate id → reject; unenrolled instrument on disk → exit 1 naming it; phantom row → exit 1; stale rendered table → exit 1.
 
-## Sprint 2: Phase b — Scheduled fresh settle (Path A thin)
+**T1.3 — GADGETS.md seeded** (grimoire)
+- Rows: gadget-001 realness-verdict; metabolism instruments (solver/cartographer, loyal-traitor, oracle, hand, population-ledger, metabolism-ledger, verify); the four shop tools themselves (LOC ceilings in rows); candidates #002/#003 as CANDIDATE.
+- Lifecycle section (FR-6) in the header.
+- AC: `ledger-check` exit 0; every non-pending row's check runs green under its contract.
 
-**T5 — `src/corpus/intake.ts` transactional candidate store (FR-6/DD-11).**
-- AC1: SQLite-backed (via `src/cron/store.ts`); `enqueueCandidate`/`rejectCandidate` ledger source + rejection reason.
-- AC2: candidate lifecycle is append-only events with DERIVED status (not one mutable flag).
-- AC3 (§6′): per-source quota + source auth — a firehose cannot flood the global budget.
+**T1.4 — claim-inventory.yaml + identity truth-repair** (grimoire + README/BEAUVOIR)
+- Load-bearing identity claims enumerated with citations; README "production-shaped use" line replaced with cited truth; BEAUVOIR.md + README "Why Finn" updated to the shop thesis (lineage-cited).
+- AC+: `cite-check` over the inventory → exit 0.
+- AC−: a deliberately-broken fixture inventory fails.
 
-**T6 — `src/corpus/budget.ts` transactional reserve (DD-9/NFR-6).**
-- AC1: `reserveBudget(cap)` is atomic (SQLite tx) — concurrent jobs cannot all pass and overspend (TOCTOU test).
-- AC2: actual atom cost settles/refunds the reservation; one cost-ledger entry per run.
-- AC3 (DD-6): a cap-abort/refuse writes a typed `censored` event (not a silent drop).
+**T1.5 — lore/lineage.md** (grimoire)
+- The archaeology as governed doc: README lives, PRD arc, handoff record (custody grant summarized — vault boundary: no verbatim), cosmology chain; links roster/jani.md + testimony.
+- AC: every claim carries a citation; `cite-check` over the doc → exit 0.
 
-**T7 — `src/corpus/engine.ts` + cron wiring + Path-A SettleIntent (FR-1/DD-8/DD-4′).**
-- AC1: `registerCorpusJobs` schedules dispatch via `src/cron`; operator-seeded candidate runs `lab-cycle` in a Railway Sandbox (Finn-native fallback behind flag).
-- AC2 (DD-8): the sandbox has ZERO spine write access; it emits a schema-validated `SettleIntent`; the HOST validates+meters+commits.
-- AC3 (DD-4′): idempotency key = `(candidate_id, horizon)` ordinal, never the dynamic window.
+## Sprint 2 — Consultation protocol + corpus intake (FR-4, FR-5 + two tools)
 
----
+**T2.1 — corpus-scrub.ts** (~60 loc + tests)
+- Applies flatline secret_scanning patterns; writes manifest.yaml (sha256 raw+redacted, counts); deletes raw post-scrub (SDD retention).
+- AC+: fixture export with planted secrets → all redacted, manifest correct, raw gone.
+- AC−: pattern miss on a known-format secret fixture → test fails; manifest hash mismatch → exit 1.
 
-## Sprint 3: Phase c — Survival re-settle (the "realness ≠ survival" core)
+**T2.2 — lab/corpus/ + INTAKE.md** (grimoire)
+- Convention doc (redaction gate, provenance.yaml tiers, guards[], internal-only); operator-gated items listed `DONE | OPEN(owner: operator)` — export, custody signing, symlink fix.
+- AC: convention doc complete; any landed acquisition stamped with tiers; open items owned.
 
-**T8 — `src/corpus/resettle-queue.ts` (FR-3/DD-3′/DD-4/DD-11).**
-- AC1: a `HELD[real]` settle upserts durable `CorpusResettleJob` rows for t+7/t+30/t+90 (idempotent).
-- AC2 (DD-4): each re-settle queries a FRESH forward-rolling window `[discovery..now]`, same pinned thresholds + versioned template — never the original window.
-- AC3 (DD-3′): each horizon scores its OWN `p_survival_{7,30,90}d` forecast; a re-settle with no horizon forecast is a ground-truth observation (no Brier), never mis-scored against the discovery `p`.
-- AC4 (DD-10): all Dune calls flow through ONE global single-concurrency rate-limited queue (no 429 thundering herd).
+**T2.3 — CONSULTATIONS.md protocol** (grimoire)
+- The JANI-v0 shape codified; deterministic-vs-LLM boundary table (SDD 2.3); confidence derivation rules v1; testimony frontmatter schema; ethics-header requirement for person subjects.
+- AC: protocol validates against the JANI testimony retroactively (its citations resolve; confidence fields re-derive).
 
----
+**T2.4 — probe.ts + fixtures** (~120 loc + tests)
+- `lab/probe-fixtures.yaml` (4 dimensions → required citation classes, versioned); probe run appends to `lab/probe-results.jsonl`.
+- AC+: a correct answer file passes; result line appended, versioned.
+- AC−: answer missing a dimension's citation class → fail; answer with dangling citation → fail; unknown fixtures_version → reject.
 
-## Sprint 4: Phase d — Calibration + benchmark (the franchise)
+**T2.5 — Consultation #2 (G2)** (grimoire — subject: repo-lineage or a decision, NOT a person; internal)
+- Run through CONSULTATIONS.md verbatim: pre-registered questions → miners → cited verdicts → testimony record.
+- AC: testimony VALID per protocol (cite-check green, confidences re-derive); at least one honest ABSTAIN or the absence justified.
 
-**T9 — `src/corpus/calibration.ts` track-record read (FR-4).**
-- AC1: returns `{n_settled, n_candidates, funnel_rate, hit_rate, mean_brier_ppm (per horizon), survival_curve{t7,t30,t90}, censored_rate}`.
-- AC2: Brier state machine — only binary scored outcomes in the denominator; INSUFFICIENT/INDETERMINATE/censored excluded from Brier but counted in censor-rate + funnel.
+## Sprint 3 — The measurement (G1) + CLI spec ratification (FR-8)
 
-**T10 — Discrimination benchmark ≥10 cases (FR-7/C3).**
-- AC: ≥10 diverse, independently-known REAL/THEATER cases; false-REAL/false-THEATER rates recorded; thresholds locked; autonomous wiring GATED on green.
+**T3.1 — Probe run vs baseline**
+- Fresh session given the 4 fixtures; answer validated by probe.ts; run recorded next to the 2026-07-12 baseline (3 workflows ≈ 1.8M tokens) in a testimony-convention record.
+- AC: probe exit 0 with all citations resolving; tokens/minutes recorded. (If it FAILS, the failure report is the sprint output — the gap list drives fixes; honest fail ≠ sprint fail.)
 
----
+**T3.2 — Regression trigger set**
+- Declared glob list (identity docs, GADGETS.md, lineage, fixtures) + a local runner (`npm run shop:check` = ledger-check + cite-check over inventory/lineage + probe re-validation of last answer) wired into CI when touched.
+- AC+: runner green end-to-end.
+- AC−: mutating a ledger row to free-string cmd breaks CI; breaking an inventory citation breaks CI.
 
-## Cross-cutting
+**T3.3 — finn-cli spec ratified** (grimoire: `grimoires/loa/specs/finn-cli-v0.md`)
+- Per-verb I/O + privacy filter + error semantics (SDD 2.6 table expanded); every verb maps to an artifact that now EXISTS; Loa-launcher slot-in noted as V2.
+- AC: spec review pair-point with operator; each verb's reads verified against real files.
 
-**T11 — Hostile-input hardening (§6′/NFR-5).**
-- AC: parameterized SQL only (no candidate-text interpolation into queries); no shell interpolation; deny-by-default egress in the Path-A sandbox; input schema + length caps; log redaction; injection test-cases blocked.
+## Sprint 4 — finn-cli v0 (FR-9) — GATED on S1–S3 aggregate green
 
-**T-E2E — End-to-end.**
-- AC: seed candidate → forecast → settle → schedule re-settles → (advance clock, mock) re-settle → calibration read; spine chain verifies; no double-settle under a simulated transport death (idempotency).
+**T4.1 — `doctor` + `gadgets` verbs** (bin in-repo, reads only)
+- AC+: `finn doctor` table + `--json` against real substrate; exit 1 when a red is planted; `finn gadgets --run-check <id>` executes under the row contract.
+- AC−: unknown id → exit 2; `internal-only` corpus content never in any output (refOnly test); no writes anywhere (fs-mock test).
 
----
+**T4.2 — Probe data needs served**
+- `finn doctor` surfaces last probe result from probe-results.jsonl.
+- AC: doctor red iff last probe failed or is absent.
 
-## Dependencies
+## Verification (aggregate)
 
-T1 → T4 · T2 → T4 (mock unblocks) · T3 → T4 · T4 → T5,T6,T7 · T6 → T7 · T7 → T8 · T8 → T9 · T9 → T10 · T11 cross-cuts T4/T7 · T-E2E last.
-
-## Verification per phase
-- a: `settle.ts` replays SETTLE-003 (mock) → HELD[real]; chain verifies.
-- b: a seeded candidate settles with forecast + provenance; budget reserve is race-safe.
-- c: a re-settle produces a survival label on a fresh window with its horizon forecast.
-- d: track-record read returns; benchmark ≥10 green.
-
-## Notes
-- **T1 is cross-repo (loa-freeside)** — may land as a separate PR; T2 `--mock` keeps loa-finn unblocked meanwhile.
-- App-zone code (`src/corpus`, `src/research`) — all via `/implement` under `/run sprint-plan` (no direct implementation).
-- Railway Sandbox verified available (2026-06-14); experimental → Finn-native fallback behind a flag.
-
----
-
-## Flatline sprint hardening (Rev 2 — authoritative overrides)
-
-Source: `a2a/flatline/sprint-corpus-engine-consensus.md`. These override the above where they conflict.
-
-**New tasks (do these first):**
-- **T0a — Schema migrations (SP-6).** Versioned, idempotent migrations for ALL new tables (intake, budget, resettle-jobs, provenance) before any module that uses them; rollback notes; fixture-DB test. Prereq for Phase b.
-- **T0b — Forecast-registration contract (SP-5).** Define + test `tetlock-forecast` registration: discovery `p` AND `p_survival_{7,30,90}d`, schema, ledger linkage, negative tests (missing/wrong horizon). Prereq for T4.
-
-**Sequencing fixes:**
-- **SP-1:** T4 is **mock-only until T6** (budget reserve) lands — no live metered settle before the cap exists. New dep: T6 → (T4 live).
-- **SP-2:** the global single-concurrency rate-limited Dune queue moves to **Phase a, inside `src/research/sensors/dune.ts`** (shared by T4/T7/T8), not T8-only. New dep: it's part of T1/T2.
-- **SP-3:** T1 gains an AC — a loa-finn CI **contract test invoking the real `DUNE_METER_BIN`** (pinned version) gates acceptance of any live settle; add artifact version-bump/ingestion.
-
-**AC refinements:**
-- **T8 / DD-4′ (SP-4, determinism):** re-settle window END = the FIXED horizon target (`discovery+{7,30,90}d`), NOT `now` — deterministic and retry-safe (a 12h-late retry runs the identical query). Supersedes "[discovery..now]".
-- **T6 (SP-8):** budget reservations carry a TTL; a sweep job auto-refunds stale uncommitted reserves (crash/OOM/sandbox-hang safety).
-- **T8 (SP-9):** a terminal-death signal (e.g. liquidity zeroed) early-cancels remaining re-settles and locks the failed state across the unrun Brier horizons (no wasted budget).
-- **T7/T11 (SP-7):** sandbox guarantees are EXECUTABLE tests — sandbox token cannot write the spine, a blocked-egress attempt fails, the fallback path is exercised, host-only commit proven.
-- **T10 (SP-11):** benchmark = a fixture manifest with per-case provenance, frozen expected labels, a locked threshold hash; CI fails on fixture/threshold mutation.
-
-**New cross-cutting task:**
-- **T12 — Observability (SP-10).** Structured metrics + log assertions + a trace fixture per event type (429/backoff, cap-abort, censored, queue depth, reserve/refund, idempotency replay, calibration exclusion) + redaction tests.
-
-**Revised dependency head:** T0a, T0b → T1/T2 (with shared Dune queue) → T3 → T4(mock) ; T6 → T4(live) → T5,T7 → T8 → T9 → T10 ; T11,T12 cross-cut ; T-E2E last.
+`npm run shop:check` green + all sprint ACs = Track 1+2 acceptance (PRD §7.5).
+Circuit breaker: any tool exceeding its LOC ceiling → split/graduate decision
+before merge (FR-7). Everything lands on the cycle branch via /run's
+implement→review→audit loop; audit gate enforces the negative-test floor.

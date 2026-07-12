@@ -97,6 +97,23 @@ warn() {
     echo "WARNING: $*" >&2
 }
 
+# Run an extractor (jq/yq ...); on NON-ZERO exit, warn with context and return
+# the resilient default (the generator must not halt on one malformed pack).
+# Replaces the silent `<extract> 2>/dev/null || echo "<default>"` swallow that
+# masked malformed packs as empty/absent values (KF-004/KF-015 class, #1012).
+_strict_or_default() {
+    local default="$1" ctx="$2"; shift 2
+    local out errf rc=0
+    errf=$(mktemp)
+    out=$("$@" 2>"$errf") || rc=$?
+    if (( rc != 0 )); then
+        warn "${ctx}: extraction failed (exit ${rc}): $(tr "\n" " " <"$errf" | cut -c1-160); using default"
+    fi
+    rm -f "$errf"
+    if (( rc != 0 )); then printf "%s" "$default"; else printf "%s" "$out"; fi
+    return 0
+}
+
 # =============================================================================
 # Capability Aggregation (Task 103.2)
 # =============================================================================
@@ -275,37 +292,69 @@ process_pack() {
     pack_slug=$(basename "$pack_dir")
 
     local manifest="$pack_dir/manifest.json"
-    if [[ ! -f "$manifest" ]]; then
+    local construct_yaml="$pack_dir/construct.yaml"
+    local manifest_json
+    if [[ -f "$manifest" ]]; then
+        # Validate manifest is valid JSON
+        if ! jq empty "$manifest" 2>/dev/null; then
+            warn "Malformed manifest.json in pack '$pack_slug' — skipping"
+            return 1
+        fi
+        manifest_json=$(cat "$manifest")
+    elif [[ -f "$construct_yaml" ]] && command -v yq &>/dev/null; then
+        # v4 packs ship construct.yaml only (no legacy manifest.json) — derive the manifest
+        # base from it instead of silently dropping the pack from the index. The construct.yaml
+        # overlay below still applies. construct.yaml's .skills is already [{slug,path}]-shaped.
+        manifest_json=$(yq eval -o=json '{
+            "name": (.name // ""),
+            "version": ((.version // "0.0.0") | tostring),
+            "description": (.description // ""),
+            "tags": (.tags // []),
+            "skills": (.skills // []),
+            "commands": (.commands // []),
+            "events": (.events // {})
+        }' "$construct_yaml" 2>/dev/null) || return 1
+        if ! jq empty <<<"$manifest_json" 2>/dev/null; then
+            warn "Could not derive manifest base from construct.yaml in '$pack_slug' — skipping"
+            return 1
+        fi
+    elif [[ -f "$construct_yaml" ]]; then
+        # construct.yaml-only pack but yq is unavailable: fail LOUDLY instead of
+        # silently dropping the pack from the index (review P2 — a v4 pack
+        # vanishing with exit 0 masks a real environment defect; yq v4+ is a
+        # framework requirement).
+        warn "Pack '$pack_slug' has construct.yaml but yq is not available — cannot index v4 pack; install yq v4+ (skipping)"
         return 1
-    fi
-
-    # Validate manifest is valid JSON
-    if ! jq empty "$manifest" 2>/dev/null; then
-        warn "Malformed manifest.json in pack '$pack_slug' — skipping"
+    else
         return 1
     fi
 
     log "  Processing pack: $pack_slug"
 
-    # Extract base fields from manifest.json
+    # Extract base fields (from manifest.json, or the construct.yaml-derived base above)
     local name version description tags_json skills_json commands_json events_json
-    name=$(jq -r '.name // ""' "$manifest")
-    version=$(jq -r '.version // ""' "$manifest")
-    description=$(jq -r '.description // ""' "$manifest")
-    tags_json=$(jq -c '.tags // []' "$manifest")
-    skills_json=$(jq -c '.skills // []' "$manifest")
-    commands_json=$(jq -c '.commands // []' "$manifest")
-    events_json=$(jq -c '.events // {}' "$manifest")
+    name=$(jq -r '.name // ""' <<<"$manifest_json")
+    version=$(jq -r '.version // ""' <<<"$manifest_json")
+    description=$(jq -r '.description // ""' <<<"$manifest_json")
+    tags_json=$(jq -c '.tags // []' <<<"$manifest_json")
+    skills_json=$(jq -c '.skills // []' <<<"$manifest_json")
+    commands_json=$(jq -c '.commands // []' <<<"$manifest_json")
+    events_json=$(jq -c '.events // {}' <<<"$manifest_json")
 
     # Extract events into emits/consumes arrays
     local emits_json consumes_json
-    emits_json=$(jq -c '.events.emits // [] | [.[].name // empty]' "$manifest" 2>/dev/null || echo "[]")
-    consumes_json=$(jq -c '.events.consumes // [] | [.[].event // empty]' "$manifest" 2>/dev/null || echo "[]")
+    # GAP C fix: event-id key varies by pack — `.name` (the-arcade/the-easel), `.event`, OR
+    # `.type` (gecko + the MAJORITY of packs). The alternation MUST run per element:
+    # `[.[].name // .event // .type]` evaluates `.event`/`.type` against the outer ARRAY,
+    # which errors on every non-.name shape (and the stderr swallow turned that into []).
+    emits_json=$(_strict_or_default "[]" "events.emits" jq -c '.events.emits // [] | [.[] | (if type=="object" then (.name // .event // .type) elif type=="string" then . else empty end) // empty]' <(printf '%s' "$manifest_json"))
+    consumes_json=$(_strict_or_default "[]" "events.consumes" jq -c '.events.consumes // [] | [.[] | (if type=="object" then (.event // .name // .type) elif type=="string" then . else empty end) // empty]' <(printf '%s' "$manifest_json"))
 
     # Initialize overlay fields
     local writes_json="[]"
     local reads_json="[]"
     local gates_json="{}"
+    local compose_with_json="[]"
 
     # Check for construct.yaml overlay
     local construct_yaml="$pack_dir/construct.yaml"
@@ -323,13 +372,28 @@ process_pack() {
         [[ -n "$cy_description" && "$cy_description" != "null" ]] && description="$cy_description"
 
         # Extract writes, reads, gates
-        writes_json=$(yq eval -o=json '.writes // []' "$construct_yaml" 2>/dev/null || echo "[]")
-        reads_json=$(yq eval -o=json '.reads // []' "$construct_yaml" 2>/dev/null || echo "[]")
-        gates_json=$(yq eval -o=json '.gates // {}' "$construct_yaml" 2>/dev/null || echo "{}")
+        writes_json=$(_strict_or_default "[]" "construct.yaml writes" yq eval -o=json '.writes // []' "$construct_yaml")
+        reads_json=$(_strict_or_default "[]" "construct.yaml reads" yq eval -o=json '.reads // []' "$construct_yaml")
+        gates_json=$(_strict_or_default "{}" "construct.yaml gates" yq eval -o=json '.gates // {}' "$construct_yaml")
+        # GAP C fix: explicit compose_with[].slug declarations were never read — composition
+        # was derived ONLY from reads/writes overlap, which is empty for every pack.
+        compose_with_json=$(_strict_or_default "[]" "construct.yaml compose_with" yq eval -o=json '[.compose_with[].slug] // []' "$construct_yaml")
+
+        # GAP C fix: several constructs (e.g. the-arcade) declare their event membrane in
+        # construct.yaml, not manifest.json. Overlay it (construct.yaml wins when present);
+        # tolerate `.name`, `.event`, AND `.type` shapes (gecko + most packs key on `.type` —
+        # a `.name // .event`-only union wrote [null,...] for them; regression caught by BB on #981).
+        local cy_emits cy_consumes
+        # BB #981 (2fc2685b round): filter nulls like the manifest path's `// empty` —
+        # an entry with none of the three keys must not inject null into the membrane.
+        cy_emits=$(_strict_or_default "[]" "construct.yaml events.emits" yq eval -o=json '[.events.emits[] | (.name // .event // .type) | select(. != null)] // []' "$construct_yaml")
+        cy_consumes=$(_strict_or_default "[]" "construct.yaml events.consumes" yq eval -o=json '[.events.consumes[] | (.name // .event // .type) | select(. != null)] // []' "$construct_yaml")
+        [[ -n "$cy_emits" && "$cy_emits" != "null" && "$cy_emits" != "[]" ]] && emits_json="$cy_emits"
+        [[ -n "$cy_consumes" && "$cy_consumes" != "null" && "$cy_consumes" != "[]" ]] && consumes_json="$cy_consumes"
 
         # Extract tags from construct.yaml if present
         local cy_tags
-        cy_tags=$(yq eval -o=json '.tags // null' "$construct_yaml" 2>/dev/null || echo "null")
+        cy_tags=$(_strict_or_default "null" "construct.yaml tags" yq eval -o=json '.tags // null' "$construct_yaml")
         if [[ "$cy_tags" != "null" ]]; then
             tags_json="$cy_tags"
         fi
@@ -374,6 +438,7 @@ process_pack() {
         --argjson gates "$gates_json" \
         --argjson emits "$emits_json" \
         --argjson consumes "$consumes_json" \
+        --argjson compose_with "$compose_with_json" \
         --argjson tags "$tags_json" \
         --argjson aggregated_capabilities "$aggregated_caps" \
         '{
@@ -393,7 +458,7 @@ process_pack() {
                 consumes: $consumes
             },
             tags: $tags,
-            composes_with: [],
+            composes_with: $compose_with,
             aggregated_capabilities: $aggregated_capabilities
         }'
 }
@@ -411,7 +476,7 @@ compute_composition() {
             . as $i |
             $all[$i] as $current |
             $current + {
-                composes_with: [
+                composes_with: (([
                     $all | to_entries[] |
                     select(.key != $i) |
                     select(
@@ -419,7 +484,7 @@ compute_composition() {
                         (.value.reads as $r | $current.writes | any(. as $w | $r | index($w)))
                     ) |
                     .value.slug
-                ] | unique
+                ]) + ($current.composes_with // [])) | unique
             }
         )
     ' <<< "$constructs_json"
@@ -439,11 +504,11 @@ main() {
         exit 1
     fi
 
-    # Find all packs with manifest.json
+    # Find all packs with a manifest.json OR a construct.yaml (v4 packs ship the latter only)
     local pack_dirs=()
     for pack_path in "$PACKS_DIR"/*/; do
         [[ -d "$pack_path" ]] || continue
-        if [[ -f "$pack_path/manifest.json" ]]; then
+        if [[ -f "$pack_path/manifest.json" || -f "$pack_path/construct.yaml" ]]; then
             pack_dirs+=("$pack_path")
         fi
     done

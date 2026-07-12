@@ -1,0 +1,118 @@
+{
+  "generated": "2026-06-20",
+  "source": "coliseum.py round-robin · real cg engine · N=2/seat",
+  "fieldTrust": {
+    "trust": "none",
+    "verdict": "SYNTHETIC — no diverse external teammate agents; field is our own variants + clones. Recruit real teammate agents.",
+    "real": 0,
+    "internal": 5,
+    "sparring": 3
+  },
+  "totalMatches": 112,
+  "entrants": [
+    {
+      "rank": 1,
+      "name": "champion-dwebble",
+      "owner": "soju",
+      "pilot": "v4",
+      "kind": "variant",
+      "elo": 1246,
+      "wins": 25,
+      "losses": 3,
+      "winPct": 0.893,
+      "sparring": false,
+      "replay": "coliseum-demo"
+    },
+    {
+      "rank": 2,
+      "name": "spar-dwebble",
+      "owner": "soju",
+      "pilot": "clone:dwebble_crustle",
+      "kind": "clone",
+      "elo": 1218,
+      "wins": 24,
+      "losses": 4,
+      "winPct": 0.857,
+      "sparring": true,
+      "replay": null
+    },
+    {
+      "rank": 3,
+      "name": "spar-alakazam",
+      "owner": "soju",
+      "pilot": "clone:alakazam",
+      "kind": "clone",
+      "elo": 1035,
+      "wins": 16,
+      "losses": 12,
+      "winPct": 0.571,
+      "sparring": true,
+      "replay": null
+    },
+    {
+      "rank": 4,
+      "name": "v5-abomasnow",
+      "owner": "soju",
+      "pilot": "v5",
+      "kind": "variant",
+      "elo": 954,
+      "wins": 12,
+      "losses": 16,
+      "winPct": 0.429,
+      "sparring": false,
+      "replay": null
+    },
+    {
+      "rank": 5,
+      "name": "v4-abomasnow",
+      "owner": "soju",
+      "pilot": "v4",
+      "kind": "variant",
+      "elo": 913,
+      "wins": 10,
+      "losses": 18,
+      "winPct": 0.357,
+      "sparring": false,
+      "replay": null
+    },
+    {
+      "rank": 6,
+      "name": "v6-abomasnow",
+      "owner": "soju",
+      "pilot": "v6",
+      "kind": "variant",
+      "elo": 913,
+      "wins": 10,
+      "losses": 18,
+      "winPct": 0.357,
+      "sparring": false,
+      "replay": null
+    },
+    {
+      "rank": 7,
+      "name": "greedy-floor",
+      "owner": "soju",
+      "pilot": "greedy",
+      "kind": "variant",
+      "elo": 872,
+      "wins": 8,
+      "losses": 20,
+      "winPct": 0.286,
+      "sparring": false,
+      "replay": null
+    },
+    {
+      "rank": 8,
+      "name": "spar-lucario",
+      "owner": "soju",
+      "pilot": "clone:lucario",
+      "kind": "clone",
+      "elo": 850,
+      "wins": 7,
+      "losses": 21,
+      "winPct": 0.25,
+      "sparring": true,
+      "replay": null
+    }
+  ]
+}
