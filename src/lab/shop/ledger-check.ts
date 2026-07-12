@@ -82,6 +82,7 @@ export function validate(rows: GadgetRow[], repoRoot: string): string[] {
     if (typeof c.cmd === "string") errors.push(`${at}: free-string check.cmd is forbidden (constrained runner only)`)
     if (!RUNNERS.has(c.runner)) errors.push(`${at}: runner '${c.runner}' not in closed enum`)
     if (!c.target || !insideRepo(repoRoot, c.target)) errors.push(`${at}: check.target outside repo root`)
+    else if (!existsSync(join(repoRoot, c.target))) errors.push(`${at}: check.target does not exist`)
     if (c.args && !Array.isArray(c.args)) errors.push(`${at}: check.args must be an argv list`)
     if (c.exit !== "zero-is-pass") errors.push(`${at}: check.exit must be 'zero-is-pass'`)
     if (typeof c.timeout_s !== "number" || c.timeout_s <= 0) errors.push(`${at}: check.timeout_s invalid`)
@@ -124,7 +125,9 @@ export function checkLedger(
   } catch (e) {
     errors.push(String(e instanceof Error ? e.message : e))
   }
-  if (rows.length) {
+  // Reconciliation and table checks run even for an EMPTY row list — an empty
+  // ledger with instruments on disk must fail, not pass (adversarial finding #2).
+  if (md) {
     errors.push(...validate(rows, repoRoot))
     errors.push(...reconcile(rows, repoRoot))
     const start = md.indexOf(TABLE_START)

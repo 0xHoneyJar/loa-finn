@@ -88,6 +88,16 @@ describe("negative (the ACs)", () => {
     writeLedger([row()], "old table")
     expect(checkLedger(LEDGER, root).errors.join()).toMatch(/stale/)
   })
+  it("empty ledger with instruments on disk FAILS reconciliation (adversarial #2)", () => {
+    writeLedger([])
+    const rep = checkLedger(LEDGER, root)
+    expect(rep.pass).toBe(false)
+    expect(rep.errors.join()).toMatch(/unenrolled instrument/)
+  })
+  it("rejects nonexistent check.target (adversarial #5)", () => {
+    writeLedger([row({ check: { runner: "vitest", target: "src/deleted-check.ts", args: [], exit: "zero-is-pass", timeout_s: 5, contract: "declared" } })])
+    expect(checkLedger(LEDGER, root).errors.join()).toMatch(/check\.target does not exist/)
+  })
   it("metabolism .ts modules are enumerated (tests and types excluded)", () => {
     writeFileSync(join(root, "src/lab/metabolism/solver.ts"), "x")
     writeFileSync(join(root, "src/lab/metabolism/solver.test.ts"), "x")

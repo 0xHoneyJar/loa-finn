@@ -31,8 +31,11 @@ import {
   type CiteStatus,
 } from "./types.js"
 
+// Path segments deliberately exclude '@' so the trailing @sha group is the
+// only reading of an at-sign (a blob-sha suffix must hit the sha branch, not
+// be swallowed into the path — adversarial finding #4's regex root cause).
 const CITE_RE =
-  /^(?:commit:(?<commit>[0-9a-f]{7,40})|ledger:(?<ledger>[A-Za-z0-9][A-Za-z0-9._-]*)|(?<path>[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.@-]+)+?)(?::L(?<a>\d+)-L(?<b>\d+))?(?:@(?<sha>[0-9a-f]{7,40}))?)$/
+  /^(?:commit:(?<commit>[0-9a-f]{7,40})|ledger:(?<ledger>[A-Za-z0-9][A-Za-z0-9._-]*)|(?<path>[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+)(?::L(?<a>\d+)-L(?<b>\d+))?(?:@(?<sha>[0-9a-f]{7,40}))?)$/
 
 const DEFAULT_LEDGER = "grimoires/loa/lab/GADGETS.md"
 
@@ -44,20 +47,26 @@ function git(args: string[], cwd: string): string | null {
   }
 }
 
-/** Extract backticked citation tokens from markdown text. Only tokens that
- *  match the grammar AND contain a path separator or a commit:/ledger: prefix
- *  are citations; other code spans are ignored. */
+/** Is this backticked token ATTEMPTING to be a citation? (commit:/ledger:
+ *  prefixed, or a slashed path with an extension or a range/sha qualifier.)
+ *  Attempts that then fail the strict grammar must surface as `dead`, never
+ *  silently vanish — a dropped malformed citation would be a false pass. */
+function looksLikeCite(tok: string): boolean {
+  if (tok.includes(" ")) return false
+  if (tok.startsWith("commit:") || tok.startsWith("ledger:")) return true
+  if (!tok.includes("/")) return false
+  const qualified = /:L\d+/.test(tok) || /@[^/]+$/.test(tok)
+  const lastSegHasExt = (tok.split("@")[0].split(":")[0].split("/").pop() ?? "").includes(".")
+  return qualified || lastSegHasExt
+}
+
+/** Extract citation-intent tokens from markdown. Includes MALFORMED attempts
+ *  (grammar-invalid) so resolution reports them dead instead of skipping. */
 export function extractCites(md: string): string[] {
   const out: string[] = []
   for (const m of md.matchAll(/`([^`\n]+)`/g)) {
     const tok = m[1].trim()
-    if (!CITE_RE.test(tok)) continue
-    const prefixed = tok.startsWith("commit:") || tok.startsWith("ledger:")
-    const qualified = /:L\d+-L\d+/.test(tok) || /@[0-9a-f]{7,40}$/.test(tok)
-    const lastSegHasExt = tok.includes("/") && (tok.split("@")[0].split(":")[0].split("/").pop() ?? "").includes(".")
-    // A bare a/b span without extension or qualifier (e.g. `n/a`) is prose, not a citation.
-    if (!prefixed && !qualified && !lastSegHasExt) continue
-    out.push(tok)
+    if (looksLikeCite(tok)) out.push(tok)
   }
   return out
 }
@@ -101,9 +110,15 @@ export function resolveCite(tok: string, repoRoot: string, ledgerPath = DEFAULT_
     return { cite: tok, status: "dead", detail: "invalid line range" }
 
   if (g.sha) {
+    // The sha must be a real COMMIT in this history (ancestor of HEAD) — a
+    // blob/tree treeish or an orphan commit must not resolve (false-ok class).
+    if (git(["cat-file", "-e", `${g.sha}^{commit}`], repoRoot) === null)
+      return { cite: tok, status: "dead", detail: "sha is not a commit" }
+    if (git(["merge-base", "--is-ancestor", g.sha, "HEAD"], repoRoot) === null)
+      return { cite: tok, status: "dead", detail: "sha not an ancestor of HEAD" }
     const blob = git(["show", `${g.sha}:${path}`], repoRoot)
     if (blob === null) return { cite: tok, status: "dead", detail: "path unreadable at sha" }
-    if (b !== null && blob.split("\n").length < b)
+    if (b !== null && countLines(blob) < b)
       return { cite: tok, status: "moved", detail: "range exceeds blob at sha" }
     return { cite: tok, status: "ok" }
   }
@@ -122,10 +137,16 @@ export function resolveCite(tok: string, repoRoot: string, ledgerPath = DEFAULT_
   if (porcelain !== null && porcelain.trim() !== "")
     return { cite: tok, status: "dirty", detail: "uncommitted modifications" }
   if (b !== null) {
-    const lines = readFileSync(`${repoRoot}/${path}`, "utf8").split("\n").length
+    const lines = countLines(readFileSync(`${repoRoot}/${path}`, "utf8"))
     if (lines < b) return { cite: tok, status: "moved", detail: "range exceeds current file" }
   }
   return { cite: tok, status: "ok" }
+}
+
+/** Line count without the phantom line a trailing newline would add. */
+function countLines(s: string): number {
+  if (s === "") return 0
+  return (s.endsWith("\n") ? s.slice(0, -1) : s).split("\n").length
 }
 
 /** Check a claim-inventory YAML file: {schema_version: 1, claims: [{claim, cite, class}]}.

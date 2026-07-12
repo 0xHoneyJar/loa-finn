@@ -76,6 +76,22 @@ describe("resolveCite — negative (the ACs)", () => {
   it("dead: unparseable token", () => {
     expect(resolveCite("not a citation!!", root).status).toBe("dead")
   })
+  it("dead: malformed citation ATTEMPT surfaces, never silently dropped (adversarial #1)", () => {
+    const cites = extractCites("see `docs/design.md:L10-L20@NOT_A_SHA` for details")
+    expect(cites).toEqual(["docs/design.md:L10-L20@NOT_A_SHA"])
+    const rep = report(cites.map((c) => resolveCite(c, root)))
+    expect(rep.pass).toBe(false)
+  })
+  it("moved: trailing newline does not create a phantom line (adversarial #3)", () => {
+    // docs/a.md at this point is 'only\n' (1 real line)
+    expect(resolveCite("docs/a.md:L2-L2", root).status).toBe("moved")
+  })
+  it("dead: a blob sha (treeish, not a commit) does not resolve path@sha (adversarial #4)", () => {
+    const blobSha = git("rev-parse", "HEAD:docs/a.md").trim()
+    const r = resolveCite(`docs/a.md@${blobSha}`, root)
+    expect(r.status).toBe("dead")
+    expect(r.detail).toMatch(/not a commit/)
+  })
 })
 
 describe("claim-inventory YAML mode", () => {
