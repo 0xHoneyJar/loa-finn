@@ -29,6 +29,8 @@ Underneath sits the runtime that makes the experiments cheap and durable: multi-
 
 **The operating shape is a shop, not a monolith.** Finn grinds *small gadgets* — minimal, falsifiable instruments — tests each against reality, and **keeps, sells, or throws** it. Every instrument lives on one shelf with its binding check: the gadget ledger (`grimoires/loa/lab/GADGETS.md`). The thesis is as old as the repo — *"start with nothing, add only what's load-bearing"* (`grimoires/loa/context/research-minimal-pi.md`) — and the shop's history is governed record, not folklore (`grimoires/loa/lore/lineage.md`).
 
+**Citing this repo** (validated mechanically by `src/lab/shop/cite-check.ts`): backtick one citation per claim — `path/to/file.md`, `path/to/file.md:L10-L20` (or `:L10` for one line), `path@<commit-sha>`, `commit:<sha>`, or `ledger:<gadget-id>`. One range per citation; a citation that doesn't resolve fails the doc it lives in.
+
 ## Why "Finn"?
 
 In Gibson's *Neuromancer*, **the Finn** is a Sprawl fence — a dealer in hardware and information who can tell you what a thing is worth and whether it's real. When the AI **Wintermute** needs a face to speak to Case, it wears the Finn's: an intelligence putting on the appraiser to tell the real from the counterfeit. That's the patron — not a scientist (the Finn never was), but something better-fit: the one who could tell real from counterfeit and *prove the price*. This repo gives that instinct a method. The appraiser's question — *what's real, and what's it worth* — answered by experiment instead of opinion.
