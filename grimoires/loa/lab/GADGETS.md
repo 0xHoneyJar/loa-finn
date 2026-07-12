@@ -119,6 +119,14 @@ past the ceiling forces a split-or-graduate decision before merge.
   graduation: src-imported
   loc_ceiling: 100
   evidence: {note: "bd-1vp7 S2-T2.1; refuses to scrub blind; raw hashes retained, raws deleted"}
+- id: shop-finn-cli
+  what: finn-cli v0 — doctor + gadgets verbs; reads the ledgers, owns no state, writes nothing
+  status: KEEP
+  home: src/lab/shop/finn-cli.ts
+  check: {runner: vitest, target: src/lab/shop, args: [], exit: zero-is-pass, timeout_s: 120, contract: declared}
+  graduation: src-imported
+  loc_ceiling: 220
+  evidence: {note: "bd-1vp7 S4; spec ratified via PR #264; no-writes statically asserted"}
 - id: candidate-002-survival-forecaster
   what: survival-forecast service over the realness filter (gadget-factory-brief #002)
   status: CANDIDATE
@@ -153,6 +161,7 @@ past the ceiling forces a split-or-graduate decision before merge.
 | shop-ledger-check | gadget-ledger validator — closed enums, constrained runner, boundary reconcile, --render | KEEP | vitest | declared | src-imported |
 | shop-probe | self-legibility probe runner — G1's instrument; appends probe-results.jsonl | KEEP | vitest | declared | src-imported |
 | shop-corpus-scrub | corpus intake redaction gate — flatline secret patterns SoT, manifest hashes | KEEP | vitest | declared | src-imported |
+| shop-finn-cli | finn-cli v0 — doctor + gadgets verbs; reads the ledgers, owns no state, writes nothing | KEEP | vitest | declared | src-imported |
 | candidate-002-survival-forecaster | survival-forecast service over the realness filter (gadget-factory-brief | CANDIDATE | vitest | pending | pending |
 | candidate-003-realness-score | realness-score service (gadget-factory-brief | CANDIDATE | vitest | pending | pending |
 <!-- ledger-table:end -->
