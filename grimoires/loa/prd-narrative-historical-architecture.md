@@ -80,7 +80,10 @@ substrate. The shop remembers what it is for.
   citations, in ONE consultation: *what is finn for · what gadgets exist and their
   keep/sell/throw status · what's proven (settles/verdicts) · where did it come
   from.* **Baseline:** 2026-07-12 — three workflows, ~1.8M tokens. **Target:**
-  one consultation, minutes. Measured by the probe protocol (§7 Verify).
+  one consultation, minutes. Measured by the probe protocol (§7 Verify) with a
+  **deterministic rubric**: the four probe dimensions are enumerated fixtures
+  (question → required citation classes), scored pass/fail by the citation
+  validator — never by an LLM's opinion of answer quality. [flatline A]
 - **G2 — Consultation protocol proven beyond its first subject.** ≥1 further
   consultation (any subject: person, repo-lineage, or decision) run through the
   protocol: pre-registered questions → cited verdicts → ABSTAIN honored.
@@ -102,14 +105,26 @@ substrate. The shop remembers what it is for.
   README's "Why Finn" to the shop frame; **fix the falsified README line**
   ("runtime is in production-shaped use" — contradicted by 56/56 failed deploys +
   NXDOMAIN). Truth-repair is part of identity.
-  - AC: no identity claim in README/BEAUVOIR contradicts the evidence record.
+  - AC: identity docs carry a **claim inventory** — each load-bearing identity
+    claim listed with its evidence citation; the citation validator (§7) resolves
+    every entry. "No contradictions" becomes a checkable property of the
+    inventory, not a vibe. [flatline A+D]
 - **FR-2 Gadget ledger.** `grimoires/loa/lab/GADGETS.md` — one row per instrument:
-  name · what it is · status (KEEP/SELL/THROW/CANDIDATE) · check (the test that
-  binds it) · graduation state (lab → src/). Seeded with #001 realness-verdict
-  (BUILT, 5/5) + the metabolism instruments (solver, exploitability, ledgers —
-  bd-ryza) + candidates from gadget-factory-brief (#002/#003).
-  - AC: ledger exists; every `lab/gadgets/*` and `src/lab/metabolism/*` instrument
-    has a row; each row's check is runnable.
+  name · what it is · status · check (the test that binds it) · graduation state
+  (lab → src/). Seeded with #001 realness-verdict (BUILT, 5/5) + the metabolism
+  instruments (solver, exploitability, ledgers — bd-ryza) + candidates from
+  gadget-factory-brief (#002/#003). **Pinned semantics [flatline B]:**
+  - Status vocabulary is CLOSED: `CANDIDATE | KEEP | SELL | THROW` (lifecycle
+    verdicts). Build maturity (`BUILT`, tests green) is a separate `check` column
+    fact, never a status. `SELL` is a **shelf tag** ("worth packaging when selling
+    enters scope"), not a sales channel — external revenue stays out of scope (§3).
+  - **Closed discovery boundary:** a "gadget" is exactly: any directory under
+    `grimoires/loa/lab/gadgets/`, any module under `src/lab/metabolism/`, and any
+    instrument explicitly enrolled by a ledger row. Completeness (G3) is checked
+    against this enumeration — mechanically, not by judgment.
+  - AC: ledger exists; the boundary enumeration and the ledger rows reconcile
+    exactly (no unenrolled instrument, no phantom row); each row's check is
+    runnable under the check contract (§7). [flatline A+B]
 - **FR-3 Lineage substrate.** The 2026-07-12 archaeology lands as governed docs:
   README lives, PRD arc, handoff record (custody grant summarized, never inlined),
   cosmology chain — as `grimoires/loa/lore/lineage.md` (or context/ dated docs),
@@ -119,9 +134,15 @@ substrate. The shop remembers what it is for.
 - **FR-4 Consultation protocol.** The JANI-v0 shape codified as a reusable
   protocol doc: pre-registered questions → corpus miners → cited verdicts with
   confidence → ABSTAIN honored → testimony persisted in context/ (dated). Reuses
-  the settle/calibration discipline (a consultation is a settle-shaped act;
-  deterministic where scoring, never LLM-settled).
-  - AC: protocol doc exists; consultation #2 (G2) runs through it verbatim.
+  the settle/calibration discipline. **The epistemic boundary is stated testably
+  [flatline D]:** LLM work is permitted ONLY in retrieval/drafting (finding and
+  assembling candidate evidence); every SETTLE-side operation — citation
+  resolution, confidence arithmetic, rubric scoring, ABSTAIN determination when
+  citations fail — is deterministic code. The boundary is checkable: a testimony
+  is valid iff every verdict's citations resolve mechanically and its confidence
+  field derives from the recorded rule, not free text.
+  - AC: protocol doc exists with the boundary section; consultation #2 (G2) runs
+    through it verbatim and passes the citation validator.
 - **FR-5 Corpus intake + provenance.** `grimoires/loa/lab/corpus/` intake
   convention: provenance tiers stamped at intake (git-verbatim > account-verbatim >
   captured > CLAIMED), internal-only handling for person-corpus, misattribution
@@ -130,7 +151,16 @@ substrate. The shop remembers what it is for.
   weakest layer toward primary), **custody-grant signing** (one cockpit gesture),
   **dead `~/hivemind` symlink fix** (bonfire-side, one line). Backlog beads: the
   missing "Jester Arc" essay + `merlin/agentic-base.md`.
-  - AC: intake convention doc + at least the Discord export stamped in with tiers.
+  **Intake hardening [flatline C]:** raw exports pass a mandatory secret-scan +
+  redaction gate at intake (reuse flatline_protocol.secret_scanning patterns);
+  third-party persons' content is minimized to what the corpus purpose needs;
+  everything stamped internal-only. **Operator-gated items degrade gracefully:**
+  the export, the custody signing, and the symlink fix each carry a named owner
+  (operator) + evidence-of-done; V1 acceptance records them as DONE or
+  OPEN-with-owner — an OPEN item narrows the corpus, it does not hard-block the
+  cycle.
+  - AC: intake convention doc (with the redaction gate) + whatever acquisitions
+    have landed are stamped with tiers; open items listed with owners.
 
 ### Track 2 — The gadget discipline (codification)
 
@@ -179,16 +209,34 @@ substrate. The shop remembers what it is for.
 **Out of scope:** external gadget sales/packaging; outward JANI/person surfaces;
 runtime/deploy resurrection; automating raw-source acquisition; any monolith move.
 
+**Sibling precedence [flatline D]:** where this PRD and the Corpus Engine (prd.md,
+cycle-053) touch the same substrate (settle discipline, calibration ledgers,
+GADGET #001), the Corpus Engine's schemas are canonical and this cycle CONSUMES
+them at their current in-repo state — no duplicate schema definitions; any needed
+change lands as a Corpus Engine change first.
+
 ## 7. Verify (the probe protocol — G1's instrument)
 
-1. A fresh session (no prior context) is given the three questions: *what is finn
-   for / what gadgets exist + status / what's proven + where from.*
-2. Pass iff it answers all three **with citations that re-run** (file:line, commit,
-   ledger row) via ≤1 consultation (the protocol doc + ledgers + lineage), no
-   archaeology workflows.
-3. Record the run (tokens, minutes, citation spot-check) next to the 2026-07-12
+1. A fresh session (no prior context) is given the four probe dimensions as
+   enumerated fixtures: *what is finn for / what gadgets exist + status / what's
+   proven / where did it come from.* [flatline A: fixed enumeration, no wording
+   drift]
+2. **Citation validator is the primary gate:** every claim in the answer must
+   cite a resolvable reference — (path, optional line-range or symbol, commit SHA
+   or ledger-row id) — and the validator mechanically resolves ALL of them; one
+   dangling citation fails the probe. Human/LLM spot-check is secondary sampling
+   only. [flatline A]
+3. **Check contract:** every runnable check referenced by the ledger or the probe
+   declares exit-code semantics (0 pass / nonzero fail), fixtures, and a timeout;
+   legacy instruments without contracts are enrolled with an explicit
+   `contract: pending` marker rather than silently exempted. [flatline A]
+4. Record the run (tokens, minutes, validator report) next to the 2026-07-12
    baseline in the testimony convention.
-4. Regression guard: the probe re-runs after any identity-doc change (cheap, doc-only).
+5. Regression guard: the probe re-runs on any change under the identity-doc set
+   (README.md, grimoires/loa/BEAUVOIR.md, lab/GADGETS.md, lore/lineage docs) —
+   the trigger set is a declared glob list, runnable locally and in CI. Aggregate
+   Track-1+2 completion = all FR ACs green via one runner, not per-FR judgment.
+   [flatline A]
 
 ## 8. Risks & mitigations
 
