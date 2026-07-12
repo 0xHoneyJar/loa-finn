@@ -1,0 +1,41 @@
+{
+  "_comment": "Pre-screen roster for the 2026-06-25 two big swings. Foreign bundles carry their own pilot (boss-v7=v7, alakazam-v8=v8 via main.py CABT_POLICY). Kill-gate reads: alakazam-v8 vs spar-dwebble (the Crustle wall) >=45% else KILL; boss-v7 vs cleanse-ctl/spar-dwebble = do-no-harm. Band-pass caveat (GAMES-014): synthetic field cannot resolve fine pilot ranking \u2014 this gate KILLS collapses, it does not bless edges.",
+  "entrants": [
+    {
+      "name": "boss-v7",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/build_boss_v7",
+      "deck": ".cabt-spike/build_boss_v7/deck.csv"
+    },
+    {
+      "name": "cleanse-ctl",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/build_cleanse",
+      "deck": ".cabt-spike/build_cleanse/deck.csv"
+    },
+    {
+      "name": "spar-dwebble",
+      "owner": "soju",
+      "pilot": "clone:dwebble_crustle",
+      "deck": ".cabt-spike/echelon/deck_dwebble_crustle.csv"
+    },
+    {
+      "name": "spar-alakazam",
+      "owner": "soju",
+      "pilot": "clone:alakazam",
+      "deck": ".cabt-spike/echelon/deck_alakazam.csv"
+    },
+    {
+      "name": "spar-lucario",
+      "owner": "soju",
+      "pilot": "clone:lucario",
+      "deck": ".cabt-spike/echelon/deck_lucario.csv"
+    },
+    {
+      "name": "greedy",
+      "owner": "soju",
+      "pilot": "greedy",
+      "deck": ".cabt-spike/build_cleanse/deck.csv"
+    }
+  ]
+}

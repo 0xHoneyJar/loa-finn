@@ -1,0 +1,385 @@
+# Composition · research-council
+# ================================================================
+# A STORM-method research council (Stanford OVAL, NAACL 2024) adapted to run with OUR CONSTRUCTS
+# as the opposing viewpoints instead of generic personas. Distills what a research line has SETTLED
+# across its cycles into a peer-reviewed research paper — multi-perspective interrogation →
+# contradiction map → synthesis → adversarial peer review — every claim grounded in the ledger
+# (mandated read), so a dropped side-channel input fails CLOSED instead of confabulating.
+#
+# STORM perspective -> construct seat (opposing by design):
+#   PRACTITIONER (works with it daily)      -> gygax     (the cabt move-engine/deck/pilot designer)
+#   HISTORIAN (seen the pattern before)     -> worldline (the time-axis: what's conserved across cycles, what broke when)
+#   SKEPTIC (the mainstream read is wrong)  -> fagan     (adversarial; the seat that just caught a 2-sprint floor-vs-floor false positive)
+#   SYNTHESIS + peer-review                 -> the-weaver(BEAUVOIR — the contradiction map + the paper)
+# (v2 seats to add: vitalik=academic/verifier, satoshi=economist/cost — the full 5-voice council.)
+#
+# Repeatable: re-run each cycle over the cycle's ~5 settled beliefs (or ~5 experiments). The subject
+# is the mandated-read beliefs artifact; the output is a dated research paper + a peer-review grade.
+# Sibling: audit-claim (audits ONE claim → GO/NO-GO); this synthesizes the WHOLE belief set → a paper.
+# ================================================================
+
+schema_version: "1.5"
+kind: workflow
+name: research-council
+description: >
+  A STORM-method research council with our constructs as the opposing viewpoints. Interrogates a
+  cycle's settled beliefs from distinct construct seats (practitioner/gygax, historian/worldline,
+  skeptic/fagan), maps the contradictions, and synthesizes a peer-reviewed research paper
+  (the-weaver) — every claim grounded in the calibration ledger + research log (mandated reads),
+  with an adversarial peer-review pass that grades reliability and names the weakest link. Proven
+  by compose-verify-run, or it did not happen.
+
+intent: >
+  "We have settled ~5 beliefs this research cycle (the deck-vs-pilot conditional, self-play is
+   anti-signal, the pilot is bot-friendly-capped, the product is the calibration curve, the realness
+   ladder). One prompt gives the majority read and misses the blind spots. Run them past a COUNCIL of
+   distinct construct seats — the practitioner who designs the agent, the historian who has watched
+   the belief evolve across cycles, the skeptic who breaks over-claims against the ledger — map where
+   the seats clash, synthesize a research paper that accounts for every angle and ranks each finding
+   by reliability, then peer-review it adversarially. Ground every claim in the ledger; the skeptic
+   seat enforces it because we JUST got burned by a false-positive validation."
+
+backend: headless-tmux
+
+hivemind_labels:
+  product_area: "loa-finn — research-cycle synthesis: what have we actually learned?"
+  workstream: experimentation
+  priority: high
+  jtbd:
+    category: functional
+    description: "Capture Learning — distill a cycle's settled beliefs into a peer-reviewed paper, grounded not vibed"
+  source: team-internal
+
+depends_on:
+  constructs:
+    - gygax        # stage 1 — PRACTITIONER seat
+    - vitalik      # stage 2 — ACADEMIC / VERIFIER seat (verifier's dilemma; cheap-vs-expensive verification)
+    - worldline    # stage 3 — HISTORIAN seat (time-axis)
+    - satoshi      # stage 4 — ECONOMIST / COST seat (cost-to-forge; ROI per scarce submission)
+    - fagan        # stage 5 — SKEPTIC / adversarial peer-review
+    - the-weaver   # stage 6 — SYNTHESIS (contradiction map + the paper)
+  reference:
+    - "compositions/discovery/audit-claim.yaml"            # the mandated-read + observed/claimed grounding spine
+    - "compositions/experimentation/rigorous-review.yaml"  # the claims-ledger primitive
+
+# ----------------------------------------------------------------
+# Inputs. The BELIEFS artifact is the subject AND the mandated read:
+# each seat must open by quoting its H1 verbatim and cite the ledger,
+# so a dropped side-channel input fails closed (the audit-claim defect fix).
+# ----------------------------------------------------------------
+inputs:
+  - type: Artifact
+    name: beliefs
+    description: >
+      The cycle's settled beliefs, each pinned to its ledger evidence — the subject of the council
+      AND the mandated read (pin as quest.mandated_reads[{path, h1}]; the grounding gate refuses to
+      pass unless each seat echoes its H1 verbatim). Default: grimoires/loa/research/cabt-settled-beliefs.md.
+    required: true
+  - type: Operator-Model
+    name: operator_context
+    required: false
+
+# Synthesis <-> peer-review loop: re-synthesize until the skeptic clears (or the cap is hit — surface,
+# never auto-pass).
+iterate:
+  - [5, 6]
+max_iterations: 2
+terminate_when: >
+  the skeptic seat (stage 3) returns APPROVED with no open BLOCKER on the synthesis, OR the iteration
+  cap is reached (the paper carries auto_approved: true — surface to the operator as a reliability
+  caveat, do NOT treat as a clean pass).
+
+chain:
+  - stage: 1
+    name: practitioner-scan
+    construct: gygax
+    skill: analyze
+    persona: GYGAX
+    mode: fresh
+    reads: [Artifact]
+    writes: [Artifact, Signal]
+    role: primary
+    intelligence_tier: deep
+    thinking_effort: high
+    notes: >
+      You are GYGAX, the practitioner who designs the cabt move-engine, decks, and pilots daily. Read
+      the BELIEFS artifact (mandated read) FIRST and open by quoting its H1 verbatim. For EACH of the 5
+      beliefs, give the practitioner's read: core position (2 sentences), the strongest evidence FROM
+      THE LEDGER (cite the decision_id / outcome / Brier / ladder score — never infer), and the ONE
+      thing only the practitioner sees that the other seats miss (the game-design reality: bot-friendly
+      decks, pilot-misplay, deck⊗pilot fit). Mark each judgment SMELL (interpretation) vs CONFLICT (the
+      ledger provably supports/contradicts it). You interrogate; you do not write the paper.
+    output_schema:
+      type: object
+      required: [source_h1, per_belief]
+      additionalProperties: false
+      properties:
+        source_h1: { type: string }
+        per_belief:
+          type: array
+          items:
+            type: object
+            required: [belief, position, ledger_evidence, practitioner_only, severity]
+            additionalProperties: false
+            properties:
+              belief: { type: string }
+              position: { type: string }
+              ledger_evidence: { type: string, description: "decision_id / outcome / Brier / ladder value, cited not inferred" }
+              practitioner_only: { type: string }
+              severity: { type: string, enum: [CONFLICT, SMELL] }
+
+  - stage: 2
+    name: academic-verify
+    construct: vitalik
+    persona: VITALIK
+    mode: fresh
+    reads: [Artifact]
+    writes: [Artifact, Signal]
+    role: primary
+    intelligence_tier: deep
+    thinking_effort: high
+    notes: >
+      You are VITALIK — the academic/verifier seat (the verifier's dilemma; fraud-proofs vs validity-proofs;
+      cheap succinct verification). Read the BELIEFS artifact (mandated read) and open by quoting its H1 verbatim.
+      For each belief ask what the evidence actually VERIFIES and at what cost: which are cheaply verifiable from
+      the ledger (a held/falsified row, a Brier) vs which need an expensive, not-yet-run measurement (the
+      interaction term, the teammate rung). Tag each by resolution_instrument (ladder-measured / structural /
+      proxy / zero-evidence) — refuse to let an expensively-unverified claim ride at the same confidence as a
+      cheaply-verified one. The one thing only this seat sees: the VERIFICATION ECONOMICS — the cheapest check
+      that moves each belief from claimed to observed. You interrogate; you do not write the paper.
+    output_schema:
+      type: object
+      required: [source_h1, per_belief]
+      additionalProperties: false
+      properties:
+        source_h1: { type: string }
+        per_belief:
+          type: array
+          items:
+            type: object
+            required: [belief, verifiability, cheapest_check, instrument]
+            additionalProperties: false
+            properties:
+              belief: { type: string }
+              verifiability: { type: string, description: "cheaply-verifiable vs expensively-unverified, and why" }
+              cheapest_check: { type: string, description: "the cheapest measurement that moves claimed→observed" }
+              instrument: { type: string, enum: [ladder-measured, structural, proxy, zero-evidence] }
+
+  - stage: 3
+    name: historian-arc
+    construct: worldline
+    skill: lightcone
+    persona: MINKOWSKI
+    mode: fresh
+    reads: [Artifact]
+    writes: [Artifact, Signal]
+    role: primary
+    intelligence_tier: deep
+    thinking_effort: high
+    notes: >
+      You are MINKOWSKI, the historian on the time axis. Read the BELIEFS artifact (mandated read) and
+      open by quoting its H1 verbatim. For each belief, trace its WORLDLINE across the GAMES-001..023
+      research log (grimoires/loa/NOTES.md) + the calibration ledgers: when did the belief form, what
+      falsified or held it, what is CONSERVED across the cycles (the invariant), and what BROKE when it
+      shouldn't (the drift / the false positive). The one thing only the historian sees: the PATTERN —
+      e.g. "every confident deck-swap bet falsified; the one under-confident bet held" (the calibration
+      anti-correlation). Cite the GAMES-NNN entries / decision_ids. You provide the arc; you do not
+      write the paper.
+    output_schema:
+      type: object
+      required: [source_h1, per_belief, conserved, broke]
+      additionalProperties: false
+      properties:
+        source_h1: { type: string }
+        per_belief:
+          type: array
+          items:
+            type: object
+            required: [belief, worldline, citation]
+            additionalProperties: false
+            properties:
+              belief: { type: string }
+              worldline: { type: string, description: "how the belief formed/held/falsified across cycles" }
+              citation: { type: string, description: "GAMES-NNN / decision_id" }
+        conserved: { type: string, description: "the invariant that holds across cycles" }
+        broke: { type: string, description: "what drifted/broke when it shouldn't (incl. the false positive)" }
+
+  - stage: 4
+    name: economist-cost
+    construct: satoshi
+    persona: SATOSHI
+    mode: fresh
+    reads: [Artifact]
+    writes: [Artifact, Signal]
+    role: primary
+    intelligence_tier: deep
+    thinking_effort: high
+    notes: >
+      You are SATOSHI — the economist/cost seat (cost-to-forge; adversary economics; incentives). Read the BELIEFS
+      artifact (mandated read) and open by quoting its H1 verbatim. The currency is the SCARCE LADDER SUBMISSION
+      (5/day) + engine compute. For each belief follow the cost: what did believing it COST (submissions spent on
+      falsified bets), what does its implied next action cost (a ladder factorial = N submissions; the coliseum =
+      engineering + compute), and the ROI / cost-of-being-wrong. The one thing only this seat sees: OPPORTUNITY
+      COST — given 5 submissions/day, which belief's bet has the best information-per-submission, and which (e.g.
+      the expensive coliseum, B5) pays a premium for the least-grounded rung. You interrogate; you do not write the paper.
+    output_schema:
+      type: object
+      required: [source_h1, per_belief, best_roi_bet]
+      additionalProperties: false
+      properties:
+        source_h1: { type: string }
+        per_belief:
+          type: array
+          items:
+            type: object
+            required: [belief, cost_paid, next_cost, roi]
+            additionalProperties: false
+            properties:
+              belief: { type: string }
+              cost_paid: { type: string, description: "submissions/compute already spent on this belief" }
+              next_cost: { type: string, description: "cost of the action this belief implies" }
+              roi: { type: string, description: "information-per-submission / cost-of-being-wrong" }
+        best_roi_bet: { type: string, description: "the highest information-per-submission next bet across the beliefs" }
+
+  - stage: 5
+    name: skeptic-review
+    construct: fagan
+    persona: FAGAN
+    mode: fresh
+    reads: [Artifact]
+    writes: [Verdict, Signal]
+    role: primary
+    iterates_with: 6
+    intelligence_tier: deep
+    thinking_effort: high
+    notes: >
+      Adversarially review the practitioner + historian readings AND the synthesis (on re-iteration).
+      Open by quoting the BELIEFS H1 verbatim (mandated read). For EACH belief: is the ledger evidence
+      ACTUALLY there, or is a noisy number over-read into a conclusion? (The cabt lesson: 0.537 vs 0.527
+      null at N=300 is INDISTINGUISHABLE, not a win; floor-vs-floor is trivially ~50%.) Is any belief
+      doing load-bearing work on EVIDENCE IT DOESN'T HAVE? Score each belief's reliability 1-10 with the
+      reason. Name the WEAKEST LINK (the belief you'd least bet on) and what would verify it. Bias check:
+      did one seat dominate the synthesis? Missing perspective: is there a 6th seat (academic/economist)
+      whose absence changes the conclusions? A single load-bearing over-claim HOLDS the gate
+      (CHANGES_REQUIRED).
+    output_schema:
+      type: object
+      required: [source_h1, verdict, blocker, reliability_scores, weakest_link, bias_check, missing_perspective]
+      additionalProperties: false
+      properties:
+        source_h1: { type: string }
+        verdict: { type: string, enum: [APPROVED, CHANGES_REQUIRED] }
+        blocker: { type: boolean }
+        reliability_scores:
+          type: array
+          items:
+            type: object
+            required: [belief, score, why]
+            additionalProperties: false
+            properties:
+              belief: { type: string }
+              score: { type: integer }
+              why: { type: string }
+        weakest_link: { type: string }
+        bias_check: { type: string }
+        missing_perspective: { type: string }
+
+  - stage: 6
+    name: synthesize-paper
+    construct: the-weaver
+    persona: BEAUVOIR
+    skill: synthesize
+    mode: persistent
+    reads: [Artifact, Verdict]
+    writes: [Artifact, Signal]
+    role: primary
+    iterates_with: 5
+    intelligence_tier: deep
+    thinking_effort: high
+    notes: >
+      Apply the SURVIVING council findings (not rejected ones) and synthesize the RESEARCH PAPER. Open
+      by quoting the BELIEFS H1 (mandated read). Produce, STORM-style: (1) one-paragraph abstract (brief
+      a CEO in 60s, nuance not headline); (2) the 5 findings RANKED by reliability (with which seats
+      support/challenge each + the fagan score); (3) the CONTRADICTION MAP (where the seats clash, what
+      ALL agree on [likely true], what NONE addressed [the blind spot]); (4) the HIDDEN CONNECTION (one
+      non-obvious link across findings); (5) the ACTIONABLE NEXT BET (specific, given 5 submissions/day);
+      (6) the FRONTIER QUESTION (the one answer that would change everything); (7) the PEER-REVIEW grade
+      (fagan's scores + weakest link + what to fix). Cite ledger evidence for every concrete claim;
+      a number that "should be there" is a claim to verify, not assert. Generous and rigorous (BEAUVOIR).
+    output_schema:
+      type: object
+      required: [source_h1, abstract, findings, contradiction_map, hidden_connection, next_bet, frontier_question, grade]
+      additionalProperties: false
+      properties:
+        source_h1: { type: string }
+        abstract: { type: string }
+        findings:
+          type: array
+          items:
+            type: object
+            required: [finding, reliability, supported_by, challenged_by]
+            additionalProperties: false
+            properties:
+              finding: { type: string }
+              reliability: { type: integer }
+              supported_by: { type: string }
+              challenged_by: { type: string }
+        contradiction_map: { type: string }
+        hidden_connection: { type: string }
+        next_bet: { type: string }
+        frontier_question: { type: string }
+        grade: { type: string }
+
+outputs:
+  - type: Artifact
+    destination: "grimoires/loa/research/<date>-cabt-research-paper.md"
+    description: the peer-reviewed research paper — abstract, ranked findings, contradiction map, next bet, grade
+    hivemind_labels:
+      artifact_type: technical-rfc
+      learning_status: strongly-validated
+  - type: Verdict
+    destination: .run/compose/<run_id>/research-council.jsonl
+    description: per-iteration skeptic verdicts + reliability scores
+  - type: Signal
+    destination: .run/compose/<run_id>/orchestrator.jsonl
+    description: orchestrator trajectory (stage transitions, iteration counts)
+
+compose_with: [gygax, vitalik, worldline, satoshi, fagan, the-weaver]
+
+surface_class:
+  default: culturetech-loose
+  enum: [culturetech-loose, defi-strict, mixed, unspecified]
+  inferred_when_unspecified: culturetech-loose
+  affects_in_this_composition:
+    - council — advisory synthesis (a research paper, not a bankruptcy-critical gate); skeptic HOLDS on a load-bearing over-claim but cap-reached surfaces as a reliability caveat, not NO-GO
+
+thinking_effort:
+  default: high
+  canonical_definition: compositions/delivery/feel-iterate.yaml#thinking_effort
+  rationale: |
+    Every stage is grounded synthesis under adversarial pressure — interrogating beliefs from a seat,
+    tracing their worldline, breaking over-claims, and synthesizing a peer-reviewed paper. No cheap stage.
+
+when_to_use: >
+  - End of a research cycle: distill the ~5 settled beliefs (or ~5 experiments) into a peer-reviewed
+    paper with a reliability grade and a next bet.
+  - You want the multi-perspective STORM read (practitioner/historian/skeptic), not a single-prompt summary.
+  - Every claim must be ledger-grounded (the skeptic seat enforces it) — NOT a vibes synthesis.
+  - NOT for a single bankruptcy-critical claim (use audit-claim → GO/NO-GO).
+  - NOT for code review (use code-implement-and-review / rigorous-review).
+
+known_limitations:
+  - "v1.1.0 has the full 5 interrogating seats (practitioner/gygax, academic/vitalik, historian/worldline,
+    economist/satoshi, skeptic/fagan) + synthesis. v1.0.0 ran with 3 (practitioner/historian/skeptic) and the
+    paper's own peer-review flagged the academic+economist absence — this version closes that."
+  - "Grounding gate (P203) checks the beliefs H1 was echoed, not that the ledger was genuinely read —
+    necessary not sufficient; the skeptic seat is the out-of-band check."
+  - "LLM variance run-to-run (flatline SKP-002/004): the grade is a settled judgment, not a proof; re-run on a borderline call."
+
+version: "1.1.0"
+authored_at: "2026-06-21"
+authored_by: "operator directive — STORM research council with our constructs as opposing viewpoints"
+changelog:
+  - "1.1.0 (2026-06-21): added the v2 seats — vitalik (academic/verifier) stage 2 + satoshi (economist/cost)
+    stage 4 — the full STORM 5-seat council, per the v1.0.0 paper's peer-review missing-perspective finding."
+  - "1.0.0 (2026-06-21): initial 4-stage council (gygax/worldline/fagan/the-weaver), valid_run rescouncil-20260621."

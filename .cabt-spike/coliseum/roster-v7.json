@@ -1,0 +1,8 @@
+{"_comment":"v7 VALIDATION: all pilots on OUR Dwebble deck (isolates the pilot). Does our own v7 (threat-aware + expert-sequencing) beat v4/v6 and MATCH gumi's farmed v8? Seeded + high N + CI/reliability (the seed-fix).",
+ "entrants":[
+ {"name":"v4-dwebble","owner":"lab","pilot":"v4","deck":".cabt-spike/sub_dwebble_v4/deck.csv","note":"baseline (ladder 787)"},
+ {"name":"v6-dwebble","owner":"lab","pilot":"v6","deck":".cabt-spike/sub_dwebble_v4/deck.csv","note":"current default"},
+ {"name":"v7-dwebble","owner":"soju","pilot":"v7","deck":".cabt-spike/sub_dwebble_v4/deck.csv","note":"OUR new threat-aware pilot"},
+ {"name":"gumi-v8-dwebble","owner":"gumi","pilot":"bundle:.cabt-spike/build_v8dw","deck":".cabt-spike/build_v8dw/deck.csv","note":"gumi's v8 pilot + our deck (the target to match)"},
+ {"name":"greedy","owner":"lab","pilot":"greedy","deck":".cabt-spike/sub_v6_validate/deck.csv","note":"floor"}
+]}

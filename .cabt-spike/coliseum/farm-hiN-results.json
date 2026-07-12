@@ -1,0 +1,129 @@
+{
+  "n_per_seat": 40,
+  "entrants": [
+    {
+      "name": "v4-dwebble",
+      "owner": "lab",
+      "pilot": "v4"
+    },
+    {
+      "name": "v6-dwebble",
+      "owner": "lab",
+      "pilot": "v6"
+    },
+    {
+      "name": "v8-dwebble",
+      "owner": "soju",
+      "pilot": "bundle:.cabt-spike/build_v8dw"
+    },
+    {
+      "name": "gumi-crustle-full",
+      "owner": "gumi",
+      "pilot": "bundle:.cabt-spike/farm/gumi-v18-crustle"
+    },
+    {
+      "name": "greedy",
+      "owner": "lab",
+      "pilot": "greedy"
+    }
+  ],
+  "elo": {
+    "v4-dwebble": 1104.3,
+    "v6-dwebble": 1110.6,
+    "v8-dwebble": 1135.7,
+    "gumi-crustle-full": 1144.1,
+    "greedy": 505.3
+  },
+  "order": [
+    "gumi-crustle-full",
+    "v8-dwebble",
+    "v6-dwebble",
+    "v4-dwebble",
+    "greedy"
+  ],
+  "wins": {
+    "v4-dwebble": {
+      "v4-dwebble": 0,
+      "v6-dwebble": 43,
+      "v8-dwebble": 35,
+      "gumi-crustle-full": 33,
+      "greedy": 78
+    },
+    "v6-dwebble": {
+      "v4-dwebble": 37,
+      "v6-dwebble": 0,
+      "v8-dwebble": 36,
+      "gumi-crustle-full": 41,
+      "greedy": 78
+    },
+    "v8-dwebble": {
+      "v4-dwebble": 45,
+      "v6-dwebble": 44,
+      "v8-dwebble": 0,
+      "gumi-crustle-full": 36,
+      "greedy": 79
+    },
+    "gumi-crustle-full": {
+      "v4-dwebble": 47,
+      "v6-dwebble": 39,
+      "v8-dwebble": 44,
+      "gumi-crustle-full": 0,
+      "greedy": 78
+    },
+    "greedy": {
+      "v4-dwebble": 2,
+      "v6-dwebble": 2,
+      "v8-dwebble": 1,
+      "gumi-crustle-full": 2,
+      "greedy": 0
+    }
+  },
+  "games": {
+    "v4-dwebble": {
+      "v4-dwebble": 0,
+      "v6-dwebble": 80,
+      "v8-dwebble": 80,
+      "gumi-crustle-full": 80,
+      "greedy": 80
+    },
+    "v6-dwebble": {
+      "v4-dwebble": 80,
+      "v6-dwebble": 0,
+      "v8-dwebble": 80,
+      "gumi-crustle-full": 80,
+      "greedy": 80
+    },
+    "v8-dwebble": {
+      "v4-dwebble": 80,
+      "v6-dwebble": 80,
+      "v8-dwebble": 0,
+      "gumi-crustle-full": 80,
+      "greedy": 80
+    },
+    "gumi-crustle-full": {
+      "v4-dwebble": 80,
+      "v6-dwebble": 80,
+      "v8-dwebble": 80,
+      "gumi-crustle-full": 0,
+      "greedy": 80
+    },
+    "greedy": {
+      "v4-dwebble": 80,
+      "v6-dwebble": 80,
+      "v8-dwebble": 80,
+      "gumi-crustle-full": 80,
+      "greedy": 0
+    }
+  },
+  "drawn": 0,
+  "field_trust": {
+    "real": 2,
+    "internal": 3,
+    "sparring": 0,
+    "distinct_real_owners": 2,
+    "trust": "low",
+    "verdict": "BOOTSTRAP \u2014 2 real teammate agent(s); add more diverse real entrants to trust the ranking"
+  },
+  "total_matches": 800,
+  "elapsed_s": 53.4
+}

@@ -1,0 +1,12 @@
+{
+  "_comment": "FARM LOOP scoring roster. v4 pilot on each DECK isolates the deck lever (B1); gumi-FULL = the real opponents (deck+v8 pilot); v6-dwebble = the C4 info-gain cell. coliseum.py round-robin → Elos → SAATY rubric C1b/C2.",
+  "entrants": [
+    {"name": "soju-crustle-v4", "owner": "soju", "pilot": "v4", "deck": ".cabt-spike/farm/gumi-v18-crustle/deck.csv", "note": "FARM: gumi's top deck (1308) + OUR v4 pilot — does the deck carry?"},
+    {"name": "soju-sylveon-v4", "owner": "soju", "pilot": "v4", "deck": ".cabt-spike/farm/gumi-v16-sylveon/deck.csv", "note": "FARM: gumi's #2 deck + v4"},
+    {"name": "soju-dash", "owner": "soju", "pilot": "v4", "deck": ".cabt-spike/sub_dwebble_v4/deck.csv", "note": "INCUMBENT: Dwebble/Crustle + v4 (C1a gold = ladder 787)"},
+    {"name": "soju-v6-dwebble", "owner": "soju", "pilot": "v6", "deck": ".cabt-spike/sub_dwebble_v4/deck.csv", "note": "C4 info-gain: resolves deck⊗pilot interaction (v6 on strong deck)"},
+    {"name": "gumi-crustle-full", "owner": "gumi", "pilot": "bundle:.cabt-spike/farm/gumi-v18-crustle", "deck": ".cabt-spike/farm/gumi-v18-crustle/deck.csv", "note": "REAL opponent: gumi's full agent (deck + v8 pilot), coliseum 1308"},
+    {"name": "gumi-sylveon-full", "owner": "gumi", "pilot": "bundle:.cabt-spike/farm/gumi-v16-sylveon", "deck": ".cabt-spike/farm/gumi-v16-sylveon/deck.csv", "note": "REAL opponent: gumi sylveon full, coliseum 1118"},
+    {"name": "greedy-anchor", "owner": "lab", "pilot": "greedy", "deck": ".cabt-spike/sub_v6_validate/deck.csv", "note": "floor anchor"}
+  ]
+}

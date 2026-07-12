@@ -1,0 +1,7 @@
+{"_comment":"DIAGNOSTIC: does coliseum make_pilot('v6') == the submission bundle's CABT_POLICY=v6? If v6-makepilot beats greedy but v6-bundle loses, the bundle is broken / different code.",
+ "entrants":[
+ {"name":"v6-makepilot","owner":"lab","pilot":"v6","deck":".cabt-spike/build_v6dw/deck.csv"},
+ {"name":"v6-bundle","owner":"lab","pilot":"bundle:.cabt-spike/build_v6dw","deck":".cabt-spike/build_v6dw/deck.csv"},
+ {"name":"v4-makepilot","owner":"lab","pilot":"v4","deck":".cabt-spike/build_v6dw/deck.csv"},
+ {"name":"greedy","owner":"lab","pilot":"greedy","deck":".cabt-spike/build_v6dw/deck.csv"}
+]}

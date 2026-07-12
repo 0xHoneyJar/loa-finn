@@ -1,0 +1,8 @@
+{"_comment":"HIGH-N (N=40) robust re-measure after the v6 fluke. v4/v6/v8 all on OUR Dwebble deck (isolates pilot) + gumi's full agent. ~800 matches averages out the unseeded PTCG variance.",
+ "entrants":[
+ {"name":"v4-dwebble","owner":"lab","pilot":"v4","deck":".cabt-spike/sub_dwebble_v4/deck.csv","note":"INCUMBENT (ladder 787)"},
+ {"name":"v6-dwebble","owner":"lab","pilot":"v6","deck":".cabt-spike/sub_dwebble_v4/deck.csv","note":"the flukey 1277 — re-test"},
+ {"name":"v8-dwebble","owner":"soju","pilot":"bundle:.cabt-spike/build_v8dw","deck":".cabt-spike/build_v8dw/deck.csv","note":"FARM: gumi's v8 pilot + OUR Dwebble deck"},
+ {"name":"gumi-crustle-full","owner":"gumi","pilot":"bundle:.cabt-spike/farm/gumi-v18-crustle","deck":".cabt-spike/farm/gumi-v18-crustle/deck.csv","note":"gumi's real agent (v8 + crustle)"},
+ {"name":"greedy","owner":"lab","pilot":"greedy","deck":".cabt-spike/sub_v6_validate/deck.csv","note":"floor"}
+]}

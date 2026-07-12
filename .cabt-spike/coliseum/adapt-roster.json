@@ -1,0 +1,41 @@
+{
+  "_comment": "auto-built by adapt_loop from forged variants",
+  "entrants": [
+    {
+      "name": "crustle-fg",
+      "owner": "soju",
+      "pilot": "v7",
+      "deck": ".cabt-spike/variants/crustle-fg/deck.csv"
+    },
+    {
+      "name": "crustle-helmet",
+      "owner": "soju",
+      "pilot": "v7",
+      "deck": ".cabt-spike/variants/crustle-helmet/deck.csv"
+    },
+    {
+      "name": "crustle-pivot",
+      "owner": "soju",
+      "pilot": "v7",
+      "deck": ".cabt-spike/variants/crustle-pivot/deck.csv"
+    },
+    {
+      "name": "v4-dwebble-PB",
+      "owner": "lab",
+      "pilot": "v4",
+      "deck": ".cabt-spike/sub_dwebble_v4/deck.csv"
+    },
+    {
+      "name": "gumi-v8",
+      "owner": "gumi",
+      "pilot": "bundle:.cabt-spike/build_v8dw",
+      "deck": ".cabt-spike/build_v8dw/deck.csv"
+    },
+    {
+      "name": "greedy",
+      "owner": "lab",
+      "pilot": "greedy",
+      "deck": ".cabt-spike/sub_v6_validate/deck.csv"
+    }
+  ]
+}

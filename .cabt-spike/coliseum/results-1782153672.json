@@ -1,0 +1,151 @@
+{
+  "n_per_seat": 2,
+  "seed": null,
+  "entrants": [
+    {
+      "name": "charm",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/build_charm"
+    },
+    {
+      "name": "cleanse",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/build_cleanse"
+    },
+    {
+      "name": "cage",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/build_cage"
+    },
+    {
+      "name": "greedy",
+      "owner": "lab",
+      "pilot": "greedy"
+    }
+  ],
+  "elo": {
+    "charm": 923.1,
+    "cleanse": 1155.4,
+    "cage": 960.8,
+    "greedy": 960.8
+  },
+  "order": [
+    "cleanse",
+    "cage",
+    "greedy",
+    "charm"
+  ],
+  "win_ci": {
+    "charm": [
+      0.138,
+      0.609
+    ],
+    "cleanse": [
+      0.552,
+      0.953
+    ],
+    "cage": [
+      0.193,
+      0.68
+    ],
+    "greedy": [
+      0.193,
+      0.68
+    ]
+  },
+  "reliability": [
+    {
+      "hi": "cleanse",
+      "lo": "cage",
+      "verdict": "robust",
+      "h2h": 1.0,
+      "ci": [
+        0.51,
+        1.0
+      ]
+    },
+    {
+      "hi": "cage",
+      "lo": "greedy",
+      "verdict": "within_noise",
+      "h2h": 0.5,
+      "ci": [
+        0.15,
+        0.85
+      ]
+    },
+    {
+      "hi": "greedy",
+      "lo": "charm",
+      "verdict": "within_noise",
+      "h2h": 0.5,
+      "ci": [
+        0.15,
+        0.85
+      ]
+    }
+  ],
+  "wins": {
+    "charm": {
+      "charm": 0,
+      "cleanse": 1,
+      "cage": 1,
+      "greedy": 2
+    },
+    "cleanse": {
+      "charm": 3,
+      "cleanse": 0,
+      "cage": 4,
+      "greedy": 3
+    },
+    "cage": {
+      "charm": 3,
+      "cleanse": 0,
+      "cage": 0,
+      "greedy": 2
+    },
+    "greedy": {
+      "charm": 2,
+      "cleanse": 1,
+      "cage": 2,
+      "greedy": 0
+    }
+  },
+  "games": {
+    "charm": {
+      "charm": 0,
+      "cleanse": 4,
+      "cage": 4,
+      "greedy": 4
+    },
+    "cleanse": {
+      "charm": 4,
+      "cleanse": 0,
+      "cage": 4,
+      "greedy": 4
+    },
+    "cage": {
+      "charm": 4,
+      "cleanse": 4,
+      "cage": 0,
+      "greedy": 4
+    },
+    "greedy": {
+      "charm": 4,
+      "cleanse": 4,
+      "cage": 4,
+      "greedy": 0
+    }
+  },
+  "drawn": 0,
+  "field_trust": {
+    "real": 0,
+    "internal": 4,
+    "sparring": 0,
+    "distinct_real_owners": 0,
+    "trust": "none",
+    "verdict": "SYNTHETIC \u2014 field is our own variants + clones only; GAMES-014 says this CANNOT reproduce the ladder. Do NOT trust this ranking. Recruit real teammate agents."
+  },
+  "total_matches": 24,
+  "elapsed_s": 2.2
+}

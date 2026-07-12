@@ -1,0 +1,199 @@
+{
+  "n_per_seat": 6,
+  "entrants": [
+    {
+      "name": "soju-crustle-v4",
+      "owner": "soju",
+      "pilot": "v4"
+    },
+    {
+      "name": "soju-sylveon-v4",
+      "owner": "soju",
+      "pilot": "v4"
+    },
+    {
+      "name": "soju-dash",
+      "owner": "soju",
+      "pilot": "v4"
+    },
+    {
+      "name": "soju-v6-dwebble",
+      "owner": "soju",
+      "pilot": "v6"
+    },
+    {
+      "name": "gumi-crustle-full",
+      "owner": "gumi",
+      "pilot": "bundle:.cabt-spike/farm/gumi-v18-crustle"
+    },
+    {
+      "name": "gumi-sylveon-full",
+      "owner": "gumi",
+      "pilot": "bundle:.cabt-spike/farm/gumi-v16-sylveon"
+    },
+    {
+      "name": "greedy-anchor",
+      "owner": "lab",
+      "pilot": "greedy"
+    }
+  ],
+  "elo": {
+    "soju-crustle-v4": 1182.1,
+    "soju-sylveon-v4": 796.3,
+    "soju-dash": 1252.5,
+    "soju-v6-dwebble": 1276.7,
+    "gumi-crustle-full": 1228.8,
+    "gumi-sylveon-full": 766.4,
+    "greedy-anchor": 497.3
+  },
+  "order": [
+    "soju-v6-dwebble",
+    "soju-dash",
+    "gumi-crustle-full",
+    "soju-crustle-v4",
+    "soju-sylveon-v4",
+    "gumi-sylveon-full",
+    "greedy-anchor"
+  ],
+  "wins": {
+    "soju-crustle-v4": {
+      "soju-crustle-v4": 0,
+      "soju-sylveon-v4": 12,
+      "soju-dash": 4,
+      "soju-v6-dwebble": 5,
+      "gumi-crustle-full": 5,
+      "gumi-sylveon-full": 11,
+      "greedy-anchor": 12
+    },
+    "soju-sylveon-v4": {
+      "soju-crustle-v4": 0,
+      "soju-sylveon-v4": 0,
+      "soju-dash": 0,
+      "soju-v6-dwebble": 0,
+      "gumi-crustle-full": 0,
+      "gumi-sylveon-full": 7,
+      "greedy-anchor": 12
+    },
+    "soju-dash": {
+      "soju-crustle-v4": 8,
+      "soju-sylveon-v4": 12,
+      "soju-dash": 0,
+      "soju-v6-dwebble": 5,
+      "gumi-crustle-full": 6,
+      "gumi-sylveon-full": 12,
+      "greedy-anchor": 12
+    },
+    "soju-v6-dwebble": {
+      "soju-crustle-v4": 7,
+      "soju-sylveon-v4": 12,
+      "soju-dash": 7,
+      "soju-v6-dwebble": 0,
+      "gumi-crustle-full": 7,
+      "gumi-sylveon-full": 12,
+      "greedy-anchor": 12
+    },
+    "gumi-crustle-full": {
+      "soju-crustle-v4": 7,
+      "soju-sylveon-v4": 12,
+      "soju-dash": 6,
+      "soju-v6-dwebble": 5,
+      "gumi-crustle-full": 0,
+      "gumi-sylveon-full": 11,
+      "greedy-anchor": 12
+    },
+    "gumi-sylveon-full": {
+      "soju-crustle-v4": 1,
+      "soju-sylveon-v4": 5,
+      "soju-dash": 0,
+      "soju-v6-dwebble": 0,
+      "gumi-crustle-full": 1,
+      "gumi-sylveon-full": 0,
+      "greedy-anchor": 10
+    },
+    "greedy-anchor": {
+      "soju-crustle-v4": 0,
+      "soju-sylveon-v4": 0,
+      "soju-dash": 0,
+      "soju-v6-dwebble": 0,
+      "gumi-crustle-full": 0,
+      "gumi-sylveon-full": 2,
+      "greedy-anchor": 0
+    }
+  },
+  "games": {
+    "soju-crustle-v4": {
+      "soju-crustle-v4": 0,
+      "soju-sylveon-v4": 12,
+      "soju-dash": 12,
+      "soju-v6-dwebble": 12,
+      "gumi-crustle-full": 12,
+      "gumi-sylveon-full": 12,
+      "greedy-anchor": 12
+    },
+    "soju-sylveon-v4": {
+      "soju-crustle-v4": 12,
+      "soju-sylveon-v4": 0,
+      "soju-dash": 12,
+      "soju-v6-dwebble": 12,
+      "gumi-crustle-full": 12,
+      "gumi-sylveon-full": 12,
+      "greedy-anchor": 12
+    },
+    "soju-dash": {
+      "soju-crustle-v4": 12,
+      "soju-sylveon-v4": 12,
+      "soju-dash": 0,
+      "soju-v6-dwebble": 12,
+      "gumi-crustle-full": 12,
+      "gumi-sylveon-full": 12,
+      "greedy-anchor": 12
+    },
+    "soju-v6-dwebble": {
+      "soju-crustle-v4": 12,
+      "soju-sylveon-v4": 12,
+      "soju-dash": 12,
+      "soju-v6-dwebble": 0,
+      "gumi-crustle-full": 12,
+      "gumi-sylveon-full": 12,
+      "greedy-anchor": 12
+    },
+    "gumi-crustle-full": {
+      "soju-crustle-v4": 12,
+      "soju-sylveon-v4": 12,
+      "soju-dash": 12,
+      "soju-v6-dwebble": 12,
+      "gumi-crustle-full": 0,
+      "gumi-sylveon-full": 12,
+      "greedy-anchor": 12
+    },
+    "gumi-sylveon-full": {
+      "soju-crustle-v4": 12,
+      "soju-sylveon-v4": 12,
+      "soju-dash": 12,
+      "soju-v6-dwebble": 12,
+      "gumi-crustle-full": 12,
+      "gumi-sylveon-full": 0,
+      "greedy-anchor": 12
+    },
+    "greedy-anchor": {
+      "soju-crustle-v4": 12,
+      "soju-sylveon-v4": 12,
+      "soju-dash": 12,
+      "soju-v6-dwebble": 12,
+      "gumi-crustle-full": 12,
+      "gumi-sylveon-full": 12,
+      "greedy-anchor": 0
+    }
+  },
+  "drawn": 0,
+  "field_trust": {
+    "real": 2,
+    "internal": 5,
+    "sparring": 0,
+    "distinct_real_owners": 1,
+    "trust": "low",
+    "verdict": "BOOTSTRAP \u2014 2 real teammate agent(s); add more diverse real entrants to trust the ranking"
+  },
+  "total_matches": 252,
+  "elapsed_s": 18.8
+}

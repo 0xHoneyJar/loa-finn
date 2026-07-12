@@ -268,3 +268,6 @@ app/ecosystem.config.js
 # python bytecode
 **/__pycache__/
 *.pyc
+
+# bv (beads viewer) local config and caches
+.bv/

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- cabt meta-adaptation loop — daily SENSE heartbeat. Activate:
+       cp .cabt-spike/coliseum/com.cabt.dailysense.plist ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.cabt.dailysense.plist
+     Deactivate: launchctl unload ~/Library/LaunchAgents/com.cabt.dailysense.plist
+     Runs daily at 09:00; drift compounds for free, meta-shifts get flagged. Submissions stay operator-gated. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cabt.dailysense</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/zksoju/Documents/GitHub/loa-finn/.cabt-spike/coliseum/daily_sense.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/zksoju/Documents/GitHub/loa-finn/.cabt-spike/coliseum/launchd.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/zksoju/Documents/GitHub/loa-finn/.cabt-spike/coliseum/launchd.err</string>
+</dict>
+</plist>

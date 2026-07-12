@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+# cabt-submit — the teammate helper. Submit EXACTLY what you submit to Kaggle (a submission.tar.gz,
+# or its unpacked dir) to the coliseum. Two modes:
+#
+#   local  (default)  — isolated-validate your bundle in the real cg engine (via Docker) and register
+#                       it in the local roster. Proves your agent is legal + never-crashes before it
+#                       ever costs a ladder submission. (Same isolation Kaggle uses: bundle's own cabt/.)
+#   remote (--url U)  — POST your bundle to the hosted coliseum service (Railway) so it joins the live
+#                       field and shows up on the site. (The service runs the round-robin + emits replays.)
+#
+# Usage:
+#   ./cabt-submit my-submission.tar.gz --name alice-aggro --owner alice
+#   ./cabt-submit ./my-bundle/        --name alice-aggro --owner alice --url https://cabt-coliseum.up.railway.app
+#
+# No third-party deps (stdlib only). Local mode needs Docker (the cg engine is Linux-only).
+import argparse, os, subprocess, sys, tarfile, tempfile, urllib.request, uuid
+
+REPO = os.environ.get("COLISEUM_REPO", os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+
+def is_bundle(path):
+    """A Kaggle bundle is a dir (or tar) with main.py + deck.csv at some level."""
+    return path.endswith((".tar.gz", ".tgz")) or (os.path.isdir(path) and os.path.exists(os.path.join(path, "main.py")))
+
+
+def local_validate(submission, name, owner, n):
+    """Run the proven isolated validator (submit.py) inside the amd64 cg-engine container."""
+    if not os.path.exists(submission):
+        sys.exit(f"cabt-submit: no such path: {submission}")
+    rel = os.path.relpath(os.path.abspath(submission), REPO)
+    if rel.startswith(".."):
+        sys.exit("cabt-submit: in local mode the bundle must live inside the repo (the container mounts the repo). "
+                 "Copy it under .cabt-spike/coliseum/ first, or use --url for remote submit.")
+    print(f"🔎 local isolated validation of '{name}' (owner {owner}) in the cg engine…")
+    cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "-e", "COLISEUM_ROOT=/app",
+           "-v", f"{REPO}:/app", "-w", "/app", "python:3.12",
+           "bash", "-c", f"python .cabt-spike/coliseum/submit.py {rel} --name {name} --owner {owner} --n {n}"]
+    sys.exit(subprocess.call(cmd))
+
+
+def remote_submit(submission, name, owner, url):
+    """POST the bundle (as a tar.gz) to the hosted coliseum service."""
+    tmp = None
+    if os.path.isdir(submission):
+        tmp = os.path.join(tempfile.gettempdir(), f"cabt-{uuid.uuid4().hex[:8]}.tar.gz")
+        with tarfile.open(tmp, "w:gz") as t:
+            t.add(submission, arcname=".")
+        payload_path = tmp
+    else:
+        payload_path = submission
+    endpoint = url.rstrip("/") + "/submit"
+    boundary = "----cabt" + uuid.uuid4().hex
+    with open(payload_path, "rb") as f:
+        body = f.read()
+    parts = []
+    for k, v in (("name", name), ("owner", owner)):
+        parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode())
+    parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"bundle\"; filename=\"{os.path.basename(payload_path)}\"\r\n"
+                 f"Content-Type: application/gzip\r\n\r\n".encode() + body + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    data = b"".join(parts)
+    print(f"📤 submitting '{name}' ({owner}) → {endpoint}  ({round(len(body)/1024)} KB)…")
+    req = urllib.request.Request(endpoint, data=data, method="POST",
+                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            print(r.read().decode(errors="replace"))
+    except Exception as e:
+        sys.exit(f"cabt-submit: remote submit failed: {e}")
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Submit your Kaggle bundle to the cabt coliseum.")
+    ap.add_argument("submission", help="submission.tar.gz or an unpacked Kaggle bundle dir")
+    ap.add_argument("--name", required=True, help="entrant name")
+    ap.add_argument("--owner", required=True, help="who you are (owner != lab/internal = a REAL entrant)")
+    ap.add_argument("--url", default=os.environ.get("COLISEUM_URL"), help="hosted coliseum service URL (remote mode); omit for local")
+    ap.add_argument("--n", type=int, default=3, help="local smoke matches per seat")
+    args = ap.parse_args()
+    if not is_bundle(args.submission):
+        sys.exit(f"cabt-submit: '{args.submission}' doesn't look like a Kaggle bundle (need main.py + deck.csv).")
+    if args.url:
+        remote_submit(args.submission, args.name, args.owner, args.url)
+    else:
+        local_validate(args.submission, args.name, args.owner, args.n)
+
+
+if __name__ == "__main__":
+    main()

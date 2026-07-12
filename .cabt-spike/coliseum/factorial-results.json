@@ -1,0 +1,129 @@
+{
+  "n_per_seat": 6,
+  "entrants": [
+    {
+      "name": "f-v4-dwebble",
+      "owner": "lab",
+      "pilot": "v4"
+    },
+    {
+      "name": "f-v6-dwebble",
+      "owner": "lab",
+      "pilot": "v6"
+    },
+    {
+      "name": "f-v4-abomasnow",
+      "owner": "lab",
+      "pilot": "v4"
+    },
+    {
+      "name": "f-v6-abomasnow",
+      "owner": "lab",
+      "pilot": "v6"
+    },
+    {
+      "name": "greedy-anchor",
+      "owner": "lab",
+      "pilot": "greedy"
+    }
+  ],
+  "elo": {
+    "f-v4-dwebble": 1342.7,
+    "f-v6-dwebble": 1279.9,
+    "f-v4-abomasnow": 868.6,
+    "f-v6-abomasnow": 788.1,
+    "greedy-anchor": 720.8
+  },
+  "order": [
+    "f-v4-dwebble",
+    "f-v6-dwebble",
+    "f-v4-abomasnow",
+    "f-v6-abomasnow",
+    "greedy-anchor"
+  ],
+  "wins": {
+    "f-v4-dwebble": {
+      "f-v4-dwebble": 0,
+      "f-v6-dwebble": 8,
+      "f-v4-abomasnow": 11,
+      "f-v6-abomasnow": 12,
+      "greedy-anchor": 12
+    },
+    "f-v6-dwebble": {
+      "f-v4-dwebble": 4,
+      "f-v6-dwebble": 0,
+      "f-v4-abomasnow": 12,
+      "f-v6-abomasnow": 12,
+      "greedy-anchor": 12
+    },
+    "f-v4-abomasnow": {
+      "f-v4-dwebble": 1,
+      "f-v6-dwebble": 0,
+      "f-v4-abomasnow": 0,
+      "f-v6-abomasnow": 6,
+      "greedy-anchor": 10
+    },
+    "f-v6-abomasnow": {
+      "f-v4-dwebble": 0,
+      "f-v6-dwebble": 0,
+      "f-v4-abomasnow": 6,
+      "f-v6-abomasnow": 0,
+      "greedy-anchor": 6
+    },
+    "greedy-anchor": {
+      "f-v4-dwebble": 0,
+      "f-v6-dwebble": 0,
+      "f-v4-abomasnow": 2,
+      "f-v6-abomasnow": 6,
+      "greedy-anchor": 0
+    }
+  },
+  "games": {
+    "f-v4-dwebble": {
+      "f-v4-dwebble": 0,
+      "f-v6-dwebble": 12,
+      "f-v4-abomasnow": 12,
+      "f-v6-abomasnow": 12,
+      "greedy-anchor": 12
+    },
+    "f-v6-dwebble": {
+      "f-v4-dwebble": 12,
+      "f-v6-dwebble": 0,
+      "f-v4-abomasnow": 12,
+      "f-v6-abomasnow": 12,
+      "greedy-anchor": 12
+    },
+    "f-v4-abomasnow": {
+      "f-v4-dwebble": 12,
+      "f-v6-dwebble": 12,
+      "f-v4-abomasnow": 0,
+      "f-v6-abomasnow": 12,
+      "greedy-anchor": 12
+    },
+    "f-v6-abomasnow": {
+      "f-v4-dwebble": 12,
+      "f-v6-dwebble": 12,
+      "f-v4-abomasnow": 12,
+      "f-v6-abomasnow": 0,
+      "greedy-anchor": 12
+    },
+    "greedy-anchor": {
+      "f-v4-dwebble": 12,
+      "f-v6-dwebble": 12,
+      "f-v4-abomasnow": 12,
+      "f-v6-abomasnow": 12,
+      "greedy-anchor": 0
+    }
+  },
+  "drawn": 0,
+  "field_trust": {
+    "real": 0,
+    "internal": 5,
+    "sparring": 0,
+    "distinct_real_owners": 0,
+    "trust": "none",
+    "verdict": "SYNTHETIC \u2014 field is our own variants + clones only; GAMES-014 says this CANNOT reproduce the ladder. Do NOT trust this ranking. Recruit real teammate agents."
+  },
+  "total_matches": 120,
+  "elapsed_s": 4.9
+}

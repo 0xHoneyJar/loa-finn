@@ -1,0 +1,111 @@
+{
+  "_comment": "The coliseum roster. Each entrant = (pilot, deck). pilot \u2208 v4|v5|v6|greedy|clone:<arch>|bundle:<dir>. A teammate enters via submit.py (a Kaggle submission.tar.gz \u2192 isolated validation \u2192 a bundle: line with their own owner). Clones are SPARRING (weak imitators, GAMES-014); they are not the field. `kind` is display attribution (variant|clone|real) \u2014 the field-trust meter still DERIVES kind itself (pilot prefix + operator-owner exclusion), so relabelling owner can't flip it. Until \u22653 DIVERSE EXTERNAL teammate agents enter, the field-trust meter reads SYNTHETIC \u2014 by design.",
+  "entrants": [
+    {
+      "name": "champion-dwebble",
+      "owner": "soju",
+      "pilot": "v4",
+      "kind": "variant",
+      "deck": ".cabt-spike/sub_dwebble_v4/deck.csv",
+      "note": "current PB \u2014 v4 pilot on the converged Dwebble/Crustle meta-king deck (ladder 807.5)"
+    },
+    {
+      "name": "v4-abomasnow",
+      "owner": "soju",
+      "pilot": "v4",
+      "kind": "variant",
+      "deck": ".cabt-spike/sub_v6_validate/deck.csv",
+      "note": "v4 type-only pilot on the Abomasnow deck (ladder 719)"
+    },
+    {
+      "name": "v5-abomasnow",
+      "owner": "soju",
+      "pilot": "v5",
+      "kind": "variant",
+      "deck": ".cabt-spike/sub_v6_validate/deck.csv",
+      "note": "v5 6-term board-aware pilot (ladder 569)"
+    },
+    {
+      "name": "v6-abomasnow",
+      "owner": "soju",
+      "pilot": "v6",
+      "kind": "variant",
+      "deck": ".cabt-spike/sub_v6_validate/deck.csv",
+      "note": "v6 = v4 + energy_economy_term (ladder 540)"
+    },
+    {
+      "name": "greedy-floor",
+      "owner": "soju",
+      "pilot": "greedy",
+      "kind": "variant",
+      "deck": ".cabt-spike/sub_v6_validate/deck.csv",
+      "note": "the greedy baseline \u2014 Elo anchor / floor"
+    },
+    {
+      "name": "spar-dwebble",
+      "owner": "soju",
+      "pilot": "clone:dwebble_crustle",
+      "kind": "clone",
+      "deck": ".cabt-spike/echelon/deck_dwebble_crustle.csv",
+      "note": "SPARRING: weak imitation clone of Dwebble experts"
+    },
+    {
+      "name": "spar-lucario",
+      "owner": "soju",
+      "pilot": "clone:lucario",
+      "kind": "clone",
+      "deck": ".cabt-spike/echelon/deck_lucario.csv",
+      "note": "SPARRING: weak imitation clone of Lucario experts"
+    },
+    {
+      "name": "spar-alakazam",
+      "owner": "soju",
+      "pilot": "clone:alakazam",
+      "kind": "clone",
+      "deck": ".cabt-spike/echelon/deck_alakazam.csv",
+      "note": "SPARRING: weak imitation clone of Alakazam experts"
+    },
+    {
+      "name": "crustle-helmet",
+      "owner": "soju",
+      "pilot": "bundle:.cabt-spike/coliseum/bundles/crustle-helmet",
+      "deck": ".cabt-spike/coliseum/bundles/crustle-helmet/deck.csv",
+      "note": "teammate submission (soju) \u2014 validated isolated smoke"
+    },
+    {
+      "name": "crustle-pivot",
+      "owner": "soju",
+      "pilot": "bundle:.cabt-spike/coliseum/bundles/crustle-pivot",
+      "deck": ".cabt-spike/coliseum/bundles/crustle-pivot/deck.csv",
+      "note": "teammate submission (soju) \u2014 validated isolated smoke"
+    },
+    {
+      "name": "crustle-cleanse-ctl",
+      "owner": "soju",
+      "pilot": "bundle:.cabt-spike/coliseum/bundles/crustle-cleanse-ctl",
+      "deck": ".cabt-spike/coliseum/bundles/crustle-cleanse-ctl/deck.csv",
+      "note": "teammate submission (soju) \u2014 validated isolated smoke"
+    },
+    {
+      "name": "boss-v7",
+      "owner": "soju",
+      "pilot": "bundle:.cabt-spike/coliseum/bundles/boss-v7",
+      "deck": ".cabt-spike/coliseum/bundles/boss-v7/deck.csv",
+      "note": "teammate submission (soju) \u2014 validated isolated smoke"
+    },
+    {
+      "name": "hammer-v4",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/coliseum/bundles/hammer-v4",
+      "deck": ".cabt-spike/coliseum/bundles/hammer-v4/deck.csv",
+      "note": "teammate submission (lab) \u2014 validated isolated smoke"
+    },
+    {
+      "name": "alakazam-v8",
+      "owner": "lab",
+      "pilot": "bundle:.cabt-spike/coliseum/bundles/alakazam-v8",
+      "deck": ".cabt-spike/coliseum/bundles/alakazam-v8/deck.csv",
+      "note": "teammate submission (lab) \u2014 validated isolated smoke"
+    }
+  ]
+}
