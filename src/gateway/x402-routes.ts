@@ -13,7 +13,7 @@ import type { SettlementService } from "../x402/settlement.js"
 import type { CreditNoteService } from "../x402/credit-note.js"
 import type { AllowlistService } from "./allowlist.js"
 import type { FeatureFlagService } from "./feature-flags.js"
-import { X402Error, X402_RATE_LIMIT_PER_HOUR } from "../x402/types.js"
+import { X402Error, X402_RATE_LIMIT_PER_HOUR, type PaymentProof } from "../x402/types.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -166,7 +166,10 @@ export function createX402InvokeHandler(deps: X402RouteDeps) {
 
     // 8. Verify payment
     try {
-      const verification = await deps.paymentVerifier.verify(proof, quote)
+      // The header is parsed loosely (quote_id + authorization.from checked
+      // above); PaymentVerifier.verify performs the full structural and
+      // signature validation, so the boundary cast is safe.
+      const verification = await deps.paymentVerifier.verify(proof as unknown as PaymentProof, quote)
 
       // 9. Settle payment
       if (!verification.idempotent_replay) {

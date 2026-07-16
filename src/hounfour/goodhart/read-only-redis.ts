@@ -25,7 +25,7 @@ export function createReadOnlyRedisClient(redis: RedisCommandClient): RedisComma
 
       // Allow read methods to pass through
       if (READ_METHODS.has(prop)) {
-        const method = (target as Record<string, unknown>)[prop]
+        const method = (target as unknown as Record<string, unknown>)[prop]
         if (typeof method === "function") {
           return method.bind(target)
         }
@@ -38,7 +38,7 @@ export function createReadOnlyRedisClient(redis: RedisCommandClient): RedisComma
       }
 
       // Block all other functions (mutating methods) with rejected Promise (T-7.1)
-      const value = (target as Record<string, unknown>)[prop]
+      const value = (target as unknown as Record<string, unknown>)[prop]
       if (typeof value === "function") {
         return () => Promise.reject(new Error(`Redis writes blocked in shadow mode (attempted: ${prop})`))
       }

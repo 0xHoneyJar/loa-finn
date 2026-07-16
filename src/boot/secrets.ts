@@ -62,7 +62,7 @@ export class SecretsLoader {
 
     console.log(JSON.stringify({
       metric: "secrets.loaded",
-      fields: Object.keys(secrets).filter(k => !!(secrets as Record<string, unknown>)[k]).length,
+      fields: Object.keys(secrets).filter(k => !!(secrets as unknown as Record<string, unknown>)[k]).length,
       required_ok: true,
       timestamp: Date.now(),
     }))

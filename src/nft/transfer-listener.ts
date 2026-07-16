@@ -68,7 +68,7 @@ export class TransferListener {
   private readonly collection: string
   private readonly config: Required<
     Pick<TransferListenerConfig, "maxBackoffMs" | "baseBackoffMs" | "maxRetries">
-  > & Pick<TransferListenerConfig, "onTransfer" | "onError" | "onReconnect">
+  > & Pick<TransferListenerConfig, "onTransfer" | "onError" | "onReconnect" | "onTransferInvalidate">
 
   private unwatch: WatchContractEventReturnType | null = null
   private running = false
@@ -91,6 +91,9 @@ export class TransferListener {
       onTransfer: config?.onTransfer,
       onError: config?.onError,
       onReconnect: config?.onReconnect,
+      // Was silently dropped here — the Cycle 040 cache-invalidation hook
+      // never fired even when configured.
+      onTransferInvalidate: config?.onTransferInvalidate,
     }
   }
 

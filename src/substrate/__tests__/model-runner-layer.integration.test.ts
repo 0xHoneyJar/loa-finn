@@ -95,7 +95,9 @@ describe.skipIf(!constructAvailable)(
       }
 
       const program = constructModule.gradeLoreEssay(input)
-      const result = (await Effect.runPromise(program.pipe(Effect.provide(layer as never)))) as {
+      const result = (await Effect.runPromise(
+        program.pipe(Effect.provide(layer as never)) as Effect.Effect<unknown, unknown, never>,
+      )) as {
         status: string
         confidence: number
         graderConstructSlug?: string
@@ -134,12 +136,14 @@ describe.skipIf(!constructAvailable)(
       }
 
       const program = constructModule.gradeLoreEssay(input)
-      const exit = await Effect.runPromiseExit(program.pipe(Effect.provide(failingLayer as never)))
+      const exit = await Effect.runPromiseExit(
+        program.pipe(Effect.provide(failingLayer as never)) as Effect.Effect<unknown, unknown, never>,
+      )
 
       expect(exit._tag).toBe("Failure")
       // The construct should have received the loader-emitted ModelRunnerError
       // (its grader.ts pattern-matches on ModelRunnerError._tag)
-      const causeStr = JSON.stringify(exit.cause)
+      const causeStr = exit._tag === "Failure" ? JSON.stringify(exit.cause) : ""
       expect(causeStr).toContain("ModelRunnerError")
     })
 

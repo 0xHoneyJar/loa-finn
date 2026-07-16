@@ -569,7 +569,8 @@ export function ceremonyRoutes(deps: CeremonyRouteDeps): Hono {
   // POST /api/v1/nft/:collection/:tokenId/ceremony/commit
   app.post("/:collection/:tokenId/ceremony/commit", async (c) => {
     const { collection, tokenId } = c.req.param()
-    const walletAddress: string = c.get("wallet_address") ?? "unknown"
+    const walletAddressVar: unknown = c.get("wallet_address")
+    const walletAddress: string = typeof walletAddressVar === "string" ? walletAddressVar : "unknown"
 
     let body: unknown
     try {
@@ -615,7 +616,8 @@ export function ceremonyRoutes(deps: CeremonyRouteDeps): Hono {
   // POST /api/v1/nft/:collection/:tokenId/ceremony/reveal
   app.post("/:collection/:tokenId/ceremony/reveal", async (c) => {
     const { collection, tokenId } = c.req.param()
-    const walletAddress: string = c.get("wallet_address") ?? "unknown"
+    const walletAddressVar: unknown = c.get("wallet_address")
+    const walletAddress: string = typeof walletAddressVar === "string" ? walletAddressVar : "unknown"
 
     let body: unknown
     try {

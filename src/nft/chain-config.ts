@@ -4,7 +4,7 @@
 // EthersOwnershipProvider uses viem for on-chain ERC-721 ownerOf() calls.
 // MockOwnershipProvider for CI/test environments — deterministic, no network.
 
-import { createPublicClient, http, getAddress, type PublicClient } from "viem"
+import { createPublicClient, http, getAddress, type HttpTransport, type PublicClient } from "viem"
 import { base } from "viem/chains"
 
 // ---------------------------------------------------------------------------
@@ -73,7 +73,8 @@ export interface EthersOwnershipProviderConfig {
 }
 
 export class EthersOwnershipProvider implements OwnershipProvider {
-  private client: PublicClient
+  // OP-Stack `base` chain formatters require the instantiated generic.
+  private client: PublicClient<HttpTransport, typeof base>
   private transferCallbacks: Array<(from: string, to: string, tokenId: string) => void> = []
 
   constructor(config?: EthersOwnershipProviderConfig) {

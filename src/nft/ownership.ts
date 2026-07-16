@@ -3,7 +3,7 @@
 // ERC-721 ownerOf() check via Base RPC (viem). Cached 5 minutes.
 // Fail-closed: RPC failures deny access with 503.
 
-import { createPublicClient, http, getAddress, type PublicClient } from "viem"
+import { createPublicClient, http, getAddress, type HttpTransport, type PublicClient } from "viem"
 import { base } from "viem/chains"
 
 // ---------------------------------------------------------------------------
@@ -61,8 +61,9 @@ interface CacheEntry {
 }
 
 export class OwnershipService {
-  private primaryClient: PublicClient
-  private fallbackClient: PublicClient | null
+  // OP-Stack `base` chain formatters require the instantiated generic.
+  private primaryClient: PublicClient<HttpTransport, typeof base>
+  private fallbackClient: PublicClient<HttpTransport, typeof base> | null
   private collections: Set<string>
   private cache: Map<string, CacheEntry>
 
@@ -141,7 +142,7 @@ export class OwnershipService {
     }
   }
 
-  private async callOwnerOf(client: PublicClient, collection: string, tokenId: string): Promise<string> {
+  private async callOwnerOf(client: PublicClient<HttpTransport, typeof base>, collection: string, tokenId: string): Promise<string> {
     const owner = await client.readContract({
       address: getAddress(collection) as `0x${string}`,
       abi: ERC721_ABI,

@@ -7,7 +7,9 @@
 // Includes: singleflight lock (SKP-004), dual-write consistency (SKP-003),
 // BEAUVOIR sanitization (SKP-008), and fallback degradation (FR-7).
 
-import type { Redis as RedisClient } from "ioredis"
+// The narrowed command interface (what redis.getClient() actually returns);
+// the pipeline only uses set/eval/exists.
+import type { RedisCommandClient as RedisClient } from "../hounfour/redis/client.js"
 import type { PersonalityProvider, PersonalityConfig } from "./personality-provider.js"
 import type { SignalCache } from "./signal-cache.js"
 import type { BeauvoirSynthesizer, IdentitySubgraph } from "./beauvoir-synthesizer.js"

@@ -267,7 +267,7 @@ export function evaluateAccessPolicyShadow(
   mode: AccessPolicyEnforcementMode = ACCESS_POLICY_ENFORCEMENT_MODE,
 ): boolean {
   // No access_policy in claims → no protocol evaluation, pass through
-  const accessPolicy = (claims as Record<string, unknown>).access_policy
+  const accessPolicy = (claims as unknown as Record<string, unknown>).access_policy
   if (accessPolicy == null) return localAllowed
 
   // Build protocol context from JWT claims

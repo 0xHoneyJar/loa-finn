@@ -8,7 +8,7 @@ import { randomBytes, createHash } from "node:crypto"
 import { Hono } from "hono"
 import * as jose from "jose"
 import { SiweMessage } from "siwe"
-import { createPublicClient, http, getAddress, type PublicClient, type Hex } from "viem"
+import { createPublicClient, http, getAddress, type HttpTransport, type PublicClient, type Hex } from "viem"
 import { base } from "viem/chains"
 import { RateLimiter } from "./rate-limit.js"
 
@@ -28,9 +28,9 @@ export interface WalletAuthConfig {
   /** Allowed origins for CSRF */
   allowedOrigins: string[]
   /** JWT signing key (ES256 private key PEM or JWK) */
-  jwtPrivateKey: jose.KeyLike | Uint8Array
+  jwtPrivateKey: CryptoKey | Uint8Array
   /** JWT verification key (ES256 public key) */
-  jwtPublicKey: jose.KeyLike | Uint8Array
+  jwtPublicKey: CryptoKey | Uint8Array
   /** Access token TTL in seconds (default: 900 = 15min) */
   accessTokenTtlSec?: number
   /** Refresh token TTL in seconds (default: 86400 = 24h) */
@@ -70,7 +70,9 @@ const EIP_1271_MAGIC_VALUE = "0x1626ba7e"
 // ---------------------------------------------------------------------------
 
 export class WalletAuthService {
-  private client: PublicClient
+  // Typed with the OP-Stack `base` chain: its extended block/transaction
+  // formatters make the client incompatible with the bare PublicClient type.
+  private client: PublicClient<HttpTransport, typeof base>
   private nonceRateLimiter: RateLimiter
   private purchaseRateLimiter: RateLimiter
   private config: Required<Pick<WalletAuthConfig, "accessTokenTtlSec" | "refreshTokenTtlSec">> & WalletAuthConfig

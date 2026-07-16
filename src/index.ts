@@ -302,11 +302,11 @@ async function main() {
           initDeps,
           (recovered) => {
             goodhartRuntime.goodhartConfig = recovered.goodhartConfig
-            goodhartRuntime.routingState = recovered.routingState as RoutingState
+            goodhartRuntime.routingState = recovered.routingState as import("./hounfour/router.js").RoutingState
             goodhartRuntime.goodhartMetrics = recovered.goodhartMetrics
             goodhartRuntime.runtimeConfig = recovered.runtimeConfig
             goodhartConfig = recovered.goodhartConfig
-            routingState = recovered.routingState as RoutingState
+            routingState = recovered.routingState as import("./hounfour/router.js").RoutingState
             goodhartMetrics = recovered.goodhartMetrics
             console.log(`[finn] goodhart recovered: routing state now ${recovered.routingState}`)
           },
@@ -658,12 +658,13 @@ async function main() {
 
       if (hounfour) {
         const synthRouter = {
+          // HounfourRouter.invoke is (agent, prompt, options) — the agent
+          // binding resolves the model; the previous object-form call threw
+          // BINDING_INVALID at runtime whenever hounfour was enabled.
           invoke: async (agent: string, prompt: string, options?: { temperature?: number; max_tokens?: number }) => {
-            const result = await hounfour.invoke({
-              messages: [{ role: "user", content: prompt }],
-              model: "claude-opus-4-6",
+            const result = await hounfour.invoke(agent, prompt, {
               temperature: options?.temperature ?? 0.7,
-              maxTokens: options?.max_tokens ?? 2048,
+              max_tokens: options?.max_tokens ?? 2048,
             })
             return { content: result.content ?? "" }
           },
@@ -718,11 +719,11 @@ async function main() {
             personalityProvider: pipeline,
             generateResponse: async (systemPrompt: string, userMessage: string) => {
               if (!hounfour) throw new Error("Hounfour not available")
-              const result = await hounfour.invoke({
-                messages: [
-                  { role: "system", content: systemPrompt },
-                  { role: "user", content: userMessage },
-                ],
+              // Same binding the synthesis path uses; the persona rides in
+              // via InvokeOptions.systemPrompt (injected as the first
+              // system message by the router).
+              const result = await hounfour.invoke("beauvoir-synth", userMessage, {
+                systemPrompt,
               })
               return result.content ?? ""
             },
