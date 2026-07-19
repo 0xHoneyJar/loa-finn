@@ -1,11 +1,12 @@
 {
   "simstim_id": "simstim-20260226-staging-readiness",
   "schema_version": 1,
-  "state": "RUNNING",
+  "state": "HALTED",
   "phase": "implementation",
+  "halt_reason": "Stale RUNNING state from cycle-036 (last activity 2026-02-26) was soft-blocking run-mode-stop-guard.sh and matching implement-gate.sh's phase-only check in every session. Halted and archived from .run/simstim-state.json with maintainer authorization on 2026-07-08. To resume cycle-036, restore this file to .run/simstim-state.json (state=RUNNING) and re-enter the simstim workflow via /simstim.",
   "timestamps": {
     "started": "2026-02-26T12:00:00Z",
-    "last_activity": "2026-02-26T08:30:00Z"
+    "last_activity": "2026-07-08T07:02:38Z"
   },
   "phases": {
     "preflight": "completed",

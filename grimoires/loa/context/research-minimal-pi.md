@@ -1,7 +1,7 @@
 # Research: Minimal Pi Architecture for loa-finn
 
 > **Status**: Research / RFC
-> **Author**: @janitooor
+> **Author**: @deep-name
 > **Date**: 2026-02-06
 > **Related**: [loa-beauvoir](https://github.com/0xHoneyJar/loa-beauvoir) | [loa](https://github.com/0xHoneyJar/loa) | [OpenClaw](https://github.com/openclaw/openclaw) | [pi-mono](https://github.com/badlogic/pi-mono)
 

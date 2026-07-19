@@ -2,7 +2,7 @@
 
 > **Version**: 1.1.0
 > **Date**: 2026-02-06
-> **Author**: @janitooor
+> **Author**: @deep-name
 > **Status**: Draft
 > **PRD**: `grimoires/loa/prd-refactor-persistence.md` v1.0.0
 > **Parent SDD**: `grimoires/loa/sdd.md` v1.0.0 (loa-finn MVP)

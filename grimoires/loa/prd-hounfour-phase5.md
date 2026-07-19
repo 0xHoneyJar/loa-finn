@@ -2,7 +2,7 @@
 
 > **Cycle**: 009 — Hounfour Phase 5
 > **Status**: Draft
-> **Author**: @janitooor
+> **Author**: @deep-name
 > **Date**: 2026-02-09
 > **Parent PRD**: `grimoires/loa/prd-hounfour.md` (Cycle 006, Phases 0-5)
 > **RFC**: [#31 — The Hounfour](https://github.com/0xHoneyJar/loa-finn/issues/31)

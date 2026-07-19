@@ -2,7 +2,7 @@
 
 > **Version**: 1.1.0
 > **Date**: 2026-02-26
-> **Author**: @janitooor + Claude Opus 4.6 (Bridgebuilder)
+> **Author**: @deep-name + Claude Opus 4.6 (Bridgebuilder)
 > **Status**: Draft
 > **Cycle**: cycle-035
 > **Predecessor**: cycle-034 "Loop Closure & Launch Infrastructure" (sprints 138-143, all completed, PR #108)
@@ -100,7 +100,7 @@ The E2E docker-compose (cycle-034 Sprint 6) runs loa-finn with LocalStack and a 
 
 | Persona | Need | This Cycle |
 |---------|------|------------|
-| **Operator** (@janitooor) | See finn running in production | AWS ECS deployment with health monitoring |
+| **Operator** (@deep-name) | See finn running in production | AWS ECS deployment with health monitoring |
 | **NFT holder** (agent owner) | Reputation-driven routing working | Shadow → live graduation |
 | **Autonomous agent** (x402 consumer) | Pay-per-request on Base mainnet | x402 on_chain settlement |
 | **Dixie integration** (cross-repo) | Reputation data actually consumed | HTTP adapter pointed at live endpoint |
@@ -451,12 +451,12 @@ Everything else (graduation, x402, cross-system E2E) builds on this foundation.
 
 | Dependency | Owner | Status | Fallback |
 |-----------|-------|--------|----------|
-| PR #108 merged to main | @janitooor (review) | Open (draft) | Cannot deploy without merge |
+| PR #108 merged to main | @deep-name (review) | Open (draft) | Cannot deploy without merge |
 | loa-dixie PR #46 merged | loa-dixie | Merged (Round 12) | Stub adapter (deterministic routing) |
 | loa-freeside Docker image | loa-freeside | Available (v7.11.0+) | Mock freeside in compose |
-| AWS credentials (ECR, ECS, Secrets Manager) | @janitooor | Needed | Local docker-compose for dev |
+| AWS credentials (ECR, ECS, Secrets Manager) | @deep-name | Needed | Local docker-compose for dev |
 | Base Sepolia test USDC | External faucet | Available | Skip Sepolia, go direct to mainnet (higher risk) |
-| Merchant wallet ETH on Base | @janitooor | Needed | Defer x402 (P2, non-blocking) |
+| Merchant wallet ETH on Base | @deep-name | Needed | Defer x402 (P2, non-blocking) |
 
 ### Graduation-Specific Risks
 

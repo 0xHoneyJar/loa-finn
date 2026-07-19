@@ -2,7 +2,7 @@
 
 > **Version**: 1.1.0
 > **Date**: 2026-02-06
-> **Author**: @janitooor
+> **Author**: @deep-name
 > **PRD**: `grimoires/loa/prd-refactor-persistence.md` v1.0.0
 > **SDD**: `grimoires/loa/sdd-refactor-persistence.md` v1.1.0
 > **Cycle**: cycle-002

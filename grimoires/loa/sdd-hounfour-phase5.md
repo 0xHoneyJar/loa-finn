@@ -2,7 +2,7 @@
 
 > **Cycle**: 009 — Hounfour Phase 5
 > **Status**: Draft
-> **Author**: @janitooor
+> **Author**: @deep-name
 > **Date**: 2026-02-09
 > **PRD**: `grimoires/loa/prd-hounfour-phase5.md`
 > **Parent SDDs**: `grimoires/loa/sdd-hounfour.md` (Phases 0-2), `grimoires/loa/sdd-hounfour-phase3.md` (Phase 3)

@@ -2,7 +2,7 @@
 
 > **Version**: 1.0.0
 > **Date**: 2026-02-06
-> **Author**: @janitooor
+> **Author**: @deep-name
 > **Status**: Draft
 > **Parent PRD**: `grimoires/loa/prd.md` (loa-finn MVP)
 > **Trigger**: PR #7 — Loa framework update introducing `.claude/lib/persistence/`

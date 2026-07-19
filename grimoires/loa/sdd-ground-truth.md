@@ -2,7 +2,7 @@
 
 > **Version**: 1.1.0
 > **Date**: 2026-02-10
-> **Author**: @janitooor
+> **Author**: @deep-name
 > **Status**: Draft
 > **PRD**: `grimoires/loa/prd-ground-truth.md` v1.1.0 (GPT-5.2 APPROVED)
 > **Grounding**: Skill architecture analysis (17 existing skills), `/ride` output format, BridgeBuilder persona spec (loa-finn#24)

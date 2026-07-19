@@ -4,7 +4,7 @@
 > **PRD**: `grimoires/loa/prd-worker-thread-sandbox.md`
 > **SDD**: `grimoires/loa/sdd-worker-thread-sandbox.md`
 > **Issue**: [#28 — pi rust port](https://github.com/0xHoneyJar/loa-finn/issues/28)
-> **Developer**: @janitooor (solo)
+> **Developer**: @deep-name (solo)
 
 ---
 

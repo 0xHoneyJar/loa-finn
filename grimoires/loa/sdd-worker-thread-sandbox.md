@@ -2,7 +2,7 @@
 
 > **Version**: 1.0.0
 > **Date**: 2026-02-08
-> **Author**: @janitooor
+> **Author**: @deep-name
 > **Status**: Draft
 > **PRD**: `grimoires/loa/prd-worker-thread-sandbox.md`
 > **Cycle**: 005 — Worker Thread Sandbox

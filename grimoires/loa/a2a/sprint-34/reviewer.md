@@ -131,5 +131,5 @@ The following sprint plan tasks were not executed as they require external tools
 - **Task 3.5**: `/rtfm` usability testing — requires `/rtfm` skill invocation (deferred to review phase)
 - **Task 3.6**: Fix CRITICAL/HIGH rtfm gaps — depends on 3.5
 - **Task 3.7**: `/flatline-review docs/architecture.md` — requires Flatline Protocol invocation (deferred to review phase)
-- **Task 3.9**: Request @janitooor review — will be handled via PR creation
+- **Task 3.9**: Request @deep-name review — will be handled via PR creation
 - **Task 3.E2E**: End-to-end goal validation — deferred to review phase

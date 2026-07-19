@@ -2,7 +2,7 @@
 
 > **Version**: 1.2.0
 > **Date**: 2026-02-26
-> **Author**: @janitooor + Claude Opus 4.6 (Bridgebuilder)
+> **Author**: @deep-name + Claude Opus 4.6 (Bridgebuilder)
 > **Status**: Draft
 > **Cycle**: cycle-035
 > **PRD**: `grimoires/loa/prd.md` v1.1.0 (GPT-5.2 APPROVED iteration 2)

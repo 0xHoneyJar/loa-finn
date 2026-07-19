@@ -1,6 +1,6 @@
 # PRD: Cross-Codebase Feedback Routing
 
-> Cycle: cycle-025 | Author: janitooor + Claude
+> Cycle: cycle-025 | Author: deep-name + Claude
 > Source: [#355](https://github.com/0xHoneyJar/loa/issues/355)
 > Priority: P2 (feature request — enhances constructs ecosystem feedback loop)
 > Flatline: Reviewed (4 HIGH_CONSENSUS integrated, 9 BLOCKERS addressed)
@@ -15,7 +15,7 @@ When an issue originates from **construct code** (installed packs/skills from th
 
 **Impact**: The constructs ecosystem has no feedback loop. Vendors ship packs blind — no bug reports, no usage patterns, no quality signals from the field. Users who discover construct issues have no standard way to report upstream.
 
-> Sources: #355 (field observation from janitooor/zerker applying constructs to builds)
+> Sources: #355 (field observation from deep-name/zerker applying constructs to builds)
 
 ## 2. Goals & Success Metrics
 

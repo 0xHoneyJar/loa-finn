@@ -296,7 +296,7 @@ Actions:
 2. **Skill auto-loading reliability**: How reliably does Claude apply skills automatically?
 3. **Import timing**: Is `@` import truly eager, or does it have any lazy characteristics?
 4. **Context compaction interaction**: How does CLAUDE.md content survive `/compact`?
-5. **Sandbox testing**: Per janitooor's comment, use sandbox infrastructure to actually benchmark
+5. **Sandbox testing**: Per deep-name's comment, use sandbox infrastructure to actually benchmark
 6. **40K source**: Document the exact CLI output or source that generates the 40K warning
 
 ---
@@ -370,4 +370,4 @@ This document was verified against official Anthropic documentation on 2026-02-0
 2. ✅ Citation corrections applied (v2)
 3. Maintainer review
 4. If approved, create implementation PRD based on Option A or B
-5. Set up sandbox benchmark testing (per janitooor comment)
+5. Set up sandbox benchmark testing (per deep-name comment)

@@ -14,7 +14,7 @@
 | Developer | Solo (AI-assisted) |
 | Target repo | [0xHoneyJar/loa-hounfour](https://github.com/0xHoneyJar/loa-hounfour) (public, empty) |
 | Source | `packages/loa-hounfour/` in loa-finn monorepo |
-| Auth | @janitooor via SSH (verified) |
+| Auth | @deep-name via SSH (verified) |
 
 ## Context
 
