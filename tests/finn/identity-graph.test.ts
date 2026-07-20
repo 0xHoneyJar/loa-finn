@@ -1,6 +1,6 @@
 // tests/finn/identity-graph.test.ts — Identity Graph Test Suite (Sprint 9 Tasks 9.1-9.5)
 
-import { describe, it, expect, beforeEach } from "vitest"
+import { describe, it, expect, beforeEach, beforeAll } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -667,11 +667,20 @@ describe("resolveAncestorFamily with graph (Sprint 9)", () => {
 // ---------------------------------------------------------------------------
 
 describe("Full graph.json artifact", () => {
-  it("loads via artifact loader with valid checksum", () => {
+  // The graph.json artifact is immutable on disk and loadArtifact caches by name,
+  // so we load the full 19MB artifact exactly once and reuse the resulting graph
+  // across all read-only assertions below. Loading per-test (with clearArtifactCache)
+  // forced a fresh readFileSync + JSON.parse + SHA-256 verify (~3.7s each) on every
+  // test, exceeding the 5000ms per-test timeout on loaded CI runners.
+  let graph: KnowledgeGraph
+
+  beforeAll(() => {
     clearArtifactCache()
     const loader = new KnowledgeGraphLoader()
-    const graph = loader.load()
+    graph = loader.load()
+  })
 
+  it("loads via artifact loader with valid checksum", () => {
     // ~500 nodes, ~2000 edges
     expect(graph.nodes.size).toBeGreaterThanOrEqual(10000)
     expect(graph.nodes.size).toBeLessThanOrEqual(15000)
@@ -680,10 +689,6 @@ describe("Full graph.json artifact", () => {
   })
 
   it("contains all 4 archetypes", () => {
-    clearArtifactCache()
-    const loader = new KnowledgeGraphLoader()
-    const graph = loader.load()
-
     // v2 graph uses hyphenated archetype IDs
     for (const arch of ["freetekno", "milady", "chicago-detroit", "acidhouse"]) {
       expect(graph.nodes.has(`archetype:${arch}`), `missing archetype:${arch}`).toBe(true)
@@ -691,10 +696,6 @@ describe("Full graph.json artifact", () => {
   })
 
   it("contains all v2 ancestors", () => {
-    clearArtifactCache()
-    const loader = new KnowledgeGraphLoader()
-    const graph = loader.load()
-
     // v2 graph uses simple ancestor names (buddhist, greek, etc.)
     const v2Ancestors = ["buddhist", "greek", "aboriginal", "cypherpunk", "haitian", "japanese", "chinese"]
     for (const ancestor of v2Ancestors) {
@@ -706,10 +707,6 @@ describe("Full graph.json artifact", () => {
   })
 
   it("contains v2 eras", () => {
-    clearArtifactCache()
-    const loader = new KnowledgeGraphLoader()
-    const graph = loader.load()
-
     // v2 graph has 2 eras (ancient, modern)
     for (const era of ["ancient", "modern"]) {
       expect(graph.nodes.has(`era:${era}`), `missing era:${era}`).toBe(true)
@@ -717,20 +714,12 @@ describe("Full graph.json artifact", () => {
   })
 
   it("contains all 4 elements", () => {
-    clearArtifactCache()
-    const loader = new KnowledgeGraphLoader()
-    const graph = loader.load()
-
     for (const elem of ["fire", "water", "air", "earth"]) {
       expect(graph.nodes.has(`element:${elem}`), `missing element:${elem}`).toBe(true)
     }
   })
 
   it("ancestors have edges in v2 graph", () => {
-    clearArtifactCache()
-    const loader = new KnowledgeGraphLoader()
-    const graph = loader.load()
-
     // v2 uses simple ancestor IDs — check a sample has outgoing edges
     for (const ancestor of ["buddhist", "greek", "cypherpunk"]) {
       const edges = graph.adjacency.get(`ancestor:${ancestor}`) ?? []
@@ -739,10 +728,6 @@ describe("Full graph.json artifact", () => {
   })
 
   it("archetypes have edges in v2 graph", () => {
-    clearArtifactCache()
-    const loader = new KnowledgeGraphLoader()
-    const graph = loader.load()
-
     // v2 uses hyphenated archetype IDs
     for (const arch of ["freetekno", "milady", "chicago-detroit", "acidhouse"]) {
       const edges = graph.adjacency.get(`archetype:${arch}`) ?? []
@@ -751,10 +736,6 @@ describe("Full graph.json artifact", () => {
   })
 
   it("eras have edges in v2 graph", () => {
-    clearArtifactCache()
-    const loader = new KnowledgeGraphLoader()
-    const graph = loader.load()
-
     // v2 has 2 eras
     for (const era of ["ancient", "modern"]) {
       const edges = graph.adjacency.get(`era:${era}`) ?? []
@@ -763,14 +744,13 @@ describe("Full graph.json artifact", () => {
   })
 
   it("edge weights are in valid v2 range", () => {
-    clearArtifactCache()
-    const loader = new KnowledgeGraphLoader()
-    const graph = loader.load()
-
     // v2 uses tier weights: 1, 1.5, 2, 3
-    for (const edge of graph.edges) {
-      expect(edge.weight, `edge ${edge.source}->${edge.target}`).toBeGreaterThanOrEqual(0)
-      expect(edge.weight, `edge ${edge.source}->${edge.target}`).toBeLessThanOrEqual(3)
-    }
+    // Single-pass plain-JS scan + ONE expect(): the v2 graph has ~192k edges,
+    // and per-edge expect() calls (385k of them) dominated runtime. Same coverage.
+    const invalid = graph.edges.filter(e => !(e.weight >= 0 && e.weight <= 3))
+    expect(
+      invalid,
+      `edges out of [0,3] range: ${invalid.slice(0, 5).map(e => `${e.source}->${e.target}=${e.weight}`).join(", ")}`,
+    ).toHaveLength(0)
   })
 })
