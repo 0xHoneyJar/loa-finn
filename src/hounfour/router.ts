@@ -273,7 +273,7 @@ export class HounfourRouter {
     circuitBreakerStates: Map<import("@0xhoneyjar/loa-hounfour").PoolId, "closed" | "half-open" | "open">,
     poolCosts: Map<import("@0xhoneyjar/loa-hounfour").PoolId, number>,
     defaultPoolCost: number,
-    poolCapabilities: Map<import("@0xhoneyjar/loa-hounfour").PoolId, Set<import("../nft-routing-config.js").NFTRoutingKey>>,
+    poolCapabilities: Map<import("@0xhoneyjar/loa-hounfour").PoolId, Set<import("./nft-routing-config.js").NFTRoutingKey>>,
     requestId: string,
   ): Promise<{ pool: import("@0xhoneyjar/loa-hounfour").PoolId; source: "deterministic" | "reputation" | "shadow" }> {
     const startMs = Date.now()

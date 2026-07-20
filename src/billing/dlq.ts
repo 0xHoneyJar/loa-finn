@@ -160,7 +160,9 @@ export class DLQProcessor {
       for (const { streamId, entry } of entries) {
         result.processed++
 
-        const attempt = parseInt(entry.attempt, 10) || 0
+        // Redis stream fields arrive as strings at runtime even though the
+        // interface declares number — normalize before parsing.
+        const attempt = parseInt(String(entry.attempt), 10) || 0
 
         // Check for poison message (max retries exceeded)
         if (attempt >= MAX_DLQ_RETRIES) {

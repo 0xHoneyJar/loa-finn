@@ -51,7 +51,7 @@ describe("buildModelRunnerLayer", () => {
   })
 
   it("translates {systemPrompt, userMessage} into a CompletionRequest", async () => {
-    const spy = vi.fn(async () => makeCannedResult("ok"))
+    const spy = vi.fn(async (_req: CompletionRequest) => makeCannedResult("ok"))
     const invoker = makeMockInvoker(spy)
     const layer = buildModelRunnerLayer({
       invoker,
@@ -114,7 +114,7 @@ describe("buildModelRunnerLayer", () => {
   })
 
   it("uses default max_tokens=4096 and temperature=0.2 when not provided", async () => {
-    const spy = vi.fn(async () => makeCannedResult("x"))
+    const spy = vi.fn(async (_req: CompletionRequest) => makeCannedResult("x"))
     const layer = buildModelRunnerLayer({
       invoker: { complete: spy },
       modelId: "m",

@@ -64,7 +64,7 @@ export function clearOwnerCache(): void {
 
 export interface OwnershipMiddlewareConfig {
   /** JWT public key for verifying access tokens */
-  jwtPublicKey: jose.KeyLike | Uint8Array
+  jwtPublicKey: CryptoKey | Uint8Array
   /** JWT algorithm (default: ES256) */
   jwtAlgorithm?: string
 }

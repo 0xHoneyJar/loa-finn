@@ -53,7 +53,7 @@ export async function createPrefixedRedisClient(
         return (target as any)[prop]
       }
 
-      const value = (target as Record<string, unknown>)[prop]
+      const value = (target as unknown as Record<string, unknown>)[prop]
 
       if (typeof value !== "function") {
         return value

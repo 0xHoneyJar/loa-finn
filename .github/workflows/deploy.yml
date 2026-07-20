@@ -42,11 +42,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Type check: --noCheck matches Dockerfile behavior (viem type drift
-      # causes ~29 pre-existing TS errors that don't affect runtime).
-      # Strict type checking runs in ci.yml.
-      - name: Compile check
-        run: npx tsc --noCheck --noEmit
+      # Strict type check: the pre-existing TS errors that forced --noCheck
+      # (viem/jose type drift + real call-shape bugs) were fixed in issue
+      # #154's cleanup; this now guards against new drift since no other
+      # workflow runs tsc.
+      - name: Type check
+        run: npx tsc --noEmit
 
       - name: Run tests
         run: npx vitest run

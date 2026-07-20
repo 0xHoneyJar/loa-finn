@@ -167,7 +167,7 @@ async function handleApiKeyPath(
   // Get request cost
   const body = await peekJsonBody(c)
   const amountMicro = parseInt(
-    getRequestCost(body?.token_id ?? "", body?.model ?? "", body?.max_tokens ?? 0),
+    getRequestCost(bodyStr(body, "token_id"), bodyStr(body, "model"), bodyNum(body, "max_tokens")),
     10,
   )
 
@@ -261,9 +261,9 @@ async function handleX402Path(
 
   // Parse request body for binding parameters
   const body = await peekJsonBody(c)
-  const tokenId = body?.token_id ?? ""
-  const model = body?.model ?? ""
-  const maxTokens = body?.max_tokens ?? 0
+  const tokenId = bodyStr(body, "token_id")
+  const model = bodyStr(body, "model")
+  const maxTokens = bodyNum(body, "max_tokens")
 
   try {
     const receipt = await deps.receiptVerifier.verify({
@@ -328,9 +328,9 @@ async function issueChallenge(
 
   // Parse body to get binding parameters
   const body = await peekJsonBody(c)
-  const tokenId = body?.token_id ?? ""
-  const model = body?.model ?? ""
-  const maxTokens = body?.max_tokens ?? 0
+  const tokenId = bodyStr(body, "token_id")
+  const model = bodyStr(body, "model")
+  const maxTokens = bodyNum(body, "max_tokens")
 
   try {
     const challenge = await deps.challengeIssuer.issue({
@@ -394,4 +394,16 @@ async function peekJsonBody(
   } catch {
     return null
   }
+}
+
+/** Narrow an untrusted body field to string ('' when absent or mistyped). */
+function bodyStr(body: Record<string, unknown> | null, key: string): string {
+  const v = body?.[key]
+  return typeof v === "string" ? v : ""
+}
+
+/** Narrow an untrusted body field to number (0 when absent or mistyped). */
+function bodyNum(body: Record<string, unknown> | null, key: string): number {
+  const v = body?.[key]
+  return typeof v === "number" ? v : 0
 }

@@ -69,6 +69,10 @@ export const AUDIENCE_MAP = {
   invoke: "loa-finn",
   admin: "loa-finn-admin",
   s2s: "arrakis",
+  // BYOK requests ride the invoke surface (BYOK-ness is the `byok` claims
+  // flag, not a separate audience); resolveAudience("byok") previously fell
+  // through to undefined.
+  byok: "loa-finn",
 } as const
 
 export type EndpointType = "invoke" | "admin" | "s2s" | "byok"
