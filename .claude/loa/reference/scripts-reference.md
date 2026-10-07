@@ -2,6 +2,11 @@
 
 Core scripts in `.claude/scripts/`. Run any script with `--help` for usage details.
 
+> **Machine-readable contract**: `loa-capabilities.sh --json` lists the
+> agent-facing scripts with their JSON modes, help support, exit-code and env
+> conventions in one call — prefer it over grepping docs. One-call triage:
+> `loa-status.sh --triage --json` (state + health + next command).
+
 ## Core Scripts
 
 | Script | Purpose |
@@ -112,6 +117,25 @@ Checks: bd->br migration, deprecated settings, new config options, recommended p
 ```
 
 Pre-built configs available in `.claude/mcp-examples/` for Slack, GitHub, Sentry, PostgreSQL.
+
+---
+
+## Context Tooling (recursive-JIT scripts)
+
+```bash
+.claude/scripts/context-manager.sh   # Session context orchestration (status/init)
+.claude/scripts/cache-manager.sh     # Semantic cache get/set/invalidate (.claude/cache/)
+.claude/scripts/condense.sh          # Condense long docs for context injection
+.claude/scripts/early-exit.sh        # Parallel-subagent early-exit signaling
+```
+
+Each script's `--help` is the authoritative interface doc. Durable rule: externalize decisions/findings to `grimoires/loa/NOTES.md` before context loss (owned by `session-continuity.md` + skill context_discipline blocks).
+
+---
+
+## Error Codes (LOA-EXXX)
+
+Structured error codes: registry `.claude/data/error-codes.json`, renderer `.claude/scripts/lib/dx-utils.sh` (errors teach: every code carries a what + a fix, surfaced by `/loa doctor`). Ranges: `E0xx` framework/env, `E1xx` workflow/lifecycle, `E2xx` beads, `E3xx` events/bus, `E4xx` security/guardrails, `E5xx` constructs/packs. Add codes in the JSON registry, never hardcoded strings.
 
 ---
 

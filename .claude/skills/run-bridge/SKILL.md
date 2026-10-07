@@ -1,6 +1,8 @@
 ---
 name: run-bridge
-description: "Run Bridge — Autonomous Excellence Loop"
+description: "Autonomous excellence loop: iterative improvement bridges with kaironic termination, Bridgebuilder PR reviews, grounded-truth/lore/vision capture. Use via /run-bridge on an existing PR or improvement target; each iteration inherits the full implement->review->audit cycle."
+role: review
+primary_role: review
 capabilities:
   schema_version: 1
   read_files: true
@@ -88,7 +90,8 @@ parsing without producing real reviews).
 
 ### Phase 2: Orchestrator Invocation
 
-Invoke `bridge-orchestrator.sh` with translated flags:
+First run `.claude/scripts/run-preflight.sh --unattended` (same checklist as `/run`); non-zero →
+HALT and surface it. Then invoke `bridge-orchestrator.sh` with translated flags:
 
 ```bash
 .claude/scripts/bridge-orchestrator.sh \
@@ -315,10 +318,16 @@ run_bridge:
 | "Per-iteration timeout exceeded" | Single iteration too slow | Reduce sprint scope |
 | "Total timeout exceeded" | Overall time limit hit | Resume with `/run-bridge --resume` |
 
-## Constraints
+## Constraints (registry-rendered)
 
-- C-BRIDGE-001: ALWAYS use `/run sprint-plan` within bridge iterations
-- C-BRIDGE-002: ALWAYS post Bridgebuilder review as PR comment
-- C-BRIDGE-003: ALWAYS ensure GT claims cite file:line references
-- C-BRIDGE-004: ALWAYS use YAML format for lore entries
-- C-BRIDGE-005: ALWAYS include source bridge iteration and PR in vision entries
+<!-- @constraint-generated: start run_bridge_constraints | hash:c1fafeebcac8cdd7 -->
+<!-- DO NOT EDIT — generated from .claude/data/constraints.json -->
+1. DO use `/run sprint-plan` within bridge iterations, never direct `/implement`
+2. DO post Bridgebuilder review as PR comment after each bridge iteration
+3. DO ensure all GT claims cite `file:line` source references
+4. DO use YAML format with required schema fields for all lore entries
+5. DO include source bridge iteration and PR in every vision entry
+6. DO load and validate persona file (integrity + content check) before every review iteration
+7. SHOULD include PRAISE findings — authentic recognition is more valuable than formulaic praise
+8. SHOULD populate enriched fields — an empty field is better than a formulaic one
+<!-- @constraint-generated: end run_bridge_constraints -->

@@ -27,11 +27,26 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# perf(pass-5): dirname → parameter expansion (fork+exec eliminated);
+# cd+pwd subshell kept. Edge cases (no slash / root) handled explicitly.
+_bh_src="${BASH_SOURCE[0]}"
+case "${_bh_src}" in
+    */*) _bh_dir="${_bh_src%/*}"; [[ -n "${_bh_dir}" ]] || _bh_dir="/" ;;
+    *)   _bh_dir="." ;;
+esac
+SCRIPT_DIR="$(cd "${_bh_dir}" && pwd)"
+unset _bh_src _bh_dir
 
 # Require bash 4.0+ (associative arrays)
 # shellcheck source=../bash-version-guard.sh
 source "$SCRIPT_DIR/../bash-version-guard.sh"
+
+# shellcheck source=../lib/dx-utils.sh
+# Conditional (fresh-eyes r3, bd-m1o6): partial installs must not hard-fail
+# at source time; the dx_unknown_flag call site guards via declare -F.
+if [[ -f "$SCRIPT_DIR/../lib/dx-utils.sh" ]]; then
+    source "$SCRIPT_DIR/../lib/dx-utils.sh"
+fi
 
 # Allow PROJECT_ROOT override for testing
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
@@ -41,10 +56,13 @@ fi
 # Source config paths if available
 if [[ -f "${SCRIPT_DIR}/../get-config-paths.sh" ]]; then
     source "${SCRIPT_DIR}/../get-config-paths.sh"
-    BEADS_DIR="${LOA_BEADS_DIR:-${PROJECT_ROOT}/.beads}"
-else
-    BEADS_DIR="${PROJECT_ROOT}/.beads"
 fi
+# Honor LOA_BEADS_DIR env override regardless of whether the helper
+# sourced (cycle-105 sprint-1 T1.5: the helper script wasn't present in
+# the framework defaults, so the override was silently ignored — making
+# the bats integration tests un-isolatable). Always fall back to
+# PROJECT_ROOT/.beads when LOA_BEADS_DIR isn't set.
+BEADS_DIR="${LOA_BEADS_DIR:-${PROJECT_ROOT}/.beads}"
 
 # Thresholds (can be overridden via config)
 JSONL_WARN_SIZE_MB="${LOA_BEADS_JSONL_WARN_MB:-50}"
@@ -55,6 +73,9 @@ SYNC_STALE_HOURS="${LOA_BEADS_SYNC_STALE_HOURS:-24}"
 OUTPUT_MODE="text"
 VERBOSE=false
 QUICK=false
+REPAIR=false
+REPAIR_DRY_RUN=false
+REPAIR_FORCE=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -71,8 +92,51 @@ while [[ $# -gt 0 ]]; do
             QUICK=true
             shift
             ;;
+        # cycle-105 sprint-1 T1.5: --repair runs detection, and if status
+        # is MIGRATION_NEEDED, dispatches to tools/beads-migration-repair.sh
+        # then re-runs the check. Pass-throughs for --dry-run / --force.
+        --repair)
+            REPAIR=true
+            shift
+            ;;
+        --dry-run)
+            REPAIR_DRY_RUN=true
+            shift
+            ;;
+        --force)
+            REPAIR_FORCE=true
+            shift
+            ;;
+        --help|-h|help)
+            # R-003 (bd-m1o6): '--help' previously hit the unknown-option
+            # branch — 'Unknown option: --help' was the reply to the most
+            # universal flag in existence.
+            echo "Usage: beads-health.sh [--json|--verbose|--quick|--repair|--dry-run|--force]"
+            echo ""
+            echo "Checks beads (br) task-tracking health: binary, init state, database,"
+            echo "schema/migrations, doctor, JSONL export freshness."
+            echo ""
+            echo "Options:"
+            echo "  --json     Machine-readable report on stdout"
+            echo "  --verbose  Extra diagnostic detail"
+            echo "  --quick    Skip slow checks"
+            echo "  --repair   Attempt migration repair when MIGRATION_NEEDED (--dry-run/--force pass through)"
+            echo ""
+            echo "Status ladder: HEALTHY < DEGRADED < UNHEALTHY < MIGRATION_NEEDED < NOT_INITIALIZED < NOT_INSTALLED"
+            echo ""
+            echo "Exit codes (gate semantics — consume the JSON, not the exit code):"
+            echo "  0  HEALTHY           1  NOT_INSTALLED   2  NOT_INITIALIZED"
+            echo "  3  MIGRATION_NEEDED  4  DEGRADED        5  UNHEALTHY"
+            exit 0
+            ;;
         *)
-            echo "Unknown option: $1" >&2
+            if declare -F dx_unknown_flag >/dev/null 2>&1; then
+                dx_unknown_flag "$1" "Usage: beads-health.sh [--json|--verbose|--quick|--repair|--dry-run|--force|--help]" \
+                    --json --verbose --quick --repair --dry-run --force --help
+            else
+                echo "Unknown option: $1" >&2
+                echo "Usage: beads-health.sh [--json|--verbose|--quick|--repair|--dry-run|--force|--help]" >&2
+            fi
             exit 1
             ;;
     esac
@@ -86,8 +150,16 @@ declare -a RECOMMENDATIONS=()  # Initialize empty array
 
 check_binary() {
     if command -v br &>/dev/null; then
-        local version
-        version=$(br --version 2>/dev/null | head -n1 || echo "unknown")
+        local version _raw
+        # perf(pass-5): capture once; first line via expansion (head exec +
+        # pipeline forks eliminated). Failure shape replicated: old pipeline
+        # captured head's output THEN "unknown" on non-zero br exit.
+        if _raw=$(br --version 2>/dev/null); then
+            version="${_raw%%$'\n'*}"
+        else
+            version="${_raw%%$'\n'*}"
+            version="${version:+${version}$'\n'}unknown"
+        fi
         CHECKS["binary"]="installed"
         CHECKS["version"]="${version}"
         return 0
@@ -121,7 +193,9 @@ check_database() {
 
     # Check file size
     local db_size_bytes
-    db_size_bytes=$(stat -f%z "${db_path}" 2>/dev/null || stat -c%s "${db_path}" 2>/dev/null || echo "0")
+    # perf(pass-5): GNU-first stat (Linux hot path — BSD form was a guaranteed
+    # failed spawn); fallback chain otherwise identical.
+    db_size_bytes=$(stat -c%s "${db_path}" 2>/dev/null || stat -f%z "${db_path}" 2>/dev/null || echo "0")
     local db_size_mb=$((db_size_bytes / 1024 / 1024))
     CHECKS["db_size_mb"]="${db_size_mb}"
 
@@ -164,6 +238,62 @@ check_schema() {
     return 0
 }
 
+# Issue #661: detect the upstream beads_rust 0.2.1 migration bug where
+# dirty_issues.marked_at is declared NOT NULL without a DEFAULT value.
+# This pre-flight inspection is non-mutating (sqlite3 PRAGMA only) and
+# emits MIGRATION_NEEDED status with a structured diagnostic when matched.
+check_dirty_issues_migration() {
+    local db_path="${BEADS_DIR}/beads.db"
+
+    if [[ ! -f "${db_path}" ]]; then
+        CHECKS["dirty_issues_migration"]="no_database"
+        return 0
+    fi
+
+    # PRAGMA table_info row format: cid|name|type|notnull|dflt_value|pk
+    # The bug: marked_at column with notnull=1 and dflt_value empty/NULL.
+    # Match the marked_at row exactly and check the notnull + default fields.
+    local row _pragma _line _name
+    # perf(pass-5): single sqlite3 capture + bash field scan replaces the
+    # awk|head pipeline (2 execs + pipeline forks eliminated). First row whose
+    # 2nd |-field == "marked_at" — identical to awk $2 match + head -1.
+    _pragma=$(sqlite3 "${db_path}" "PRAGMA table_info(dirty_issues);" 2>/dev/null) || true
+    row=""
+    while IFS= read -r _line; do
+        [[ "${_line}" == *"|"* ]] || continue
+        _name="${_line#*|}"
+        _name="${_name%%|*}"
+        if [[ "${_name}" == "marked_at" ]]; then
+            row="${_line}"
+            break
+        fi
+    done <<< "${_pragma}"
+
+    if [[ -z "$row" ]]; then
+        # Table or column doesn't exist — older schema, no bug
+        CHECKS["dirty_issues_migration"]="ok"
+        return 0
+    fi
+
+    # Parse fields
+    # perf(pass-5): IFS split replaces two echo|awk pipelines (2 execs +
+    # 4 forks). read assigns the 4th/5th |-fields exactly like awk $4/$5
+    # (missing fields → empty; 6th+ fields land in _rest).
+    local notnull dflt _c1 _c2 _c3 _rest
+    IFS='|' read -r _c1 _c2 _c3 notnull dflt _rest <<< "${row}" || true
+
+    if [[ "$notnull" == "1" && -z "$dflt" ]]; then
+        CHECKS["dirty_issues_migration"]="needs_repair"
+        RECOMMENDATIONS+=("MIGRATION BUG DETECTED (Issue #661): dirty_issues.marked_at is NOT NULL with no DEFAULT — upstream beads_rust 0.2.1 bug")
+        RECOMMENDATIONS+=("Workaround: 'git commit --no-verify' (immediate); install hardened pre-commit via .claude/scripts/install-beads-precommit.sh")
+        RECOMMENDATIONS+=("Tracking: https://github.com/0xHoneyJar/loa/issues/661")
+        return 3
+    fi
+
+    CHECKS["dirty_issues_migration"]="ok"
+    return 0
+}
+
 check_doctor() {
     if [[ "${QUICK}" == true ]]; then
         CHECKS["doctor"]="skipped"
@@ -193,7 +323,7 @@ check_jsonl_sync() {
 
     # Check file size
     local jsonl_size_bytes
-    jsonl_size_bytes=$(stat -f%z "${jsonl_path}" 2>/dev/null || stat -c%s "${jsonl_path}" 2>/dev/null || echo "0")
+    jsonl_size_bytes=$(stat -c%s "${jsonl_path}" 2>/dev/null || stat -f%z "${jsonl_path}" 2>/dev/null || echo "0")  # perf(pass-5): GNU-first
     local jsonl_size_mb=$((jsonl_size_bytes / 1024 / 1024))
     CHECKS["jsonl_size_mb"]="${jsonl_size_mb}"
 
@@ -204,17 +334,35 @@ check_jsonl_sync() {
         CHECKS["jsonl"]="ok"
     fi
 
-    # Check staleness
-    local jsonl_mtime
-    jsonl_mtime=$(stat -f%m "${jsonl_path}" 2>/dev/null || stat -c%Y "${jsonl_path}" 2>/dev/null || echo "0")
+    # Check staleness. R-003 (bd-m1o6): mtime age alone produced a PERMANENT
+    # DEGRADED loop — 'br sync' on a content-current JSONL reports "hash
+    # unchanged" and never touches the mtime, so the recommendation this
+    # check emitted could not clear the condition it diagnosed (observed
+    # live 2026-07-11, 86h "stale" content-current export). When the mtime
+    # looks old, verify CONTENT currency via 'br sync --status' (read-only);
+    # if current, record a verified-current marker so the probe doesn't
+    # re-run on every health call, and use the newer of the two mtimes.
+    local marker_path="${BEADS_DIR}/.jsonl-verified-current"
+    local jsonl_mtime marker_mtime effective_mtime
+    jsonl_mtime=$(stat -c%Y "${jsonl_path}" 2>/dev/null || stat -f%m "${jsonl_path}" 2>/dev/null || echo "0")  # perf(pass-5): GNU-first
+    marker_mtime=$(stat -c%Y "${marker_path}" 2>/dev/null || stat -f%m "${marker_path}" 2>/dev/null || echo "0")
+    effective_mtime="${jsonl_mtime}"
+    [[ ${marker_mtime} -gt ${effective_mtime} ]] && effective_mtime="${marker_mtime}"
     local now
-    now=$(date +%s)
-    local age_hours=$(( (now - jsonl_mtime) / 3600 ))
+    printf -v now '%(%s)T' -1  # perf(pass-5): builtin epoch (date fork+exec eliminated)
+    local age_hours=$(( (now - effective_mtime) / 3600 ))
     CHECKS["jsonl_age_hours"]="${age_hours}"
 
     if [[ ${age_hours} -gt ${SYNC_STALE_HOURS} ]]; then
-        CHECKS["jsonl_stale"]="true"
-        RECOMMENDATIONS+=("JSONL is stale (${age_hours}h old) - run: br sync")
+        local sync_status=""
+        sync_status=$(timeout 10 br sync --status 2>/dev/null) || true
+        if echo "${sync_status}" | grep -qiE 'in.sync|current|hash unchanged|up.to.date'; then
+            CHECKS["jsonl_stale"]="false"
+            touch "${marker_path}" 2>/dev/null || true
+        else
+            CHECKS["jsonl_stale"]="true"
+            RECOMMENDATIONS+=("JSONL is stale (${age_hours}h old) - run: br sync --flush-only")
+        fi
     else
         CHECKS["jsonl_stale"]="false"
     fi
@@ -239,6 +387,11 @@ determine_status() {
     fi
 
     if [[ "${CHECKS[schema]:-}" == "missing_owner" ]]; then
+        echo "MIGRATION_NEEDED"
+        return 3
+    fi
+
+    if [[ "${CHECKS[dirty_issues_migration]:-}" == "needs_repair" ]]; then
         echo "MIGRATION_NEEDED"
         return 3
     fi
@@ -284,7 +437,18 @@ output_json() {
     local exit_code="$2"
 
     # Build JSON output
-    cat <<EOF
+    # perf(pass-5): jq -R|jq -s pipeline → single jq -nR '[inputs]' (probed
+    # byte-identical on this host); date -u → builtin %()T under TZ=UTC0
+    # (pass-2 idiom); heredoc consumed by builtin read instead of cat
+    # (fork+exec eliminated). Interpolated bytes unchanged.
+    local recs_json="[]"
+    if [[ ${#RECOMMENDATIONS[@]} -gt 0 ]]; then
+        recs_json=$(printf '%s\n' "${RECOMMENDATIONS[@]}" | jq -nR '[inputs]') || true
+    fi
+    local ts
+    TZ=UTC0 printf -v ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+    local _out
+    IFS= read -rd '' _out <<EOF || true
 {
   "status": "${status}",
   "exit_code": ${exit_code},
@@ -296,16 +460,18 @@ output_json() {
     "database": "${CHECKS[database]:-unknown}",
     "db_size_mb": ${CHECKS[db_size_mb]:-0},
     "schema": "${CHECKS[schema]:-unknown}",
+    "dirty_issues_migration": "${CHECKS[dirty_issues_migration]:-unknown}",
     "doctor": "${CHECKS[doctor]:-unknown}",
     "jsonl": "${CHECKS[jsonl]:-unknown}",
     "jsonl_size_mb": ${CHECKS[jsonl_size_mb]:-0},
     "jsonl_age_hours": ${CHECKS[jsonl_age_hours]:-0},
     "jsonl_stale": ${CHECKS[jsonl_stale]:-false}
   },
-  "recommendations": $(if [[ ${#RECOMMENDATIONS[@]} -gt 0 ]]; then printf '%s\n' "${RECOMMENDATIONS[@]}" | jq -R . | jq -s .; else echo "[]"; fi),
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  "recommendations": ${recs_json},
+  "timestamp": "${ts}"
 }
 EOF
+    printf '%s' "${_out}"
 }
 
 output_text() {
@@ -348,33 +514,107 @@ main() {
 
     # If binary not found, stop here
     if [[ "${CHECKS[binary]}" == "not_found" ]]; then
-        local status="NOT_INSTALLED"
-        if [[ "${OUTPUT_MODE}" == "json" ]]; then
-            output_json "${status}" 1
+        # cycle-105 sprint-2 T2.3 amendment: --repair operates at the
+        # SQLite layer and does NOT require `br` to be installed (in fact
+        # the most common reason to invoke --repair is when br IS broken).
+        # When --repair is set and a database exists at the configured
+        # LOA_BEADS_DIR path, fall through to the migration check + repair
+        # block below instead of exiting NOT_INSTALLED.
+        if [[ "${REPAIR}" == true && -f "${BEADS_DIR}/beads.db" ]]; then
+            : # fall through
         else
-            output_text "${status}"
+            local status="NOT_INSTALLED"
+            if [[ "${OUTPUT_MODE}" == "json" ]]; then
+                output_json "${status}" 1
+            else
+                output_text "${status}"
+            fi
+            exit 1
         fi
-        exit 1
     fi
 
     check_initialized || true
 
-    # If not initialized, stop here
+    # If not initialized, stop here — UNLESS --repair is set and a
+    # database file exists (operator may be running --repair from a
+    # context where .beads is present but lacks the canonical
+    # init-marker file).
     if [[ "${CHECKS[initialized]}" == "false" ]]; then
-        local status="NOT_INITIALIZED"
-        if [[ "${OUTPUT_MODE}" == "json" ]]; then
-            output_json "${status}" 2
+        if [[ "${REPAIR}" == true && -f "${BEADS_DIR}/beads.db" ]]; then
+            : # fall through to migration check + repair
         else
-            output_text "${status}"
+            local status="NOT_INITIALIZED"
+            if [[ "${OUTPUT_MODE}" == "json" ]]; then
+                output_json "${status}" 2
+            else
+                output_text "${status}"
+            fi
+            exit 2
         fi
-        exit 2
     fi
 
     # Run remaining checks
     check_database || true
     check_schema || true
+    check_dirty_issues_migration || true
     check_doctor || true
     check_jsonl_sync || true
+
+    # cycle-105 sprint-1 T1.5: --repair flag — when status is
+    # MIGRATION_NEEDED (per dirty_issues_migration check above),
+    # dispatch to tools/beads-migration-repair.sh and re-run the check
+    # before reporting. The repair tool is idempotent and pre-flight-
+    # checks the schema itself, so calling it for already-healthy
+    # databases is a cheap no-op.
+    if [[ "${REPAIR}" == true ]]; then
+        local repair_status="${CHECKS[dirty_issues_migration]:-unknown}"
+        if [[ "${repair_status}" == "needs_repair" ]] || [[ "${REPAIR_FORCE}" == true ]]; then
+            local repair_tool
+            repair_tool="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/tools/beads-migration-repair.sh"
+            if [[ -x "${repair_tool}" ]]; then
+                local repair_args=()
+                [[ "${REPAIR_DRY_RUN}" == true ]] && repair_args+=("--dry-run")
+                [[ "${REPAIR_FORCE}" == true ]] && repair_args+=("--force")
+                # Determine the db path the repair tool should target.
+                local db_path="${BEADS_DIR}/beads.db"
+                repair_args=("--db" "${db_path}" "${repair_args[@]+${repair_args[@]}}")
+
+                # Run repair; capture exit code without aborting.
+                set +e
+                "${repair_tool}" "${repair_args[@]}" >&2
+                local repair_exit=$?
+                set -e
+
+                if [[ ${repair_exit} -ne 0 ]]; then
+                    RECOMMENDATIONS+=("Repair tool exited ${repair_exit}; see stderr for details.")
+                fi
+
+                # Re-run the migration check after a non-dry-run repair so
+                # the reported status reflects post-repair state. Clear the
+                # MIGRATION-BUG recommendations from the pre-repair check
+                # first — otherwise stale "MIGRATION BUG DETECTED" lines
+                # would appear in the output alongside a HEALTHY post-status.
+                if [[ "${REPAIR_DRY_RUN}" != true ]]; then
+                    # Filter out the bug-detection recommendations (they're
+                    # the lines tagged with "Issue #661" or "MIGRATION BUG").
+                    local cleaned=()
+                    local rec
+                    for rec in "${RECOMMENDATIONS[@]+${RECOMMENDATIONS[@]}}"; do
+                        case "$rec" in
+                            *"MIGRATION BUG DETECTED"*) continue ;;
+                            *"git commit --no-verify"*) continue ;;
+                            *"Issue #661"*) continue ;;
+                            *) cleaned+=("$rec") ;;
+                        esac
+                    done
+                    RECOMMENDATIONS=("${cleaned[@]+${cleaned[@]}}")
+                    check_dirty_issues_migration || true
+                fi
+            else
+                RECOMMENDATIONS+=("--repair requested but tools/beads-migration-repair.sh not found at ${repair_tool}")
+            fi
+        fi
+    fi
 
     # Determine overall status
     # Disable errexit for this assignment: determine_status uses non-zero

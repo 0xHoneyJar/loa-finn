@@ -57,6 +57,13 @@ Archive the current development cycle when it's complete. This preserves all cyc
 
 ## When to Use
 
+**NOTES.md rotation (cycle-121)**: as part of archiving, move completed-cycle
+Decision Log entries and ship records from `grimoires/loa/NOTES.md` into the
+cycle archive (pattern: `grimoires/loa/archive/<date>-notes-<label>.md`), keep
+the live file to current-cycle state + open blockers + observations, and
+re-run `bash .claude/scripts/grimoire-index.sh` so the `## notes` index section
+reflects the pruned file.
+
 Use `/archive-cycle` when:
 - You've completed all sprints in a development cycle
 - You're pivoting to a new major feature or product direction

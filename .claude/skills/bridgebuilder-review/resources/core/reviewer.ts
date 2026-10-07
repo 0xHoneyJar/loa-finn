@@ -23,16 +23,16 @@ import type {
 import { FindingsBlockSchema } from "./schemas.js";
 import type { ValidatedFinding } from "./schemas.js";
 import { Pass1Cache, computeCacheKey } from "./cache.js";
+import { summarizeReviewVerdict } from "./review-verdict.js";
 import { extractEcosystemPatterns, updateEcosystemContext } from "./ecosystem.js";
 import {
   truncateFiles,
   progressiveTruncate,
   estimateTokens,
   getTokenBudget,
+  effectiveInputBudget,
+  deriveCallConfig,
 } from "./truncation.js";
-
-const CRITICAL_PATTERN =
-  /\b(critical|security vulnerability|sql injection|xss|secret leak|must fix)\b/i;
 
 const REFUSAL_PATTERN =
   /\b(I cannot|I'm unable|I can't|as an AI|I apologize)\b/i;
@@ -44,10 +44,6 @@ const TOKEN_REJECTION_PATTERNS = [
   "context_length_exceeded",
   "token limit",
 ];
-
-function classifyEvent(content: string): ReviewEvent {
-  return CRITICAL_PATTERN.test(content) ? "REQUEST_CHANGES" : "COMMENT";
-}
 
 function isValidResponse(content: string): boolean {
   if (!content || content.length < 50) return false;
@@ -354,14 +350,23 @@ export class ReviewPipeline {
         });
 
         if (!this.config.dryRun) {
-          await this.poster.postReview({
-            owner,
-            repo,
-            prNumber: pr.number,
-            headSha: pr.headSha,
-            body: "All changes in this PR are Loa framework files. No application code changes to review. Override with `loa_aware: false` to review framework changes.",
-            event: "COMMENT",
-          });
+          // bug-1004: a skip notice is not a review — stamp the distinct
+          // skip marker (sha stays reviewable by a later labeled run) and
+          // dedup repeat skips on that marker so re-runs don't spam.
+          const skipAlreadyPosted = await this.poster.hasExistingReview(
+            owner, repo, pr.number, pr.headSha, "skip",
+          );
+          if (!skipAlreadyPosted) {
+            await this.poster.postReview({
+              owner,
+              repo,
+              prNumber: pr.number,
+              headSha: pr.headSha,
+              body: "All changes in this PR are Loa framework files. No application code changes to review. Override with `loa_aware: false` to review framework changes.",
+              event: "COMMENT",
+              markerKind: "skip",
+            });
+          }
         }
 
         return this.skipResult(item, "all_files_excluded");
@@ -466,7 +471,11 @@ export class ReviewPipeline {
             pr: pr.number,
           });
 
-          const retryBudget = Math.floor(this.config.maxInputTokens * 0.85);
+          // 85% of the budget the first attempt ACTUALLY used (the clamped
+          // one), or the retry re-sends an identical payload (audit, slice D).
+          const retryBudget = Math.floor(
+            effectiveInputBudget(this.config.maxInputTokens, this.config.model) * 0.85,
+          );
           const retryResult = progressiveTruncate(
             effectiveItem.files,
             retryBudget,
@@ -613,7 +622,8 @@ export class ReviewPipeline {
     }
 
     const sanitizedBody = sanitized.sanitizedContent;
-    const event = classifyEvent(sanitizedBody);
+    const decision = summarizeReviewVerdict(body);
+    const event: ReviewEvent = decision.verdict === "REQUEST_CHANGES" ? "REQUEST_CHANGES" : "COMMENT";
 
     // Re-check guard (race condition mitigation) with retry
     let recheck = false;
@@ -646,6 +656,7 @@ export class ReviewPipeline {
       posted: !this.config.dryRun,
       skipped: false,
       ...resultFields,
+      ...decision,
     };
 
     await this.context.finalizeReview(item, result);
@@ -801,7 +812,8 @@ export class ReviewPipeline {
     const pass1Start = this.now();
 
     const convergenceSystem = this.template.buildConvergenceSystemPrompt();
-    const truncated = truncateFiles(effectiveItem.files, this.config);
+    // #796 / vision-013 + BB-004: deriveCallConfig is the single chokepoint.
+    const truncated = truncateFiles(effectiveItem.files, deriveCallConfig(this.config, pr));
 
     // Handle all-files-excluded by Loa filtering
     if (truncated.allExcluded) {
@@ -810,11 +822,19 @@ export class ReviewPipeline {
       });
 
       if (!this.config.dryRun) {
-        await this.poster.postReview({
-          owner, repo, prNumber: pr.number, headSha: pr.headSha,
-          body: "All changes in this PR are Loa framework files. No application code changes to review. Override with `loa_aware: false` to review framework changes.",
-          event: "COMMENT",
-        });
+        // bug-1004: distinct skip marker + skip-marker dedup (see the
+        // single-pass site for rationale).
+        const skipAlreadyPosted = await this.poster.hasExistingReview(
+          owner, repo, pr.number, pr.headSha, "skip",
+        );
+        if (!skipAlreadyPosted) {
+          await this.poster.postReview({
+            owner, repo, prNumber: pr.number, headSha: pr.headSha,
+            body: "All changes in this PR are Loa framework files. No application code changes to review. Override with `loa_aware: false` to review framework changes.",
+            event: "COMMENT",
+            markerKind: "skip",
+          });
+        }
       }
 
       return this.skipResult(item, "all_files_excluded");
@@ -888,6 +908,7 @@ export class ReviewPipeline {
       const convergencePromptHash = await this.hasher.sha256(finalConvergenceSystem);
       const cacheKey = await computeCacheKey(
         this.hasher, pr.headSha, truncationLevel, convergencePromptHash,
+        truncated.selfReviewState,
       );
 
       const cached = await this.pass1Cache.get(cacheKey);
@@ -925,7 +946,9 @@ export class ReviewPipeline {
         });
       } catch (llmErr: unknown) {
         if (isTokenRejection(llmErr)) {
-          const retryBudget = Math.floor(this.config.maxInputTokens * 0.85);
+          const retryBudget = Math.floor(
+            effectiveInputBudget(this.config.maxInputTokens, this.config.model) * 0.85,
+          );
           const retryResult = progressiveTruncate(
             effectiveItem.files, retryBudget, this.config.model,
             finalConvergenceSystem.length, 2000,
@@ -979,6 +1002,7 @@ export class ReviewPipeline {
         const convergencePromptHash = await this.hasher.sha256(finalConvergenceSystem);
         const cacheKey = await computeCacheKey(
           this.hasher, pr.headSha, truncationLevel, convergencePromptHash,
+          truncated.selfReviewState,
         );
         await this.pass1Cache.set(cacheKey, {
           findings: { raw: findingsJSON, parsed: pass1Parsed },

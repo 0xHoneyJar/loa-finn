@@ -5,7 +5,7 @@
 # Three-tier detection (BLOCK/REDACT/FLAG) with allowlist sentinel protection,
 # Shannon entropy analysis, and post-redaction safety verification.
 #
-# Shared by: trajectory-export.sh, memory-bootstrap.sh, /propose-learning
+# Shared by: trajectory-export.sh, /propose-learning
 #
 # Usage: redact-export.sh [OPTIONS] < input > output
 #   Exit codes: 0 = clean, 1 = blocked (BLOCK finding), 2 = error

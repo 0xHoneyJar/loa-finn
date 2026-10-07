@@ -15,7 +15,14 @@
 # =============================================================================
 
 # Setup and teardown
+
 setup() {
+    # sprint-bug-172 / bug-911: sha256_portable from compat-lib. Sourced INSIDE
+    # setup (not at file top-level) via $BATS_TEST_DIRNAME — a top-level source
+    # using ${BASH_SOURCE[0]} is unreliable during bats' gather phase (dirname
+    # resolves to /tmp), which aborted the whole script-tests suite in CI.
+    source "$BATS_TEST_DIRNAME/../compat-lib.sh"
+
     # Create temporary test directory
     export TEST_DIR=$(mktemp -d)
     export PROJECT_ROOT="$TEST_DIR"
@@ -372,13 +379,13 @@ EOF
 
     local content="unique test content $(date +%s)"
     echo "$content" > grimoires/loa/prd.md
-    local original_sum=$(sha256sum grimoires/loa/prd.md | cut -d' ' -f1)
+    local original_sum=$(sha256_portable grimoires/loa/prd.md | cut -d' ' -f1)
 
     run bash "$SCRIPT" --grimoire grimoires/loa --yes
     [ "$status" -eq 0 ]
 
     local archive_dir=$(find grimoires/loa/archive -maxdepth 1 -type d -name "20*" | head -1)
-    local archived_sum=$(sha256sum "$archive_dir/prd.md" | cut -d' ' -f1)
+    local archived_sum=$(sha256_portable "$archive_dir/prd.md" | cut -d' ' -f1)
 
     [ "$original_sum" = "$archived_sum" ]
 }

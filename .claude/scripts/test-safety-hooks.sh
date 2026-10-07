@@ -94,9 +94,24 @@ fi
 # =========================================================================
 echo "--- Block Patterns (expect exit 2) ---"
 
-test_hook "rm -rf /tmp/foo"          2 "rm -rf basic"
-test_hook "rm -fr /tmp/foo"          2 "rm -fr reversed flags"
-test_hook "rm -rfi /tmp/foo"         2 "rm -rfi with extra flag"
+# cycle-122 new fences ------------------------------------------------------
+test_hook "git tag v9.9.9-test"      2 "git tag creation (FR-MERGE-2)"
+test_hook "git tag -a v1 -m x"       2 "git tag annotated creation"
+test_hook "git stash push | tail -3" 2 "stash push piped to tail (FR-1.2b)"
+test_hook "git stash pop || true"    2 "stash pop exit-masked (FR-1.2b)"
+test_hook "git stash pop 2>/dev/null" 2 "stash pop stderr-suppressed (FR-1.2b)"
+test_hook "git stash pop >/dev/null 2>&1" 2 "stash pop full-suppression (FR-1.2b r2, dissenter F1)"
+LOA_ZONE_GUARD_AUTH_FILE=/nonexistent-c122 \
+  test_hook "echo x > .claude/overrides/../hooks/evil.sh" 2 "overrides traversal re-protected (FR-SZ2 r2, dissenter F2)"
+LOA_ZONE_GUARD_AUTH_FILE=/nonexistent-c122 \
+  test_hook "echo x > .claude/foo.sh" 2 "System-Zone redirect write (FR-SZ2, no marker)"
+LOA_ZONE_GUARD_AUTH_FILE=/nonexistent-c122 \
+  test_hook "sed -i s/a/b/ .claude/hooks/hook-guard.sh" 2 "System-Zone in-place edit (FR-SZ2, no marker)"
+LOA_ZONE_GUARD_AUTH_FILE=/nonexistent-c122 \
+  test_hook "cp evil.sh .claude/hooks/" 2 "System-Zone copy-in (FR-SZ2, no marker)"
+test_hook "rm -rf /"                2 "rm -rf catastrophic root"
+test_hook "rm -fr ~"                2 "rm -fr catastrophic home"
+test_hook 'rm -rfi $HOME'            2 "rm -rfi catastrophic HOME"
 test_hook "rm --recursive --force ." 2 "rm --recursive --force long form"
 test_hook "rm --force --recursive ." 2 "rm --force --recursive reversed"
 test_hook "git push --force"         2 "git push --force"
@@ -128,8 +143,21 @@ test_hook "sudo git reset --hard"    2 "sudo git reset --hard"
 echo ""
 echo "--- Allow Patterns (expect exit 0) ---"
 
+# cycle-122 new-fence allowed forms ------------------------------------------
+test_hook "git tag -l"               0 "git tag listing allowed"
+test_hook "git tag"                  0 "git tag bare (list) allowed"
+test_hook "git tag -d v1.2.3"        0 "git tag delete allowed (not version-minting)"
+test_hook "git stash push -m wip"    0 "bare stash push allowed"
+test_hook "git stash pop"            0 "bare stash pop allowed"
+test_hook "git stash list > /dev/null" 0 "stash LIST null-redirect allowed (scoped to push/pop/apply)"
+test_hook "echo x > .claude/overrides/custom.md" 0 "overrides/ write allowed (sanctioned path)"
+test_hook "cat .claude/settings.json" 0 "System-Zone read allowed"
+test_hook "bash .claude/scripts/check-loa.sh" 0 "System-Zone script exec allowed"
 test_hook "rm file.txt"              0 "rm single file (no -rf)"
 test_hook "rm -r dir/"               0 "rm -r without -f"
+test_hook "rm -rf /tmp/foo"          0 "rm -rf bounded /tmp child"
+test_hook "rm -fr /tmp/foo"          0 "rm -fr bounded /tmp child"
+test_hook "rm -rfi /tmp/foo"         0 "rm -rfi bounded /tmp child"
 test_hook "git push origin feature"  0 "git push to feature branch"
 test_hook "git push --force-with-lease" 0 "git push --force-with-lease (safe)"
 test_hook "git reset HEAD file.txt"  0 "git reset without --hard"

@@ -166,7 +166,8 @@ The following hooks run asynchronously by default in `.claude/settings.json`:
       "hooks": [{
         "type": "command",
         "command": ".claude/scripts/check-updates.sh --notify",
-        "async": true
+        "async": true,
+        "once": true
       }]
     }],
     "PermissionRequest": [{
@@ -306,51 +307,9 @@ Prevent accidental pushes to upstream template.
 
 ---
 
-### 4. Memory Injection Hook (PreToolUse) - v1.8.0
+### 4. Memory Injection Hook
 
-Inject relevant project memories before tool execution.
-
-> **Note**: This hook is part of the Loa Memory Stack. It requires initialization
-> via `memory-admin.sh init` and enabling in `.loa.config.yaml`.
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Read|Glob|Grep|WebFetch|WebSearch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/memory-inject.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-**Configuration** (`.loa.config.yaml`):
-```yaml
-memory:
-  pretooluse_hook:
-    enabled: true
-    thinking_chars: 1500
-    similarity_threshold: 0.35
-    max_memories: 3
-    timeout_ms: 500
-```
-
-**Features**:
-- Extracts last 1500 chars from Claude's thinking block
-- Queries vector database for similar memories
-- Injects top 3 memories via `additionalContext`
-- Hash-based deduplication (skips if same query)
-- Strict timeout enforcement (500ms)
-- Graceful degradation (never blocks tool execution)
-
----
+Not a Loa hook: Claude Code auto-memory owns cross-session recall; the semantic-memory subsystem it replaced is gone (section number reserved for anchor stability).
 
 ### 5. Sprint Completion Hook (PostToolUse)
 
@@ -561,3 +520,7 @@ mv .claude/settings.json .claude/settings.json.bak
 - [Claude Code Hooks Guide](https://code.claude.com/docs/en/hooks-guide)
 - [Kiro Agent Hooks](https://kiro.dev/docs/hooks/)
 - [Continuous-Claude-v3 Session Hooks](https://github.com/parcadei/Continuous-Claude-v3)
+
+## Provenance
+
+Section 4 (Memory Injection Hook): the semantic-memory subsystem was removed in cycle-121; Claude Code auto-memory replaced it. Section number kept stable for existing anchors.

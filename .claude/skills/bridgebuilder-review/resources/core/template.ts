@@ -11,7 +11,7 @@ import type {
   TruncationContext,
   MultiModelConfig,
 } from "./types.js";
-import { truncateFiles } from "./truncation.js";
+import { truncateFiles, deriveCallConfig } from "./truncation.js";
 
 export interface PromptPair {
   systemPrompt: string;
@@ -120,11 +120,13 @@ export class PRReviewTemplate {
     for (const { owner, repo } of this.config.repos) {
       const prs = await this.git.listOpenPRs(owner, repo);
 
-      for (const pr of prs.slice(0, this.config.maxPrs)) {
-        // Skip PRs that don't match --pr filter
-        if (this.config.targetPr != null && pr.number !== this.config.targetPr) {
-          continue;
-        }
+      const selected = this.config.targetPr != null
+        ? prs.filter((pr) => pr.number === this.config.targetPr)
+        : prs.slice(0, this.config.maxPrs);
+      if (this.config.targetPr != null && selected.length === 0) {
+        throw new Error(`PR #${this.config.targetPr} not found among open PRs in ${owner}/${repo}`);
+      }
+      for (const pr of selected) {
         const files = await this.git.getPRFiles(owner, repo, pr.number);
 
         // Canonical hash: sha256(headSha + "\n" + sorted filenames)
@@ -209,7 +211,9 @@ export class PRReviewTemplate {
   buildPrompt(item: ReviewItem, persona: string): PromptPair {
     const systemPrompt = this.buildSystemPrompt(persona);
 
-    const truncated = truncateFiles(item.files, this.config);
+    // #796 / vision-013 + BB-004: per-PR self-review opt-in via label.
+    // deriveCallConfig is the single chokepoint — never inline this spread.
+    const truncated = truncateFiles(item.files, deriveCallConfig(this.config, item.pr));
     const userPrompt = this.buildUserPrompt(item, truncated);
 
     return { systemPrompt, userPrompt };
@@ -224,7 +228,8 @@ export class PRReviewTemplate {
     persona: string,
   ): PromptPairWithMeta {
     const systemPrompt = this.buildSystemPrompt(persona);
-    const truncated = truncateFiles(item.files, this.config);
+    // #796 / vision-013 + BB-004: deriveCallConfig is the single chokepoint.
+    const truncated = truncateFiles(item.files, deriveCallConfig(this.config, item.pr));
 
     if (truncated.allExcluded) {
       return {

@@ -65,13 +65,6 @@ outputs:
     path: "grimoires/loa/visions/"
     description: "Vision registry entries"
 
-protocols:
-  required:
-    - name: grounding-enforcement
-      path: ".claude/protocols/grounding-enforcement.md"
-    - name: session-continuity
-      path: ".claude/protocols/session-continuity.md"
-
 scripts:
   - bridge-orchestrator.sh
   - bridge-state.sh

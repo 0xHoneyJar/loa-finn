@@ -1,169 +1,40 @@
 # Context Engineering Reference
 
-Reference documentation for Loa's context management features.
+Pointer map for Loa's context/memory surfaces: what exists, where the detail lives, and what is actually wired. (cycle-121 rewrite — this file previously duplicated ~63% of its bytes from protocol files and taught pre-Claude-5 manual token accounting; the live mechanisms below replaced that.)
 
-## Effort Parameter (v1.13.0)
+## What is wired (use these)
 
-Anthropic's extended thinking with budget control. Uses `thinking.budget_tokens` (integer) for computational intensity.
+| Surface | Detail lives at | Status |
+|---------|-----------------|--------|
+| Tool-result clearing + NOTES.md synthesis | `context_discipline` blocks in each SKILL.md; `.claude/protocols/tool-result-clearing.md` | Active — the live context rule |
+| Session recovery (tiered) | `.claude/protocols/session-continuity.md` | Active |
+| Compaction survival | `pre-compact-marker.sh` (PreCompact) + `post-compact-reminder.sh` (UserPromptSubmit) — mechanical, zero thinking-budget | Active (hooks registered in settings.json) |
+| Pre-clear validation | `.claude/protocols/synthesis-checkpoint.md` | Active |
+| KF ledger surfacing | `loa-kf-surface.sh` (SessionStart) → generated `grimoires/loa/INDEX.md` → `known-failures.md` | Active — three-tier progressive disclosure |
+| Cross-session memory | Claude Code auto-memory (harness-managed, per-user) + git-tracked team surfaces (KF ledger, GT files) + untracked per-operator NOTES.md (gitignored) | Active |
+| Memory size gate | `notes-guard.sh` (`check` 100 KiB warn / 200 KiB block, `read` ≤ 68 KiB by heading, `rotate`) + `notes-size-guard.sh` (PreToolUse Write/Edit, direction-aware) + `FR-NOTES` (`>>` appends) + `update-notes-learnings.sh` writer gate | Active (cycle-124 FR-10) |
+| Context tooling scripts | `context-manager.sh`, `cache-manager.sh`, `condense.sh`, `early-exit.sh` — each script's `--help` | Available (low adoption) |
 
-| Level | Budget Range | Token Reduction | Use Case |
-|-------|--------------|-----------------|----------|
-| **low** | 1K-4K | Baseline | Simple queries, translations |
-| **medium** | 8K-16K | 76% fewer tokens | Standard implementation |
-| **high** | 24K-32K | 48% fewer tokens | Complex architecture, security audit |
+## What is NOT wired (do not rely on)
 
-**Source**: [Anthropic Claude Opus 4.6 Announcement](https://www.anthropic.com/news/claude-opus-4-6) (historical citation; current top-review model is Opus 4.7 per cycle-082 migration)
+| Spec | Where it moved | Why |
+|------|----------------|-----|
+| Context-editing API-beta design (CONTEXT_NEAR_LIMIT signals) | `docs/integration/context-editing.md` | Unimplemented spec; only consumer is `docs/integration/runtime-contract.md` |
+| Five-YAML memory schema | `docs/integration/memory-schema.md` | Never built; auto-memory owns the scope |
+| Attention-budget zones, semantic decay timers, manual token estimation | deleted (cycle-121) | Old-model workarounds; contradicted live thresholds; zero KF evidence of the failure mode they guarded |
 
-See `.loa.config.yaml.example` for configuration.
+## Effort / extended thinking
 
----
+Configured via `.loa.config.yaml` (see `.loa.config.yaml.example`); model tiers and budgets are governed by the multi-model substrate — see `.claude/loa/reference/multi-model-reference.md`. Do not hardcode model names from this file's history.
 
-## Context Editing (v1.13.0)
+## Prompt caching (cycle-124 FR-4)
 
-Anthropic's automatic context compaction for long-running agentic workflows. Achieves **84% token reduction** in 100-turn evaluations.
+cheval marks the stable prefix as the single Anthropic `cache_control: ephemeral` breakpoint — the persona (`.claude/skills/<agent>/persona.md`) when the agent has one, with the per-call `--system` context sent after it; otherwise the whole `--system` payload (PRD FR-4). No code decides eligibility — the marker is always emitted and the returned counts (`usage.cache_read_input_tokens`, MODELINV `tokens_cache_read`) tell the truth. Reads bill at 0.1× input (Fable 5.1: 0.025×), writes at 1.25×; `LOA_CHEVAL_LEGACY_WIRE=1` removes the marker.
 
-### Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Loa Layer                            │
-│  Defines: WHAT to compact, WHEN to trigger, priorities      │
-├─────────────────────────────────────────────────────────────┤
-│                      Runtime Layer                          │
-│  Executes: Token counting, API calls, actual compaction     │
-│  (Claude Code, Clawdbot, or custom runtime)                 │
-├─────────────────────────────────────────────────────────────┤
-│                        API Layer                            │
-│  Anthropic: context-management-2025-06-27 beta header       │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Compaction Triggers
-
-- **Threshold-based**: When context reaches 80% of limit
-- **Phase-based**: After initialization, implementation, testing phases
-- **Attention budget**: Per-operation and session limits
-
-### Clearing Priority (lowest first)
-
-1. Stale tool results
-2. Completed phase details
-3. Superseded file reads
-4. Intermediate outputs
-5. Verbose debug logs
-
-### Always Preserved (NEVER cleared)
-
-- `trajectory_events` - Audit trail for decisions
-- `quality_gate_results` - Gate pass/fail evidence
-- `decision_records` - Architecture rationale
-- `notes_session_continuity` - Recovery anchor
-- `active_beads` - Current task state
-
-**Source**: [Anthropic Context Management Blog](https://claude.com/blog/context-management)
-
-**Protocol**: See `.claude/protocols/context-editing.md`
-
----
-
-## Memory Schema (v1.13.0)
-
-Persistent cross-session knowledge using grimoire-based storage. Achieves **39% performance improvement** when combined with context editing.
-
-### Memory Categories
-
-| Category | TTL | Min Confidence | Purpose |
-|----------|-----|----------------|---------|
-| `fact` | permanent | >=0.8 | Stable project truths |
-| `decision` | permanent | >=0.9 | Architecture decisions |
-| `learning` | 90d | >=0.7 | Extracted patterns |
-| `error` | 30d | >=0.6 | Error-solution pairs |
-| `preference` | permanent | >=0.5 | User preferences |
-
-### Storage Location
-
-```
-grimoires/loa/memory/
-├── facts.yaml          # Stable project facts
-├── decisions.yaml      # Architecture decisions
-├── learnings.yaml      # Extracted patterns
-├── errors.yaml         # Error-solution pairs
-├── preferences.yaml    # User preferences
-└── archive/            # Expired/superseded memories
-```
-
-### Memory Entry Format
-
-```yaml
-- id: MEM-20260201-001
-  category: decision
-  content: |
-    Use PostgreSQL for database due to JSONB support.
-  summary: PostgreSQL selected over SQLite
-  confidence: 0.95
-  source:
-    session_id: abc123
-    agent: designing-architecture
-    timestamp: 2026-02-01T10:30:00Z
-  ttl: permanent
-  tags: [database, architecture]
-```
-
-### Effectiveness Tracking (for learnings)
-
-```yaml
-effectiveness:
-  applications: 5      # Times retrieved
-  successes: 4         # Successful outcomes
-  score: 80            # Effectiveness (0-100)
-  last_applied: 2026-02-01T18:00:00Z
-```
-
-**Source**: [Anthropic Memory Tool Documentation](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool)
-
-**Schema**: See `.claude/schemas/memory.schema.json`
-
-**Protocol**: See `.claude/protocols/memory.md`
-
----
-
-## Attention Budget Enforcement (v1.11.0)
-
-High-search skills include `<attention_budget>` sections with:
-- Token thresholds (2K single, 5K accumulated, 15K session)
-- Skill-specific clearing triggers
-- Compliance checklists for audit-heavy operations
-- Semantic decay stages for long-running sessions
-
-**Skills with attention budgets**: auditing-security, implementing-tasks, discovering-requirements, riding-codebase, reviewing-code, planning-sprints, designing-architecture
-
-**Protocol**: See `.claude/protocols/tool-result-clearing.md`
-
----
-
-## Recursive JIT Context (v0.20.0)
-
-Context optimization for multi-subagent workflows, leveraging RLM research patterns.
-
-| Component | Script | Purpose |
-|-----------|--------|---------|
-| Semantic Cache | `cache-manager.sh` | Cross-session result caching |
-| Condensation | `condense.sh` | Result compression (~20-50 tokens) |
-| Early-Exit | `early-exit.sh` | Parallel subagent coordination |
-| Semantic Recovery | `context-manager.sh --query` | Query-based section selection |
-
-### Usage Examples
-
-```bash
-# Cache audit results
-key=$(cache-manager.sh generate-key --paths "src/auth.ts" --query "audit")
-cache-manager.sh set --key "$key" --condensed '{"verdict":"PASS"}'
-
-# Condense large results
-condense.sh condense --strategy structured_verdict --input result.json
-
-# Coordinate parallel subagents
-early-exit.sh signal session-123 agent-1
-```
-
-**Protocol**: See `.claude/protocols/recursive-context.md`, `.claude/protocols/semantic-cache.md`
+| Caller | Cacheable prefix | Min. cacheable prefix (reference, 2026-06-24) | Expected outcome |
+|---|---|---|---|
+| Flatline review/skeptic/scorer, adversarial dissent (agents with a persona.md) | persona.md (stable across calls of one agent) | 512 tokens on Opus 5 / Fable; 1024 on Opus 4.8 / Sonnet 5 / Sonnet 4.6 / Sonnet 4.5; 2048 on Opus 4.7; 4096 on Opus 4.6 / Haiku 4.5 | second and later calls within 5 min read the prefix (`cache_read > 0`); personas shorter than the minimum are never cached — the count stays 0, not an error |
+| Bridgebuilder voices (`--agent reviewing-code`, no persona.md) | the whole `--system` file: `INJECTION_HARDENING` + `.claude/data/bridgebuilder-persona.md` (~9 KB, stable per voice) | same minimums | second and later calls of a voice read the prefix; the per-PR diff travels in the user turn and is never cached |
+| Ad-hoc `cheval --prompt` with neither persona nor `--system` | none | — | no system block, no marker, no cache traffic |
+| claude-headless (CLI) | Claude Code's own system prompt; persona rides in the prompt body | CLI-managed | counts come from the CLI's `usage` block; Loa does not add a marker |
+| Non-Anthropic providers | n/a (marker ignored; single joined system string) | — | bodies byte-identical to pre-cycle-124 |

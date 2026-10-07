@@ -59,20 +59,6 @@ outputs:
     description: "Review feedback for engineer (or 'All good' if approved)"
     format: detailed
 
-# v0.9.0 Lossless Ledger Protocol Integration
-protocols:
-  required:
-    - name: "session-continuity"
-      path: ".claude/protocols/session-continuity.md"
-      purpose: "Session lifecycle, tiered recovery"
-    - name: "grounding-enforcement"
-      path: ".claude/protocols/grounding-enforcement.md"
-      purpose: "Verify implementation citations, check grounding ratio"
-  recommended:
-    - name: "jit-retrieval"
-      path: ".claude/protocols/jit-retrieval.md"
-      purpose: "Lightweight identifiers for code review"
-
 # Review includes grounding verification
 review_checklist:
   - "Code quality and patterns"

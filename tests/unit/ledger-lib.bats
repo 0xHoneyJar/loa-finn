@@ -12,8 +12,14 @@
 # Test setup
 setup() {
     BATS_TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
-    PROJECT_ROOT="$(cd "$BATS_TEST_DIR/../.." && pwd)"
-    SCRIPT="$PROJECT_ROOT/.claude/scripts/ledger-lib.sh"
+    # Real repo root — used only to locate the library under test.
+    # Don't export this as PROJECT_ROOT: path-lib.sh would then resolve
+    # all ledger operations against the real repo, clobbering live data
+    # and breaking test isolation (this was the root cause of the
+    # pre-cycle-075 33-test failure cluster on ledger-lib.bats).
+    local real_repo_root
+    real_repo_root="$(cd "$BATS_TEST_DIR/../.." && pwd)"
+    SCRIPT="$real_repo_root/.claude/scripts/ledger-lib.sh"
 
     # Create temp directory for test artifacts
     export BATS_TMPDIR="${BATS_TMPDIR:-/tmp}"
@@ -23,6 +29,13 @@ setup() {
     # Create mock project structure
     export TEST_PROJECT="$TEST_TMPDIR/project"
     mkdir -p "$TEST_PROJECT/grimoires/loa/a2a"
+
+    # Critical: export PROJECT_ROOT=TEST_PROJECT so path-lib.sh resolves
+    # ledger paths (via get_ledger_path etc.) WITHIN the isolated test
+    # project. Without this, writes via relative paths go to TEST_PROJECT
+    # but reads via lib functions go to the real repo — the test passes
+    # spuriously or fails mysteriously depending on real-repo state.
+    export PROJECT_ROOT="$TEST_PROJECT"
 
     # Change to test project directory
     cd "$TEST_PROJECT"
@@ -61,7 +74,13 @@ source_lib() {
     local result
     result=$(get_ledger_path)
 
-    [[ "$result" == "grimoires/loa/ledger.json" ]]
+    # Contract-based assertion: returned path resolves to the ledger inside
+    # the active project (relative OR absolute). Avoids coupling the test
+    # to path-lib's implementation detail (absolute vs relative). The
+    # PROJECT_ROOT export in setup() ensures the "active project" is the
+    # isolated test dir.
+    [[ "$result" = */grimoires/loa/ledger.json ]]
+    [[ "$(basename "$result")" = "ledger.json" ]]
 }
 
 @test "ledger_exists returns false when no ledger" {
@@ -388,7 +407,9 @@ source_lib() {
 
     local result
     result=$(get_sprint_directory 5)
-    [[ "$result" == "grimoires/loa/a2a/sprint-5" ]]
+    # Contract-based assertion (see get_ledger_path test for rationale).
+    [[ "$result" = */grimoires/loa/a2a/sprint-5 ]]
+    [[ "$(basename "$result")" = "sprint-5" ]]
 }
 
 # =============================================================================
@@ -551,7 +572,10 @@ source_lib() {
 
     init_ledger
     create_cycle "Test Cycle"
-    add_sprint "sprint-1"
+    local s1
+    s1=$(add_sprint "sprint-1")
+    # Issue #674 completeness gate: sprints must be completed before archiving
+    update_sprint_status "$s1" completed
 
     # Create some files to archive
     echo "# PRD" > grimoires/loa/prd.md
@@ -621,6 +645,10 @@ source_lib() {
     s2=$(add_sprint "sprint-2")
     [[ "$s2" == "2" ]]
 
+    # Issue #674 completeness gate: complete sprints before archiving
+    update_sprint_status "$s1" completed
+    update_sprint_status "$s2" completed
+
     # Archive cycle 1
     archive_cycle "mvp-complete"
 
@@ -646,4 +674,169 @@ source_lib() {
     local next_sprint
     next_sprint=$(echo "$status_json" | jq -r '.next_sprint_number')
     [[ "$next_sprint" == "4" ]]
+}
+
+# =============================================================================
+# Write-Guard Tests (bug 20260808-a008c6: ledger blanked to 1 byte, exit 0)
+#
+# Incident shape: update_sprint_status was called with a local label
+# ("sprint-1") instead of a numeric global id. `jq --argjson id "sprint-1"`
+# exits 2 with no stdout, the $() masks the failure, and _write_ledger
+# faithfully atomic-writes the resulting empty string as a 1-byte newline —
+# then every layer returns 0. These tests pin the property: no invalid write
+# attempt may modify the ledger file, and no caller may report success when
+# the write failed.
+# =============================================================================
+
+@test "_write_ledger refuses empty content and leaves ledger untouched" {
+    skip_if_deps_missing
+    source_lib
+
+    init_ledger
+    create_cycle "Test Cycle"
+
+    local before
+    before=$(cat grimoires/loa/ledger.json)
+
+    run _write_ledger ""
+    [[ "$status" -ne 0 ]]
+    [[ -n "$output" ]]  # fails loudly, not silently
+
+    local after
+    after=$(cat grimoires/loa/ledger.json)
+    [[ "$after" == "$before" ]]
+}
+
+@test "_write_ledger refuses unparseable content and leaves ledger untouched" {
+    skip_if_deps_missing
+    source_lib
+
+    init_ledger
+    create_cycle "Test Cycle"
+
+    local before
+    before=$(cat grimoires/loa/ledger.json)
+
+    run _write_ledger '{not valid json'
+    [[ "$status" -ne 0 ]]
+    [[ -n "$output" ]]
+
+    local after
+    after=$(cat grimoires/loa/ledger.json)
+    [[ "$after" == "$before" ]]
+}
+
+@test "update_sprint_status / resolve_sprint survive bug-fix cycles whose sprints are label strings (cycle-124 incident)" {
+    skip_if_deps_missing
+    source "$SCRIPT"
+    init_ledger
+    create_cycle "Real Cycle" >/dev/null
+    local gid
+    gid=$(add_sprint "sprint-1")
+    [[ "$gid" =~ ^[0-9]+$ ]]
+    # A /bug cycle records its sprint as a bare label string, not an object;
+    # every jq walk over .cycles[].sprints[] must skip it instead of erroring.
+    local ledger; ledger=$(get_ledger_path)
+    jq '.cycles += [{"id":"cycle-bug-20260418-i548-a2460c","label":"bugfix","status":"completed","sprints":["sprint-bug-108"]}]' \
+        "$ledger" > "$ledger.tmp" && mv "$ledger.tmp" "$ledger"
+    run update_sprint_status "$gid" in_progress
+    [ "$status" -eq 0 ]
+    run update_sprint_status "$gid" completed
+    [ "$status" -eq 0 ]
+    # late Sprint 2 review: `ledger status` on a bug-fix ACTIVE cycle walked
+    # `.sprints | last | .global_id` unguarded and aborted mid-function.
+    jq '.active_cycle = "cycle-bug-20260418-i548-a2460c"' "$ledger" > "$ledger.tmp" && mv "$ledger.tmp" "$ledger"
+    run get_ledger_status
+    [ "$status" -eq 0 ]
+    [ -n "$output" ]
+    [ "$(jq -r --argjson id "$gid" '[.cycles[].sprints[]? | select(type=="object") | select(.global_id==$id)][0].status' "$ledger")" = "completed" ]
+    run resolve_sprint "sprint-1"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$gid" ]
+}
+
+@test "update_sprint_status with non-numeric id fails loudly and preserves ledger (incident repro)" {
+    skip_if_deps_missing
+    source_lib
+
+    init_ledger
+    create_cycle "Test Cycle"
+    add_sprint "sprint-1"
+
+    local before
+    before=$(cat grimoires/loa/ledger.json)
+
+    # The incident call shape: local label passed where a global id belongs
+    run update_sprint_status "sprint-1" "completed"
+    [[ "$status" -ne 0 ]]
+    [[ -n "$output" ]]
+
+    # The ledger must be byte-identical and still valid JSON
+    local after
+    after=$(cat grimoires/loa/ledger.json)
+    [[ "$after" == "$before" ]]
+    jq empty grimoires/loa/ledger.json
+}
+
+@test "update_sprint_status propagates lock-timeout failure and preserves ledger" {
+    skip_if_deps_missing
+    source_lib
+    if ! command -v flock >/dev/null 2>&1; then
+        skip "flock not available"
+    fi
+
+    init_ledger
+    create_cycle "Test Cycle"
+    add_sprint "sprint-1"
+
+    local before
+    before=$(cat grimoires/loa/ledger.json)
+
+    # Hold the lock in a background process for far longer than
+    # LEDGER_LOCK_TIMEOUT (5s); killed at test end rather than waited for.
+    ( flock -x 200; sleep 30 ) 200>grimoires/loa/ledger.json.lock &
+    local lock_pid=$!
+    # Confirm the holder actually owns the lock before proceeding (a blind
+    # sleep races a slow subshell spawn and flakes in the other direction).
+    local i
+    for i in $(seq 1 50); do
+        if ! flock -n grimoires/loa/ledger.json.lock true 2>/dev/null; then
+            break
+        fi
+        sleep 0.1
+    done
+
+    run update_sprint_status 1 "completed"
+    [[ "$status" -ne 0 ]]
+
+    local after
+    after=$(cat grimoires/loa/ledger.json)
+    [[ "$after" == "$before" ]]
+
+    kill "$lock_pid" 2>/dev/null || true
+    wait "$lock_pid" 2>/dev/null || true
+}
+
+@test "_write_ledger refuses non-object and multi-document JSON content" {
+    skip_if_deps_missing
+    source_lib
+
+    init_ledger
+    create_cycle "Test Cycle"
+
+    local before
+    before=$(cat grimoires/loa/ledger.json)
+
+    run _write_ledger 'null'
+    [[ "$status" -ne 0 ]]
+
+    run _write_ledger '"a bare scalar"'
+    [[ "$status" -ne 0 ]]
+
+    run _write_ledger '{} {"a": 1}'
+    [[ "$status" -ne 0 ]]
+
+    local after
+    after=$(cat grimoires/loa/ledger.json)
+    [[ "$after" == "$before" ]]
 }

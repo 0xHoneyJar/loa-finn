@@ -63,22 +63,6 @@ outputs:
     description: "Micro-sprint plan for this bug"
     format: detailed
 
-protocols:
-  required:
-    - name: "session-continuity"
-      path: ".claude/protocols/session-continuity.md"
-      purpose: "Maintain triage context across sessions"
-  recommended:
-    - name: "grounding-enforcement"
-      path: ".claude/protocols/grounding-enforcement.md"
-      purpose: "Verify suspected files with source references"
-
-protocol_loading:
-  on_session_start:
-    - "session-continuity"
-  during_execution:
-    - "grounding-enforcement"
-
 inputExamples:
   - input:
       description: "Login fails when email contains a + character"

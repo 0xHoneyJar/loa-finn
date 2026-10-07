@@ -75,10 +75,6 @@ outputs:
     path: "grimoires/loa/a2a/trajectory/spiral-{date}.jsonl"
     description: "Trajectory log of spiral events"
 
-protocols:
-  - run-mode.md
-  - git-safety.md
-
 scripts:
   - spiral-orchestrator.sh
 

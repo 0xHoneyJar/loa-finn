@@ -116,6 +116,47 @@ sys.exit(1)
   return 1
 }
 
+# Scorers can prepend valid JSON metadata or JSON-encode their fenced answer.
+# Select the first top-level scores object, without interpreting rejected data
+# as a zero vote. Generic review normalization/quorum qualification is unchanged.
+normalize_score_response() {
+  if ! command -v python3 &>/dev/null; then
+    normalize_json_response "$1"
+    return $?
+  fi
+  python3 -c '
+import json, sys
+
+text = sys.stdin.read().strip().lstrip("\ufeff")
+for _ in range(3):
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError:
+        break
+    if not isinstance(decoded, str):
+        break
+    text = decoded
+
+decoder = json.JSONDecoder()
+position = 0
+while position < len(text):
+    if text[position] not in "{[":
+        position += 1
+        continue
+    try:
+        candidate, end = decoder.raw_decode(text, position)
+    except json.JSONDecodeError:
+        position += 1
+        continue
+    if isinstance(candidate, dict) and "scores" in candidate:
+        print(json.dumps(candidate))
+        sys.exit(0)
+    # Skip a parsed metadata object entirely, including its nested examples.
+    position = end
+sys.exit(1)
+' <<< "$1"
+}
+
 # =============================================================================
 # extract_verdict
 # =============================================================================
@@ -219,6 +260,30 @@ validate_agent_response() {
       # Validate each improvement has required fields
       local count
       count=$(echo "$json" | jq '.improvements | length' 2>/dev/null || echo "0")
+      # An empty finding set is valid only when the reviewer proves it did
+      # substantive work. A bare {"improvements":[]} (or generic summary)
+      # is indistinguishable from truncation/refusal/default normalization and
+      # must not count toward council quorum.
+      if [[ "$count" -eq 0 ]]; then
+        validate_json_field "$json" "no_findings_reason" "string" || errors=$((errors + 1))
+        validate_json_field "$json" "reviewed_sections" "array" || errors=$((errors + 1))
+
+        local reason_len sections_count
+        reason_len=$(echo "$json" | jq -r '.no_findings_reason // "" | length' 2>/dev/null || echo "0")
+        sections_count=$(echo "$json" | jq -r '.reviewed_sections // [] | length' 2>/dev/null || echo "0")
+
+        if [[ "$reason_len" -lt 40 ]]; then
+          echo "ERROR: empty flatline-reviewer response requires no_findings_reason of at least 40 characters" >&2
+          errors=$((errors + 1))
+        fi
+        if [[ "$sections_count" -lt 1 ]]; then
+          echo "ERROR: empty flatline-reviewer response requires at least one reviewed_sections entry" >&2
+          errors=$((errors + 1))
+        elif ! echo "$json" | jq -e 'all(.reviewed_sections[]; type == "string" and length > 0)' &>/dev/null; then
+          echo "ERROR: reviewed_sections entries must be non-empty strings" >&2
+          errors=$((errors + 1))
+        fi
+      fi
       for ((i = 0; i < count; i++)); do
         local item
         item=$(echo "$json" | jq ".improvements[$i]" 2>/dev/null)
@@ -255,19 +320,16 @@ validate_agent_response() {
       ;;
 
     flatline-scorer)
-      validate_json_field "$json" "scores" "array" || errors=$((errors + 1))
-      local count
-      count=$(echo "$json" | jq '.scores | length' 2>/dev/null || echo "0")
-      for ((i = 0; i < count; i++)); do
-        local item
-        item=$(echo "$json" | jq ".scores[$i]" 2>/dev/null)
-        for field in id score; do
-          echo "$item" | jq -e ".$field" &>/dev/null || {
-            echo "ERROR: scores[$i] missing required field: $field" >&2
-            errors=$((errors + 1))
-          }
-        done
-      done
+      if ! printf '%s\n' "$json" | jq -e '
+        type == "object" and (.scores | type == "array") and
+        all(.scores[];
+          (.id | type == "string" and length > 0) and
+          (.score | type == "number" and . == floor and . >= 0 and . <= 1000)) and
+        ([.scores[].id] | length == (unique | length))
+      ' >/dev/null 2>&1; then
+        echo "ERROR: invalid flatline-scorer score array" >&2
+        errors=$((errors + 1))
+      fi
       ;;
 
     gpt-reviewer)

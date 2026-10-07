@@ -10,7 +10,7 @@ import { detectRefs, parseManualRefs, fetchCrossRepoContext } from "./core/cross
 import { renderCrossRepoSection } from "./core/cross-repo-render.js";
 import { ProgressReporter } from "./core/progress.js";
 import { buildRatingPrompt, storeRating, createRatingEntry, readRatingWithTimeout, } from "./core/rating.js";
-import { truncateFiles } from "./core/truncation.js";
+import { truncateFiles, deriveCallConfig } from "./core/truncation.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 /** Persona pack directory relative to this module. */
 const PERSONAS_DIR = resolve(__dirname, "personas");
@@ -310,6 +310,14 @@ function printSummary(summary) {
         errors: summary.errors,
         startTime: summary.startTime,
         endTime: summary.endTime,
+        verdicts: summary.results.map((result) => ({
+            repo: `${result.item.owner}/${result.item.repo}`,
+            pr: result.item.pr.number,
+            headSha: result.item.pr.headSha,
+            verdict: result.verdict ?? "UNKNOWN",
+            highestSeverity: result.highestSeverity ?? null,
+            mergeBlocked: result.mergeBlocked ?? true,
+        })),
         ...(Object.keys(skipReasons).length > 0 ? { skipReasons } : {}),
         ...(Object.keys(errorCodes).length > 0 ? { errorCodes } : {}),
     }, null, 2));
@@ -447,10 +455,14 @@ async function main() {
             adapters.logger.info(`[bridgebuilder] cross-repo (manual, hoisted): fetched ${manualRefContext.context.length}/${manualRefs.length} refs ` +
                 `(${manualRefContext.errors.length} errors) in ${Date.now() - manualFetchStart}ms`);
         }
+        const verdicts = [];
         for (const item of items) {
             // Use convergence prompt so models return findings JSON parseable by
             // extractFindingsFromContent() (bug-20260413-9f9b39).
-            const truncated = truncateFiles(item.files, config);
+            // #796 / vision-013 + BB-004: deriveCallConfig is the single chokepoint.
+            // BB iter-1 on PR #797 caught a missing call site here; iter-2 caught
+            // duplicate spread shape. Centralizing prevents both classes of regression.
+            const truncated = truncateFiles(item.files, deriveCallConfig(config, item.pr));
             const systemPrompt = template.buildConvergenceSystemPrompt();
             // A4 (#464): per-item cross-repo wiring. Manual refs were fetched once
             // before the loop (FIND-002 fix); here we only fetch the auto-detected
@@ -467,10 +479,17 @@ async function main() {
                 // Dedupe detected against manual to avoid double-fetching the same ref.
                 const manualKeys = new Set(manualRefs.map((r) => `${r.owner}/${r.repo}#${r.number ?? ""}`));
                 const detectedNew = detected.filter((r) => !manualKeys.has(`${r.owner}/${r.repo}#${r.number ?? ""}`));
+                // #1014: auto-detected refs are parsed from the UNTRUSTED PR title.
+                // Constrain authenticated cross-repo fetches to the PR own org plus any
+                // operator-configured allowed_owners (org-only by default).
+                const allowedOwners = new Set([
+                    item.owner.toLowerCase(),
+                    ...(config.multiModel.cross_repo?.allowed_owners ?? []).map((o) => o.toLowerCase()),
+                ]);
                 let detectedContext = null;
                 if (detectedNew.length > 0) {
                     const fetchStart = Date.now();
-                    detectedContext = await fetchCrossRepoContext(detectedNew, adapters.logger);
+                    detectedContext = await fetchCrossRepoContext(detectedNew, adapters.logger, allowedOwners);
                     adapters.logger.info(`[bridgebuilder] cross-repo (auto, per-item): fetched ${detectedContext.context.length}/${detectedNew.length} refs ` +
                         `(${detectedContext.errors.length} errors) in ${Date.now() - fetchStart}ms`);
                 }
@@ -499,6 +518,10 @@ async function main() {
             // when active weaving is disabled — template inclusion is gated by
             // depth_5.lore_active_weaving, so passing [] is a safe no-op.
             { template, persona, loreEntries });
+            verdicts.push({
+                repo: `${item.owner}/${item.repo}`, pr: item.pr.number, headSha: item.pr.headSha,
+                ...mmResult.reviewVerdict,
+            });
             for (const mr of mmResult.modelResults) {
                 progress.updateModel(mr.provider, mr.model, {
                     phase: mr.error ? "error" : "complete",
@@ -542,7 +565,7 @@ async function main() {
                 console.error(`[bridgebuilder] Rating capture failed: ${err instanceof Error ? err.message : String(err)}`);
             }
         }
-        console.log(JSON.stringify({ runId, mode: "multi-model", items: items.length }, null, 2));
+        console.log(JSON.stringify({ runId, mode: "multi-model", items: items.length, verdicts }, null, 2));
     }
     else {
         // Single-model path — existing behavior, unchanged

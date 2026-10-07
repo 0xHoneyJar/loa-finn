@@ -114,14 +114,6 @@ dependencies:
   - deploying-infrastructure
   - continuous-learning
 
-# Protocol references
-protocols:
-  - run-mode.md
-  - feedback-loops.md
-  - structured-memory.md
-  - session-continuity.md
-  - grounding-enforcement.md
-
 # Zone permissions
 zones:
   system:

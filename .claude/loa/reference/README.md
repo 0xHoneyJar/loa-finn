@@ -15,14 +15,14 @@ Claude Code recommends keeping CLAUDE.md under ~500 lines. Reference documentati
 |------|----------|
 | `protocols-summary.md` | Protocol documentation (Structured Memory, Lossless Ledger, Feedback Loops, etc.) |
 | `scripts-reference.md` | Helper scripts documentation and usage |
-| `version-features.md` | Version-specific feature documentation (v1.x.0) |
-| `context-engineering.md` | Context editing, memory schema, effort parameter, attention budgets |
+| `context-engineering.md` | Context/memory pointer map (what exists, where detail lives, what is wired) |
+| `agent-network-reference.md` | L1–L7 agent-network primitives: full ALWAYS/NEVER constraint tables (audit envelope, L3 scheduled cycles, L4 trust, L5 cross-repo, L6 handoffs, L7 SOUL.md) |
+| `multi-model-reference.md` | Multi-model activation detail: cheval migration tables, T3.x sequencing, verification logs |
 
 ## When to Consult
 
 - **protocols-summary.md**: When implementing or debugging protocol-related behavior
 - **scripts-reference.md**: When using helper scripts (or run `script.sh --help`)
-- **version-features.md**: When needing details about specific version features
 - **context-engineering.md**: When working with context management, memory, or effort settings
 
 ## Configuration Examples

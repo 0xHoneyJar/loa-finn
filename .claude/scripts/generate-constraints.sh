@@ -23,9 +23,12 @@ readonly -a SECTIONS=(
   "autonomous_agent_constraints|.claude/skills/autonomous-agent/SKILL.md|skill-md-constraints.jq|[\"C-PHASE-001\",\"C-PHASE-003\",\"C-PHASE-004\",\"C-PHASE-006\",\"C-PROC-003\",\"C-PROC-004\",\"C-PROC-002\",\"C-PROC-006\"] as \$o | [\$o[] as \$id | .constraints[] | select(.id == \$id)]"
   "simstim_constraints|.claude/skills/simstim-workflow/SKILL.md|skill-md-constraints.jq|[\"C-PHASE-002\",\"C-PHASE-003\",\"C-PHASE-004\",\"C-PHASE-007\",\"C-PHASE-008\",\"C-PROC-005\",\"C-PHASE-005\",\"C-PROC-002\",\"C-PROC-006\"] as \$o | [\$o[] as \$id | .constraints[] | select(.id == \$id)]"
   "implementing_tasks_constraints|.claude/skills/implementing-tasks/SKILL.md|skill-md-constraints.jq|[.constraints[] | select(.layers[] | select(.target == \"skill-md\" and (.skills | index(\"implementing-tasks\"))))] | sort_by(.order)"
-  "bridge_constraints|.claude/loa/CLAUDE.loa.md|claude-loa-md-table.jq|[.constraints[] | select(.layers[] | select(.section == \"bridge_constraints\"))] | sort_by(.order)"
-  "permission_grants|.claude/loa/CLAUDE.loa.md|claude-loa-md-table.jq|[.constraints[] | select(.layers[] | select(.section == \"permission_grants\"))] | sort_by(.order)"
   "merge_constraints|.claude/loa/CLAUDE.loa.md|claude-loa-md-table.jq|[.constraints[] | select(.layers[] | select(.section == \"merge_constraints\"))] | sort_by(.order)"
+  "discovering_requirements_grants|.claude/skills/discovering-requirements/SKILL.md|skill-md-constraints.jq|[\"C-PERM-001\",\"C-PERM-004\"] as \$o | [\$o[] as \$id | .constraints[] | select(.id == \$id)]"
+  "reviewing_code_grants|.claude/skills/reviewing-code/SKILL.md|skill-md-constraints.jq|[\"C-PERM-003\",\"C-PERM-004\"] as \$o | [\$o[] as \$id | .constraints[] | select(.id == \$id)]"
+  "bridgebuilder_review_grants|.claude/skills/bridgebuilder-review/SKILL.md|skill-md-constraints.jq|[\"C-PERM-001\",\"C-PERM-003\",\"C-PERM-004\"] as \$o | [\$o[] as \$id | .constraints[] | select(.id == \$id)]"
+  "run_bridge_constraints|.claude/skills/run-bridge/SKILL.md|skill-md-constraints.jq|[\"C-BRIDGE-001\",\"C-BRIDGE-002\",\"C-BRIDGE-003\",\"C-BRIDGE-004\",\"C-BRIDGE-005\",\"C-BRIDGE-006\",\"C-BRIDGE-007\",\"C-BRIDGE-008\"] as \$o | [\$o[] as \$id | .constraints[] | select(.id == \$id)]"
+  "deploying_infrastructure_merge|.claude/skills/deploying-infrastructure/SKILL.md|skill-md-constraints.jq|[\"C-MERGE-003\",\"C-MERGE-004\",\"C-MERGE-005\"] as \$o | [\$o[] as \$id | .constraints[] | select(.id == \$id)]"
 )
 
 # Flags
@@ -49,7 +52,7 @@ compute_section_hash() {
   printf '%s' "$1" \
     | tr -d '\r' \
     | sed 's/[[:space:]]*$//' \
-    | sha256sum \
+    | sha256_portable \
     | cut -c1-16
 }
 

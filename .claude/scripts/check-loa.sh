@@ -4,6 +4,10 @@
 # Exit codes: 0 = success, 1 = failure
 set -euo pipefail
 
+
+# sprint-bug-172 / bug-911: sha256_portable from compat-lib
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compat-lib.sh"
+
 VERSION_FILE=".loa-version.json"
 CHECKSUMS_FILE=".claude/checksums.json"
 CONFIG_FILE=".loa.config.yaml"
@@ -12,6 +16,13 @@ NOTES_FILE="grimoires/loa/NOTES.md"
 # v0.9.0 Protocol files
 PROTOCOL_DIR=".claude/protocols"
 SCRIPT_DIR=".claude/scripts"
+# bug 20260922-13a3d1: single Aleph opt-in predicate (missing lib → disabled).
+if [[ -f "${SCRIPT_DIR}/lib/aleph-opt-in.sh" ]]; then
+  # shellcheck source=lib/aleph-opt-in.sh
+  source "${SCRIPT_DIR}/lib/aleph-opt-in.sh"
+else
+  aleph_opt_in_enabled() { return 1; }
+fi
 
 # Disable colors in CI or non-interactive mode
 if [[ "${CI:-}" == "true" ]] || [[ ! -t 1 ]]; then
@@ -43,7 +54,7 @@ check_integrity() {
     [[ -z "$expected" || "$expected" == "null" ]] && continue
 
     if [[ -f "$file" ]]; then
-      local actual=$(sha256sum "$file" | cut -d' ' -f1)
+      local actual=$(sha256_portable "$file" | cut -d' ' -f1)
       if [[ "$expected" != "$actual" ]]; then
         fail "Tampered: $file"
         drift=true
@@ -57,6 +68,235 @@ check_integrity() {
   [[ "$drift" == "false" ]] && log "Integrity verified"
 }
 
+# cycle-115: Aleph owns a stronger, exact managed-tree receipt covering its
+# command, skill, launcher, runtime bundle, and install lock. Delegate those
+# paths to the compiled verifier instead of pretending the legacy, non-exhaustive
+# checksums file proves their inventory. Loa versions without Aleph remain valid.
+aleph_check_path_exists() {
+  [[ -e "$1" || -L "$1" ]]
+}
+
+aleph_check_path_components_are_real() {
+  local relative="$1"
+  local current="."
+  local part
+  local -a parts=()
+
+  [[ "$relative" != /* ]] || return 1
+  IFS='/' read -r -a parts <<< "$relative"
+  for part in "${parts[@]}"; do
+    [[ -n "$part" && "$part" != "." && "$part" != ".." ]] || return 1
+    current="${current}/${part}"
+    [[ -e "$current" && ! -L "$current" ]] || return 1
+  done
+  return 0
+}
+
+aleph_check_managed_paths_exist() {
+  aleph_check_path_exists ".claude/aleph" \
+    || aleph_check_path_exists ".claude/commands/loa-aleph.md" \
+    || aleph_check_path_exists ".claude/skills/loa-aleph"
+}
+
+aleph_check_node() {
+  NODE_OPTIONS= NODE_PATH= node "$@"
+}
+
+aleph_check_submodule_head_is_authorized() {
+  local submodule_root=".loa"
+  local expected_root actual_root head gitlink
+
+  expected_root=$(cd "$submodule_root" 2>/dev/null && pwd -P) || return 1
+  actual_root=$(git -C "$submodule_root" rev-parse --show-toplevel 2>/dev/null) || return 1
+  actual_root=$(cd "$actual_root" 2>/dev/null && pwd -P) || return 1
+  [[ "$actual_root" == "$expected_root" ]] || return 1
+
+  head=$(git -C "$submodule_root" rev-parse HEAD 2>/dev/null) || return 1
+  gitlink=$(git ls-files --stage -- .loa 2>/dev/null \
+    | awk '$1 == "160000" && $3 == "0" { print $2 }')
+  [[ -n "$gitlink" && "$head" == "$gitlink" ]]
+}
+
+# Return 0 for bundle inventory in HEAD, 1 for no bundle inventory in HEAD,
+# and 2 when the repository or bundle inventory is malformed. Callers must not
+# infer a legacy bundle-less version from working-tree absence alone.
+aleph_check_tree_bundle_state() {
+  local git_root="$1"
+  local bundle_relative="$2"
+  local expected_root actual_root inventory
+
+  expected_root=$(cd "$git_root" 2>/dev/null && pwd -P) || return 2
+  actual_root=$(git -C "$git_root" rev-parse --show-toplevel 2>/dev/null) || return 2
+  actual_root=$(cd "$actual_root" 2>/dev/null && pwd -P) || return 2
+  [[ "$actual_root" == "$expected_root" ]] || return 2
+  git -C "$git_root" rev-parse HEAD >/dev/null 2>&1 || return 2
+  inventory=$(git -C "$git_root" ls-tree -r --name-only HEAD -- \
+    "$bundle_relative" 2>/dev/null) || return 2
+  [[ -n "$inventory" ]] || return 1
+  return 0
+}
+
+aleph_check_bundle_is_pinned() {
+  local git_root="$1"
+  local bundle_relative="$2"
+  local installer_relative="$3"
+  local expected_root actual_root untracked symlink_path
+
+  expected_root=$(cd "$git_root" 2>/dev/null && pwd -P) || return 1
+  actual_root=$(git -C "$git_root" rev-parse --show-toplevel 2>/dev/null) || return 1
+  actual_root=$(cd "$actual_root" 2>/dev/null && pwd -P) || return 1
+  [[ "$actual_root" == "$expected_root" ]] || return 1
+
+  git -C "$git_root" rev-parse HEAD >/dev/null 2>&1 || return 1
+  git -C "$git_root" ls-files --error-unmatch -- \
+    "${bundle_relative}/bundle.lock.json" \
+    "${bundle_relative}/${installer_relative}" >/dev/null 2>&1 || return 1
+  git -C "$git_root" diff --no-ext-diff --quiet HEAD -- \
+    "$bundle_relative" || return 1
+  untracked=$(git -C "$git_root" ls-files --others -- "$bundle_relative" 2>/dev/null) \
+    || return 1
+  [[ -z "$untracked" ]] || return 1
+  symlink_path=$(find "${git_root}/${bundle_relative}" -type l -print -quit \
+    2>/dev/null) || return 1
+  [[ -z "$symlink_path" ]]
+}
+
+check_aleph_integrity() {
+  echo "Checking Aleph installation integrity..."
+
+  local target_bundle=".claude/aleph/runtime/bundle"
+  local source_bundle=".loa/.claude/aleph/runtime/bundle"
+  local installer_relative="runtime-js/adapters/loa/src/installer.js"
+  local trusted_bundle=""
+  local trusted_git_root=""
+  local trusted_bundle_relative=""
+  local installer=""
+  local bundle_lock=""
+  local expected_installer_digest=""
+  local actual_installer_digest=""
+  local node_version=""
+  local node_major=""
+  local gitlink=""
+  local source_tree_state=1
+  local target_tree_state=1
+
+  gitlink=$(git ls-files --stage -- .loa 2>/dev/null \
+    | awk '$1 == "160000" && $3 == "0" { print $2 }')
+  if [[ -n "$gitlink" ]]; then
+    if ! aleph_check_submodule_head_is_authorized; then
+      fail "Aleph source is not at the parent-authorized submodule commit"
+      return 0
+    fi
+    source_tree_state=0
+    aleph_check_tree_bundle_state ".loa" \
+      ".claude/aleph/runtime/bundle" \
+      || source_tree_state=$?
+    if [[ "$source_tree_state" -eq 2 ]]; then
+      fail "Cannot establish Aleph bundle state from the parent-authorized submodule tree"
+      return 0
+    fi
+  fi
+  target_tree_state=0
+  aleph_check_tree_bundle_state "." "$target_bundle" \
+    || target_tree_state=$?
+  if [[ "$target_tree_state" -eq 2 ]]; then
+    fail "The repository HEAD contains a malformed Aleph bundle inventory"
+    return 0
+  fi
+
+  if [[ "$source_tree_state" -eq 0 ]]; then
+    if ! aleph_check_path_exists "$source_bundle"; then
+      fail "Aleph bundle is tracked by the pinned submodule tree but missing from the working tree"
+      return 0
+    fi
+    if [[ ! -d "$source_bundle" ]] \
+      || ! aleph_check_path_components_are_real "$source_bundle"; then
+      fail "Aleph source runtime bundle is not a real directory"
+      return 0
+    fi
+    trusted_bundle="$source_bundle"
+    trusted_git_root=".loa"
+    trusted_bundle_relative=".claude/aleph/runtime/bundle"
+  elif aleph_check_path_exists "$source_bundle"; then
+    fail "Aleph source bundle exists outside the parent-authorized submodule tree"
+    return 0
+  elif [[ "$target_tree_state" -eq 0 ]]; then
+    if ! aleph_check_path_exists "$target_bundle"; then
+      fail "Aleph bundle is tracked by repository HEAD but missing from the working tree"
+      return 0
+    fi
+    if [[ ! -d "$target_bundle" ]] \
+      || ! aleph_check_path_components_are_real "$target_bundle"; then
+      fail "Aleph installed runtime bundle is not a real directory"
+      return 0
+    fi
+    trusted_bundle="$target_bundle"
+    trusted_git_root="."
+    trusted_bundle_relative="$target_bundle"
+  elif aleph_check_path_exists "$target_bundle"; then
+    fail "Aleph installed runtime bundle exists outside a trusted Git inventory"
+    return 0
+  elif aleph_check_managed_paths_exist; then
+    fail "Aleph managed paths exist without an installed runtime bundle"
+    return 0
+  else
+    log "Aleph runtime not bundled; integrity check not applicable"
+    return 0
+  fi
+
+  if [[ ! -d "$target_bundle" || -L "$target_bundle" ]]; then
+    fail "Aleph runtime is missing or symlinked"
+    return 0
+  fi
+  installer="${trusted_bundle}/${installer_relative}"
+  bundle_lock="${trusted_bundle}/bundle.lock.json"
+  if ! aleph_check_bundle_is_pinned "$trusted_git_root" \
+    "$trusted_bundle_relative" "$installer_relative"; then
+    fail "Aleph verifier bundle differs from its pinned Git inventory"
+    return 0
+  fi
+  if [[ ! -f "$installer" ]] \
+    || ! aleph_check_path_components_are_real "$installer"; then
+    fail "Aleph compiled integrity verifier is missing or symlinked"
+    return 0
+  fi
+  if [[ ! -f "$bundle_lock" ]] \
+    || ! aleph_check_path_components_are_real "$bundle_lock"; then
+    fail "Aleph bundle lock is missing or symlinked"
+    return 0
+  fi
+  # Authenticate the verifier before executing it. Otherwise a tampered
+  # verifier would be trusted to report on its own tampering.
+  expected_installer_digest=$(jq -r --arg path "$installer_relative" \
+    '[.files[]? | select(.path == $path) | .digest] | if length == 1 then .[0] else empty end' \
+    "$bundle_lock" 2>/dev/null) || expected_installer_digest=""
+  actual_installer_digest=$(sha256_portable "$installer" 2>/dev/null | cut -d' ' -f1) \
+    || actual_installer_digest=""
+  if [[ ! "$expected_installer_digest" =~ ^sha256:[0-9a-f]{64}$ \
+    || "sha256:${actual_installer_digest}" != "$expected_installer_digest" ]]; then
+    fail "Aleph compiled integrity verifier does not match its bundle lock"
+    return 0
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    fail "Node.js 20+ is required to verify the Aleph installation"
+    return 0
+  fi
+  node_version=$(aleph_check_node --version 2>/dev/null || true)
+  if [[ "$node_version" =~ ^v([0-9]+)\. ]]; then
+    node_major="${BASH_REMATCH[1]}"
+  fi
+  if [[ -z "$node_major" || "$node_major" -lt 20 ]]; then
+    fail "Node.js 20+ is required to verify the Aleph installation (found ${node_version:-unknown})"
+    return 0
+  fi
+
+  if aleph_check_node "$installer" verify-install --target "$(pwd)"; then
+    log "Aleph installation receipt and managed tree verified"
+  else
+    fail "Aleph installation integrity verification failed"
+  fi
+}
+
 check_schema() {
   echo "Checking schema version..."
   [[ -f "$VERSION_FILE" ]] || { warn "No version file - cannot check schema"; return; }
@@ -68,6 +308,8 @@ check_schema() {
 
 check_memory() {
   echo "Checking structured memory..."
+  # cycle-125 FR-4: the known-failures ledger is the index-first intake surface
+  [[ -f "$(dirname "$NOTES_FILE")/known-failures.md" ]] || warn "known-failures.md missing - seed it: cp .claude/templates/known-failures.md.template grimoires/loa/known-failures.md"
   [[ -f "$NOTES_FILE" ]] || { warn "NOTES.md missing - memory not initialized"; return; }
 
   # Check for required sections
@@ -144,8 +386,6 @@ check_v090_protocols() {
     "session-continuity.md"
     "synthesis-checkpoint.md"
     "grounding-enforcement.md"
-    "jit-retrieval.md"
-    "attention-budget.md"
   )
 
   for proto in "${required_protocols[@]}"; do
@@ -316,6 +556,13 @@ main() {
   check_dependencies
   check_mounted
   check_integrity
+  # bug 20260922-13a3d1: Aleph is opt-in; its integrity check runs only when
+  # the operator enabled it (LOA_ALEPH_ENABLED=1 or aleph.enabled: true).
+  if aleph_opt_in_enabled "."; then
+    check_aleph_integrity
+  else
+    log "Aleph: opt-in disabled (aleph.enabled: false) — integrity check skipped"
+  fi
   check_schema
   check_memory
   check_config
@@ -343,4 +590,6 @@ main() {
   fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

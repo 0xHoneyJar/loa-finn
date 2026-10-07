@@ -241,10 +241,10 @@ write_decision() {
     ensure_notes_file
 
     # Check if Decision Log section exists
-    if ! grep -q "## Decisions" "$NOTES_FILE"; then
+    if ! grep -qE "## Decision(s| Log)" "$NOTES_FILE"; then
         # Add section before Blockers or at end
         if grep -q "## Blockers" "$NOTES_FILE"; then
-            sed '/## Blockers/i ## Decisions\n\n| Date | Decision | Rationale |\n|------|----------|-----------|' "$NOTES_FILE" > "${NOTES_FILE}.tmp" && mv "${NOTES_FILE}.tmp" "$NOTES_FILE"
+            sed '/## Blockers/i ## Decision Log\n\n| Date | Decision | Rationale |\n|------|----------|-----------|' "$NOTES_FILE" > "${NOTES_FILE}.tmp" && mv "${NOTES_FILE}.tmp" "$NOTES_FILE"
         else
             echo -e "\n## Decisions\n\n| Date | Decision | Rationale |\n|------|----------|-----------|" >> "$NOTES_FILE"
         fi

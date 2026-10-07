@@ -16,6 +16,7 @@
 #   --from PHASE             Start from phase (sprint-plan)
 #   --single-iteration       Process one iteration then exit (Issue #473)
 #   --no-silent-noop-detect  Disable post-loop no-findings check (Issue #473)
+#   --allow-empty            Allow a run with no findings, sprints or new commits
 #   --help                   Show help
 #
 # Exit Codes:
@@ -124,6 +125,7 @@ Options:
                              pair with --resume to advance step by step
   --no-silent-noop-detect    Disable post-loop check that fails when the run
                              produced zero findings (Issue #473; for tests/CI)
+  --allow-empty              Allow a run with no findings, sprints or new commits
   --help                     Show help
 
 Exit Codes:
@@ -166,6 +168,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-silent-noop-detect)
       # Issue #473: opt out of the post-run no-findings check (for tests, CI)
+      DETECT_SILENT_NOOP=false
+      shift
+      ;;
+    --allow-empty)
       DETECT_SILENT_NOOP=false
       shift
       ;;
@@ -300,6 +306,36 @@ preflight() {
 # Resume Logic
 # =============================================================================
 
+# Restore run parameters frozen at JACK_IN from the persisted .config block,
+# so a resumed run reuses the params it started with rather than reverting to
+# the hardcoded script defaults. A resume deliberately restores from state
+# (NOT a live re-read of .loa.config.yaml): init_bridge_state snapshots these
+# at JACK_IN precisely to freeze them for the run's lifetime, and re-reading
+# config would let a mid-run edit silently drift an in-flight bridge.
+#
+# Precedence mirrors load_bridge_config: DEPTH/PER_SPRINT restore only when the
+# operator did NOT re-pass an explicit CLI override (CLI_DEPTH/CLI_PER_SPRINT).
+# FLATLINE_THRESHOLD/CONSECUTIVE_FLATLINE have no CLI flag, so always restore.
+# The `// <default>` fallbacks keep old-schema state files (written before
+# consecutive_flatline was persisted) resumable.
+#
+# MUST be called from bridge_main BEFORE handle_resume — handle_resume runs in
+# a command substitution ($(...)) subshell, so global assignments inside it
+# would not reach the parent shell.
+restore_bridge_config_from_state() {
+  [[ -f "$BRIDGE_STATE_FILE" ]] || return 0
+  command -v jq &>/dev/null || return 0
+
+  if [[ -z "$CLI_DEPTH" ]]; then
+    DEPTH=$(jq -r ".config.depth // $DEPTH" "$BRIDGE_STATE_FILE")
+  fi
+  if [[ -z "$CLI_PER_SPRINT" ]]; then
+    PER_SPRINT=$(jq -r ".config.per_sprint // $PER_SPRINT" "$BRIDGE_STATE_FILE")
+  fi
+  FLATLINE_THRESHOLD=$(jq -r ".config.flatline_threshold // $FLATLINE_THRESHOLD" "$BRIDGE_STATE_FILE")
+  CONSECUTIVE_FLATLINE=$(jq -r ".config.consecutive_flatline // $CONSECUTIVE_FLATLINE" "$BRIDGE_STATE_FILE")
+}
+
 handle_resume() {
   if [[ ! -f "$BRIDGE_STATE_FILE" ]]; then
     echo "ERROR: No bridge state file found for resume" >&2
@@ -368,6 +404,7 @@ bridge_main() {
   local start_iteration=0
 
   if [[ "$RESUME" == "true" ]]; then
+    restore_bridge_config_from_state
     start_iteration=$(handle_resume)
   else
     # Fresh start
@@ -383,7 +420,11 @@ bridge_main() {
     local branch
     branch=$(git branch --show-current 2>/dev/null || echo "unknown")
 
-    init_bridge_state "$bridge_id" "$DEPTH" "$PER_SPRINT" "$FLATLINE_THRESHOLD" "$branch" "$BRIDGE_REPO"
+    init_bridge_state "$bridge_id" "$DEPTH" "$PER_SPRINT" "$FLATLINE_THRESHOLD" "$branch" "$BRIDGE_REPO" "$CONSECUTIVE_FLATLINE"
+    local initial_head
+    initial_head=$(git rev-parse HEAD)
+    jq --arg head "$initial_head" '.initial_head = $head' "$BRIDGE_STATE_FILE" > "$BRIDGE_STATE_FILE.tmp"
+    mv "$BRIDGE_STATE_FILE.tmp" "$BRIDGE_STATE_FILE"
     update_bridge_state "JACK_IN"
 
     echo ""
@@ -406,6 +447,12 @@ bridge_main() {
     echo "───────────────────────────────────────────────────"
     echo "  ITERATION $iteration / $DEPTH"
     echo "───────────────────────────────────────────────────"
+
+    # cycle-114 FR-11: tag every model invocation in this iteration with the
+    # loop context + iteration so MODELINV / economy can attribute per-iteration
+    # cost (answers "is bridge cost O(depth)?"). Inherited by cheval children.
+    export LOA_LOOP_CONTEXT="bridge"
+    export LOA_LOOP_ITERATION="$iteration"
 
     # Track iteration
     local source="existing"
@@ -717,6 +764,32 @@ bridge_main() {
     fi
   done
 
+  # cycle-116 D5: record which of the two termination modes fired — kaironic
+  # flatline (the `break` above) vs natural exhaustion of the depth cap —
+  # since both otherwise fall through silently to the same code below.
+  local term_reason
+  term_reason=$(bridge_termination_reason "$CONSECUTIVE_FLATLINE")
+  if command -v jq &>/dev/null && [[ -f "$BRIDGE_STATE_FILE" ]]; then
+    jq --arg reason "$term_reason" \
+      '.finalization.termination_reason = $reason' "$BRIDGE_STATE_FILE" > "$BRIDGE_STATE_FILE.tmp"
+    mv "$BRIDGE_STATE_FILE.tmp" "$BRIDGE_STATE_FILE"
+  fi
+
+  if [[ "$term_reason" == "max_depth" ]]; then
+    echo ""
+    echo "═══════════════════════════════════════════════════"
+    echo "  MAX ITERATIONS REACHED"
+    echo "  Depth cap ($DEPTH) exhausted without kaironic flatline"
+    echo "  empirical: code PRs plateau at 2 iters (cycles 102-114 record)"
+    echo "  Override: run_bridge.defaults.depth (.loa.config.yaml) or --depth N (CLI)"
+    echo "═══════════════════════════════════════════════════"
+  fi
+
+  # cycle-114 FR-11: the per-iteration loop tags are loop-scoped — clear them so
+  # the divergent-exploration (RESEARCHING) + finalization phases below, which
+  # are explicitly NOT bridge iterations, are not mis-attributed in MODELINV.
+  unset LOA_LOOP_CONTEXT LOA_LOOP_ITERATION
+
   # Research Mode (FR-2 — Divergent Exploration Iteration)
   # After iteration 1, optionally transition to RESEARCHING state for one
   # divergent exploration iteration. Produces SPECULATION-only findings
@@ -1013,19 +1086,33 @@ bridge_main() {
     mv "$BRIDGE_STATE_FILE.tmp" "$BRIDGE_STATE_FILE"
   fi
 
-  # Issue #473: silent-no-op detection. If the full-depth run completed but
-  # .run/bridge-reviews/ contains no findings files, the SIGNAL:* lines fired
-  # but no skill acted on them. Fail loud instead of claiming JACKED_OUT
-  # with 0 findings — silent success is the worst kind of failure.
+  # #1174: require current-run work. Empty or unrelated findings files cannot
+  # prove that a caller acted on the SIGNAL:* lines.
   if [[ "$DETECT_SILENT_NOOP" == "true" ]]; then
     local findings_dir="$PROJECT_ROOT/.run/bridge-reviews"
     local findings_count=0
-    if [[ -d "$findings_dir" ]]; then
-      findings_count=$(find "$findings_dir" -name '*.json' -type f 2>/dev/null | wc -l | tr -d ' ')
+    local current_bridge_id sprints_executed new_commits=0 initial_head findings_file count
+    current_bridge_id=$(jq -r '.bridge_id' "$BRIDGE_STATE_FILE")
+    sprints_executed=$(jq '[([.iterations[]?.sprints_executed // 0] | add // 0),
+        (.metrics.total_sprints_executed // 0)] | max' "$BRIDGE_STATE_FILE")
+    initial_head=$(jq -r '.initial_head // empty' "$BRIDGE_STATE_FILE")
+    if [[ -n "$initial_head" ]]; then
+      new_commits=$(git rev-list --count "${initial_head}..HEAD" 2>/dev/null) || new_commits=0
     fi
-    if [[ "$findings_count" -eq 0 ]]; then
+    if [[ -d "$findings_dir" ]]; then
+      for findings_file in "$findings_dir/${current_bridge_id}"-iter*-findings.json; do
+        [[ -f "$findings_file" ]] || continue
+        count=$(jq -e '.findings | select(type == "array") |
+            if all(.[]; type == "object" and
+                (.id | type == "string" and length > 0) and
+                (.severity | type == "string" and length > 0))
+            then length else error("invalid finding") end' "$findings_file" 2>/dev/null) || count=0
+        findings_count=$((findings_count + count))
+      done
+    fi
+    if [[ "$findings_count" -eq 0 && "$sprints_executed" -eq 0 && "$new_commits" -eq 0 ]]; then
       echo "" >&2
-      echo "ERROR: Bridge completed $DEPTH iterations but produced no findings files." >&2
+      echo "ERROR: Bridge completed $DEPTH iterations with no current-run findings, sprints or new commits." >&2
       echo "" >&2
       echo "This usually means the calling skill did not act on the SIGNAL:*" >&2
       echo "lines emitted by the orchestrator. The orchestrator emits signals" >&2

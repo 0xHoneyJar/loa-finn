@@ -1,6 +1,8 @@
 ---
 name: run
-description: "Autonomous sprint execution mode"
+description: "Autonomous sprint execution: /run sprint-N and /run sprint-plan wrap implement->review->audit cycles with circuit breaker, ICE git safety, and draft-PR completion. Use for UNATTENDED execution of an existing sprint plan. (Contrast: autonomous-agent orchestrates the FULL lifecycle from requirements; simstim keeps a human driving the planning phases.)"
+role: review
+primary_role: review
 capabilities:
   schema_version: 1
   read_files: true
@@ -16,85 +18,42 @@ cost-profile: unbounded
 
 ## Cost
 
-**Estimated per invocation**: Run Mode itself is low-cost (orchestration only). Cost comes from the sub-skills it invokes: Flatline Protocol (~$15–25/planning cycle), Bridgebuilder review (~$10–20/run), and implementation sessions (see [Cost Matrix](../../../docs/CONFIG_REFERENCE.md#cost-matrix)).
-**External providers called**: None directly — delegates to Flatline (Opus 4.7 + GPT-5.3-codex) and Bridgebuilder (Opus 4.7 + GPT-5.3-codex) when those features are enabled.
-**To cap spend**: Set `run_mode.defaults.max_cycles` and `hounfour.metering.budget.daily_micro_usd` in `.loa.config.yaml`. Budget enforcement is active when `hounfour.metering.enabled: true`.
-**If cost is a concern**: Run `/loa setup` — the wizard will guide you to a budget-appropriate configuration.
-
-_Pricing verified: 2026-04-15. Prices change — recheck before large commitments._
+Run Mode itself is orchestration; cost comes from the sub-skills it invokes (Flatline, Bridgebuilder, implementation sessions — see the [Cost Matrix](../../../docs/CONFIG_REFERENCE.md#cost-matrix)). Cap spend with `run_mode.defaults.max_cycles` and `hounfour.metering.budget.daily_micro_usd` in `.loa.config.yaml` (enforced when `hounfour.metering.enabled: true`); `/loa setup` guides a budget-appropriate configuration.
 
 <input_guardrails>
-## Pre-Execution Validation
+## Pre-Execution Guardrails
 
-Before main skill execution, perform guardrail checks.
+Skip this section entirely when `.loa.config.yaml` has `guardrails.input.enabled: false` or env
+`LOA_GUARDRAILS_ENABLED=false`.
 
-### Step 1: Check Configuration
+Otherwise: write the user's invocation prompt/args to a temp file (Write tool), then run
+`.claude/scripts/guardrails-orchestrator.sh --skill run-mode --mode ${LOA_RUN_MODE:-interactive} --file <temp-file>`
 
-Read `.loa.config.yaml`:
-```yaml
-guardrails:
-  input:
-    enabled: true|false
-```
+| Outcome | Action |
+|---------|--------|
+| JSON `action: "BLOCK"` | HALT; report the script's `reason` to the user |
+| JSON `action: "PROCEED"` or `"WARN"` | Continue (logging is handled by the script) |
+| Script missing, non-zero exit, or unparseable output | Continue — fail-open. |
 
-**Exit Conditions**:
-- `guardrails.input.enabled: false` → Skip to skill execution
-- Environment `LOA_GUARDRAILS_ENABLED=false` → Skip to skill execution
+Never pass prompt text as a bash argv (quote-blindness FP class) — always via `--file`.
 
-### Step 2: Run Danger Level Check
-
-**Script**: `.claude/scripts/danger-level-enforcer.sh --skill run-mode --mode {mode}`
-
-**CRITICAL**: This is a **high** danger level skill (autonomous execution).
-
-| Mode | Behavior |
-|------|----------|
-| Interactive | Require explicit confirmation |
-| Autonomous | Not applicable (run-mode IS autonomous mode) |
-
-### Step 3: Check Danger Levels for Invoked Skills
-
-Before each skill invocation in the run loop:
-
-```bash
-danger-level-enforcer.sh --skill $SKILL --mode autonomous
-```
-
-| Result | Behavior |
-|--------|----------|
-| PROCEED | Execute skill |
-| WARN | Execute with enhanced logging |
-| BLOCK | Skip skill, log to trajectory |
-
-**Override**: Use `--allow-high` flag to allow high-risk skills:
-```bash
-/run sprint-1 --allow-high
-```
-
-### Step 4: Run PII Filter
-
-**Script**: `.claude/scripts/pii-filter.sh`
-
-Detect and redact sensitive data in run scope.
-
-### Step 5: Run Injection Detection
-
-**Script**: `.claude/scripts/injection-detect.sh --threshold 0.7`
-
-Prevent manipulation of autonomous execution.
-
-### Step 6: Log to Trajectory
-
-Write to `grimoires/loa/a2a/trajectory/guardrails-{date}.jsonl`.
-
-### Error Handling
-
-On error: Log to trajectory, **fail-open** (continue to skill).
+**Danger-level gating** (run-mode is a **high** danger-level skill; additive to the orchestrator call
+above): before each skill invocation inside the run loop (`/implement`, `/review-sprint`,
+`/audit-sprint`, red-team, post-PR phases), run
+`.claude/scripts/danger-level-enforcer.sh --skill <invoked-skill> --mode autonomous`.
+`PROCEED` → execute; `WARN` → execute with enhanced trajectory logging; `BLOCK` → skip the
+invocation, log to trajectory, count a zero-progress cycle. `--allow-high` on the `/run` invocation
+permits skills that would otherwise `BLOCK` (e.g. `/run --bug "..." --allow-high`; see
+`resources/bug-run-mode.md`). A nested interactive confirmation asks the user instead of blocking.
 </input_guardrails>
 
 # Run Mode Skill
 
 You are an autonomous implementation agent. You execute sprint implementations in cycles until review and audit pass, with safety controls to prevent runaway execution.
+
+This skill is the single source of truth for all `/run`, `/run sprint-plan`, `/run-status`,
+`/run-halt`, and `/run-resume` behavior. Those commands are thin routers — see their files under
+`.claude/commands/` for argument parsing only; execution logic lives here.
 
 ## Core Behavior
 
@@ -103,171 +62,190 @@ You are an autonomous implementation agent. You execute sprint implementations i
 READY → JACK_IN → RUNNING → COMPLETE/HALTED → JACKED_OUT
 ```
 
-**Execution Loop (Single Sprint):**
+## `/run <target>` — Pre-flight Checks (Jack-In)
+
+Before any execution begins, perform these checks in order. Any failure halts before state is
+created (`exit 1` semantics — report the error and stop, do not create `.run/`):
+
+1. **Configuration check**: read `run_mode.enabled` via
+   `yq '.run_mode.enabled // false' .loa.config.yaml`. If not `true`: HALT —
+   "Run Mode not enabled. Set `run_mode.enabled: true` in `.loa.config.yaml`".
+2. **Preflight checklist**: run `.claude/scripts/run-preflight.sh --unattended`. Non-zero exit →
+   HALT and surface its checklist verbatim (it names each failed predicate and the fix: P1
+   defaultMode, P2 allow rules, P3 voices, P4 breakers, P5 NOTES size, P6 run state, P7 beads,
+   P8 branch). Then call `.claude/scripts/beads/update-beads-state.sh --health "$(jq -r .status
+   <(.claude/scripts/beads/beads-health.sh --quick --json))"` to record the observed beads health.
+
+## Initialization
+
+Once pre-flight passes, initialize the run:
+
+1. `mkdir -p .run`.
+2. Generate `run_id="run-$(date +%Y%m%d)-$(openssl rand -hex 4)"` and an ISO-8601 `timestamp`
+   (`date -u +"%Y-%m-%dT%H:%M:%SZ"`).
+3. Resolve the initial push mode via ICE (single source of truth — never compute push mode
+   independently): `--local` flag → `run-mode-ice.sh should-push local`; `--confirm-push` flag →
+   `run-mode-ice.sh should-push prompt`; neither → `run-mode-ice.sh should-push`.
+4. Write `.run/state.json` with this exact schema (fill in the resolved values):
+   → verbatim block: `resources/state-schemas.md` §run-state-schema
+5. Write `.run/circuit-breaker.json` with this exact schema:
+   → verbatim block: `resources/state-schemas.md` §circuit-breaker-schema
+6. `touch .run/deleted-files.log` (empty).
+7. Create/checkout the feature branch via `.claude/scripts/run-mode-ice.sh ensure-branch "$target"`.
+
+All subsequent `.run/*.json` mutations in this skill MUST use the atomic write pattern: pipe the
+`jq` transform to a `.tmp` sibling, then `mv` the `.tmp` file over the original — never edit the
+JSON file in place.
+
+## Main Loop — Single Sprint (`/run sprint-N`)
+
 ```
 while circuit_breaker.state == CLOSED:
-  1. /implement target
-  2. Commit changes, track deletions
-  3. /review-sprint target
-  4. If findings → continue loop
-  5. /audit-sprint target
-  6. If findings → continue loop
-  7. RED_TEAM_CODE gate (if enabled):
-     a. Check: red_team.code_vs_design.enabled == true in .loa.config.yaml
-     b. Check: SDD exists at grimoires/loa/sdd.md (or skip_if_no_sdd behavior)
-     c. Invoke: .claude/scripts/red-team-code-vs-design.sh \
-          --sdd grimoires/loa/sdd.md \
-          --diff - \              # pipe git diff main...HEAD
-          --output grimoires/loa/a2a/sprint-{N}/red-team-code-findings.json \
-          --sprint sprint-{N} \
-          --prior-findings grimoires/loa/a2a/sprint-{N}/engineer-feedback.md \
-          --prior-findings grimoires/loa/a2a/sprint-{N}/auditor-sprint-feedback.md
-        Note: --prior-findings paths are only passed when the files exist.
-        This enables the "Deliberative Council" pattern — the Red Team gate
-        sees what the reviewer and auditor already found, enabling focused
-        analysis rather than duplicating earlier findings.
-     d. Parse output: check summary.actionable count
-     e. If actionable > 0 (CONFIRMED_DIVERGENCE above severity_threshold):
-        - Increment red_team_code.cycles in .run/state.json
-        - If red_team_code.cycles >= red_team_code.max_cycles (default 2):
-            Log WARNING: "Red Team code-vs-design max cycles reached, skipping"
-            Continue to COMPLETE
-        - Else: continue loop (back to /implement)
-     f. If no actionable findings → continue to COMPLETE
-  8. If COMPLETED → break
-
-Create draft PR
-Invoke Post-PR Validation (if enabled)
+  1. /implement $target
+  2. Commit changes, then track deletions (see "Deleted Files Tracking" below)
+  3. update_state(phase: REVIEW); checkpoint(phase: REVIEW)
+  4. /review-sprint $target
+  5. If `verdict-derive.sh --gate review` on engineer-feedback.md does not exit 0 with
+     `.verdict == APPROVED` (anything else — including an inconsistent trailer — counts as
+     findings) → record_cycle(findings), check circuit breaker
+     (see "Circuit Breaker" below); on trip, HALT; else continue loop (back to step 1)
+  6. update_state(phase: AUDIT); checkpoint(phase: AUDIT)
+  7. /audit-sprint $target
+  8. If `verdict-derive.sh --gate audit` on auditor-sprint-feedback.md does not exit 0 with
+     `.verdict == APPROVED` → same as step 5 (golden-path's `_gp_sprint_is_audited` additionally
+     re-derives the review trailer and cross-checks `excluded` ⇔ `excluded_confirmed`)
+  9. RED_TEAM_CODE gate (if enabled) — see resources/conditional-procedures.md §red-team-code-gate
+  10. If COMPLETED marker exists → update_state(state: COMPLETE); break
+Create draft PR (see "Completion and PR Creation" — resources/completion-modes.md)
+Invoke Post-PR Validation if enabled — resources/conditional-procedures.md §post-pr-validation
 Update state to READY_FOR_HITL or JACKED_OUT
 ```
 
-**Post-PR Validation (v1.25.0):**
-
-After PR creation, check `post_pr_validation.enabled` in `.loa.config.yaml`:
-
-```
-if post_pr_validation.enabled:
-  1. Invoke: post-pr-orchestrator.sh --pr-url <url> --mode autonomous
-  2. On SUCCESS (exit 0) → state = READY_FOR_HITL
-  3. On HALTED (exit 2-5) → state = HALTED, create [INCOMPLETE] PR note
-else:
-  state = JACKED_OUT
-```
-
-The post-PR validation loop runs:
-- **POST_PR_AUDIT**: Consolidated PR audit with fix loop
-- **CONTEXT_CLEAR**: Save checkpoint, prompt user to /clear
-- **E2E_TESTING**: Fresh-eyes testing with fix loop
-- **FLATLINE_PR**: Optional multi-model review (~$1.50)
-- **READY_FOR_HITL**: All validations complete
-
-See `grimoires/loa/prd-post-pr-validation.md` for full specification.
-
-**Sprint Plan Execution Loop (`/run sprint-plan`):**
-```
-discover_sprints()  # From sprint.md, ledger.json, or a2a directories
-filter_sprints(--from, --to)
-create_feature_branch("feature/sprint-plan-{timestamp}")
-
-for sprint in sprints:
-  1. Check if sprint already COMPLETED → skip
-  2. Update state: current_sprint = sprint
-  3. Execute single sprint loop (above)
-  4. Commit with sprint marker: "feat(sprint-N): ..."
-  5. If HALTED → break outer loop, preserve state
-  6. Mark sprint COMPLETED in state
-  7. Log sprint transition
-  8. DO NOT create PR yet (consolidate at end)
-
-Push all commits to feature branch
-Create SINGLE consolidated draft PR with all sprints
-  - Summary table showing per-sprint breakdown
-  - Commits grouped by sprint
-  - Deleted files section
-Invoke Post-PR Validation (if enabled)
-Update state to READY_FOR_HITL or JACKED_OUT
-```
-
-**Consolidated PR (Default - v1.15.1):**
-- All sprints work on the same branch
-- Single PR created after ALL sprints complete
-- PR includes per-sprint breakdown table
-- Commits grouped by sprint in PR description
-- Use `--no-consolidate` for legacy per-sprint PRs
-
-## Pre-flight Checks (Jack-In)
-
-Before any execution:
-
-1. **Configuration Check**: Verify `run_mode.enabled: true` in `.loa.config.yaml`
-2. **Branch Safety**: Use ICE to verify not on protected branch
-3. **Permission Check**: Run `check-permissions.sh` to verify required permissions
-4. **State Check**: Ensure no conflicting `.run/` state exists
+Call `check_rate_limit` (see "Rate Limiting" below) before each of steps 1, 4, and 7.
+`checkpoint(...)` = `.claude/scripts/run-checkpoint.sh write --sprint $target --phase <PHASE>`
+(when `.run/sprint-plan-state.json` exists); `/implement` writes the per-task checkpoint on each
+`br close`. Beads stay the recovery truth — the checkpoint is a hint `/run-resume` reports.
 
 ## Circuit Breaker
 
-Four triggers that halt execution (main loop):
+Four triggers checked, in this order, against `.run/circuit-breaker.json`:
 
-| Trigger | Default Threshold | Description |
-|---------|-------------------|-------------|
-| Same Issue | 3 | Same finding hash repeated |
-| No Progress | 5 | Cycles without file changes |
-| Cycle Limit | 20 | Maximum total cycles |
-| Timeout | 8 hours | Maximum runtime |
+| Trigger | Default Threshold | Check |
+|---------|-------------------|-------|
+| Same Issue | 3 | `jq '.triggers.same_issue.count' .run/circuit-breaker.json` ≥ threshold |
+| No Progress | 5 | `jq '.triggers.no_progress.count' .run/circuit-breaker.json` ≥ threshold |
+| Cycle Limit | 20 | `jq '.triggers.cycle_count.current' .run/circuit-breaker.json` ≥ limit |
+| Timeout | 8 hours | `$(($(date +%s) - $(date -d "$(jq -r '.triggers.timeout.started' .run/circuit-breaker.json)" +%s)))` ≥ `limit_hours * 3600` |
 
-When tripped:
-- State changes to HALTED
-- Circuit breaker state changes to OPEN
-- Work is committed and pushed
-- Draft PR created marked `[INCOMPLETE]`
-- Resume instructions displayed
+On the first trigger that fires, trip the breaker:
+1. Atomically update `.run/circuit-breaker.json`:
+   `jq --arg t "$trigger" --arg r "$reason" --arg ts "$timestamp" '.state = "OPEN" | .history += [{"timestamp": $ts, "trigger": $t, "reason": $r}]'`.
+2. Atomically update `.run/state.json`: `jq '.state = "HALTED"'`.
+3. Report: "CIRCUIT BREAKER TRIPPED: $reason" then "Run halted. Use `/run-resume --reset-ice` to
+   continue."
+
+### Issue Hash Tracking (Same-Issue trigger)
+
+1. After each `/review-sprint` or `/audit-sprint`, compute the same-issue hash from the
+   DERIVED verdict when the feedback file carries a `<!-- LOA-VERDICT` trailer:
+   `bash .claude/scripts/verdict-derive.sh --file <feedback-file> --gate review|audit --json 2>/dev/null | jq -Sc '{verdict,counts}' | md5sum | cut -d' ' -f1`
+   No-trailer fallback (legacy files without a trailer): `grep -A 100 "## Findings\|## Issues\|## Changes Required" <feedback-file> | head -50 | md5sum | cut -d' ' -f1`
+   (or `echo "none"` if the feedback file doesn't exist). The derived hash is coarser than the
+   prose hash — identical verdict+counts on different findings collide, so the breaker trips
+   sooner, which HALTs for a human (the loud direction).
+2. Read `last_hash` via `jq -r '.triggers.same_issue.last_hash // "none"' .run/circuit-breaker.json`.
+3. If the new hash equals `last_hash` and is not `"none"`: increment count
+   (`jq '.triggers.same_issue.count += 1'`). Otherwise: reset — set count to 1 and
+   `last_hash` to the new hash in one `jq` call.
 
 ### Red Team Code-vs-Design Circuit Breaker
 
-Separate counter from the main circuit breaker, specifically for the RED_TEAM_CODE gate:
+Separate counter from the main circuit breaker (see `resources/conditional-procedures.md`
+§red-team-code-gate for behavior).
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `red_team.code_vs_design.max_cycles` | 2 | Max re-implementation cycles triggered by divergence findings |
-| `red_team.code_vs_design.severity_threshold` | 700 | Only CONFIRMED_DIVERGENCE findings above this severity trigger re-implementation |
+## Sprint Plan Execution Loop (`/run sprint-plan`)
 
-State tracked in `.run/state.json`:
+`/run sprint-plan` wraps the single-sprint main loop above across every sprint the repo defines:
+discovery (from `sprint.md`, `ledger.json`, or `grimoires/loa/a2a/sprint-*` directories, in that
+priority order), a pre-flight identical to `/run`'s, a per-sprint loop that runs the main loop
+above and records completion in `.run/sprint-plan-state.json`, failure handling that produces an
+`[INCOMPLETE]` PR and preserves state for `/run-resume`, and a consolidated completion PR once
+every sprint finishes. Full procedure, including the exact discovery commands and PR body
+assembly: `resources/sprint-plan-mode.md`.
 
+## Deleted Files Tracking
+
+Log file: `.run/deleted-files.log`, format `file_path|sprint|cycle` (one line per deleted file).
+
+1. After each commit in the main loop, collect deletions:
+   `git diff --name-status HEAD~1 HEAD | grep "^D" | cut -f2`, and append
+   `{file}|{sprint}|{cycle}` per file to `.run/deleted-files.log`.
+2. PR-body rendering of the log (tree format, header, warning line): `resources/completion-modes.md`
+   §Deleted Files Tree.
+
+## Completion and PR Creation
+
+Push mode resolves in priority order — `--local` flag, then `--confirm-push` flag, then
+`run_mode.git.auto_push` in config (`true`→AUTO, `false`→LOCAL, `prompt`→PROMPT; default `true`) —
+always via `.claude/scripts/run-mode-ice.sh should-push`, never computed independently, and the
+resolved mode is recorded on `.run/state.json` (`jq --arg mode "$push_mode" '.options.push_mode =
+$mode'`). LOCAL mode commits nothing further and reports locally; PROMPT mode asks the user via
+`AskUserQuestion` and then follows LOCAL or AUTO; AUTO mode pushes via ICE and opens a draft PR.
+Exact steps and report/PR-body templates for all three: `resources/completion-modes.md`.
+
+## Rate Limiting
+
+Tracks API calls per hour. File: `.run/rate-limit.json`:
 ```json
-{
-  "red_team_code": {
-    "cycles": 0,
-    "max_cycles": 2,
-    "findings_total": 0,
-    "divergences_found": 0,
-    "last_findings_hash": null
-  }
-}
+{"hour_boundary": "2026-01-19T10:00:00Z", "calls_this_hour": 45, "limit": 100, "waits": []}
 ```
 
-**Behavior**:
-- When `red_team_code.cycles >= max_cycles`: log WARNING "Red Team code-vs-design max cycles reached, skipping" and continue to COMPLETE
-- When `red_team.code_vs_design.enabled: false`: skip RED_TEAM_CODE gate entirely
-- When SDD does not exist AND `skip_if_no_sdd: true`: skip silently
-- When SDD does not exist AND `skip_if_no_sdd: false`: error and HALT
+Read the configured limit via `yq '.run_mode.rate_limiting.calls_per_hour // 100' .loa.config.yaml`.
+Default 100 calls/hour.
+
+Before each phase (`/implement`, `/review-sprint`, `/audit-sprint`), check the rate limit:
+
+1. If `.run/rate-limit.json` doesn't exist, initialize it with `hour_boundary` = current hour
+   (`date -u +"%Y-%m-%dT%H:00:00Z"`), `calls_this_hour: 0`, `limit` from config.
+2. If the stored `hour_boundary` differs from the current hour, reset: set `hour_boundary` to the
+   current hour and `calls_this_hour` to 0 (single `jq` call).
+3. If `calls_this_hour >= limit`: this is a rate-limit wait (procedure:
+   `resources/conditional-procedures.md` §rate-limit-wait). Otherwise increment `calls_this_hour`
+   by 1 and proceed.
+
+## `/run-status` — Display Progress
+
+Reports run or sprint-plan progress: state, phase, branch, elapsed runtime, circuit-breaker
+counts, and metrics from `.run/state.json` and `.run/circuit-breaker.json`, with `--json` and
+`--verbose` variants and a sprint-plan-specific box when `.run/sprint-plan-state.json` exists. If
+`.run/state.json` doesn't exist, report that no run is in progress. Full rendering steps:
+`resources/run-status.md`.
+
+## `/run-halt` — Graceful Stop
+
+Commits pending work, pushes, and opens or updates an `[INCOMPLETE]` PR before setting state to
+`HALTED`, so a halted run is always resumable. Pre-flight and exact steps:
+`resources/halt-resume.md` §run-halt.
+
+## `/run-resume` — Continue From Checkpoint
+
+Validates state, branch, and (unless `--force`) that the branch hasn't diverged from its remote,
+then resumes the main loop at the recorded phase. `--reset-ice` clears a tripped circuit breaker
+first. Pre-flight and exact steps: `resources/halt-resume.md` §run-resume.
 
 ## ICE (Intrusion Countermeasures Electronics)
 
-All git operations MUST go through ICE wrapper:
+All git operations MUST go through the ICE wrapper: `.claude/scripts/run-mode-ice.sh <command> [args]`.
 
-```bash
-.claude/scripts/run-mode-ice.sh <command> [args]
-```
+ICE enforces: never push to protected branches (main, master, staging, etc.); never merge (blocked
+entirely); never delete branches (blocked); always create draft PRs (never ready for review).
 
-ICE enforces:
-- **Never push to protected branches** (main, master, staging, etc.)
-- **Never merge** (merge is blocked entirely)
-- **Never delete branches** (deletion is blocked)
-- **Always create draft PRs** (never ready for review)
+Subcommands used by this skill: `validate`, `ensure-branch`, `checkout`, `push`, `push-upstream`,
+`should-push [local|prompt]`, `pr-create`.
 
-## State Files
+## State Files Reference
 
-All state in `.run/` directory:
+All state in `.run/`:
 
 | File | Purpose |
 |------|---------|
@@ -277,147 +255,10 @@ All state in `.run/` directory:
 | `deleted-files.log` | Tracked deletions for PR |
 | `rate-limit.json` | API call tracking |
 
-### Sprint Plan State (`sprint-plan-state.json`)
-
-When running `/run sprint-plan`, track multi-sprint progress:
-
-```json
-{
-  "plan_id": "plan-20260128-abc123",
-  "target": "sprint-plan",
-  "state": "RUNNING",
-  "sprints": {
-    "total": 4,
-    "completed": 2,
-    "current": "sprint-3",
-    "list": [
-      {"id": "sprint-1", "status": "completed", "cycles": 2},
-      {"id": "sprint-2", "status": "completed", "cycles": 3},
-      {"id": "sprint-3", "status": "in_progress", "cycles": 1},
-      {"id": "sprint-4", "status": "pending"}
-    ]
-  },
-  "options": {
-    "from": 1,
-    "to": 4,
-    "max_cycles": 20
-  },
-  "metrics": {
-    "total_cycles": 6,
-    "total_files_changed": 45
-  }
-}
-```
-
-## Commands
-
-### /run sprint-N
-
-Execute single sprint autonomously.
-
-```
-/run sprint-1
-/run sprint-1 --max-cycles 10 --timeout 4
-/run sprint-1 --branch feature/my-branch
-/run sprint-1 --dry-run
-/run sprint-1 --local
-/run sprint-1 --confirm-push
-```
-
-#### Local Mode (`--local`)
-
-Keeps all changes on your local machine:
-- Implementation runs normally (commits created)
-- No push to remote repository
-- No pull request created
-- Work stays on local feature branch
-
-**Use when:** Experimenting, not ready to share, or want manual control.
-
-#### Confirm Push (`--confirm-push`)
-
-Prompts before any remote operations:
-- Implementation runs normally
-- Before push, shows summary of changes
-- You choose: push + PR, or keep local
-- Gives you a checkpoint to review before sharing
-
-**Use when:** You want to review changes before teammates see them.
-
-#### Configuration Default
-
-Set default behavior in `.loa.config.yaml`:
-
-```yaml
-run_mode:
-  git:
-    auto_push: true    # true | false | prompt
-```
-
-| Setting | Behavior |
-|---------|----------|
-| `true` | Push and create PR automatically (default) |
-| `false` | Never auto-push (like always using `--local`) |
-| `prompt` | Always ask before push (like always using `--confirm-push`) |
-
-**Priority:** `--local` flag > `--confirm-push` flag > config setting > default (`true`)
-
-### /run sprint-plan
-
-Execute all sprints in sequence with consolidated PR (default).
-
-```
-/run sprint-plan                      # Consolidated PR at end (recommended)
-/run sprint-plan --from 2 --to 4      # Execute sprints 2-4 only
-/run sprint-plan --no-consolidate     # Legacy: separate PR per sprint
-```
-
-**Output**: Single draft PR containing all sprint changes with per-sprint breakdown.
-
-### /run-status
-
-Display current progress.
-
-```
-/run-status
-/run-status --json
-/run-status --verbose
-```
-
-### /run-halt
-
-Gracefully stop execution.
-
-```
-/run-halt
-/run-halt --force
-/run-halt --reason "Need to review approach"
-```
-
-### /run-resume
-
-Continue from checkpoint.
-
-```
-/run-resume
-/run-resume --reset-ice
-/run-resume --force
-```
-
-## Rate Limiting
-
-Tracks API calls per hour to prevent exhaustion:
-
-- Counter resets at hour boundary
-- Waits for next hour when limit reached
-- Default limit: 100 calls/hour
-- Configurable via `run_mode.rate_limiting.calls_per_hour`
-
 ## Bug Run Mode (`/run --bug`)
 
-Autonomous bug fixing with triage → implement → review → audit cycle.
-
-### Commands
+Autonomous bug fixing — triage, then the same implement → review → audit cycle as above, scoped to a `sprint-bug-{N}` micro-sprint with tighter circuit-breaker limits and a
+confidence-annotated draft PR:
 
 ```
 /run --bug "Login fails when email contains + character"
@@ -425,269 +266,30 @@ Autonomous bug fixing with triage → implement → review → audit cycle.
 /run --bug "description" --allow-high
 ```
 
-### Bug Run Loop
-
-```
-/run --bug "description"
-       │
-       ▼
-  ┌─────────────┐
-  │  TRIAGE     │  Invoke bug-triaging skill
-  │             │  Output: triage.md, micro-sprint
-  └──────┬──────┘
-         │
-         ▼
-  ┌─────────────┐
-  │  IMPLEMENT  │  /implement sprint-bug-{N}
-  │             │  Test-first: write test → fix → verify
-  └──────┬──────┘
-         │
-         ▼
-  ┌─────────────┐
-  │  REVIEW     │  /review-sprint sprint-bug-{N}
-  │             │  If findings → back to IMPLEMENT
-  └──────┬──────┘
-         │
-         ▼
-  ┌─────────────┐
-  │   AUDIT     │  /audit-sprint sprint-bug-{N}
-  │             │  If findings → back to IMPLEMENT
-  └──────┬──────┘
-         │
-         ▼
-  ┌─────────────┐
-  │  COMPLETE   │  COMPLETED marker + draft PR
-  └─────────────┘
-```
-
-### Bug Run Execution
-
-1. **Pre-flight**: Same as standard run (config check, ICE, permissions)
-2. **Branch**: Create `bugfix/{bug_id}` branch via ICE
-3. **Triage**: Invoke `/bug` skill with description or `--from-issue N`
-   - If `--from-issue`: pass issue number to bug-triaging skill
-   - Skill produces `triage.md` and micro-sprint in `grimoires/loa/a2a/bug-{id}/`
-4. **High-Risk Check**: Read `risk_level` from bug state
-   - If `risk_level: high` AND `--allow-high` not set → **HALT**
-   - Message: "High-risk area detected (auth/payment/migration). Use --allow-high to proceed."
-5. **Implementation Loop**: Same as standard run but with bug-scoped circuit breaker
-   - `/implement sprint-bug-{N}`
-   - Commit changes, track deletions
-   - `/review-sprint sprint-bug-{N}`
-   - If findings → continue loop
-   - `/audit-sprint sprint-bug-{N}`
-   - If findings → continue loop
-   - If COMPLETED → break
-6. **Completion**: Draft PR with confidence signals (see below)
-
-### Bug-Scoped Circuit Breaker
-
-Tighter limits than standard run (bug scope is smaller):
-
-| Trigger | Limit | Rationale |
-|---------|-------|-----------|
-| Same Issue | 3 cycles | Bug fix shouldn't need >3 review cycles |
-| No Progress | 5 cycles | If no file changes, bug may be misdiagnosed |
-| Cycle Limit | 10 total | Reduced from 20 (smaller scope) |
-| Timeout | 2 hours | Reduced from 8 (smaller scope) |
-
-Circuit breaker state stored in `.run/bugs/{bug_id}/circuit-breaker.json` (namespaced per bug).
-
-### Bug State File
-
-Per-bug namespaced state in `.run/bugs/{bug_id}/state.json`:
-
-```json
-{
-  "schema_version": 1,
-  "bug_id": "20260211-a3f2b1",
-  "bug_title": "Login fails with + in email",
-  "sprint_id": "sprint-bug-3",
-  "state": "IMPLEMENTING",
-  "mode": "autonomous",
-  "created_at": "2026-02-11T10:00:00Z",
-  "updated_at": "2026-02-11T10:30:00Z",
-  "circuit_breaker": {
-    "cycle_count": 1,
-    "same_issue_count": 0,
-    "no_progress_count": 0,
-    "last_finding_hash": null
-  },
-  "confidence": {
-    "reproduction_strength": "strong",
-    "test_type": "unit",
-    "risk_level": "low",
-    "files_changed": 3,
-    "lines_changed": 42
-  }
-}
-```
-
-**Allowed State Transitions:**
-```
-TRIAGE → IMPLEMENTING       (triage complete)
-IMPLEMENTING → REVIEWING    (implementation complete)
-REVIEWING → IMPLEMENTING    (review found issues)
-REVIEWING → AUDITING        (review passed)
-AUDITING → IMPLEMENTING     (audit found issues)
-AUDITING → COMPLETED        (audit passed)
-ANY → HALTED                (circuit breaker or manual halt)
-```
-
-Invalid transitions must be rejected with an error.
-
-### Bug PR Creation (Confidence Signals)
-
-On completion, create draft PR via ICE with confidence signals:
-
-```
-## Bug Fix: {bug_title}
-
-**Bug ID**: {bug_id}
-**Source**: /run --bug
-
-### Confidence Signals
-- Reproduction: {strong/weak/manual_only}
-- Test type: {unit/integration/e2e/contract}
-- Files changed: {N}
-- Lines changed: {N}
-- Risk level: {low/medium/high}
-
-### Artifacts
-- Triage: grimoires/loa/a2a/bug-{id}/triage.md
-- Review: grimoires/loa/a2a/bug-{id}/reviewer.md
-- Audit: grimoires/loa/a2a/bug-{id}/auditor-sprint-feedback.md
-
-### Status: READY FOR HUMAN REVIEW
-This PR was created by `/run --bug` autonomous mode.
-Please review before merging.
-```
-
-**CRITICAL**: Bug PRs are ALWAYS draft. Never auto-merged. Human approval required.
-
-### High-Risk Area Detection
-
-Suspected files are checked against high-risk patterns during triage (Phase 3):
-
-```
-auth, authentication, login, password, token, jwt, oauth
-payment, billing, charge, stripe, checkout
-migration, schema, database, db
-encrypt, decrypt, secret, credential, key
-```
-
-| Mode | Risk Level | Behavior |
-|------|-----------|----------|
-| Interactive | high | WARN: display risk, ask confirmation |
-| Autonomous | high (no --allow-high) | **HALT**: require --allow-high flag |
-| Autonomous | high (--allow-high) | Proceed with risk_level: high in PR |
-| Any | low/medium | Proceed normally |
-
-## Deleted Files Tracking
-
-All deletions logged to `.run/deleted-files.log`:
-
-```
-file_path|sprint|cycle
-```
-
-PR body includes prominent tree view:
-
-```
-## 🗑️ DELETED FILES - REVIEW CAREFULLY
-
-**Total: 5 files deleted**
-
-src/legacy/
-└── old-component.ts (sprint-1, cycle 2)
-```
+Triage flags high-risk areas (auth, payment, migration, secrets, and related keywords);
+autonomous mode halts on a `high` finding unless `--allow-high` is passed. Full loop, state
+schema, and PR template: `resources/bug-run-mode.md`.
 
 ## Safety Model
 
-**4-Level Defense in Depth:**
-
-1. **ICE Layer**: Git operations wrapped with safety checks
-2. **Circuit Breaker**: Automatic halt on repeated failures
-3. **Opt-In**: Requires explicit `run_mode.enabled: true`
-4. **Visibility**: Draft PRs, deleted file tracking, metrics
-
-**Human in the Loop:**
-- Shifted from phase checkpoints to PR review
-- All work visible in draft PR
-- Deleted files prominently displayed
-- Clear audit trail in cycle history
+Defense in depth: ICE-wrapped git, the circuit breaker, explicit opt-in (`run_mode.enabled: true`),
+and visibility (draft PRs, deleted-file tracking, cycle history). The human checkpoint is PR review,
+not phase gates.
 
 ## Configuration
 
-```yaml
-run_mode:
-  enabled: true
-  defaults:
-    max_cycles: 20
-    timeout_hours: 8
-  rate_limiting:
-    calls_per_hour: 100
-  circuit_breaker:
-    same_issue_threshold: 3
-    no_progress_threshold: 5
-  git:
-    branch_prefix: "feature/"
-    create_draft_pr: true
-    # Git-aware sync fallback (Issue #474, cycle-056)
-    base_branch: "main"                     # Branch to diff against
-    sprint_commit_pattern: '^feat\(sprint-' # grep -E pattern for sprint commits
-```
+→ verbatim block: `resources/state-schemas.md` §configuration-yaml
 
 ## Error Recovery
 
-On any error:
-1. State preserved in `.run/`
-2. Use `/run-status` to see current state
-3. Use `/run-resume` to continue
-4. Use `/run-resume --reset-ice` if circuit breaker tripped
-5. Clean up with `rm -rf .run/` to start fresh
+On any error: state is preserved in `.run/`. Use `/run-status` to see current state, `/run-resume`
+to continue, `/run-resume --reset-ice` if the circuit breaker tripped, or `rm -rf .run/` to start
+fresh.
 
-### Git-Aware State Sync (cycle-056, Issue #474)
+### Git-Aware State Sync
 
-When context compaction or session loss leaves `.run/sprint-plan-state.json`
-stuck at `state: "RUNNING"` with `0` completed sprints — even though git
-history shows all sprint commits already landed — `simstim-orchestrator.sh
---sync-run-mode` now cross-references git as a secondary source of truth
-before returning `still_running`.
+→ verbatim block: `resources/state-schemas.md` §git-aware-state-sync (recovery for RUNNING-but-actually-done sprint-plan state via `simstim-orchestrator.sh --sync-run-mode`)
 
-**When the fallback fires** (all three conditions must hold):
+## Provenance
 
-1. `sprint-plan-state.json` shows `state: "RUNNING"` (the normal trigger)
-2. `sprints.total` (or `sprints.list` length) resolves to a positive integer
-3. `git log ${base_branch}..HEAD` shows at least `sprints.total` commits
-   matching `run_mode.git.sprint_commit_pattern`
-
-When satisfied, the fallback:
-
-- Updates `.run/sprint-plan-state.json` to `state: "JACKED_OUT"` with
-  `git_inferred: true` and an ISO-8601 `git_inferred_at` timestamp
-- Returns `{ "synced": true, "reason": "git_inferred_completion",
-  "commits_found": N, "commits_expected": M, "base_branch": "main" }`
-
-**When the fallback does NOT fire**:
-
-- In-flight runs with no commits yet → existing `still_running` preserved
-- Partial runs (`commits_found < commits_expected`) → existing `still_running` preserved
-- State field already shows `JACKED_OUT`/`HALTED` → existing validation flow (not the RUNNING branch)
-
-**Configuration** (under `run_mode.git`):
-
-| Setting | Default | Purpose |
-|---------|---------|---------|
-| `base_branch` | `"main"` | Branch to diff against |
-| `sprint_commit_pattern` | `'^feat\(sprint-'` | `grep -E` pattern. Override if your project uses a different convention. |
-
-**Known limitation**: counts matching commits, so a sprint that produced
-multiple matching commits (e.g., review-feedback fix commits with the same
-prefix) can cause early satisfaction. Empirically rare — squash-merge
-workflows produce one commit per sprint. Consider using beads
-(`br list --status closed`) as an authoritative alternative in a future
-enhancement if this becomes a problem.
-
-Replaces the previous requirement to use `--force-phase complete --yes` as
-a last-resort escape hatch after session loss.
+Guardrail orchestration originates from cycle-119; git-aware state sync from cycle-056 (#474).

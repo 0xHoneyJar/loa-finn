@@ -1,334 +1,95 @@
 # Karpathy Principles Protocol
 
-> **Version**: 1.0 (v1.8.0)
+> **Version**: 3.0 — this protocol holds the full principle text; `.claude/loa/CLAUDE.loa.md` carries a ~700-byte kernel (four names, the ladder, the never-simplify-away floor, the `loa:shortcut:` marker, `simplicity_intensity`) and points here.
 > **Source**: [Andrej Karpathy's LLM Coding Guidelines](https://github.com/forrestchang/andrej-karpathy-skills)
-> **Purpose**: Counter common LLM coding pitfalls with structured behavioral principles
 
----
+## Enforcement map
 
-## Overview
+| Principle | Mechanism | Where |
+|-----------|-----------|-------|
+| 1 Think Before Coding | judgment + `AskUserQuestion` (prose-only) | the principle text below |
+| 2 Simplicity First | `simplicity_intensity` config + audit-gate floor (C-PROC-011) | `.loa.config.yaml.example` `karpathy_principles:` block (~:2795) |
+| 3 Surgical Changes | PostToolUse:Write\|Edit diff-size hook, warn-by-default | `.claude/hooks/quality/karpathy-surgical-diff-check.sh` (`surgical_diff_warning`, `diff_lines_per_task`) |
+| 4 Goal-Driven | success-criteria gate at /implement entry | `implementing-tasks/SKILL.md` `<karpathy_goal_driven_gate>` (`require_success_criteria`) |
 
-This protocol codifies Andrej Karpathy's observations about common LLM coding failures:
+Trajectory events: `grimoires/loa/a2a/trajectory/karpathy-{date}.jsonl` (schema `.claude/data/trajectory-schemas/karpathy-check.payload.schema.json`).
 
-1. **Unjustified assumptions** - Making wrong assumptions without verification
-2. **Overcomplicated solutions** - Bloating code with unnecessary abstractions
-3. **Unintended side effects** - Modifying unrelated code unnecessarily
+Config keys: `.loa.config.yaml.example` `karpathy_principles:` — `surface_assumptions`, `simplicity_intensity` (full | ultra; no advise-only level), `surgical_diff_warning`, `diff_lines_per_task` (default 100), `require_success_criteria`, plus v2-reserved keys.
 
-Loa already addresses these through grounding enforcement and factual citation requirements. This protocol adds explicit behavioral guidelines at the skill level.
+Enforcement history/runbook: `grimoires/loa/runbooks/karpathy-enforcement.md`.
 
----
+## Principles (full text)
 
-## The Four Core Principles
+Applies on every code-touching turn, not just `/implement`. The kernel in `CLAUDE.loa.md` is a summary of this section; the floor in principle 2 is never softened.
+
+Adapted from [Andrej Karpathy's LLM coding observations](https://x.com/karpathy/status/2015883857489522876).
+Mechanical agent hygiene: `.claude/protocols/agent-ergonomics.md`.
 
 ### 1. Think Before Coding
 
-**Problem**: LLMs make assumptions and proceed without clarification.
-
-**Principle**: Surface assumptions explicitly. When multiple interpretations exist, present them rather than choosing silently.
-
-**Implementation in Loa**:
-
-```markdown
-BEFORE implementing, ASK:
-- What am I assuming about the user's intent?
-- Are there multiple valid interpretations?
-- What clarifying questions would help?
-
-IF uncertain about scope:
-  → Present options with tradeoffs
-  → Let user choose
-
-IF requirements seem incomplete:
-  → Ask for missing information
-  → Don't infer beyond what's stated
-```
-
-**Integration Points**:
-- `<uncertainty_protocol>` in skill KERNEL
-- AskUserQuestion tool for clarification
-- Factual grounding requirement for all claims
-
----
+Surface assumptions explicitly. When multiple interpretations exist, present
+them rather than choosing silently. When requirements are unclear, ask before
+implementing — in interactive sessions via `AskUserQuestion`; in unattended
+runs (Run Mode state RUNNING), record the open question and your chosen
+interpretation in NOTES.md Decision Log and proceed on the documented
+assumption instead of halting to ask.
 
 ### 2. Simplicity First
 
-**Problem**: LLMs overcomplicate code with speculative features and premature abstractions.
+Write the minimum code that solves the request — nothing speculative: no unasked features, no single-use abstractions, no unrequested "flexibility" or "configurability", no error handling for impossible scenarios. If 200 lines could be 50, rewrite simpler. The test: would a senior engineer call this overcomplicated?
 
-**Principle**: Write minimal code solving only what was requested. No features beyond what was asked.
+Before writing code, walk the ladder — stop at the first rung that holds:
+1. Does this need to be built at all? (YAGNI — speculative need: say so and skip)
+2. Does the standard library already do it? Use it.
+3. Does a native platform feature cover it? Use it.
+4. Does an already-installed dependency solve it? Use it. (Never add one for a few lines.)
+5. Can it be one line? Make it one line.
+6. Only then: write the minimum code that works.
 
-**Implementation in Loa**:
+The ladder is a reflex, not a research project — the first lazy solution that
+works is the right one.
 
-```markdown
-IMPLEMENT only what was requested:
-- No speculative features
-- No "just in case" error handling
-- No abstractions for single-use code
-- No configurability unless asked
+Two stdlib options the same size? Take the edge-case-correct one — lazy means
+less code, not the flimsier algorithm. Deletion over addition, boring over
+clever, fewest files, shortest working diff.
 
-SIMPLICITY CHECK:
-- Could this be 50 lines instead of 200?
-- Am I adding complexity for hypothetical futures?
-- Is this abstraction earning its keep?
+Never simplify away: input validation at trust boundaries, error handling that
+prevents data loss, security, accessibility, real-hardware calibration, and
+anything explicitly requested. Lazy means efficient, not careless (the audit
+gate enforces this floor). When the user asks for the full version, build it —
+don't re-argue.
 
-IF code is longer than necessary:
-  → Rewrite simpler
-  → Delete speculative additions
-```
+**Output discipline**: code first, then at most three lines — what you skipped
+and when to add it (`[code] → skipped: X, add when Y`). An explanation longer
+than the code is complexity smuggled back as prose; cut it. Reports,
+walkthroughs, or per-phase notes the user explicitly asked for are exempt —
+give those in full.
 
-**Metrics**:
-| Smell | Action |
-|-------|--------|
-| Single-use abstraction | Inline it |
-| Unused parameters | Remove them |
-| "Extensibility" hooks | Delete unless requested |
-| Generic interfaces for specific use | Simplify to concrete |
-
----
+**Intensity** (`simplicity_intensity`, default `full`): `full` enforces the
+ladder — stdlib and native first, shortest diff. `ultra` is deletion-first —
+challenge whether the requirement should shrink before building; ship the
+one-liner and question the rest of the requirement in the same response. There
+is no advise-only level — the floor above is never softened.
 
 ### 3. Surgical Changes
 
-**Problem**: LLMs modify adjacent code they weren't asked to change.
+Touch only what the request requires: match existing style (even if you'd do it differently), never "improve" adjacent code, comments, or formatting, don't refactor the unbroken, remove only imports/variables YOUR change orphaned, and leave pre-existing dead code alone (mention it separately). Every changed line traces to the request — "while I'm here" changes go in the PR description, not the diff.
 
-**Principle**: Only modify what the request requires. Preserve existing style even if you'd do it differently.
-
-**Implementation in Loa**:
-
-```markdown
-WHEN editing existing code:
-- Match existing style (even if imperfect)
-- Don't "improve" adjacent code
-- Don't reformat unrelated sections
-- Don't add comments to unchanged code
-- Don't change variable names without reason
-
-SURGICAL DIFF RULES:
-- Only touch lines necessary for the task
-- Remove only imports/variables YOUR changes made unused
-- Don't clean up pre-existing dead code
-- Leave existing comments alone
-
-DIFF REVIEW:
-- Every changed line should relate to the request
-- No "while I'm here" changes
-- If you see issues elsewhere, note them separately
-```
-
-**Verification**:
-```bash
-# Check diff size vs. scope
-git diff --stat
-# Large diff for small task = SMELL
-```
-
----
+Mark deliberate simplifications in-code so they read as intent, not ignorance:
+`// loa:shortcut: <what>`. When the shortcut has a known ceiling, name both the
+ceiling and the upgrade trigger — `# loa:shortcut: global lock; per-account
+locks if throughput matters`. A marker that names a ceiling with no upgrade
+trigger rots silently — don't leave one.
 
 ### 4. Goal-Driven Execution
 
-**Problem**: Imperative instructions lead to meandering implementations.
+Transform tasks into verifiable goals before starting — "add validation" → "write tests for invalid inputs, then make them pass"; "fix the bug" → "write a failing repro test first, then make it pass"; "refactor X" → "tests green before AND after (behavior preserved)". Multi-step work states the plan + per-step verification up front; vague criteria ("make it robust") become concrete checks ("returns 401 on invalid creds").
 
-**Principle**: Transform tasks into verifiable goals with clear success criteria.
+Non-trivial logic (a branch, loop, parser, money or security path) MUST leave at
+least one runnable check that fails if the logic breaks — satisfied by the
+sprint's acceptance-criteria tests. Trivial one-liners need no test (YAGNI
+applies to tests too) — but never skip the check on logic that can break.
 
-**Implementation in Loa**:
+## Provenance
 
-```markdown
-BEFORE starting:
-1. Restate the goal as verifiable criteria
-2. Define what "done" looks like
-3. Identify how to verify success
-
-GOAL FORMAT:
-- WHAT: [concrete deliverable]
-- VERIFY: [how to confirm it works]
-- EVIDENCE: [specific output/behavior]
-
-EXAMPLE:
-- WHAT: Add rate limiting to /api/login
-- VERIFY: Returns 429 after 5 attempts in 60 seconds
-- EVIDENCE: Test passes: `npm test -- rate-limit.test.ts`
-```
-
-**Integration with EDD**:
-- Maps to Evaluation-Driven Development
-- min_test_scenarios enforces verification
-- Acceptance criteria must be testable
-
----
-
-## Skill Integration
-
-### Embedding in SKILL.md
-
-Add to each skill's `<constraints>` section:
-
-```xml
-<karpathy_principles>
-## Karpathy Principles (MANDATORY)
-
-1. **Think Before Coding**: Surface assumptions, ask clarifying questions
-2. **Simplicity First**: No speculative features, no premature abstractions
-3. **Surgical Changes**: Only modify what's requested, preserve existing style
-4. **Goal-Driven**: Define verifiable success criteria before starting
-</karpathy_principles>
-```
-
-### Pre-Implementation Checklist
-
-Before writing code, verify:
-
-```markdown
-## Karpathy Pre-Implementation Check
-
-- [ ] **Assumptions surfaced**: Listed all assumptions in reasoning
-- [ ] **Clarifications sought**: Asked about ambiguities
-- [ ] **Scope minimal**: No features beyond request
-- [ ] **Success defined**: Clear verification criteria
-- [ ] **Style matched**: Will preserve existing conventions
-```
-
----
-
-## Anti-Patterns to Avoid
-
-### 1. Silent Assumption Making
-
-```
-BAD:
-User: "Add authentication"
-LLM: *Implements OAuth2 with JWT, refresh tokens, and 2FA*
-
-GOOD:
-User: "Add authentication"
-LLM: "What type of authentication? Options:
-      1. Simple API key
-      2. JWT tokens
-      3. OAuth2 with refresh tokens
-      4. Full OAuth2 + 2FA
-      Which fits your needs?"
-```
-
-### 2. Speculative Complexity
-
-```
-BAD:
-User: "Add a config for the API URL"
-LLM: *Creates ConfigManager class with validation, caching,
-      environment detection, and hot-reload support*
-
-GOOD:
-User: "Add a config for the API URL"
-LLM: *Adds single environment variable read*
-     const API_URL = process.env.API_URL || 'http://localhost:3000'
-```
-
-### 3. Drive-By Improvements
-
-```
-BAD:
-User: "Fix the null check on line 45"
-LLM: *Fixes line 45, also reformats function, adds types,
-      updates comments, and renames variables*
-
-GOOD:
-User: "Fix the null check on line 45"
-LLM: *Changes only line 45*
-     (Notes separately: "I noticed other potential improvements
-      in this file. Want me to list them?")
-```
-
-### 4. Vague Success Criteria
-
-```
-BAD:
-"I'll implement a robust authentication system"
-
-GOOD:
-"Success criteria:
- 1. POST /login returns JWT on valid credentials
- 2. Invalid credentials return 401
- 3. Protected routes reject requests without valid JWT
- 4. Tests verify all three behaviors"
-```
-
----
-
-## Relationship to Existing Protocols
-
-| Karpathy Principle | Loa Protocol | Enhancement |
-|-------------------|--------------|-------------|
-| Think Before Coding | `<uncertainty_protocol>` | Add assumption surfacing |
-| Simplicity First | None explicit | NEW - add complexity checks |
-| Surgical Changes | Change Validation | Add diff scope validation |
-| Goal-Driven | EDD Verification | Already aligned |
-
-### Integration Points
-
-1. **Grounding Enforcement** already requires factual citations - aligns with "Think Before Coding"
-2. **EDD Verification** already requires test scenarios - aligns with "Goal-Driven"
-3. **Change Validation** already checks file references - extend for diff scope
-
----
-
-## Configuration
-
-Add to `.loa.config.yaml`:
-
-```yaml
-# Karpathy Principles (v1.8.0)
-karpathy_principles:
-  # Enable explicit assumption surfacing
-  surface_assumptions: true
-
-  # Warn on large diffs for small tasks
-  surgical_diff_warning: true
-  diff_lines_per_task: 50  # Warn if exceeded
-
-  # Complexity checks
-  simplicity_check: true
-  max_abstraction_depth: 2  # Warn on deeper nesting
-
-  # Require success criteria before implementation
-  require_success_criteria: true
-```
-
----
-
-## Verification
-
-### Trajectory Logging
-
-Log principle adherence:
-
-```jsonl
-{"phase":"karpathy_check","principle":"think_before_coding","assumptions_surfaced":3,"clarifications_asked":1}
-{"phase":"karpathy_check","principle":"simplicity_first","lines_added":47,"abstractions_created":0}
-{"phase":"karpathy_check","principle":"surgical_changes","files_modified":2,"unrelated_changes":0}
-{"phase":"karpathy_check","principle":"goal_driven","success_criteria":["test passes","returns 200"]}
-```
-
-### Reviewer Checklist
-
-Add to reviewer.md template:
-
-```markdown
-## Karpathy Principles Verification
-
-- [ ] No silent assumptions (all documented in reasoning)
-- [ ] No speculative features (only what was requested)
-- [ ] No unrelated changes (diff matches task scope)
-- [ ] Clear success criteria (testable and verified)
-```
-
----
-
-## Related Protocols
-
-- [Grounding Enforcement](grounding-enforcement.md) - Factual citation requirements
-- [EDD Verification](edd-verification.md) - Test-driven verification
-- [Change Validation](change-validation.md) - Pre-implementation validation
-- [Uncertainty Protocol](../skills/implementing-tasks/SKILL.md) - Clarification behavior
-
----
-
-**Protocol Version**: 1.0
-**Last Updated**: 2026-01-28
-**Source**: Andrej Karpathy via forrestchang/andrej-karpathy-skills
+<!-- provenance: text moved here from CLAUDE.loa.md in cycle-124 (FR-8); v2 gutting cycle-121 (#1074 dual-maintenance); enforcement hooks PRs #960/#961 -->

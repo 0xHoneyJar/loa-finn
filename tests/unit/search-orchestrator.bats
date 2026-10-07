@@ -9,7 +9,7 @@ setup() {
 
     # Create test directory structure
     mkdir -p "${TEST_TMPDIR}/src"
-    mkdir -p "${TEST_TMPDIR}/loa-grimoire/a2a/trajectory"
+    mkdir -p "${TEST_TMPDIR}/grimoires/loa/a2a/trajectory"
     mkdir -p "${TEST_TMPDIR}/.claude/scripts"
 
     # Create test files
@@ -54,8 +54,8 @@ teardown() {
     run "${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh" "semantic" "test query" "src/"
 
     # Check if grep mode was selected (verify by checking trajectory log)
-    if [ -f "${TEST_TMPDIR}/loa-grimoire/a2a/trajectory/$(date +%Y-%m-%d).jsonl" ]; then
-        run grep '"mode":"grep"' "${TEST_TMPDIR}/loa-grimoire/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
+    if [ -f "${TEST_TMPDIR}/grimoires/loa/a2a/trajectory/$(date +%Y-%m-%d).jsonl" ]; then
+        run grep '"mode":"grep"' "${TEST_TMPDIR}/grimoires/loa/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
         [ "$status" -eq 0 ]
     fi
 }
@@ -105,8 +105,8 @@ teardown() {
     run "${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh" "semantic" "test" "src/"
 
     # Check trajectory log has absolute path
-    if [ -f "${TEST_TMPDIR}/loa-grimoire/a2a/trajectory/$(date +%Y-%m-%d).jsonl" ]; then
-        run grep '"path":"'"${TEST_TMPDIR}"'/src/"' "${TEST_TMPDIR}/loa-grimoire/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
+    if [ -f "${TEST_TMPDIR}/grimoires/loa/a2a/trajectory/$(date +%Y-%m-%d).jsonl" ]; then
+        run grep '"path":"'"${TEST_TMPDIR}"'/src/"' "${TEST_TMPDIR}/grimoires/loa/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
         [ "$status" -eq 0 ]
     fi
 }
@@ -122,7 +122,7 @@ teardown() {
     run "${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh" "semantic" "authentication" "src/" 20 0.4
 
     # Check trajectory file exists
-    trajectory_file="${TEST_TMPDIR}/loa-grimoire/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
+    trajectory_file="${TEST_TMPDIR}/grimoires/loa/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
     [ -f "$trajectory_file" ]
 
     # Check trajectory contains intent phase
@@ -139,7 +139,7 @@ teardown() {
 
     run "${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh" "hybrid" "test query" "src/"
 
-    trajectory_file="${TEST_TMPDIR}/loa-grimoire/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
+    trajectory_file="${TEST_TMPDIR}/grimoires/loa/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
     if [ -f "$trajectory_file" ]; then
         run grep '"search_type":"hybrid"' "$trajectory_file"
         [ "$status" -eq 0 ]
@@ -152,7 +152,7 @@ teardown() {
     export LOA_SEARCH_MODE="grep"
     run "${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh" "semantic" "test" "src/"
 
-    trajectory_file="${TEST_TMPDIR}/loa-grimoire/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
+    trajectory_file="${TEST_TMPDIR}/grimoires/loa/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
     if [ -f "$trajectory_file" ]; then
         run grep '"mode":"grep"' "$trajectory_file"
         [ "$status" -eq 0 ]
@@ -161,11 +161,11 @@ teardown() {
 
 @test "search-orchestrator creates trajectory directory if missing" {
     cd "${TEST_TMPDIR}"
-    rm -rf "${TEST_TMPDIR}/loa-grimoire/a2a/trajectory"
+    rm -rf "${TEST_TMPDIR}/grimoires/loa/a2a/trajectory"
 
     run "${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh" "semantic" "test" "src/"
 
-    [ -d "${TEST_TMPDIR}/loa-grimoire/a2a/trajectory" ]
+    [ -d "${TEST_TMPDIR}/grimoires/loa/a2a/trajectory" ]
 }
 
 # =============================================================================
@@ -178,12 +178,17 @@ teardown() {
     export LOA_SEARCH_MODE="grep"
     output=$(${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh "regex" "function" "src/")
 
-    # Check each line is valid JSON
+    # Check each line is valid JSON. Skip blank lines — JSONL records are
+    # non-empty, and `jq -e` on an empty line exits 4 ("no output"). Use a
+    # here-string (not a pipe) so the loop runs in the test shell and a failed
+    # assertion actually fails the test.
     if [ -n "$output" ]; then
-        echo "$output" | while IFS= read -r line; do
-            run echo "$line" | jq -e .
-            [ "$status" -eq 0 ]
-        done
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo "$line" | jq -e . >/dev/null || {
+                echo "invalid JSON line: $line"; return 1;
+            }
+        done <<< "$output"
     fi
 }
 
@@ -194,20 +199,16 @@ teardown() {
     output=$(${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh "regex" "validateToken" "src/")
 
     if [ -n "$output" ]; then
-        # Check first result has required fields
-        first_line=$(echo "$output" | head -1)
+        # Check first result has required fields (first NON-blank line — a
+        # leading/trailing blank line would otherwise feed empty input to jq).
+        first_line=$(echo "$output" | grep -m1 .)
 
-        # Check for file field
-        run echo "$first_line" | jq -e '.file'
-        [ "$status" -eq 0 ]
-
-        # Check for line field
-        run echo "$first_line" | jq -e '.line'
-        [ "$status" -eq 0 ]
-
-        # Check for snippet field
-        run echo "$first_line" | jq -e '.snippet'
-        [ "$status" -eq 0 ]
+        # `run cmd | jq` is broken: run swallows cmd's stdout, so jq reads empty
+        # input and `jq -e` exits 4. Pipe into jq directly instead and let a
+        # missing field fail the test via jq -e's non-zero exit.
+        echo "$first_line" | jq -e '.file'    >/dev/null
+        echo "$first_line" | jq -e '.line'    >/dev/null
+        echo "$first_line" | jq -e '.snippet' >/dev/null
     fi
 }
 
@@ -259,8 +260,12 @@ teardown() {
 
     run "${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh" "semantic" "test" "/nonexistent/path/"
 
-    # Should not crash, may return empty results
-    [ "$status" -eq 0 ] || [ "$status" -eq 127 ]
+    # Preflight security check rejects paths outside PROJECT_ROOT with exit 1.
+    # Out-of-scope paths are a valid rejection target (no traversal outside
+    # the project). Alternatively, if preflight is loose, no-op exit 0 is
+    # also acceptable. Exit 127 (command-not-found) was intentionally
+    # dropped — a missing tool is a real regression, not an acceptable state.
+    [ "$status" -eq 0 ] || [ "$status" -eq 1 ]
 }
 
 @test "search-orchestrator calls preflight check before search" {
@@ -285,7 +290,7 @@ teardown() {
     run "${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh" "semantic" "test" "src/" 50
 
     # Check trajectory log has top_k=50
-    trajectory_file="${TEST_TMPDIR}/loa-grimoire/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
+    trajectory_file="${TEST_TMPDIR}/grimoires/loa/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
     if [ -f "$trajectory_file" ]; then
         run grep '"top_k":50' "$trajectory_file"
         [ "$status" -eq 0 ]
@@ -298,7 +303,7 @@ teardown() {
     run "${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh" "semantic" "test" "src/" 20 0.7
 
     # Check trajectory log has threshold=0.7
-    trajectory_file="${TEST_TMPDIR}/loa-grimoire/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
+    trajectory_file="${TEST_TMPDIR}/grimoires/loa/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
     if [ -f "$trajectory_file" ]; then
         run grep '"threshold":0.7' "$trajectory_file"
         [ "$status" -eq 0 ]
@@ -311,7 +316,7 @@ teardown() {
     run "${PROJECT_ROOT}/.claude/scripts/search-orchestrator.sh" "semantic" "test"
 
     # Check trajectory log has defaults (top_k=20, threshold=0.4)
-    trajectory_file="${TEST_TMPDIR}/loa-grimoire/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
+    trajectory_file="${TEST_TMPDIR}/grimoires/loa/a2a/trajectory/$(date +%Y-%m-%d).jsonl"
     if [ -f "$trajectory_file" ]; then
         run grep '"top_k":20' "$trajectory_file"
         [ "$status" -eq 0 ]

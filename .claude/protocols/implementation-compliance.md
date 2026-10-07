@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Pre-implementation checklist ensuring all prerequisites are met before writing application code. This protocol is referenced by CLAUDE.loa.md, simstim-workflow, autonomous-agent, and implementing-tasks skills.
+Pre-implementation checklist ensuring all prerequisites are met before writing application code.
 
 ## Pre-Implementation Checklist
 
@@ -40,16 +40,11 @@ Is beads available? (br --version)
 
 ## Enforcement Layers
 
-This protocol is enforced at 4 levels:
-
-1. **CLAUDE.loa.md** — "Process Compliance" section (loaded every session)
-2. **SKILL.md `<constraints>`** — Phase enforcement (loaded per skill)
-3. **This protocol** — Referenced checklist (loaded on demand)
-4. **Error codes** — Diagnostic codes (surfaced by /loa doctor, scripts)
+CLAUDE.loa.md "Process Compliance" (every session) → SKILL.md `<constraints>` (per skill) → this checklist (on demand) → error codes (surfaced by `/loa doctor` and scripts).
 
 ## Related
 
 - CLAUDE.loa.md → Process Compliance section
 - `.claude/protocols/beads-preflight.md` → Beads health checking
-- `.claude/protocols/run-mode.md` → /run lifecycle
+- `.claude/skills/run-mode/SKILL.md` → /run lifecycle (single source of truth)
 - `.claude/data/error-codes.json` → Error code registry

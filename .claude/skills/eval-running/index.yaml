@@ -56,10 +56,6 @@ outputs:
     description: "Append-only result ledger"
     format: raw
 
-protocols:
-  required: []
-  recommended: []
-
 input_guardrails:
   pii_filter:
     enabled: false

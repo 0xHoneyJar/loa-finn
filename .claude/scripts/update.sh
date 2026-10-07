@@ -4,6 +4,10 @@
 set -euo pipefail
 
 # === Configuration ===
+
+# sprint-bug-172 / bug-911: sha256_portable from compat-lib
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compat-lib.sh"
+
 STAGING_DIR=".claude_staging"
 SYSTEM_DIR=".claude"
 OVERRIDES_DIR=".claude/overrides"
@@ -298,7 +302,8 @@ check_deps() {
   command -v jq >/dev/null || err "jq is required"
   command -v yq >/dev/null || err "yq is required"
   command -v git >/dev/null || err "git is required"
-  command -v sha256sum >/dev/null || err "sha256sum is required"
+  # sprint-bug-172: sha256_portable backend availability tracked in _COMPAT_SHA256_CMD.
+  [[ -n "${_COMPAT_SHA256_CMD:-}" ]] || err "GNU coreutils or BSD shasum (sha-256 tool) is required"
 }
 
 get_version() {
@@ -419,7 +424,7 @@ generate_checksums() {
 
   local first=true
   while IFS= read -r -d '' file; do
-    local hash=$(sha256sum "$file" | cut -d' ' -f1)
+    local hash=$(sha256_portable "$file" | cut -d' ' -f1)
     local relpath="${file#./}"
     [[ "$first" == "true" ]] && first=false || checksums+=','
     checksums+='"'"$relpath"'": "'"$hash"'"'
@@ -448,7 +453,7 @@ check_integrity() {
     [[ -z "$expected" ]] && continue
 
     if [[ -f "$file" ]]; then
-      local actual=$(sha256sum "$file" | cut -d' ' -f1)
+      local actual=$(sha256_portable "$file" | cut -d' ' -f1)
       if [[ "$expected" != "$actual" ]]; then
         drift_detected=true
         drifted_files+=("$file")
@@ -1180,6 +1185,18 @@ main() {
         ;;
     esac
   done
+
+  # The atomic System Zone swap is only valid for vendored mounts (#1242).
+  # Gate every mode before checks, remote access, staging, or other work.
+  if [[ -f "$VERSION_FILE" ]]; then
+    local installation_mode
+    installation_mode=$(jq -r '.installation_mode // "standard"' "$VERSION_FILE") \
+      || err "Cannot determine installation mode from $VERSION_FILE"
+    if [[ "$installation_mode" == "submodule" ]]; then
+      err "update.sh cannot update a submodule installation.
+Run: bash .claude/scripts/update-loa.sh --tag <tag> (or --ref <ref>)"
+    fi
+  fi
 
   # Handle --check mode: just check for updates, don't perform update
   if [[ "$check_only" == "true" ]]; then

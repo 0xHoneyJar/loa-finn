@@ -15,7 +15,6 @@ setup() {
 
     # Path to scripts
     export QMD_SYNC="$PROJECT_ROOT/.claude/scripts/qmd-sync.sh"
-    export SEARCH_UTIL="$PROJECT_ROOT/.claude/hooks/memory-utils/search.sh"
     export CONFIG_FILE="$TEST_LOA_DIR/test-config.yaml"
 
     # Create test documents
@@ -225,26 +224,8 @@ EOF
 # Search Utility Integration Tests
 # =============================================================================
 
-@test "search.sh respects --include-qmd flag" {
-    "$QMD_SYNC" sync
-
-    run "$SEARCH_UTIL" "test query" --include-qmd
-    [ "$status" -eq 0 ]
-    # Should return valid JSON
-    echo "$output" | jq '.' >/dev/null 2>&1
-}
-
-@test "search.sh auto-enables QMD from config" {
-    export CONFIG_FILE="$CONFIG_FILE"
-
-    run "$SEARCH_UTIL" "authentication"
-    [ "$status" -eq 0 ]
-    echo "$output" | jq '.' >/dev/null 2>&1
-}
-
-# =============================================================================
-# Error Handling Tests
-# =============================================================================
+# search.sh tests removed cycle-121 — memory-utils/search.sh deleted with the
+# semantic-memory subsystem; qmd-sync.sh query paths above cover qmd retrieval.
 
 @test "qmd-sync.sh handles missing path gracefully" {
     cat > "$CONFIG_FILE" <<EOF

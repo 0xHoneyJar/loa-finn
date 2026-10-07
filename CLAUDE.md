@@ -2,8 +2,21 @@
 
 # Project-Specific Instructions
 
-> This file contains project-specific customizations that take precedence over the framework instructions.
-> The framework instructions are loaded via the `@` import above.
+> Project-specific customizations; these take precedence over the framework instructions imported above (framework updates modify `.claude/loa/CLAUDE.loa.md`, never this file).
+
+## Context Intake Discipline (read FIRST at session start)
+
+Before any substantive work, consult the known-failures **INDEX**, not the full log:
+
+1. If `known_failures.surface_at_session_start` is `true`, the SessionStart hook (`loa-kf-surface.sh`) already printed the compact symptom → KF table (with recurrence) into this session — read it. Otherwise regenerate on demand: `bash .claude/scripts/grimoire-index.sh`, then read the `## kf` section of `grimoires/loa/INDEX.md`.
+2. When a symptom matches what you are triaging, open `grimoires/loa/known-failures.md`, jump to that `## KF-NNN:` heading, and read only its **Reading guide** — the actionable next-step text that prevents re-attempting prior dead-ends.
+3. Read the whole file only when authoring a NEW entry (dedup check) or repairing the ledger itself.
+
+**Recurrence count ≥ 3** is the load-bearing signal — that failure class is structural; route through the upstream issue, do not retry the listed attempts.
+
+Contribute every session (the ledger only works if it compounds): documented degradation observed → `bash .claude/scripts/lib/kf-write-lib.sh recur --id KF-NNN` + `kf-write-lib.sh attempt …` (evidence row: commit SHA / PR# / run ID); new degradation → `kf-write-lib.sh new …`. Sandbox tests with `--file <copy>`, never against the live ledger.
+
+For code navigation, consult `grimoires/loa/REPO-MAP.md` (generated; `bash .claude/scripts/repo-map-gen.sh`) before broad grep sweeps of `.claude/`.
 
 ## Team & Ownership
 
@@ -21,7 +34,6 @@
 
 ## Related Documentation
 
-- `.claude/loa/CLAUDE.loa.md` - Framework-managed instructions (auto-updated)
 - `.loa.config.yaml` - User configuration file
 - `PROCESS.md` - Detailed workflow documentation
 

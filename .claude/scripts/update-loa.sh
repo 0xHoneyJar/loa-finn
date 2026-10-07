@@ -19,6 +19,10 @@
 set -euo pipefail
 
 # === Colors ===
+
+# sprint-bug-172 / bug-911: sha256_portable from compat-lib
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compat-lib.sh"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -188,7 +192,169 @@ check_ledger_schema() {
   fi
 }
 
+# === Version-marker read-back assertion (#1177 item G) ===
+# Sourceable for unit testing. Hard-fails (err → exit 1) if the just-written
+# .loa-version.json does not read back the expected framework_version — no
+# PLACEHOLDER/empty/unchanged marker may survive a bump (AC-c).
+assert_version_marker() {
+  local expected="$1" file="${2:-$VERSION_FILE}"
+  if [[ -z "$expected" ]]; then
+    err "Refusing to accept .loa-version.json: computed framework_version is empty."
+  fi
+  local readback
+  readback=$(jq -r '.framework_version // ""' "$file" 2>/dev/null || echo "")
+  if [[ "$readback" != "$expected" ]]; then
+    err ".loa-version.json write verification FAILED: framework_version reads '$readback', expected '$expected'."
+  fi
+}
+
+# === Copy-set verification gate (#1177 item G) ===
+# Sourceable for unit testing. Runs the mount-submodule copy-set check
+# (refresh_copy_set false) after a refresh and HARD-FAILS (err → exit 1) on any
+# residual drift BEFORE the commit block, so a repo with unresolved copy-set
+# drift never gets a false "Update complete." (AC-a). One documented escape
+# hatch: LOA_UPDATE_SKIP_COPYSET_VERIFY=1 skips the gate LOUDLY (naming the
+# drift it skipped) for mixed-install-mode repos. Returns 0 when in sync (AC-d).
+verify_copyset_gate() {
+  if ! type refresh_copy_set &>/dev/null; then
+    return 0  # copy-set mechanism unavailable (older submodule) — nothing to gate
+  fi
+  local copy_rc=0 aleph_rc=0 verify_aleph=false
+  # Keep the mixed-install-mode escape hatch scoped to COPY-* drift. Aleph is
+  # verified separately and can never be bypassed by that environment flag.
+  refresh_copy_set "false" "false" || copy_rc=1
+  if type refresh_aleph_install &>/dev/null; then
+    if type aleph_refresh_is_applicable &>/dev/null; then
+      aleph_refresh_is_applicable && verify_aleph=true
+    else
+      # Compatibility with an intermediate helper that has Aleph verification
+      # but predates the applicability predicate: fail closed by invoking it.
+      verify_aleph=true
+    fi
+  fi
+  if [[ "$verify_aleph" == "true" ]]; then
+    refresh_aleph_install "false" || aleph_rc=1
+  fi
+  if [[ $aleph_rc -ne 0 ]]; then
+    err "Aleph verification FAILED after refresh — aborting before commit."
+  fi
+  if [[ $copy_rc -ne 0 ]]; then
+    if [[ "${LOA_UPDATE_SKIP_COPYSET_VERIFY:-0}" == "1" ]]; then
+      warn "LOA_UPDATE_SKIP_COPYSET_VERIFY=1 — SKIPPING the copy-set drift gate despite the COPY-* drift reported above; the on-disk copy set does NOT match the submodule (mixed-install-mode escape hatch)."
+      return 0
+    fi
+    err "Copy-set verification FAILED after refresh — drift remains (see COPY-* diagnostics above). Aborting before commit. Override with LOA_UPDATE_SKIP_COPYSET_VERIFY=1 for known mixed-install-mode repos."
+  fi
+  return 0
+}
+
 # === Submodule Update ===
+aleph_selected_tree_bundle_state() {
+  local bundle_relative=".claude/aleph/runtime/bundle"
+  local expected_root actual_root head gitlink inventory
+
+  expected_root=$(cd "$SUBMODULE_PATH" 2>/dev/null && pwd -P) || return 2
+  actual_root=$(git -C "$SUBMODULE_PATH" rev-parse --show-toplevel 2>/dev/null) \
+    || return 2
+  actual_root=$(cd "$actual_root" 2>/dev/null && pwd -P) || return 2
+  [[ "$actual_root" == "$expected_root" ]] || return 2
+  head=$(git -C "$SUBMODULE_PATH" rev-parse HEAD 2>/dev/null) || return 2
+  gitlink=$(git ls-files --stage -- "$SUBMODULE_PATH" 2>/dev/null \
+    | awk '$1 == "160000" && $3 == "0" { print $2 }')
+  [[ -n "$gitlink" && "$head" == "$gitlink" ]] || return 2
+
+  inventory=$(git -C "$SUBMODULE_PATH" ls-tree -r --name-only HEAD -- \
+    "$bundle_relative" 2>/dev/null) || return 2
+  [[ -n "$inventory" ]] || return 1
+  return 0
+}
+
+refresh_submodule_mount_state() {
+  local submodule_script="$1"
+  local aleph_bundle="${SUBMODULE_PATH}/.claude/aleph/runtime/bundle"
+  local aleph_bundle_selected=false
+  local aleph_managed_present=false
+  local helpers_loaded=false
+  local saved_no_commit="$NO_COMMIT"
+  local helper_source_status=0
+  local pinned_bundle_state=0
+
+  aleph_selected_tree_bundle_state || pinned_bundle_state=$?
+  if [[ "$pinned_bundle_state" -eq 2 ]]; then
+    warn "Cannot establish Aleph bundle state from the selected parent-authorized Loa tree"
+    return 1
+  elif [[ "$pinned_bundle_state" -eq 0 ]]; then
+    aleph_bundle_selected=true
+  fi
+  if [[ "$aleph_bundle_selected" == "true" \
+    && ! -e "$aleph_bundle" && ! -L "$aleph_bundle" ]]; then
+    warn "Aleph bundle is tracked by the selected Loa tree but missing from the working tree"
+    return 1
+  elif [[ "$aleph_bundle_selected" != "true" \
+    && ( -e "$aleph_bundle" || -L "$aleph_bundle" ) ]]; then
+    warn "Aleph source bundle exists outside the selected Loa tree"
+    return 1
+  fi
+  if [[ -e ".claude/aleph" || -L ".claude/aleph"
+    || -e ".claude/commands/loa-aleph.md" || -L ".claude/commands/loa-aleph.md"
+    || -e ".claude/skills/loa-aleph" || -L ".claude/skills/loa-aleph" ]]; then
+    aleph_managed_present=true
+  fi
+  if [[ "$aleph_bundle_selected" != "true" \
+    && "$aleph_managed_present" == "true" ]]; then
+    warn "Aleph managed paths remain but the selected Loa version has no source bundle"
+    return 1
+  fi
+
+  if [[ -f "$submodule_script" ]] \
+    && grep -q "verify_and_reconcile_symlinks" "$submodule_script" 2>/dev/null; then
+    source "$submodule_script" --source-only 2>/dev/null || helper_source_status=$?
+    # mount-submodule.sh has its own NO_COMMIT option. Sourcing must not erase
+    # /update-loa's caller choice before the later commit branch.
+    NO_COMMIT="$saved_no_commit"
+    if [[ "$helper_source_status" -eq 0 ]]; then
+      helpers_loaded=true
+    elif [[ "$aleph_bundle_selected" == "true" ]]; then
+      warn "Aleph bundle is selected but mount helpers failed to load"
+      return 1
+    fi
+  elif [[ "$aleph_bundle_selected" == "true" ]]; then
+    warn "Aleph bundle is selected but mount helpers are unavailable"
+    return 1
+  fi
+
+  # Older Loa commits may not expose the modern mount helper surface. Preserve
+  # their legacy tolerance only while they also contain no Aleph bundle.
+  if [[ "$helpers_loaded" != "true" ]]; then
+    return 0
+  fi
+
+  if type verify_and_reconcile_symlinks &>/dev/null; then
+    step "Reconciling symlinks..."
+    if ! verify_and_reconcile_symlinks; then
+      err "Symlink reconcile FAILED (some links remain broken) — aborting before commit."
+    fi
+  fi
+  if [[ "$aleph_bundle_selected" == "true" ]] \
+    && { ! type refresh_copy_set &>/dev/null \
+      || ! type refresh_aleph_install &>/dev/null; }; then
+    warn "Aleph bundle is selected but its compatibility refresh helper is unavailable"
+    return 1
+  fi
+  # #968: refresh the #842 copy set (hooks/, settings.json) so a
+  # submodule bump propagates executor-sensitive paths without a
+  # destructive --force re-mount.
+  if type refresh_copy_set &>/dev/null; then
+    step "Refreshing copy set..."
+    if ! refresh_copy_set "true"; then
+      err "Copy-set or Aleph refresh FAILED — see diagnostics above. Aborting before commit."
+    fi
+  elif [[ "$aleph_bundle_selected" == "true" ]]; then
+    warn "Aleph bundle is selected but its compatibility refresh helper is unavailable"
+    return 1
+  fi
+}
+
 update_submodule() {
   step "Updating Loa submodule..."
 
@@ -231,6 +397,17 @@ update_submodule() {
 
   log "Submodule updated to: $new_version ($new_commit)"
 
+  # #1177 (item G): never write an empty framework_version marker (AC-c).
+  if [[ -z "$new_version" ]]; then
+    err "Refusing to write .loa-version.json: computed framework_version is empty (ref='$target_ref', commit='$new_commit')."
+  fi
+
+  # cycle-115: make the selected commit the superproject's explicit gitlink
+  # trust anchor before any bundled Node dependency may execute. --no-commit
+  # skips the commit but intentionally leaves this exact pin staged.
+  step "Pinning updated submodule in superproject index..."
+  git add "$SUBMODULE_PATH"
+
   # Update .loa-version.json
   step "Updating version manifest..."
   local old_commit
@@ -245,21 +422,18 @@ update_submodule() {
      '.framework_version = $v | .submodule.commit = $c | .submodule.ref = $r | .last_sync = $t' \
      "$VERSION_FILE" > "$tmp_version" && mv "$tmp_version" "$VERSION_FILE"
 
-  log "Version manifest updated"
+  # #1177 (item G): read-back assertion — a write that silently failed (or a
+  # marker frozen at a stale/PLACEHOLDER value) must not survive a bump (AC-c).
+  assert_version_marker "$new_version"
+  log "Version manifest updated (verified: $new_version)"
 
   # Verify and reconcile symlinks
   local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local submodule_script="${script_dir}/mount-submodule.sh"
-  if [[ -f "$submodule_script" ]]; then
-    # Source verify_and_reconcile_symlinks if available
-    if grep -q "verify_and_reconcile_symlinks" "$submodule_script" 2>/dev/null; then
-      source "$submodule_script" --source-only 2>/dev/null || true
-      if type verify_and_reconcile_symlinks &>/dev/null; then
-        step "Reconciling symlinks..."
-        verify_and_reconcile_symlinks
-      fi
-    fi
-  fi
+  refresh_submodule_mount_state "$submodule_script"
+  # #1177 (item G) HARD GATE: verify the just-refreshed copy set matches the
+  # checked-out submodule and independently reverify Aleph before committing.
+  verify_copyset_gate
 
   # === Ledger Schema Migration Check ===
   check_ledger_schema
@@ -286,143 +460,33 @@ Generated by Loa update-loa.sh" \
   fi
 }
 
-# === Downstream Learning Import (FR-4) ===
-# After update, check for new upstream learnings and import to local memory
+# === Downstream Learning Import (FR-4) — retired cycle-121 ===
+# The semantic-memory subsystem (observation store) was deleted; auto-memory
+# owns cross-session recall. Kept as a no-op so older call sites stay valid.
 import_upstream_learnings() {
-  local upstream_dir=".claude/data/upstream-learnings"
+  return 0
+}
 
-  # Skip if no upstream learnings directory exists
-  if [[ ! -d "$upstream_dir" ]]; then
-    return 0
-  fi
-
-  # Find .yaml files
-  local yaml_files
-  yaml_files=$(find "$upstream_dir" -maxdepth 1 -name '*.yaml' -o -name '*.yml' 2>/dev/null)
-
-  if [[ -z "$yaml_files" ]]; then
-    return 0
-  fi
-
-  step "Checking for upstream learnings..."
-
-  # Source path-lib for append_jsonl
-  local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  local path_lib="${script_dir}/path-lib.sh"
-  if [[ -f "$path_lib" ]]; then
-    source "$path_lib" 2>/dev/null || true
-  fi
-
-  # Resolve memory directory
-  local memory_dir
-  if type get_state_memory_dir &>/dev/null; then
-    memory_dir=$(get_state_memory_dir 2>/dev/null) || memory_dir="grimoires/loa/memory"
-  else
-    memory_dir="grimoires/loa/memory"
-  fi
-  mkdir -p "$memory_dir"
-  local obs_file="$memory_dir/observations.jsonl"
-
-  local import_count=0
-  local skip_count=0
-
-  while IFS= read -r yaml_file; do
-    [[ -z "$yaml_file" ]] && continue
-
-    # Convert YAML to JSON for validation (requires yq)
-    if ! command -v yq &>/dev/null; then
-      warn "yq not available — cannot validate upstream learnings"
-      return 0
-    fi
-
-    local learning_json
-    learning_json=$(yq -o json '.' "$yaml_file" 2>/dev/null) || {
-      warn "Failed to parse: $(basename "$yaml_file")"
-      skip_count=$((skip_count + 1))
-      continue
-    }
-
-    # Validate required fields
-    local schema_ver learning_id category title
-    schema_ver=$(echo "$learning_json" | jq -r '.schema_version // 0')
-    learning_id=$(echo "$learning_json" | jq -r '.learning_id // ""')
-    category=$(echo "$learning_json" | jq -r '.category // ""')
-    title=$(echo "$learning_json" | jq -r '.title // ""')
-
-    if [[ "$schema_ver" != "1" ]]; then
-      warn "Unsupported schema version ($schema_ver): $(basename "$yaml_file")"
-      skip_count=$((skip_count + 1))
-      continue
-    fi
-
-    # Validate learning_id format
-    if [[ ! "$learning_id" =~ ^LX-[0-9]{8}-[a-f0-9]{8,12}$ ]]; then
-      warn "Invalid learning_id format: $(basename "$yaml_file")"
-      skip_count=$((skip_count + 1))
-      continue
-    fi
-
-    # Validate category
-    case "$category" in
-      pattern|anti-pattern|decision|troubleshooting|architecture|security) ;;
-      *)
-        warn "Invalid category ($category): $(basename "$yaml_file")"
-        skip_count=$((skip_count + 1))
-        continue
-        ;;
-    esac
-
-    # Validate privacy fields (use explicit == false check; jq's // treats false as falsy)
-    if ! echo "$learning_json" | jq -e '.privacy.contains_file_paths == false and .privacy.contains_secrets == false and .privacy.contains_pii == false' >/dev/null 2>&1; then
-      warn "Privacy check failed: $(basename "$yaml_file")"
-      skip_count=$((skip_count + 1))
-      continue
-    fi
-
-    # Check for duplicates via learning_id
-    if [[ -f "$obs_file" ]] && grep -qF "$learning_id" "$obs_file" 2>/dev/null; then
-      skip_count=$((skip_count + 1))
-      continue
-    fi
-
-    # Build observation entry
-    local trigger solution content_text
-    trigger=$(echo "$learning_json" | jq -r '.content.trigger // ""')
-    solution=$(echo "$learning_json" | jq -r '.content.solution // ""')
-    content_text="[upstream:$learning_id] $title — $trigger → $solution"
-
-    local timestamp
-    timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    local obs_entry
-    obs_entry=$(jq -cn \
-      --arg id "$learning_id" \
-      --arg ts "$timestamp" \
-      --arg cat "$category" \
-      --arg content "$content_text" \
-      --argjson confidence 0.8 \
-      --arg source "upstream-import" \
-      --arg hash "$(printf '%s' "$content_text" | sha256sum | cut -d' ' -f1)" \
-      '{id: $id, timestamp: $ts, category: $cat, content: $content, confidence: $confidence, source: $source, content_hash: $hash}')
-
-    # Import via append_jsonl if available, else direct append
-    if type append_jsonl &>/dev/null; then
-      append_jsonl "$obs_file" "$obs_entry" || {
-        warn "Failed to import: $(basename "$yaml_file")"
-        skip_count=$((skip_count + 1))
-        continue
-      }
+# === NOTES.md rotation on upgrade (cycle-125 FR-2, SDD §1.3) ===
+# A NOTES.md at or over the 200 KiB block line (notes-guard.sh check → exit 3)
+# would refuse every append on the upgraded framework; rotate it here, loudly.
+# The rotate archives the whole file first (grimoires/loa/archive/notes/) and
+# never stashes. Below the line: nothing happens. Never fails the update.
+rotate_oversized_notes() {
+  local guard notes rc=0
+  guard="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/notes-guard.sh"
+  notes="${LOA_GRIMOIRE_DIR:-grimoires/loa}/NOTES.md"
+  [[ -f "$guard" && -f "$notes" ]] || return 0
+  bash "$guard" check --file "$notes" >/dev/null 2>&1 || rc=$?
+  if [[ $rc -eq 3 ]]; then
+    log "NOTES.md is at or over the 200 KiB block line ($(stat -c%s "$notes" 2>/dev/null || echo '?') bytes) — rotating before the first append on the new version"
+    if bash "$guard" rotate --file "$notes"; then
+      log "NOTES.md rotated: full history archived under $(dirname "$notes")/archive/notes/, recovery sections retained"
     else
-      printf '%s\n' "$obs_entry" >> "$obs_file"
+      warn "NOTES.md rotation failed (exit $?) — run: .claude/scripts/notes-guard.sh rotate --file $notes"
     fi
-
-    import_count=$((import_count + 1))
-  done <<< "$yaml_files"
-
-  if [[ $import_count -gt 0 ]]; then
-    log "Imported $import_count upstream learnings ($skip_count skipped)"
-  elif [[ $skip_count -gt 0 ]]; then
-    log "No new upstream learnings ($skip_count already imported or invalid)"
   fi
+  return 0
 }
 
 # === Friendly Release Summary (cycle-052) ===
@@ -512,9 +576,20 @@ Install in submodule mode: mount-loa.sh (default)"
       # Delegate to existing update.sh for vendored mode
       local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
       local update_script="${script_dir}/update.sh"
+      # Test seam, bats-gated like the other test-mode overrides in this
+      # repository: never honoured in a real update (audit round 1, MED-001).
+      if [[ -n "${BATS_TEST_FILENAME:-}" && -n "${LOA_VENDORED_UPDATE_SCRIPT:-}" ]]; then
+        update_script="$LOA_VENDORED_UPDATE_SCRIPT"
+      fi
       if [[ -x "$update_script" ]]; then
         log "Delegating to update.sh (vendored mode)..."
-        exec "$update_script" "$@"
+        # Not `exec`: the post-refresh NOTES rotation (cycle-125 FR-2, review
+        # round 1 H-1) must run for vendored installs too. The refresh's exit
+        # code is preserved; the remaining submodule-only steps stay skipped.
+        local vendored_rc=0
+        "$update_script" "$@" || vendored_rc=$?
+        if [[ $vendored_rc -eq 0 ]]; then rotate_oversized_notes; fi
+        exit "$vendored_rc"
       else
         err "update.sh not found at: $update_script"
       fi
@@ -528,6 +603,9 @@ Run: mount-loa.sh"
   # === Downstream Learning Import ===
   import_upstream_learnings
 
+  # === NOTES.md rotation on upgrade (cycle-125 FR-2) ===
+  rotate_oversized_notes
+
   # === Friendly Release Summary (cycle-052) ===
   show_friendly_summary
 
@@ -536,4 +614,9 @@ Run: mount-loa.sh"
   echo ""
 }
 
-main "$@"
+# #1177 (item G): run main only when executed directly, not when sourced.
+# Lets tests source the sourceable helpers (assert_version_marker,
+# verify_copyset_gate) without triggering a full update run.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

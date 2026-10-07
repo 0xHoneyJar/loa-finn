@@ -93,12 +93,6 @@ outputs:
     path: ".run/deleted-files.log"
     description: "Deleted files tracking"
 
-# Protocol references
-protocols:
-  - run-mode.md
-  - git-safety.md
-  - feedback-loops.md
-
 # Scripts
 scripts:
   - run-mode-ice.sh

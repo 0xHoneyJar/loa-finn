@@ -134,3 +134,103 @@ Before finalizing sprint plan:
 ### Overloaded Sprints
 - BAD: 5 days of work in 2.5 day sprint
 - GOOD: Conservative estimates with buffer for unknowns
+
+
+# Beads NOT_INSTALLED fallback + Sprint-Ledger Step 0 (cycle-121 split from SKILL.md)
+
+### If NOT_INSTALLED or NOT_INITIALIZED
+
+1. **Check for valid opt-out**:
+   ```bash
+   opt_out=$(.claude/scripts/beads/update-beads-state.sh --opt-out-check 2>/dev/null || echo "NO_OPT_OUT")
+   ```
+
+2. **If no valid opt-out**, present HITL gate using AskUserQuestion:
+
+   ```
+   Beads Preflight Check
+   ════════════════════════════════════════════════════════════
+
+   Status: {status}
+
+   Beads is not available. Task tracking is the EXPECTED DEFAULT
+   for safe, auditable agent workflows.
+
+   "We're building spaceships. Safety of operators and users is paramount."
+
+   Options:
+   [1] Install beads (Recommended)
+       └─ .claude/scripts/beads/install-br.sh
+       └─ Or: cargo install beads_rust
+
+   [2] Initialize beads
+       └─ br init
+
+   [3] Continue without beads (24h acknowledgment)
+       └─ Requires reason for audit trail
+
+   [4] Abort
+   ```
+
+3. **If "Continue without beads" selected**:
+   - Require reason (configurable via `beads.opt_out.require_reason`)
+   - Record opt-out: `.claude/scripts/beads/update-beads-state.sh --opt-out "Reason"`
+   - Log to trajectory: `grimoires/loa/a2a/trajectory/beads-preflight-{date}.jsonl`
+   - Opt-out expires after 24h (configurable)
+
+4. **Update state after health check**:
+   ```bash
+   .claude/scripts/beads/update-beads-state.sh --health "$status"
+   ```
+
+
+### Step 0: Check for Sprint Ledger (NEW in v1.8.0)
+
+Check if `grimoires/loa/ledger.json` exists:
+
+```bash
+[ -f "grimoires/loa/ledger.json" ] && echo "EXISTS" || echo "MISSING"
+```
+
+**If MISSING**, use AskUserQuestion to offer creation:
+
+```
+No Sprint Ledger found at grimoires/loa/ledger.json
+
+A Sprint Ledger provides:
+• Global sprint numbering across development cycles
+• Cycle tracking with PRD/SDD references
+• Sprint history and metrics for retrospectives
+
+Options:
+[1] Create ledger (recommended)
+[2] Continue without ledger
+```
+
+**If user selects "Create ledger":**
+
+Create `grimoires/loa/ledger.json` with initial schema:
+
+```json
+{
+  "version": "1.0.0",
+  "next_sprint_number": 1,
+  "active_cycle": "cycle-001",
+  "cycles": [
+    {
+      "id": "cycle-001",
+      "label": null,
+      "status": "active",
+      "created_at": "<ISO timestamp>",
+      "prd": "grimoires/loa/prd.md",
+      "sdd": "grimoires/loa/sdd.md",
+      "sprints": []
+    }
+  ]
+}
+```
+
+Log creation to trajectory: `{"action": "ledger_created", "path": "grimoires/loa/ledger.json"}`
+
+**If EXISTS**, proceed to Step 1.
+

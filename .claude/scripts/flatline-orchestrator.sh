@@ -10,7 +10,7 @@
 #
 # Options:
 #   --doc <path>           Document to review (required)
-#   --phase <type>         Phase type: prd, sdd, sprint, beads (required)
+#   --phase <type>         Phase type: prd, sdd, sprint, beads, spec, pr (required)
 #   --domain <text>        Domain for knowledge retrieval (auto-extracted if not provided)
 #   --interactive          Force interactive mode (overrides auto-detection)
 #   --autonomous           Force autonomous mode (overrides auto-detection)
@@ -18,6 +18,7 @@
 #   --dry-run              Validate without executing reviews
 #   --skip-knowledge       Skip knowledge retrieval
 #   --skip-consensus       Return raw reviews without consensus
+#   --keep-temp            Retain intermediate responses for offline diagnosis
 #   --timeout <seconds>    Overall timeout (default: 300)
 #   --budget <cents>       Cost budget in cents (default: 300 = $3.00)
 #   --json                 Output as JSON
@@ -48,16 +49,62 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/bootstrap.sh"
+source "$SCRIPT_DIR/compat-lib.sh"
 source "$SCRIPT_DIR/lib/normalize-json.sh"
+source "$SCRIPT_DIR/lib/verdict-quality.sh"
 source "$SCRIPT_DIR/lib/invoke-diagnostics.sh"
 source "$SCRIPT_DIR/lib/context-isolation-lib.sh"
+# cycle-099 Sprint 1B parity (mirrors red-team-model-adapter.sh): exposes
+# `resolve_provider_id` from generated-model-maps.sh so flatline picks up
+# new model registry entries (gpt-5.5, gpt-5.5-pro, gemini-3.1-pro-preview,
+# etc.) without needing edits to the local MODEL_TO_PROVIDER_ID fallback.
+# shellcheck source=lib/model-resolver.sh
+source "$SCRIPT_DIR/lib/model-resolver.sh"
+
+# cycle-117 item D (#1177): shared DEGRADED/FAILED trajectory + page helper.
+# Soft-sourced — a downstream repo mid-update (lib file absent) must not
+# break flatline; the degraded_verdict_maybe_emit call below is itself
+# guarded by a declare -F check.
+# shellcheck source=lib/degraded-verdict-lib.sh
+source "$SCRIPT_DIR/lib/degraded-verdict-lib.sh" 2>/dev/null || true
+
+# Cycle-104 sprint-2 T2.8 (FR-S2.5): voice-drop classifier. Distinguishes
+# cheval's CHAIN_EXHAUSTED (exit 12) from other failures so a voice whose
+# within-company fallback chain ran to end is DROPPED from consensus
+# instead of being treated as a hard failure or silently substituted across
+# companies. SDD §6.5.
+VOICE_DROP_CLASSIFIER="$SCRIPT_DIR/lib/voice-drop-classifier.sh"
 
 # Note: bootstrap.sh already handles PROJECT_ROOT canonicalization via realpath
 TRAJECTORY_DIR=$(get_trajectory_dir)
 
+# cycle-109 Sprint 3 T3.5 (#820 Issue D): source .env / .env.local so
+# provider API keys cross into the model-adapter / model-invoke /
+# cheval.py subprocess chain. Mirrors the BB pattern at
+# .claude/skills/bridgebuilder-review/resources/entry.sh (cycle-037 #395).
+#
+# .env Trust Model (Issue #898): the legacy `set -a; source .env; set +a`
+# pattern executes ANY bash inside .env files (`$(...)`, backticks,
+# chained commands). A hostile or carelessly-edited .env at the repo
+# root becomes arbitrary code execution as the FL orchestrator. We now
+# parse .env structurally via lib/env-loader.sh, which exports KEY=VALUE
+# pairs but refuses to expand command substitution / shell metas.
+# Exported vars still cross subprocess boundaries (the loader uses
+# `export`).
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/env-loader.sh"
+load_env_file .env
+load_env_file .env.local
+
 # Component scripts
 MODEL_ADAPTER="$SCRIPT_DIR/model-adapter.sh"
-MODEL_INVOKE="$SCRIPT_DIR/model-invoke"
+# bug-899 / BB #915 F-001: honor a pre-set MODEL_INVOKE so tests sourcing
+# this script can substitute a stub. Production callers always invoke as
+# a top-level executable (BASH_SOURCE guard runs main()), so MODEL_INVOKE
+# isn't in their env — `:-` is a no-op there. Tests that source the
+# script can `export MODEL_INVOKE=/path/to/stub` before sourcing and
+# exercise call_model end-to-end.
+MODEL_INVOKE="${MODEL_INVOKE:-$SCRIPT_DIR/model-invoke}"
 SCORING_ENGINE="$SCRIPT_DIR/scoring-engine.sh"
 KNOWLEDGE_LOCAL="$SCRIPT_DIR/flatline-knowledge-local.sh"
 NOTEBOOKLM_QUERY="$PROJECT_ROOT/.claude/skills/flatline-knowledge/resources/notebooklm-query.py"
@@ -67,6 +114,26 @@ DEFAULT_TIMEOUT=300
 DEFAULT_BUDGET=300  # cents ($3.00)
 DEFAULT_MODEL_TIMEOUT=120
 
+# Issue #675 (sub-issue 4): per-call max_tokens override. Empty = use the
+# downstream default (cheval.py's default 4096 / model-adapter.sh's hardcoded
+# 4096). Historical (#675): Anthropic disconnected ~60s for max_tokens > 4096
+# on very large prompts; operators could lower this knob for large-document
+# reviews. NOTE (#774): the disconnect failure mode now manifests at much
+# smaller doc sizes (~38KB observed) and on OpenAI as well. Lowering the
+# knob is a no-op against `failure_class=PROVIDER_DISCONNECT` — the flag is
+# preserved for back-compat only.
+PER_CALL_MAX_TOKENS=""
+# cycle-124 FR-2: bounded output budgets per call kind (see call_model).
+FLATLINE_REVIEW_MAX_TOKENS=16000   # review + skeptic findings documents
+FLATLINE_SCORE_MAX_TOKENS=16000    # cross-scoring JSON arrays (adaptive thinking on opus-5 shares this budget)
+# cycle-124 FR-7: wire schemas per call kind, passed as call_model's 7th arg by
+# the review / skeptic / score sites (run_inquiry passes none — its prompts
+# ask for a free-form perspective object, regression-locked).
+WIRE_SCHEMA_DIR="$SCRIPT_DIR/../schemas/wire"
+WIRE_REVIEWER="$WIRE_SCHEMA_DIR/flatline-reviewer.wire.json"
+WIRE_SKEPTIC="$WIRE_SCHEMA_DIR/flatline-skeptic.wire.json"
+WIRE_SCORER="$WIRE_SCHEMA_DIR/flatline-scorer.wire.json"
+
 # State tracking
 STATE="INIT"
 TOTAL_COST=0
@@ -75,6 +142,8 @@ START_TIME=""
 
 # Temp directory for intermediate files
 TEMP_DIR=""
+KEEP_FLATLINE_TEMP="${KEEP_FLATLINE_TEMP:-0}"
+FLATLINE_RUN_ID="flatline-${BASHPID:-$$}-${RANDOM}"
 
 # =============================================================================
 # Logging
@@ -247,6 +316,89 @@ extract_json_content() {
     echo "$normalized"
 }
 
+# A transport-successful response is not a successful Flatline voice until its
+# content satisfies the phase contract. Keep this check before verdict-quality
+# aggregation so an exit-0 prose response cannot vote as clean.
+qualify_flatline_content() {
+    local file="$1"
+    local agent="$2"
+    local voice="$3"
+    local phase="$4"
+    local reason=""
+    local content=""
+    local normalized=""
+
+    if [[ ! -s "$file" ]]; then
+        reason="missing_or_empty_envelope"
+    else
+        content=$(jq -r '.content // ""' "$file" 2>/dev/null) || content=""
+        # cycle-124 FR-7: a voice that reports schema_enforced=true is parsed
+        # strictly — its content IS the enforced object; no fence strip or
+        # raw_decode rescue (normalize_json_response) applies, so a non-JSON
+        # body is a wire/prompt drift signal, not something to repair.
+        local enforced
+        enforced=$(jq -r 'if .schema_enforced == true then "true" else "false" end' "$file" 2>/dev/null) || enforced="false"
+        if [[ -z "$content" || "$content" == "null" ]]; then
+            reason="empty_content"
+        elif [[ "$enforced" == "true" ]]; then
+            # A truncated or refused enforced payload is not the enforced
+            # object even when what arrived parses (PRD FR-7 item 4; late
+            # Sprint 2 review) — and exactly ONE object is required (-s: a
+            # two-object stream is not "clean").
+            local stop_reason
+            stop_reason=$(jq -r '.stop_reason // empty' "$file" 2>/dev/null) || stop_reason=""
+            if [[ "$stop_reason" == "max_tokens" || "$stop_reason" == "refusal" ]]; then
+                reason="enforced_truncated"
+            elif ! normalized=$(printf '%s' "$content" | jq -ces 'if length == 1 and (.[0] | type) == "object" then .[0] else error("not one object") end' 2>/dev/null); then
+                reason="enforced_parse_failed"
+            elif ! validate_agent_response "$normalized" "$agent" 2>/dev/null; then
+                reason="schema_invalid"
+            fi
+        elif ! normalized=$(normalize_json_response "$content" 2>/dev/null); then
+            reason="normalization_failed"
+        elif ! validate_agent_response "$normalized" "$agent" 2>/dev/null; then
+            reason="schema_invalid"
+        fi
+    fi
+
+    if [[ -z "$reason" ]]; then
+        return 0
+    fi
+
+    log "[content-qualification] rejected $voice ($reason)"
+    log_trajectory "consensus.voice_rejected" "$(jq -n \
+        --arg voice "$voice" \
+        --arg reason "$reason" \
+        --arg agent "$agent" \
+        --arg phase "$phase" \
+        '{voice: $voice, reason: $reason, agent: $agent, phase: $phase}')" || true
+    return 1
+}
+
+# Normalize skeptic prepared JSON to the {"concerns":[...]} envelope expected
+# by scoring-engine.sh. Skeptic prompts request the object form, but some
+# adapters emit a bare top-level array of concern objects. scoring-engine's
+# `$skeptic_x[0].concerns` lookup then errors with
+#   jq: Cannot index array with string "concerns"
+# because --slurpfile wraps a bare-array file as [[{...}]], making $s[0] the
+# inner array. Caller writes the prepared file then calls this in-place.
+normalize_skeptic_envelope() {
+    local file="$1"
+    [[ -f "$file" ]] || return 0
+
+    local normalized
+    if normalized=$(jq -c '
+        if type == "object" then .
+        elif type == "array" then {concerns: .}
+        else {concerns: []}
+        end
+    ' "$file" 2>/dev/null) && [[ -n "$normalized" ]]; then
+        printf '%s\n' "$normalized" > "$file"
+    else
+        printf '%s\n' '{"concerns":[]}' > "$file"
+    fi
+}
+
 # Log to trajectory
 log_trajectory() {
     local event_type="$1"
@@ -272,6 +424,30 @@ log_trajectory() {
         --arg state "$STATE" \
         --argjson data "$data" \
         '{type: $type, event: $event, timestamp: $timestamp, state: $state, data: $data}' >> "$log_file"
+}
+
+# Cycle-104 sprint-2 T2.8 (FR-S2.5): emit a single `consensus.voice_dropped`
+# event when a voice's within-company chain exhausted. Caller passes the
+# voice label (e.g. "opus-review") and the orchestrator phase. Soft-fails
+# on jq errors so a logging glitch never aborts the consensus path.
+emit_voice_dropped() {
+    local voice_label="$1"
+    local phase="${2:-unknown}"
+    local payload
+    payload=$(jq -nc \
+        --arg voice "$voice_label" \
+        --arg phase "$phase" \
+        --arg reason "chain_exhausted" \
+        '{voice: $voice, phase: $phase, reason: $reason, exit_code: 12}' 2>/dev/null) || return 0
+    log_trajectory "consensus.voice_dropped" "$payload" || true
+    log "Voice dropped from consensus (chain exhausted): $voice_label"
+}
+
+# Cycle-104 sprint-2 T2.8: classify a captured call_model exit code.
+# Returns "success" | "dropped" | "failed" on stdout.
+classify_voice_exit_status() {
+    local code="$1"
+    "$VOICE_DROP_CLASSIFIER" "$code" 2>/dev/null || echo "failed"
 }
 
 # =============================================================================
@@ -331,6 +507,27 @@ get_model_tertiary() {
     echo "$model"
 }
 
+# cycle-116 D3 (bd-c116-d3-tiering): per-stage tier routing opt-in.
+# advisor_strategy.stage_routing.flatline_scorer (default false) governs
+# whether score-mode cross-scoring dispatch is routed through the
+# advisor_strategy role/skill resolver (cheval.py:1069 role gate) instead
+# of the hardcoded --model pin. Default false => byte-identical to today.
+# Nested map leaves room for future per-stage keys without a schema churn.
+# Cached to avoid a per-score-call yq invocation.
+_CACHED_STAGE_ROUTING_SCORER=""
+_CACHED_STAGE_ROUTING_SCORER_SET=false
+is_stage_routing_scorer_enabled() {
+    if [[ "$_CACHED_STAGE_ROUTING_SCORER_SET" == true ]]; then
+        [[ "$_CACHED_STAGE_ROUTING_SCORER" == "true" ]]
+        return
+    fi
+    local v
+    v=$(read_config '.advisor_strategy.stage_routing.flatline_scorer' 'false')
+    _CACHED_STAGE_ROUTING_SCORER="$v"
+    _CACHED_STAGE_ROUTING_SCORER_SET=true
+    [[ "$v" == "true" ]]
+}
+
 get_max_iterations() {
     read_config '.flatline_protocol.max_iterations' '5'
 }
@@ -343,7 +540,20 @@ get_max_iterations() {
 # Forward-compat regex VALID_MODEL_PATTERNS admits new model versions
 # without requiring code edits (per #573 operator experience with
 # gpt-5.4-codex). The regex structure ensures typos still fail fast.
-VALID_FLATLINE_MODELS=(opus gpt-5.2 gpt-5.3-codex claude-opus-4.7 claude-opus-4-7 claude-opus-4.6 claude-opus-4-6 claude-opus-4.5 claude-sonnet-4-6 gemini-2.0 gemini-2.5-flash gemini-2.5-pro)
+# VALID_FLATLINE_MODELS — Sprint-4 T4.2 (closes SDD §1.4 C4 SSOT coverage gap).
+# Now derived from .claude/defaults/model-config.yaml via gen-adapter-maps.sh
+# rather than hand-maintained. Source the generated file if available;
+# fall back to a stub allowlist if the generator hasn't run (model-adapter
+# tooling will surface the actual error path on use).
+_GENERATED_MAPS="$(dirname "${BASH_SOURCE[0]}")/generated-model-maps.sh"
+if [[ -f "$_GENERATED_MAPS" ]]; then
+    # shellcheck source=generated-model-maps.sh
+    source "$_GENERATED_MAPS"
+else
+    # Fallback (should never trigger in checked-in state — generator is run
+    # alongside YAML edits per SDD §4.3 Flow 1).
+    declare -a VALID_FLATLINE_MODELS=(opus gpt-5.3-codex claude-opus-4-7 claude-sonnet-4-6 gemini-2.5-pro)
+fi
 
 # Forward-compat patterns for provider-side verified models not yet in
 # the explicit allowlist. Operators running newer models (gpt-5.4-codex,
@@ -355,9 +565,47 @@ VALID_FLATLINE_MODELS=(opus gpt-5.2 gpt-5.3-codex claude-opus-4.7 claude-opus-4-
 VALID_MODEL_PATTERNS=(
     '^gpt-[0-9]+\.[0-9]+(-codex)?$'          # openai: gpt-5.2, gpt-5.3-codex, gpt-5.4-codex, gpt-6.0
     '^claude-(opus|sonnet|haiku)-[0-9]+[-.][0-9]+$'  # anthropic: claude-opus-4-7, claude-sonnet-4-6
-    '^gemini-[0-9]+\.[0-9]+(-flash|-pro)?$'  # google: gemini-2.5-pro, gemini-2.5-flash
+    '^gemini-[0-9]+\.[0-9]+(-flash|-pro)?(-preview)?$'  # google: gemini-2.5-pro, gemini-3.1-pro-preview (cycle-109 T3.4 #793: -preview suffix)
     '^(opus|sonnet|haiku)$'                  # short anthropic aliases (DISS-002: anchored alternation)
+    # cycle-109 Sprint 3 T3.4 (#793): cheval-headless pin form.
+    # PR #727 (cycle-098) introduced subscription-auth headless adapters;
+    # the orchestrator's pre-validator must admit the canonical pin shape
+    # so operators following the cycle-098/099 setup don't fall back to
+    # API providers (which defeats the cost-via-subscription benefit).
+    '^(claude|codex|gemini)-headless:.+$'    # cheval-headless pin form
 )
+
+# Read declarations only: validation must not dispatch or resolve credentials.
+# Reuse the loader's merge and the routing resolver's alias semantics.
+configured_flatline_model() {
+    PYTHONPATH="$SCRIPT_DIR/../adapters" python3 - "$PROJECT_ROOT" "$1" <<'PY' 2>/dev/null
+import sys
+from loa_cheval.config.loader import load_system_defaults, load_project_config, _deep_merge
+from loa_cheval.routing.resolver import resolve_alias
+
+try:
+    config = _deep_merge(load_system_defaults(sys.argv[1]), load_project_config(sys.argv[1]))
+    providers = config.get("providers", {})
+    aliases = {**config.get("backward_compat_aliases", {}), **config.get("aliases", {})}
+    model = sys.argv[2]
+    if ":" not in model and model not in aliases:
+        matches = [name for name, provider in providers.items() if model in provider.get("models", {})]
+        if not matches:
+            sys.exit(1)
+        if len(matches) != 1:
+            sys.exit(2)
+        print(f"{matches[0]}:{model}")
+    else:
+        resolved = resolve_alias(model, aliases)
+        if resolved.provider not in providers:
+            sys.exit(2 if model in aliases else 1)
+        if resolved.model_id not in providers[resolved.provider].get("models", {}):
+            sys.exit(2)
+        print(f"{resolved.provider}:{resolved.model_id}")
+except Exception:
+    sys.exit(2)
+PY
+}
 
 validate_model() {
     local model="$1"
@@ -367,6 +615,17 @@ validate_model() {
         error "Flatline model '$config_key' is empty. Set flatline_protocol.models.$config_key in .loa.config.yaml"
         error "Valid models: ${VALID_FLATLINE_MODELS[*]}"
         return 1
+    fi
+
+    # Project declarations take precedence over generated defaults, including
+    # aliases that override a known name. A declared but broken target fails.
+    if declare -F configured_flatline_model >/dev/null; then
+        local configured_rc=0
+        configured_flatline_model "$model" >/dev/null || configured_rc=$?
+        case "$configured_rc" in
+            0) return 0 ;;
+            2) error "Invalid or ambiguous configured Flatline model: '$model'"; return 1 ;;
+        esac
     fi
 
     # Explicit allowlist match
@@ -412,18 +671,12 @@ get_notebooklm_timeout() {
 # Hounfour Routing (SDD §4.4.2)
 # =============================================================================
 
-# Feature flag: when true, call model-invoke directly instead of model-adapter.sh
-is_flatline_routing_enabled() {
-    if [[ "${HOUNFOUR_FLATLINE_ROUTING:-}" == "true" ]]; then
-        return 0
-    fi
-    if [[ "${HOUNFOUR_FLATLINE_ROUTING:-}" == "false" ]]; then
-        return 1
-    fi
-    local value
-    value=$(read_config '.hounfour.flatline_routing' 'false')
-    [[ "$value" == "true" ]]
-}
+# cycle-109 Sprint 3 T3.8 (commit E): is_flatline_routing_enabled()
+# definition removed. T3.6 removed the consuming branch at call_model
+# (cheval is now the unconditional dispatch path); T3.7 deleted the
+# legacy adapter the flag used to gate. Other files retain their own
+# copies of the helper for non-flatline-orchestrator callers; cleanup
+# of those callsites is tracked as a follow-up.
 
 # Mode → Agent mapping for model-invoke routing
 declare -A MODE_TO_AGENT=(
@@ -451,6 +704,227 @@ declare -A MODEL_TO_PROVIDER_ID=(
     ["gemini-2.5-pro"]="google:gemini-2.5-pro"
 )
 
+# cycle-109 Sprint 2 T2.4 — verdict_quality multi-voice aggregation
+# (CONSUMER #2 per SDD §3.2.3 IMP-004).
+#
+# Reads verdict_quality from each per-voice phase1 output file, shells out
+# to `python -m loa_cheval.verdict.aggregate` (the canonical Python
+# aggregator per SDD §5.2.1 — bash twin never reimplements the merge
+# logic), and writes the aggregated multi-voice envelope to
+# final_consensus.json alongside the existing phase artifacts.
+#
+# Output path helpers are overrideable so tests and concurrent callers can use
+# an isolated evidence directory instead of mutating the phase-global default.
+flatline_output_dir() {
+    printf '%s\n' "${LOA_FLATLINE_OUTPUT_DIR_OVERRIDE:-$PROJECT_ROOT/grimoires/loa/a2a/flatline}"
+}
+
+final_consensus_path() {
+    local phase="$1"
+    printf '%s/%s-%s-final_consensus.json\n' "$(flatline_output_dir)" "$phase" "$FLATLINE_RUN_ID"
+}
+
+# Compatibility/latest pointer only. No run reads or invalidates this path.
+publish_latest_consensus() {
+    local phase="$1" target latest tmp
+    target=$(final_consensus_path "$phase")
+    latest="$(flatline_output_dir)/${phase}-final_consensus.json"
+    tmp=$(mktemp "${latest}.XXXXXX") || return 1
+    rm -f "$tmp"
+    ln -s "$(basename "$target")" "$tmp" && mv -f "$tmp" "$latest"
+}
+
+invalidate_final_consensus() {
+    local phase="$1"
+    local target
+    target=$(final_consensus_path "$phase")
+    mkdir -p "$(dirname "$target")"
+    rm -f "$target"
+}
+
+# Usage: aggregate_and_write_final_consensus <phase> <expected-count> <file1> [<file2> ...]
+# Files are Phase 1 output JSON files. Every content-qualified input must carry
+# a canonical single-voice verdict_quality field; absence fails closed.
+#
+# Fail-closed: missing verdict quality, an unavailable Python aggregator, or
+# malformed output returns non-zero so main cannot publish a clean result.
+aggregate_and_write_final_consensus() {
+    local phase="$1"
+    local expected_voices_count="$2"
+    shift 2
+    local -a input_files=("$@")
+
+    local output_dir
+    output_dir=$(flatline_output_dir)
+    mkdir -p "$output_dir"
+    local target
+    target=$(final_consensus_path "$phase")
+
+    # A consensus artifact describes only the current run. Clear a prior result
+    # before any fail-soft return so stale APPROVED evidence cannot survive a
+    # later run with no usable inputs or a failed aggregation.
+    invalidate_final_consensus "$phase"
+
+    if [[ ${#input_files[@]} -eq 0 ]]; then
+        log "[vq-aggregate] no input files supplied — skipping"
+        return 0
+    fi
+
+    # Extract verdict_quality from each input file into per-voice tmp files.
+    local -a vq_files=()
+    local cleanup_files=()
+    local f vq
+    for f in "${input_files[@]}"; do
+        [[ -s "$f" ]] || continue
+        vq=$(jq -c '.verdict_quality // empty' "$f" 2>/dev/null || true)
+        if [[ -n "$vq" && "$vq" != "null" ]]; then
+            local tmp
+            # #878: guard mktemp failure (template collision, disk full, no
+            # mktemp on PATH). Without the check, downstream chmod/printf on
+            # an empty $tmp produces confusing "No such file or directory"
+            # errors that mask the real mktemp failure.
+            # bug-978 (#978): trailing-X template — BSD mktemp expands only
+            # trailing X-runs; the old .XXXXXX.json shape collided across the
+            # 3 voices and degraded the review to voices=1/3. The aggregator
+            # takes file paths; no extension needed.
+            if ! tmp=$(mktemp "${TEMP_DIR:-/tmp}/vq-input.XXXXXX"); then
+                log "WARNING: mktemp failed for vq-input ($(date)) — skipping verdict-quality envelope for $f"
+                continue
+            fi
+            printf '%s' "$vq" > "$tmp"
+            vq_files+=("$tmp")
+            cleanup_files+=("$tmp")
+        fi
+    done
+
+    if [[ ${#vq_files[@]} -eq 0 ]]; then
+        log "[vq-aggregate] no verdict_quality envelopes found in qualified inputs"
+        return 1
+    fi
+
+    # Shell out to the canonical Python aggregator. PYTHONPATH points at
+    # .claude/adapters so loa_cheval is importable without an install step.
+    #
+    # PR #896 BB iter-1 FIND-003 closure: pass the explicit planned cohort
+    # size, not the count of qualified envelopes that actually arrived.
+    # Missing voices are recorded in voices_dropped[] instead of silently
+    # shrinking voices_planned — which would have turned "2-of-3 degraded"
+    # into "APPROVED 2-of-2".
+    local agg_out agg_rc=0
+    agg_out=$(PYTHONPATH="$PROJECT_ROOT/.claude/adapters" \
+        python3 -m loa_cheval.verdict.aggregate \
+            --expected-voices-count "$expected_voices_count" \
+            "${vq_files[@]}" 2>/dev/null) || agg_rc=$?
+    local aggregate_status=0
+    if [[ $agg_rc -ne 0 ]]; then
+        # Adapter errors can contain rejected instances and terminal controls.
+        # Never copy raw model-bearing diagnostics to operator/trajectory logs.
+        log "[vq-aggregate] AGGREGATION_REJECTED (rc=$agg_rc)"
+        aggregate_status=1
+    else
+        local publish_tmp="" final_status
+        if ! final_status=$(printf '%s\n' "$agg_out" | jq_strict -ers '
+            if length != 1 or (.[0] | type) != "object" then
+                error("expected one consensus document")
+            else .[0].status end |
+            if . == "APPROVED" or . == "DEGRADED" or . == "FAILED"
+            then . else error("invalid consensus status") end
+        '); then
+            log "[vq-aggregate] invalid consensus status; skipping publication"
+            aggregate_status=1
+        elif ! publish_tmp=$(mktemp "${target}.XXXXXX"); then
+            log "[vq-aggregate] unable to allocate atomic publication file"
+            aggregate_status=1
+        elif ! printf '%s\n' "$agg_out" | jq . > "$publish_tmp" 2>/dev/null; then
+            log "[vq-aggregate] aggregator output not valid JSON; skipping write"
+            rm -f "$publish_tmp"
+            aggregate_status=1
+        elif ! mv "$publish_tmp" "$target"; then
+            log "[vq-aggregate] atomic publication failed"
+            rm -f "$publish_tmp"
+            aggregate_status=1
+        else
+            :
+        fi
+        if [[ -s "$target" ]]; then
+            log "[vq-aggregate] wrote $target (status=$final_status, voices=${#vq_files[@]}/$expected_voices_count)"
+
+            # cycle-117 item D (#1177): uniform DEGRADED/FAILED trajectory
+            # record + page. $phase (prd/sdd/sprint) is the closest
+            # available identifier — flatline has no numbered sprint id, so
+            # it doubles as both the gate suffix and sprint_id. model_exit_code
+            # is lossy-compressed to the FIRST dropped voice's exit code when
+            # multiple voices drop (the schema has one scalar field, not a
+            # per-leg array — a known v1 limitation, not a bug).
+            if declare -F degraded_verdict_maybe_emit >/dev/null 2>&1; then
+                local _c117d_reason _c117d_mec
+                _c117d_reason=$(jq -r '.voices_dropped[0].reason // "unknown"' "$target" 2>/dev/null) || _c117d_reason="unknown"
+                _c117d_mec=$(jq -r '.voices_dropped[0].exit_code // "-"' "$target" 2>/dev/null) || _c117d_mec="-"
+                local -a _c117d_legs=()
+                while IFS= read -r _c117d_leg; do
+                    [[ -n "$_c117d_leg" ]] && _c117d_legs+=("$_c117d_leg")
+                done < <(jq -r '.voices_dropped[]?.voice // empty' "$target" 2>/dev/null)
+                degraded_verdict_maybe_emit "flatline:${phase}" "$final_status" \
+                    "$_c117d_reason" "$phase" "$_c117d_mec" \
+                    ${_c117d_legs[@]+"${_c117d_legs[@]}"}
+            fi
+        fi
+    fi
+
+    # Clean up per-voice tmp inputs.
+    local c
+    for c in "${cleanup_files[@]}"; do
+        rm -f "$c" 2>/dev/null || true
+    done
+    return "$aggregate_status"
+}
+
+# Production Phase 1 participation boundary. Tests call this exact helper so a
+# future deletion of main's qualification wiring cannot leave the suite green.
+declare -a QUALIFIED_REVIEW_FILES=()
+EXPECTED_REVIEW_VOICES=0
+FLATLINE_VERDICT_QUALITY=""
+
+qualify_and_aggregate_reviews() {
+    local phase="$1"
+    local gpt_review_file="$2"
+    local opus_review_file="$3"
+    local tertiary_review_file="${4:-}"
+
+    EXPECTED_REVIEW_VOICES=2
+    [[ -n "$tertiary_review_file" ]] && EXPECTED_REVIEW_VOICES=3
+    QUALIFIED_REVIEW_FILES=()
+    FLATLINE_VERDICT_QUALITY=""
+
+    if qualify_flatline_content "$gpt_review_file" "flatline-reviewer" "gpt-review" "$phase"; then
+        QUALIFIED_REVIEW_FILES+=("$gpt_review_file")
+    fi
+    if qualify_flatline_content "$opus_review_file" "flatline-reviewer" "opus-review" "$phase"; then
+        QUALIFIED_REVIEW_FILES+=("$opus_review_file")
+    fi
+    if [[ -n "$tertiary_review_file" ]] && \
+       qualify_flatline_content "$tertiary_review_file" "flatline-reviewer" "tertiary-review" "$phase"; then
+        QUALIFIED_REVIEW_FILES+=("$tertiary_review_file")
+    fi
+
+    if [[ ${#QUALIFIED_REVIEW_FILES[@]} -eq 0 ]]; then
+        invalidate_final_consensus "$phase"
+        return 3
+    fi
+
+    if ! aggregate_and_write_final_consensus \
+        "$phase" "$EXPECTED_REVIEW_VOICES" "${QUALIFIED_REVIEW_FILES[@]}"; then
+        return 3
+    fi
+
+    local target
+    target=$(final_consensus_path "$phase")
+    if ! FLATLINE_VERDICT_QUALITY=$(jq -c . "$target" 2>/dev/null); then
+        return 3
+    fi
+    publish_latest_consensus "$phase" || log "[vq-aggregate] latest pointer publication failed"
+}
+
 # Unified model call: routes through model-invoke (direct) or model-adapter.sh (legacy)
 # Usage: call_model <model> <mode> <input> <phase> [context] [timeout]
 call_model() {
@@ -460,11 +934,41 @@ call_model() {
     local phase="$4"
     local context="${5:-}"
     local timeout="${6:-$DEFAULT_MODEL_TIMEOUT}"
+    # cycle-124 FR-7: optional wire schema (7th positional) → cheval --json-schema.
+    local schema_file="${7:-}"
 
-    if is_flatline_routing_enabled && [[ -x "$MODEL_INVOKE" ]]; then
+    # cycle-109 Sprint 3 T3.6 (commit C in SDD §5.3.1 sequence): the
+    # pre-fix `if is_flatline_routing_enabled && [[ -x "$MODEL_INVOKE" ]];
+    # then ... else <legacy> fi` branch was removed. cheval (model-invoke)
+    # is now the unconditional dispatch path. The legacy MODEL_ADAPTER
+    # fallback else-branch was deleted alongside the conditional;
+    # MODEL_ADAPTER is preserved (T3.8 cleanup) but no caller path here
+    # invokes it.
+    if [[ ! -x "$MODEL_INVOKE" ]]; then
+        log "ERROR: MODEL_INVOKE not executable at $MODEL_INVOKE — substrate misconfigured"
+        return 2
+    fi
+    {
         # Direct model-invoke path (SDD §4.4.2)
         local agent="${MODE_TO_AGENT[$mode]:-}"
-        local model_override="${MODEL_TO_PROVIDER_ID[$model]:-$model}"
+        # cycle-099 Sprint 1B + post-Sprint-2E parity: prefer the SSOT-aware
+        # resolver (model-resolver.sh::resolve_provider_id) which reads
+        # generated-model-maps.sh; fall back to the local MODEL_TO_PROVIDER_ID
+        # for legacy aliases that intentionally aren't in model-config.yaml.
+        # Mirrors the red-team-model-adapter.sh pattern.
+        local model_override
+        local configured_rc=0
+        model_override=$(configured_flatline_model "$model") || configured_rc=$?
+        if [[ "$configured_rc" -eq 0 ]]; then
+            : # effective project declaration
+        elif [[ "$configured_rc" -eq 2 ]]; then
+            log "ERROR: Invalid or ambiguous configured Flatline model"
+            return 2
+        elif model_override="$(resolve_provider_id "$model" 2>/dev/null)"; then
+            : # canonical alias resolved via shared lib
+        else
+            model_override="${MODEL_TO_PROVIDER_ID[$model]:-$model}"
+        fi
 
         if [[ -z "$agent" ]]; then
             log "ERROR: Unknown mode for model-invoke: $mode"
@@ -474,30 +978,145 @@ call_model() {
         local -a args=(
             --agent "$agent"
             --input "$input"
-            --model "$model_override"
+        )
+        # cycle-116 D3: score-mode per-stage tier routing. When the opt-in
+        # flag is set, omit --model and pass --role/--skill so cheval's
+        # advisor_strategy resolver (role gate) picks the tier. When unset
+        # (default), the argv is byte-identical to pre-D3: --model pin.
+        if [[ "$mode" == "score" ]] && is_stage_routing_scorer_enabled; then
+            args+=(--role implementation --skill flatline-scorer)
+        else
+            # cycle-119 C16 (model-economy D-6): --skill is a pre-existing
+            # cheval arg (cycle-108 T1.H) threaded into the MODELINV envelope
+            # as calling_primitive (cheval.py:1562,2126). Passing it here ends
+            # the 100%-(unattributed) state of the economy roll-up for every
+            # flatline dispatch. Additive: --model pin is unchanged.
+            args+=(--model "$model_override" --skill "flatline-${mode}")
+        fi
+        args+=(
             --output-format json
             --json-errors
             --timeout "$timeout"
         )
 
+        # Issue #675 (sub-issue 4): plumb operator-supplied max_tokens override
+        # to model-invoke (cheval --max-tokens).
+        # cycle-124 FR-2 (SDD §3.2): cheval's default is now per model
+        # (Anthropic 64K streaming / 16K non-streaming, others 4096), sized
+        # for open-ended calls. Flatline's outputs are bounded — review /
+        # skeptic emit a findings document, score a small JSON array — so
+        # every call passes an explicit budget and the 600 s per-call timeout
+        # never meets a 64K-output generation. --per-call-max-tokens still
+        # overrides both.
+        local per_call_max_tokens="${PER_CALL_MAX_TOKENS:-}"
+        if [[ -z "$per_call_max_tokens" ]]; then
+            case "$mode" in
+                score) per_call_max_tokens="$FLATLINE_SCORE_MAX_TOKENS" ;;
+                *)     per_call_max_tokens="$FLATLINE_REVIEW_MAX_TOKENS" ;;
+            esac
+        fi
+        args+=(--max-tokens "$per_call_max_tokens")
+        # cycle-124 FR-9 (SDD §3.6): effort per mode — a pure function of the
+        # mode (never per attempt), so the cached prefix survives retries.
+        # review / skeptic reason deeply; the scorer emits a small JSON array.
+        case "$mode" in
+            review|skeptic) args+=(--effort xhigh) ;;
+            score)          args+=(--effort medium) ;;
+        esac
+
         if [[ -n "$context" && -f "$context" ]]; then
             args+=(--system "$context")
+        fi
+        # cycle-124 FR-7: appended AFTER the D3 if/else above so both argv
+        # branches (--model pin and --role routing) carry the schema; cheval
+        # enforces it where the hop can and reports schema_enforced either way.
+        if [[ -n "$schema_file" && -f "$schema_file" ]]; then
+            args+=(--json-schema "$schema_file")
+        elif [[ -n "$schema_file" ]]; then
+            log "WARN: wire schema not found, dispatching unenforced: $schema_file"
         fi
 
         # Per-invocation diagnostic log (unique suffix for parallel calls)
         local invoke_log
         invoke_log=$(setup_invoke_log "flatline-${mode}-${model}")
 
+        # cycle-109 Sprint 2 T2.4 — verdict_quality sidecar (CONSUMER #2).
+        # Allocate a per-call sidecar path so cheval writes its envelope
+        # back into a per-voice file. Parallel-dispatch safe because each
+        # invocation gets a unique TEMP_DIR-rooted path (TEMP_DIR is set
+        # by the orchestrator's setup; mode+model+PID-derived suffix keeps
+        # concurrent reviews on the same model distinct).
+        local vq_sidecar
+        vq_sidecar="${TEMP_DIR:-/tmp}/vq-${mode}-${model//[^A-Za-z0-9_-]/_}-$$-$RANDOM.json"
+
         local result exit_code=0
         # Synchronous stderr capture — avoids process substitution race condition
         # where >(redact_secrets) may not finish writing before log is read
-        result=$("$MODEL_INVOKE" "${args[@]}" 2>"${invoke_log}.raw") || exit_code=$?
+        result=$(LOA_VERDICT_QUALITY_SIDECAR="$vq_sidecar" \
+            "$MODEL_INVOKE" "${args[@]}" 2>"${invoke_log}.raw") || exit_code=$?
         if [[ -s "${invoke_log}.raw" ]]; then
             redact_secrets < "${invoke_log}.raw" >> "$invoke_log"
         fi
         rm -f "${invoke_log}.raw"
 
         if [[ $exit_code -ne 0 ]]; then
+            # bug-899: preserve verdict_quality envelope on failure so the
+            # cohort aggregator (see line 534 region) can attribute
+            # blocker_risk / reason / chain health to this voice. cheval
+            # writes the envelope to the sidecar BEFORE the failure mode
+            # that drives a non-zero exit becomes observable, so the
+            # sidecar's FAILED/DEGRADED envelope carries the attribution
+            # we need; deleting it before the aggregator runs causes the
+            # cohort verdict to silently drop this voice's failure signal.
+            # Mirror of the success-path read below at line ~715.
+            local vq_envelope_on_failure="null"
+            if [[ -s "$vq_sidecar" ]] && jq empty < "$vq_sidecar" 2>/dev/null; then
+                vq_envelope_on_failure=$(cat "$vq_sidecar")
+            fi
+            if [[ "$vq_envelope_on_failure" != "null" ]]; then
+                # Emit a failure-shaped per-voice output to stdout so the
+                # caller's `>` redirect captures the envelope. Aggregator
+                # reads .verdict_quality from each per-voice file; the
+                # additional `status` / `exit_code` fields are additive
+                # and ignored by legacy consumers.
+                #
+                # BB #915 F-004 fix: previously suffixed with `|| true`,
+                # which recreated the silent-drop pattern this fix exists
+                # to prevent — a jq failure (OOM, missing binary, sidecar
+                # mutation between `jq empty` and `cat`) would absorb the
+                # error and leave the envelope unwritten with no log
+                # signal. Now: capture jq's status, log on failure to
+                # `$invoke_log` (already opened above), continue to the
+                # rm + return. The aggregator will see no envelope on
+                # double-failure, but the operator will see WHY in the
+                # log instead of silent attrition.
+                local _vq_jq_status=0
+                jq -cn \
+                    --argjson vq "$vq_envelope_on_failure" \
+                    --arg model "$model" \
+                    --arg mode "$mode" \
+                    --arg phase "$phase" \
+                    --argjson exit_code "$exit_code" \
+                    '{
+                        content: "",
+                        tokens_input: 0,
+                        tokens_output: 0,
+                        latency_ms: 0,
+                        retries: 0,
+                        model: $model,
+                        mode: $mode,
+                        phase: $phase,
+                        cost_usd: 0,
+                        status: "failed",
+                        exit_code: $exit_code,
+                        verdict_quality: $vq
+                    }' || _vq_jq_status=$?
+                if [[ $_vq_jq_status -ne 0 ]]; then
+                    printf '[vq-warn] failure-envelope jq exit=%d for model=%s mode=%s phase=%s — verdict_quality dropped from cohort attribution; sidecar may have been mutated between validation and emit\n' \
+                        "$_vq_jq_status" "$model" "$mode" "$phase" >> "$invoke_log" 2>/dev/null || true
+                fi
+            fi
+            rm -f "$vq_sidecar" 2>/dev/null || true
             log_invoke_failure "$exit_code" "$invoke_log" "$timeout"
             return $exit_code
         fi
@@ -505,11 +1124,27 @@ call_model() {
         # Clean up on success
         cleanup_invoke_log "$invoke_log"
 
-        # Translate output to legacy format for downstream compatibility
+        # cycle-109 Sprint 2 T2.4 — read verdict_quality sidecar back.
+        # Absent file = cheval was an older build or envelope construction
+        # failed; downstream consumers handle absent verdict_quality
+        # gracefully (no propagation = legacy shape).
+        local vq_envelope="null"
+        if [[ -s "$vq_sidecar" ]]; then
+            if jq empty < "$vq_sidecar" 2>/dev/null; then
+                vq_envelope=$(cat "$vq_sidecar")
+            else
+                log "[vq-warn] sidecar present but not valid JSON: $vq_sidecar"
+            fi
+        fi
+        rm -f "$vq_sidecar" 2>/dev/null || true
+
+        # Translate output to legacy format for downstream compatibility,
+        # attaching the verdict_quality envelope as a new additive field.
         echo "$result" | jq \
             --arg model "$model" \
             --arg mode "$mode" \
             --arg phase "$phase" \
+            --argjson vq "$vq_envelope" \
             '{
                 content: .content,
                 tokens_input: (.usage.input_tokens // 0),
@@ -519,15 +1154,10 @@ call_model() {
                 model: $model,
                 mode: $mode,
                 phase: $phase,
-                cost_usd: 0
+                cost_usd: 0,
+                verdict_quality: $vq
             }'
-    else
-        # Legacy path: model-adapter.sh (or shim)
-        "$MODEL_ADAPTER" --model "$model" --mode "$mode" \
-            --input "$input" --phase "$phase" \
-            ${context:+--context "$context"} \
-            --timeout "$timeout" --json
-    fi
+    }
 }
 
 # =============================================================================
@@ -571,11 +1201,15 @@ extract_domain() {
             ;;
         beads)
             # Look for task graph keywords from JSON
-            domain=$(jq -r '[.[]? | .title // .description // empty] | join(" ")' "$doc" 2>/dev/null | \
-                tr -cs '[:alnum:]' ' ' | \
+            local keywords
+            if ! keywords=$(jq -r '[.[]? | .title // .description // empty] | join(" ")' "$doc" 2>/dev/null); then
+                error "Beads domain extraction failed: invalid task JSON"
+                return 1
+            fi
+            domain=$(printf '%s' "$keywords" | tr -cs '[:alnum:]' ' ' | \
                 tr '[:upper:]' '[:lower:]' | \
                 tr -s ' ' | \
-                cut -d' ' -f1-5 || echo "task graph")
+                cut -d' ' -f1-5)
             ;;
     esac
 
@@ -988,14 +1622,14 @@ run_phase1() {
 
     # Wave 1: Review calls (all models concurrently)
     {
-        call_model "$secondary_model" review "$doc" "$phase" "$context_file" "$timeout" \
+        call_model "$secondary_model" review "$doc" "$phase" "$context_file" "$timeout" "$WIRE_REVIEWER" \
             > "$gpt_review_file" 2>"$gpt_review_stderr"
     } &
     pids+=($!)
     pid_labels+=("gpt-review")
 
     {
-        call_model "$primary_model" review "$doc" "$phase" "$context_file" "$timeout" \
+        call_model "$primary_model" review "$doc" "$phase" "$context_file" "$timeout" "$WIRE_REVIEWER" \
             > "$opus_review_file" 2>"$opus_review_stderr"
     } &
     pids+=($!)
@@ -1003,7 +1637,7 @@ run_phase1() {
 
     if [[ "$has_tertiary" == "true" ]]; then
         {
-            call_model "$tertiary_model" review "$doc" "$phase" "$context_file" "$timeout" \
+            call_model "$tertiary_model" review "$doc" "$phase" "$context_file" "$timeout" "$WIRE_REVIEWER" \
                 > "$tertiary_review_file" 2>"$tertiary_review_stderr"
         } &
         pids+=($!)
@@ -1015,14 +1649,14 @@ run_phase1() {
 
     # Wave 2: Skeptic calls (all models concurrently)
     {
-        call_model "$secondary_model" skeptic "$doc" "$phase" "$context_file" "$timeout" \
+        call_model "$secondary_model" skeptic "$doc" "$phase" "$context_file" "$timeout" "$WIRE_SKEPTIC" \
             > "$gpt_skeptic_file" 2>"$gpt_skeptic_stderr"
     } &
     pids+=($!)
     pid_labels+=("gpt-skeptic")
 
     {
-        call_model "$primary_model" skeptic "$doc" "$phase" "$context_file" "$timeout" \
+        call_model "$primary_model" skeptic "$doc" "$phase" "$context_file" "$timeout" "$WIRE_SKEPTIC" \
             > "$opus_skeptic_file" 2>"$opus_skeptic_stderr"
     } &
     pids+=($!)
@@ -1030,25 +1664,49 @@ run_phase1() {
 
     if [[ "$has_tertiary" == "true" ]]; then
         {
-            call_model "$tertiary_model" skeptic "$doc" "$phase" "$context_file" "$timeout" \
+            call_model "$tertiary_model" skeptic "$doc" "$phase" "$context_file" "$timeout" "$WIRE_SKEPTIC" \
                 > "$tertiary_skeptic_file" 2>"$tertiary_skeptic_stderr"
         } &
         pids+=($!)
         pid_labels+=("tertiary-skeptic")
     fi
 
-    # Wait for all processes and track failures
+    # Wait for all processes and track failures + voice-drops separately.
+    # Voice-drops (cheval exit 12 = CHAIN_EXHAUSTED) are the per-voice
+    # graceful-fall-through per SDD §6.5; they ARE NOT treated as failures
+    # because the within-company chain already walked to end and there is
+    # no cross-company substitute to try (FR-S2.5).
     local failed=0
     local failed_labels=()
+    local dropped_labels=()
     for i in "${!pids[@]}"; do
-        if ! wait "${pids[$i]}"; then
-            failed=$((failed + 1))
-            failed_labels+=("${pid_labels[$i]}")
-        fi
+        local _wait_exit=0
+        wait "${pids[$i]}" || _wait_exit=$?
+        local _classification
+        _classification=$(classify_voice_exit_status "$_wait_exit")
+        case "$_classification" in
+            success) ;;
+            dropped)
+                dropped_labels+=("${pid_labels[$i]}")
+                emit_voice_dropped "${pid_labels[$i]}" "$phase"
+                ;;
+            *)
+                failed=$((failed + 1))
+                failed_labels+=("${pid_labels[$i]}")
+                ;;
+        esac
     done
+    local dropped_count=${#dropped_labels[@]}
 
-    if [[ $failed -eq $total_calls ]]; then
-        error "All Phase 1 model calls failed"
+    # All voices unavailable (failures + chain-exhaustions) → hard error.
+    if [[ $((failed + dropped_count)) -eq $total_calls ]]; then
+        if [[ $failed -gt 0 && $dropped_count -gt 0 ]]; then
+            error "All Phase 1 model voices unavailable ($failed failed, $dropped_count chain-exhausted)"
+        elif [[ $dropped_count -eq $total_calls ]]; then
+            error "All Phase 1 model voices chain-exhausted (no within-company fallback succeeded)"
+        else
+            error "All Phase 1 model calls failed"
+        fi
         # Log stderr from all failed calls for diagnosis
         for label in "${failed_labels[@]}"; do
             local stderr_file="$TEMP_DIR/${label}-stderr.log"
@@ -1059,15 +1717,32 @@ run_phase1() {
         return 3
     fi
 
+    if [[ $dropped_count -gt 0 ]]; then
+        log "Voice-drop: $dropped_count of $total_calls Phase 1 voices dropped from consensus (chain exhausted): ${dropped_labels[*]}"
+    fi
+
     if [[ $failed -gt 0 ]]; then
         log "Warning: $failed of $total_calls Phase 1 calls failed (degraded mode)"
-        # Log stderr from failed calls for diagnosis
+        # Issue #774: count failed calls whose stderr carries the typed
+        # `failure_class=PROVIDER_DISCONNECT` JSON marker emitted by cheval.py.
+        # When ≥1 such call appears, surface a single tip line that points
+        # operators at the right diagnosis (NOT --per-call-max-tokens 4096,
+        # which is a no-op against the disconnect failure mode).
+        local disconnect_count=0
         for label in "${failed_labels[@]}"; do
             local stderr_file="$TEMP_DIR/${label}-stderr.log"
             if [[ -s "$stderr_file" ]]; then
+                # Match the JSON-error shape literally: '"failure_class":"PROVIDER_DISCONNECT"'
+                # (with arbitrary whitespace inside the JSON object).
+                if grep -q '"failure_class"[[:space:]]*:[[:space:]]*"PROVIDER_DISCONNECT"' "$stderr_file" 2>/dev/null; then
+                    disconnect_count=$((disconnect_count + 1))
+                fi
                 log "  $label stderr: $(head -5 "$stderr_file")"
             fi
         done
+        if [[ $disconnect_count -gt 0 ]]; then
+            log "tip: $disconnect_count of $failed failed calls had failure_class=PROVIDER_DISCONNECT — see issue #774. The --per-call-max-tokens flag does NOT address this failure mode (cheval default already=4096)."
+        fi
     fi
 
     # Aggregate costs
@@ -1099,6 +1774,19 @@ run_phase1() {
 # Phase 2: Cross-Scoring
 # =============================================================================
 
+prepare_flatline_items() {
+    local file="$1" source="$2"
+    # Reviewer IDs are local (each reviewer starts at IMP-001). Bind identity
+    # to the source and position before dispatch, including duplicate local IDs.
+    extract_json_content "$file" '{"improvements":[]}' | jq --arg source "$source" '
+        .improvements |= (to_entries | map(.value + {
+            id: ($source + ":" + (.key | tostring) + ":" + (.value.id | tostring)),
+            original_id: .value.id,
+            review_source: $source
+        }))
+    '
+}
+
 run_phase2() {
     local gpt_review_file="$1"
     local opus_review_file="$2"
@@ -1126,11 +1814,11 @@ run_phase2() {
     local opus_items_file="$TEMP_DIR/opus-items.json"
     local tertiary_items_file="$TEMP_DIR/tertiary-items.json"
 
-    # Extract improvements from each review (handles markdown-wrapped JSON)
-    extract_json_content "$gpt_review_file" '{"improvements":[]}' > "$gpt_items_file"
-    extract_json_content "$opus_review_file" '{"improvements":[]}' > "$opus_items_file"
+    # Both cross-scorers receive the same source-qualified finding IDs.
+    prepare_flatline_items "$gpt_review_file" gpt > "$gpt_items_file" || return 1
+    prepare_flatline_items "$opus_review_file" opus > "$opus_items_file" || return 1
     if [[ "$has_tertiary" == "true" ]]; then
-        extract_json_content "$tertiary_review_file" '{"improvements":[]}' > "$tertiary_items_file"
+        prepare_flatline_items "$tertiary_review_file" tertiary > "$tertiary_items_file" || return 1
     fi
 
     # Create output files
@@ -1145,14 +1833,14 @@ run_phase2() {
 
     # GPT scores Opus items
     {
-        call_model "$secondary_model" score "$opus_items_file" "$phase" "" "$timeout" \
+        call_model "$secondary_model" score "$opus_items_file" "$phase" "" "$timeout" "$WIRE_SCORER" \
             > "$gpt_scores_file" 2>/dev/null
     } &
     pids+=($!)
 
     # Opus scores GPT items
     {
-        call_model "$primary_model" score "$gpt_items_file" "$phase" "" "$timeout" \
+        call_model "$primary_model" score "$gpt_items_file" "$phase" "" "$timeout" "$WIRE_SCORER" \
             > "$opus_scores_file" 2>/dev/null
     } &
     pids+=($!)
@@ -1161,43 +1849,57 @@ run_phase2() {
     if [[ "$has_tertiary" == "true" ]]; then
         # Tertiary scores Opus items
         {
-            call_model "$tertiary_model" score "$opus_items_file" "$phase" "" "$timeout" \
+            call_model "$tertiary_model" score "$opus_items_file" "$phase" "" "$timeout" "$WIRE_SCORER" \
                 > "$tertiary_scores_opus_file" 2>/dev/null
         } &
         pids+=($!)
 
         # Tertiary scores GPT items
         {
-            call_model "$tertiary_model" score "$gpt_items_file" "$phase" "" "$timeout" \
+            call_model "$tertiary_model" score "$gpt_items_file" "$phase" "" "$timeout" "$WIRE_SCORER" \
                 > "$tertiary_scores_gpt_file" 2>/dev/null
         } &
         pids+=($!)
 
         # GPT scores Tertiary items
         {
-            call_model "$secondary_model" score "$tertiary_items_file" "$phase" "" "$timeout" \
+            call_model "$secondary_model" score "$tertiary_items_file" "$phase" "" "$timeout" "$WIRE_SCORER" \
                 > "$gpt_scores_tertiary_file" 2>/dev/null
         } &
         pids+=($!)
 
         # Opus scores Tertiary items
         {
-            call_model "$primary_model" score "$tertiary_items_file" "$phase" "" "$timeout" \
+            call_model "$primary_model" score "$tertiary_items_file" "$phase" "" "$timeout" "$WIRE_SCORER" \
                 > "$opus_scores_tertiary_file" 2>/dev/null
         } &
         pids+=($!)
     fi
 
-    # Wait for all processes
+    # Wait for all processes. Voice-drop classifier distinguishes the
+    # chain-exhausted case (cheval exit 12) per SDD §6.5; in Phase 2
+    # cross-scoring a dropped voice means that voice's chain ran out
+    # while scoring the other voice's items — we surface it but proceed
+    # with partial consensus (mirrors the pre-cycle-104 partial-tolerance
+    # behaviour for Phase 2).
     local failed=0
+    local dropped_p2=0
     for pid in "${pids[@]}"; do
-        if ! wait "$pid"; then
-            failed=$((failed + 1))
-        fi
+        local _wait_exit=0
+        wait "$pid" || _wait_exit=$?
+        local _classification
+        _classification=$(classify_voice_exit_status "$_wait_exit")
+        case "$_classification" in
+            success) ;;
+            dropped) dropped_p2=$((dropped_p2 + 1)) ;;
+            *) failed=$((failed + 1)) ;;
+        esac
     done
 
-    if [[ $failed -eq $total_calls ]]; then
-        log "Warning: All Phase 2 calls failed - using partial consensus"
+    if [[ $((failed + dropped_p2)) -eq $total_calls ]]; then
+        log "Warning: All Phase 2 calls unavailable ($failed failed, $dropped_p2 chain-exhausted) - using partial consensus"
+    elif [[ $dropped_p2 -gt 0 ]]; then
+        log "Voice-drop: $dropped_p2 of $total_calls Phase 2 cross-scoring calls chain-exhausted; partial scores aggregated"
     fi
 
     # Aggregate costs
@@ -1231,6 +1933,86 @@ run_phase2() {
 # Phase 3: Consensus Calculation
 # =============================================================================
 
+prepare_flatline_scores() {
+    local file="$1" items_file="${2:-}"
+    local content normalized
+    if [[ -s "$file" ]] &&
+       content=$(jq -ers '
+           select(length == 1) | .[0] | select(type == "object") |
+           .content | select(type == "string" and length > 0)
+       ' "$file" 2>/dev/null) &&
+       normalized=$(normalize_score_response "$content") &&
+       validate_agent_response "$normalized" flatline-scorer 2>/dev/null; then
+        # Real Phase 2 retains its dispatch inputs. Reject unknown/stripped IDs
+        # and take finding provenance and description from those inputs.
+        if [[ -z "$items_file" ]] || normalized=$(jq --argjson response "$normalized" '
+            (.improvements | map({key:.id, value:.}) | from_entries) as $items |
+            $response | .scores |= map(
+                . as $score | $items[$score.id] as $item |
+                if $item == null then error("unknown finding ID")
+                else $score + {
+                    description: $item.description,
+                    original_id: $item.original_id,
+                    review_source: $item.review_source
+                } end) |
+            (($items | keys) - [.scores[].id]) as $missing |
+            if ($missing | length) > 0 then
+                . + {scoring_status:"incomplete", missing_score_ids:$missing}
+            else . end
+        ' "$items_file" 2>/dev/null); then
+            printf '%s\n' "$normalized"
+            return 0
+        fi
+    fi
+    log "WARNING: Scorer response unavailable; excluding its scores"
+    printf '%s\n' '{"scores":[],"scoring_status":"unavailable"}'
+}
+
+qualified_raw_reviews() {
+    local gpt_review_file="$1" opus_review_file="$2"
+    local raw_reviews='{}' review_file voice_label
+    for review_file in "${QUALIFIED_REVIEW_FILES[@]}"; do
+        case "$review_file" in
+            "$gpt_review_file") voice_label=gpt ;;
+            "$opus_review_file") voice_label=opus ;;
+            *) voice_label=tertiary ;;
+        esac
+        raw_reviews=$(jq --arg voice "$voice_label" --slurpfile review "$review_file" \
+            '. + {($voice): $review[0]}' <<< "$raw_reviews") || return 1
+    done
+    printf '%s\n' "$raw_reviews"
+}
+
+qualified_reviews_are_empty() {
+    [[ ${#QUALIFIED_REVIEW_FILES[@]} -gt 0 ]] || return 1
+    local file
+    for file in "${QUALIFIED_REVIEW_FILES[@]}"; do
+        if ! extract_json_content "$file" '{}' |
+             jq -e '.improvements | type == "array" and length == 0' >/dev/null; then
+            return 1
+        fi
+    done
+}
+
+record_scoring_degradation() {
+    local phase="$1" updated target temporary
+    target=$(final_consensus_path "$phase")
+    invalidate_final_consensus "$phase"
+    updated=$(printf '%s\n' "$FLATLINE_VERDICT_QUALITY" | jq '
+        .scoring_degraded = true |
+        .confidence_floor = "low" |
+        .rationale = "Qualified review voices retained; cross-scoring was incomplete or rejected."
+    ' | verdict_quality_emit) || return 1
+    temporary=$(mktemp "${target}.XXXXXX") || return 1
+    if ! printf '%s\n' "$updated" > "$temporary" || ! mv "$temporary" "$target"; then
+        rm -f "$temporary"
+        return 1
+    fi
+    FLATLINE_VERDICT_QUALITY="$updated"
+    publish_latest_consensus "$phase" || log "[vq-aggregate] latest pointer publication failed"
+    log "Cross-scoring degraded; qualified review denominator retained"
+}
+
 run_consensus() {
     local gpt_scores_file="$1"
     local opus_scores_file="$2"
@@ -1251,8 +2033,8 @@ run_consensus() {
     local opus_scores_prepared="$TEMP_DIR/opus-scores-prepared.json"
 
     # Extract and format scores using extract_json_content (handles markdown wrapping)
-    extract_json_content "$gpt_scores_file" '{"scores":[]}' > "$gpt_scores_prepared"
-    extract_json_content "$opus_scores_file" '{"scores":[]}' > "$opus_scores_prepared"
+    prepare_flatline_scores "$gpt_scores_file" "$TEMP_DIR/opus-items.json" > "$gpt_scores_prepared"
+    prepare_flatline_scores "$opus_scores_file" "$TEMP_DIR/gpt-items.json" > "$opus_scores_prepared"
 
     # Prepare skeptic files (handles markdown-wrapped JSON)
     local gpt_skeptic_prepared="$TEMP_DIR/gpt-skeptic-prepared.json"
@@ -1260,19 +2042,21 @@ run_consensus() {
 
     extract_json_content "$gpt_skeptic_file" '{"concerns":[]}' > "$gpt_skeptic_prepared"
     extract_json_content "$opus_skeptic_file" '{"concerns":[]}' > "$opus_skeptic_prepared"
+    normalize_skeptic_envelope "$gpt_skeptic_prepared"
+    normalize_skeptic_envelope "$opus_skeptic_prepared"
 
     # FR-3: Prepare tertiary scoring and skeptic files when available
     local tertiary_args=()
-    if [[ -n "$tertiary_scores_opus" && -s "$tertiary_scores_opus" ]]; then
+    if [[ -n "$tertiary_scores_opus$tertiary_scores_gpt$gpt_scores_tertiary$opus_scores_tertiary" ]]; then
         local tertiary_scores_opus_prepared="$TEMP_DIR/tertiary-scores-opus-prepared.json"
         local tertiary_scores_gpt_prepared="$TEMP_DIR/tertiary-scores-gpt-prepared.json"
         local gpt_scores_tertiary_prepared="$TEMP_DIR/gpt-scores-tertiary-prepared.json"
         local opus_scores_tertiary_prepared="$TEMP_DIR/opus-scores-tertiary-prepared.json"
 
-        extract_json_content "$tertiary_scores_opus" '{"scores":[]}' > "$tertiary_scores_opus_prepared"
-        extract_json_content "$tertiary_scores_gpt" '{"scores":[]}' > "$tertiary_scores_gpt_prepared"
-        extract_json_content "$gpt_scores_tertiary" '{"scores":[]}' > "$gpt_scores_tertiary_prepared"
-        extract_json_content "$opus_scores_tertiary" '{"scores":[]}' > "$opus_scores_tertiary_prepared"
+        prepare_flatline_scores "$tertiary_scores_opus" "$TEMP_DIR/opus-items.json" > "$tertiary_scores_opus_prepared"
+        prepare_flatline_scores "$tertiary_scores_gpt" "$TEMP_DIR/gpt-items.json" > "$tertiary_scores_gpt_prepared"
+        prepare_flatline_scores "$gpt_scores_tertiary" "$TEMP_DIR/tertiary-items.json" > "$gpt_scores_tertiary_prepared"
+        prepare_flatline_scores "$opus_scores_tertiary" "$TEMP_DIR/tertiary-items.json" > "$opus_scores_tertiary_prepared"
 
         tertiary_args=(
             --tertiary-scores-opus "$tertiary_scores_opus_prepared"
@@ -1288,6 +2072,7 @@ run_consensus() {
     if [[ -n "$tertiary_skeptic_file" && -s "$tertiary_skeptic_file" ]]; then
         local tertiary_skeptic_prepared="$TEMP_DIR/tertiary-skeptic-prepared.json"
         extract_json_content "$tertiary_skeptic_file" '{"concerns":[]}' > "$tertiary_skeptic_prepared"
+        normalize_skeptic_envelope "$tertiary_skeptic_prepared"
         tertiary_skeptic_args=(--skeptic-tertiary "$tertiary_skeptic_prepared")
         log "Including tertiary model skeptic concerns in consensus"
     fi
@@ -1314,7 +2099,7 @@ Usage: flatline-orchestrator.sh --doc <path> --phase <type> [options]
 
 Required:
   --doc <path>           Document to review
-  --phase <type>         Phase type: prd, sdd, sprint, beads
+  --phase <type>         Phase type: prd, sdd, sprint, beads, spec, pr
 
 Options:
   --mode <type>          Mode: review (default), red-team, inquiry
@@ -1322,8 +2107,20 @@ Options:
   --dry-run              Validate without executing reviews
   --skip-knowledge       Skip knowledge retrieval
   --skip-consensus       Return raw reviews without consensus
+  --keep-temp            Retain intermediates (or set KEEP_FLATLINE_TEMP=1)
   --timeout <seconds>    Overall timeout (default: 300)
   --budget <cents>       Cost budget in cents (default: 300 = \$3.00)
+  --per-call-max-tokens <N>
+                         Override max_tokens passed to each model invocation.
+                         Preserved for backward compat with issue #675.
+                         NOTE: does NOT address failure_class=PROVIDER_DISCONNECT
+                         (issue #774) — both the Anthropic AND OpenAI cheval
+                         paths fail on long-prompt requests with the typed
+                         transport error; the gemini path is unaffected.
+                         When unset (cycle-124 FR-2): review/skeptic/score
+                         calls pass 16000 — cheval's own
+                         per-model default (Anthropic 64K/16K, others 4096)
+                         is sized for open-ended calls, not these.
   --json                 Output as JSON
   -h, --help             Show this help
 
@@ -1353,7 +2150,11 @@ EOF
 
 cleanup() {
     if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
-        rm -rf "$TEMP_DIR"
+        if [[ "$KEEP_FLATLINE_TEMP" == "1" ]]; then
+            log "Retained Flatline intermediates: $TEMP_DIR"
+        else
+            rm -rf "$TEMP_DIR"
+        fi
     fi
 }
 
@@ -1368,7 +2169,7 @@ main() {
     local budget="$DEFAULT_BUDGET"
     local json_output=false
     local mode_flag=""
-    local run_id=""
+    local run_id="$FLATLINE_RUN_ID"
     local orchestrator_mode="review"
     local rt_focus=""
     local rt_surface=""
@@ -1421,7 +2222,16 @@ main() {
                 ;;
             --run-id)
                 run_id="$2"
+                if [[ ! "$run_id" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$ ]]; then
+                    error "Invalid run ID: use 1-128 letters, digits, underscores or hyphens"
+                    exit 1
+                fi
+                FLATLINE_RUN_ID="$run_id"
                 shift 2
+                ;;
+            --keep-temp)
+                KEEP_FLATLINE_TEMP=1
+                shift
                 ;;
             --dry-run)
                 dry_run=true
@@ -1441,6 +2251,15 @@ main() {
                 ;;
             --budget)
                 budget="$2"
+                shift 2
+                ;;
+            --per-call-max-tokens)
+                # Issue #675 (sub-issue 4): operator override for downstream
+                # max_tokens. Preserved for back-compat. NOTE (#774): does NOT
+                # address `failure_class=PROVIDER_DISCONNECT` — cheval default
+                # is already 4096, so passing 4096 is a no-op against the
+                # disconnect failure mode (Anthropic + OpenAI cheval paths).
+                PER_CALL_MAX_TOKENS="$2"
                 shift 2
                 ;;
             --json)
@@ -1496,9 +2315,23 @@ main() {
         exit 1
     fi
 
-    if [[ "$phase" != "prd" && "$phase" != "sdd" && "$phase" != "sprint" && "$phase" != "beads" && "$phase" != "spec" ]]; then
-        error "Invalid phase: $phase (expected: prd, sdd, sprint, beads, spec)"
+    if [[ "$phase" != "prd" && "$phase" != "sdd" && "$phase" != "sprint" && "$phase" != "beads" && "$phase" != "spec" && "$phase" != "pr" ]]; then
+        error "Invalid phase: $phase (expected: prd, sdd, sprint, beads, spec, pr)"
         exit 1
+    fi
+
+    # Issue #774: warn when prompt size is in the cheval connection-loss
+    # danger zone. Empirical break point in the issue reporter's run was
+    # ~38KB on Anthropic + OpenAI (Gemini unaffected — control case). The
+    # threshold here (30KB) gives an 8KB safety margin under the observed
+    # break point. The disconnect manifests as `failure_class=PROVIDER_DISCONNECT`
+    # in cheval JSON-error stderr; the workaround is upstream (streaming or
+    # HTTP/1.1 forcing) and is deferred per /bug scope to /plan.
+    local doc_bytes doc_kb
+    doc_bytes=$(wc -c < "$doc" 2>/dev/null || echo 0)
+    doc_kb=$(( (doc_bytes + 512) / 1024 ))   # round to nearest KB
+    if [[ "$doc_bytes" -gt 30720 ]]; then
+        echo "WARNING: Document size ${doc_kb} KB. Large documents are handled by the streaming transport default + chunked dispatch (KF-002 RESOLVED-STRUCTURAL); if Phase 1 still reports provider failures at this size, check the verdict_quality envelope and .run/model-invoke.jsonl rather than retrying. The --per-call-max-tokens flag does NOT change input handling." >&2
     fi
 
     # Validate orchestrator mode
@@ -1586,7 +2419,10 @@ main() {
 
     # Extract domain if not provided
     if [[ -z "$domain" ]]; then
-        domain=$(extract_domain "$doc" "$phase")
+        if ! domain=$(extract_domain "$doc" "$phase"); then
+            error "Cannot derive review domain"
+            exit 1
+        fi
         log "Extracted domain: $domain"
     fi
 
@@ -1625,6 +2461,14 @@ main() {
         local rt_run_id
         rt_run_id="rt-$(date +%s)-$(head -c 4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
+        # cycle-102 Sprint 1 T1.8 (AC-1.4): pipeline stderr de-suppression.
+        # Previously `2>/dev/null` swallowed red-team-pipeline.sh's stderr,
+        # masking cheval / model-adapter / probe-gate diagnostics during
+        # silent-degradation events. Per vision-019 thesis, these
+        # diagnostics MUST surface — typed errors are structured (cheval
+        # _error_json wraps them in `{"error": true, ...}`) so consumers
+        # can grep / filter; only unstructured stderr noise actually
+        # surfaces, which IS the operator-visible signal we want.
         local rt_result
         rt_result=$("$rt_pipeline" \
             --doc "$doc" \
@@ -1637,7 +2481,7 @@ main() {
             --budget "$rt_token_budget" \
             ${rt_focus:+--focus "$rt_focus"} \
             ${rt_surface:+--surface "$rt_surface"} \
-            --json 2>/dev/null) || {
+            --json) || {
             local rt_exit=$?
             error "Red team pipeline failed (exit $rt_exit)"
             exit $rt_exit
@@ -1797,7 +2641,9 @@ main() {
         exit 0
     fi
 
-    # Phase 1: Independent Reviews (review mode)
+    # Phase 1: Independent Reviews (review mode). Invalidate the previous
+    # phase artifact before any provider/config failure can occur.
+    invalidate_final_consensus "$phase"
     local phase1_output
     phase1_output=$(run_phase1 "$doc" "$phase" "$context_file" "$DEFAULT_MODEL_TIMEOUT" "$budget")
 
@@ -1810,6 +2656,25 @@ main() {
     # FR-3: Tertiary paths are lines 5-6 when present
     tertiary_review_file=$(echo "$phase1_output" | sed -n '5p')
     tertiary_skeptic_file=$(echo "$phase1_output" | sed -n '6p')
+
+    # cycle-109 Sprint 2 T2.4 — aggregate verdict_quality from per-voice
+    # phase1 review files into final_consensus.json. Uses ONLY the review
+    # files (not skeptic / tertiary skeptic) since those represent the
+    # canonical adversarial cohort voices that compute_blocker_risk and
+    # the schema-conformance suite (T2.8) anchor on. Skeptic / tertiary
+    # paths are inferential, not first-class voices.
+    if ! qualify_and_aggregate_reviews \
+        "$phase" "$gpt_review_file" "$opus_review_file" "$tertiary_review_file"; then
+        error "Phase 1 content-qualified verdict quorum could not be produced"
+        exit 3
+    fi
+
+    local flatline_verdict_status
+    flatline_verdict_status=$(jq -r '.status' <<< "$FLATLINE_VERDICT_QUALITY")
+    if [[ "$flatline_verdict_status" != "APPROVED" ]]; then
+        log "Phase 1 verdict quality is $flatline_verdict_status; skipping Phase 2"
+        skip_consensus=true
+    fi
 
     # Check budget before Phase 2
     if ! check_budget 100 "$budget"; then
@@ -1838,12 +2703,22 @@ main() {
     if [[ "$skip_consensus" != "true" && -n "$gpt_scores_file" && -n "$opus_scores_file" ]]; then
         result=$(run_consensus "$gpt_scores_file" "$opus_scores_file" "$gpt_skeptic_file" "$opus_skeptic_file" \
             "$tertiary_scores_opus" "$tertiary_scores_gpt" "$gpt_scores_tertiary" "$opus_scores_tertiary" \
-            "$tertiary_skeptic_file")
+            "$tertiary_skeptic_file") || {
+                invalidate_final_consensus "$phase"
+                error "Consensus calculation failed"
+                exit 3
+            }
     else
-        # Return raw reviews without consensus
+        # Include every qualified voice, including tertiary. Missing/rejected
+        # envelopes are not findings and must not be read here.
+        local raw_reviews
+        raw_reviews=$(qualified_raw_reviews "$gpt_review_file" "$opus_review_file") || {
+            invalidate_final_consensus "$phase"
+            error "Could not retain qualified reviews"
+            exit 3
+        }
         result=$(jq -n \
-            --slurpfile gpt_review "$gpt_review_file" \
-            --slurpfile opus_review "$opus_review_file" \
+            --argjson raw_reviews "$raw_reviews" \
             '{
                 consensus_summary: {
                     high_consensus_count: 0,
@@ -1852,12 +2727,39 @@ main() {
                     blocker_count: 0,
                     model_agreement_percent: 0
                 },
-                raw_reviews: {
-                    gpt: $gpt_review[0],
-                    opus: $opus_review[0]
-                },
+                raw_reviews: $raw_reviews,
                 note: "Consensus calculation skipped"
             }')
+    fi
+
+    if jq -e '.degraded == true' >/dev/null <<< "$result"; then
+        if jq -e '
+            ((.degraded_models // []) | length) == 0 and
+            ([.high_consensus[]?, .disputed[]?, .low_value[]?, .medium_value[]?] | length) == 0
+        ' >/dev/null <<< "$result" && qualified_reviews_are_empty; then
+            # Fully qualified no-finding reviews require no score items.
+            result=$(jq '
+                .degraded = false | .confidence = "full" |
+                .consensus_summary.confidence = "full" |
+                del(.degraded_model, .degradation_reason)
+            ' <<< "$result")
+        else
+            record_scoring_degradation "$phase" || {
+                error "Could not publish degraded scoring verdict"
+                exit 3
+            }
+            flatline_verdict_status=$(jq -r '.status' <<< "$FLATLINE_VERDICT_QUALITY")
+            # A missing score must not erase the review finding. Keep every
+            # qualified source alongside any validated partial consensus.
+            local raw_reviews
+            raw_reviews=$(qualified_raw_reviews "$gpt_review_file" "$opus_review_file") &&
+                result=$(jq --argjson raw_reviews "$raw_reviews" \
+                    '. + {raw_reviews:$raw_reviews}' <<< "$result") || {
+                invalidate_final_consensus "$phase"
+                error "Could not retain qualified reviews"
+                exit 3
+            }
+        fi
     fi
 
     # =========================================================================
@@ -1896,7 +2798,16 @@ main() {
 
             # Build arbiter prompt
             local arbiter_prompt_file
-            arbiter_prompt_file=$(mktemp)
+            # #878: guard mktemp failure. Without this, the subsequent
+            # `chmod 600 "$arbiter_prompt_file"` with an empty arg produces
+            # `chmod: : No such file or directory` and the prompt-write at
+            # L2298 silently writes to the current working directory or
+            # fails with cwd permission errors. Fail fast with a clear
+            # message instead of cascading to downstream confusion.
+            if ! arbiter_prompt_file=$(mktemp); then
+                log "ERROR: mktemp failed for arbiter prompt — skipping arbiter step for $phase"
+                continue
+            fi
             chmod 600 "$arbiter_prompt_file"
 
             local doc_excerpt=""
@@ -1911,7 +2822,7 @@ main() {
                 --arg doc_excerpt "$doc_excerpt" \
                 --arg phase "$phase" \
                 --argjson findings "$findings_to_arbitrate" \
-                '"You are the arbiter for this Flatline review. For each finding below, decide: accept (integrate the suggestion) or reject (with rationale). Your decision is final.\n\nDocument (" + $phase + ") excerpt:\n" + $doc_excerpt[0:2048] + "\n\nFindings requiring your decision:\n" + ($findings | tojson) + "\n\nRespond with a JSON array:\n[{\"finding_id\": \"...\", \"decision\": \"accept\"|\"reject\", \"rationale\": \"...\"}]"' \
+                '"You are the arbiter for this Flatline review. For each finding below, decide: accept (integrate the suggestion) or reject. Your decision is final.\n\nDocument (" + $phase + ") excerpt:\n" + $doc_excerpt[0:2048] + "\n\nFindings requiring your decision:\n" + ($findings | tojson) + "\n\nRespond with a JSON array:\n[{\"finding_id\": \"...\", \"decision\": \"accept\"|\"reject\"}]"' \
                 | jq -r '.' > "$arbiter_prompt_file"
 
             # Invoke with provider cascade (SKP-006)
@@ -1948,8 +2859,26 @@ main() {
             if [[ "$arbiter_success" == "true" ]]; then
                 # Extract JSON decisions from arbiter response
                 local decisions
-                decisions=$(echo "$arbiter_result" | jq -r '.content // .' 2>/dev/null | \
-                    grep -oE '\[.*\]' | head -1 | jq '.' 2>/dev/null || echo "[]")
+                if ! decisions=$(printf '%s\n' "$arbiter_result" | jq_strict -ecs \
+                    --argjson findings "$findings_to_arbitrate" '
+                    if length == 1 then .[0] else error("expected one arbiter envelope") end |
+                    (if type == "object" then .content else . end) |
+                    (if type == "string" then
+                        capture("(?s)^[^\\[\\]]*(?<array>\\[.*\\])[^\\[\\]]*$").array |
+                        try fromjson catch error("invalid arbiter JSON")
+                     else . end) |
+                    if type != "array" then error("expected arbiter decisions")
+                    elif (all(.[]; type == "object" and
+                        (.finding_id | type) == "string" and
+                        (.decision == "accept" or .decision == "reject")) | not)
+                    then error("invalid arbiter decision")
+                    elif (map(.finding_id) | sort) != ($findings | map(.id) | sort)
+                    then error("arbiter decisions must cover each finding exactly once")
+                    else . end
+                '); then
+                    error "Arbiter response invalid or incomplete; preserving unresolved findings"
+                    return 3
+                fi
 
                 if echo "$decisions" | jq -e 'type == "array"' >/dev/null 2>&1; then
                     # Process each decision
@@ -2050,6 +2979,7 @@ main() {
         --arg mode "$execution_mode" \
         --arg mode_reason "$mode_reason" \
         --arg run_id "${run_id:-}" \
+        --argjson verdict_quality "$FLATLINE_VERDICT_QUALITY" \
         --argjson tertiary_model "$(if [[ -n "${tertiary_model_output:-}" ]]; then jq -n --arg m "$tertiary_model_output" '$m'; else echo 'null'; fi)" \
         --arg tertiary_status "$tertiary_status_output" \
         --argjson latency_ms "$total_latency_ms" \
@@ -2059,6 +2989,7 @@ main() {
             phase: $phase,
             document: $doc,
             domain: $domain,
+            verdict_quality: $verdict_quality,
             tertiary_model_used: $tertiary_model,
             tertiary_status: $tertiary_status,
             execution: {
@@ -2097,6 +3028,10 @@ main() {
         log "Flatline: 2-model ($primary_model_name + $secondary_model_name)"
     fi
     log "Flatline Protocol complete. Cost: $TOTAL_COST cents, Latency: ${total_latency_ms}ms"
+
+    if [[ "$flatline_verdict_status" != "APPROVED" ]]; then
+        exit 6
+    fi
 }
 
 # Only invoke main when executed directly; sourcing exposes functions for tests.

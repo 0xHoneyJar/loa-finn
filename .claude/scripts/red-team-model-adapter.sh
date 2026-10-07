@@ -18,12 +18,24 @@
 #   0  Success
 #   1  Timeout / invocation failure
 #   2  Budget exceeded
+#   5  Invalid response content or token usage
 # =============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/bootstrap.sh"
+source "$SCRIPT_DIR/compat-lib.sh"
+
+# cycle-099 sprint-1B (T1.3): bring the canonical model registry into scope.
+# Populates MODEL_PROVIDERS / MODEL_IDS / COST_INPUT / COST_OUTPUT from the
+# yaml-derived generated-model-maps.sh, plus exposes resolve_alias /
+# resolve_provider_id. The local MODEL_TO_PROVIDER_ID below remains as the
+# fallback seam for red-team-only aliases (kimi, qwen, gpt, gemini) that are
+# intentionally NOT in model-config.yaml — see G-7 invariant in
+# tests/integration/model-registry-sync.bats.
+# shellcheck source=lib/model-resolver.sh
+source "$SCRIPT_DIR/lib/model-resolver.sh"
 
 FIXTURES_DIR="$PROJECT_ROOT/.claude/data/red-team-fixtures"
 MODEL_INVOKE="$SCRIPT_DIR/model-invoke"
@@ -35,7 +47,12 @@ CONFIG_FILE="$PROJECT_ROOT/.loa.config.yaml"
 # defender=dissenter). Callers can override via --model if different model
 # selection is needed.
 declare -A ROLE_TO_AGENT=(
-    ["attacker"]="flatline-skeptic"
+    # cycle-102 sprint-1F (T1.8 / Issue #780): attacker role now routes to
+    # the dedicated flatline-attacker persona that emits the `attacks: [...]`
+    # schema red-team-pipeline.sh expects. Previous mapping pointed at
+    # flatline-skeptic which produces `concerns: [...]` — different shape,
+    # silently dropped by `.attacks[]?` in pipeline scoring.
+    ["attacker"]="flatline-attacker"
     ["evaluator"]="flatline-reviewer"
     ["defender"]="flatline-dissenter"
 )
@@ -75,7 +92,10 @@ Usage: red-team-model-adapter.sh [OPTIONS]
 
 Options:
   --role ROLE          Role: attacker|evaluator|defender (required)
-  --model MODEL        Model: opus|gpt|kimi|qwen (required)
+  --model MODEL        Model: any cheval alias (opus, gpt, gpt-5.5-pro,
+                       claude-opus-4-7, gemini-3.1-pro, kimi, qwen, etc.).
+                       Resolved via cheval's alias map at invocation time.
+                       (Help text was stale prior to cycle-102 sprint-1E.)
   --prompt-file PATH   Input prompt file (required)
   --output-file PATH   Output file for response (required)
   --budget TOKENS      Token budget (0 = unlimited)
@@ -136,6 +156,20 @@ WARNING: red-team adapter running in MOCK mode (role=$role model=$model)
   Or pass --live explicitly to this adapter.
 ==============================================================================
 BANNER
+}
+
+# Usage controls a budget, so absent or malformed usage is not a zero cost.
+# The upper bound keeps jq's integer representation exact before Bash sums it.
+red_team_usage() {
+    jq_strict -ers --argjson path "$2" '
+        if length != 1 or (.[0] | type) != "object" then
+            error("expected one response document")
+        else .[0] | getpath($path) end |
+        if type != "number" then error("missing or invalid token usage")
+        elif . < 0 or . > 9007199254740991 or floor != . then
+            error("token usage must be a nonnegative safe integer")
+        else . end
+    ' "$1"
 }
 
 invoke_mock() {
@@ -210,7 +244,7 @@ invoke_mock() {
 
     # Check budget against tokens_used in fixture
     local tokens_used
-    tokens_used=$(jq '.tokens_used // 0' "$output_file" 2>/dev/null || echo 0)
+    tokens_used=$(red_team_usage "$output_file" '["tokens_used"]') || return 5
     if [[ "$budget" -gt 0 ]] && (( tokens_used > budget )); then
         log "Budget exceeded: fixture reports ${tokens_used} tokens > budget ${budget}"
         return 2
@@ -262,9 +296,8 @@ detect_default_mode() {
 }
 
 # Wrap model-invoke content into the response shape the pipeline expects.
-# Attackers/defenders emit JSON findings; we parse them if valid, otherwise
-# pass through the raw content as a single free-text attack/design entry so
-# the pipeline can still complete.
+# Attackers/defenders must emit usable JSON findings. Prose or broken JSON
+# cannot be represented as a successful response with an empty findings array.
 wrap_live_response() {
     local role="$1"
     local model="$2"
@@ -272,18 +305,35 @@ wrap_live_response() {
     local tokens_input="$4"
     local tokens_output="$5"
     local output_file="$6"
+    # cycle-109 Sprint 2 T2.7 — optional verdict_quality envelope JSON
+    # (compact string). When the caller has a sidecar payload to attach,
+    # it lands as a top-level `verdict_quality` field on every output
+    # shape (attacker / evaluator / defender). Default "null" preserves
+    # legacy output for callers that don't pass the 7th arg.
+    local verdict_quality_json="${7:-null}"
 
     local total_tokens=$((tokens_input + tokens_output))
 
-    # If content parses as JSON, merge it into the response envelope;
-    # otherwise wrap it as a free-text note.
+    # Accept one JSON object, either bare or fenced, and consume all its bytes.
     local parsed
-    if parsed=$(echo "$content" | jq -c . 2>/dev/null) && [[ -n "$parsed" && "$parsed" != "null" ]]; then
+    if parsed=$(printf '%s\n' "$content" | jq -ecs 'if length == 1 and (.[0] | type) == "object" then .[0] else error("expected one object") end' 2>/dev/null); then
         # Strip markdown fences if the model wrapped JSON in ```json ... ```
         :
     else
         # Try to extract JSON from a fenced code block
-        parsed=$(echo "$content" | sed -n '/```json/,/```/p' | sed '1d;$d' | jq -c . 2>/dev/null || echo "")
+        if ! parsed=$(printf '%s\n' "$content" | sed -n '/```json/,/```/p' | sed '1d;$d' |
+            jq_strict -ecs 'if length == 1 and (.[0] | type) == "object" then .[0] else error("expected one fenced response object") end'); then
+            error "Model content is not a complete JSON response"
+            return 5
+        fi
+    fi
+    if ! printf '%s\n' "$parsed" | jq_strict -e --arg role "$role" '
+        if $role == "attacker" then (.attacks | type) == "array"
+        elif $role == "defender" then (.counter_designs | type) == "array"
+        else ((.attacks // .scores) | type) == "array" end
+    ' >/dev/null; then
+        error "Model content is missing its findings array"
+        return 5
     fi
 
     case "$role" in
@@ -292,15 +342,18 @@ wrap_live_response() {
                 echo "$parsed" | jq \
                     --arg m "$model" \
                     --argjson t "$total_tokens" \
-                    '. + {model: $m, tokens_used: $t, mock: false}' > "$output_file"
+                    --argjson vq "$verdict_quality_json" \
+                    '. + {model: $m, tokens_used: $t, mock: false, verdict_quality: $vq}' > "$output_file"
             else
-                jq -n --arg m "$model" --arg c "$content" --argjson t "$total_tokens" '{
+                jq -n --arg m "$model" --arg c "$content" --argjson t "$total_tokens" \
+                    --argjson vq "$verdict_quality_json" '{
                     attacks: [],
                     summary: $c,
                     models_used: 1,
                     tokens_used: $t,
                     model: $m,
                     mock: false,
+                    verdict_quality: $vq,
                     note: "Model returned non-JSON content; raw content in summary field"
                 }' > "$output_file"
             fi
@@ -310,15 +363,18 @@ wrap_live_response() {
                 echo "$parsed" | jq \
                     --arg m "$model" \
                     --argjson t "$total_tokens" \
-                    '. + {evaluated: true, model: $m, tokens_used: $t, mock: false}' > "$output_file"
+                    --argjson vq "$verdict_quality_json" \
+                    '. + {evaluated: true, model: $m, tokens_used: $t, mock: false, verdict_quality: $vq}' > "$output_file"
             else
-                jq -n --arg m "$model" --arg c "$content" --argjson t "$total_tokens" '{
+                jq -n --arg m "$model" --arg c "$content" --argjson t "$total_tokens" \
+                    --argjson vq "$verdict_quality_json" '{
                     attacks: [],
                     evaluated: true,
                     summary: $c,
                     tokens_used: $t,
                     model: $m,
-                    mock: false
+                    mock: false,
+                    verdict_quality: $vq
                 }' > "$output_file"
             fi
             ;;
@@ -327,14 +383,17 @@ wrap_live_response() {
                 echo "$parsed" | jq \
                     --arg m "$model" \
                     --argjson t "$total_tokens" \
-                    '. + {model: $m, tokens_used: $t, mock: false}' > "$output_file"
+                    --argjson vq "$verdict_quality_json" \
+                    '. + {model: $m, tokens_used: $t, mock: false, verdict_quality: $vq}' > "$output_file"
             else
-                jq -n --arg m "$model" --arg c "$content" --argjson t "$total_tokens" '{
+                jq -n --arg m "$model" --arg c "$content" --argjson t "$total_tokens" \
+                    --argjson vq "$verdict_quality_json" '{
                     counter_designs: [],
                     summary: $c,
                     tokens_used: $t,
                     model: $m,
                     mock: false,
+                    verdict_quality: $vq,
                     note: "Model returned non-JSON content; raw content in summary field"
                 }' > "$output_file"
             fi
@@ -361,7 +420,16 @@ invoke_live() {
     fi
 
     local agent="${ROLE_TO_AGENT[$role]:-flatline-reviewer}"
-    local model_override="${MODEL_TO_PROVIDER_ID[$model]:-$model}"
+    # cycle-099 sprint-1B (T1.3): prefer the yaml-derived registry; fall back
+    # to the local MODEL_TO_PROVIDER_ID for red-team-only aliases not in yaml
+    # (kimi, qwen, gpt, gemini per G-7 invariant). If both miss, last-resort
+    # fallback is the raw $model string (matches pre-migration behavior).
+    local model_override
+    if model_override="$(resolve_provider_id "$model" 2>/dev/null)"; then
+        : # canonical alias resolved via shared lib
+    else
+        model_override="${MODEL_TO_PROVIDER_ID[$model]:-$model}"
+    fi
 
     log "Live invocation: role=$role agent=$agent model=$model_override"
 
@@ -369,9 +437,15 @@ invoke_live() {
     response_file=$(mktemp)
     local stderr_file
     stderr_file=$(mktemp)
+    # cycle-109 Sprint 2 T2.7 — per-call verdict_quality sidecar path.
+    # CONSUMER #6 wiring: cheval writes its envelope here, we read after
+    # the call returns and propagate into wrap_live_response output.
+    local vq_sidecar
+    vq_sidecar=$(mktemp "${TMPDIR:-/tmp}/rt-vq-${role}-XXXXXX")
     local exit_code=0
 
-    "$MODEL_INVOKE" \
+    LOA_VERDICT_QUALITY_SIDECAR="$vq_sidecar" \
+        "$MODEL_INVOKE" \
         --agent "$agent" \
         --input "$prompt_file" \
         --model "$model_override" \
@@ -385,23 +459,44 @@ invoke_live() {
         if [[ -s "$stderr_file" ]]; then
             error "stderr: $(head -c 500 "$stderr_file")"
         fi
-        rm -f "$response_file" "$stderr_file"
+        rm -f "$response_file" "$stderr_file" "$vq_sidecar"
         return "$exit_code"
     fi
 
     # Parse model-invoke JSON envelope
     local content tokens_input tokens_output
-    content=$(jq -r '.content // empty' "$response_file" 2>/dev/null || echo "")
-    tokens_input=$(jq -r '.usage.input_tokens // 0' "$response_file" 2>/dev/null || echo 0)
-    tokens_output=$(jq -r '.usage.output_tokens // 0' "$response_file" 2>/dev/null || echo 0)
-
-    if [[ -z "$content" ]]; then
-        error "model-invoke returned empty content"
-        rm -f "$response_file" "$stderr_file"
+    if ! content=$(jq_strict -ers '
+        if length == 1 and (.[0] | type) == "object" then .[0].content
+        else error("expected one model-invoke envelope") end |
+        if type == "string" and length > 0 then .
+        else error("missing model-invoke content") end
+    ' "$response_file") ||
+        ! tokens_input=$(red_team_usage "$response_file" '["usage","input_tokens"]') ||
+        ! tokens_output=$(red_team_usage "$response_file" '["usage","output_tokens"]'); then
+        error "model-invoke returned invalid content or usage"
+        rm -f "$response_file" "$stderr_file" "$vq_sidecar"
         return 5
     fi
 
-    wrap_live_response "$role" "$model" "$content" "$tokens_input" "$tokens_output" "$output_file"
+    if [[ -z "$content" ]]; then
+        error "model-invoke returned empty content"
+        rm -f "$response_file" "$stderr_file" "$vq_sidecar"
+        return 5
+    fi
+
+    # cycle-109 Sprint 2 T2.7 — read per-call verdict_quality envelope from
+    # sidecar. Absent / malformed → "null" so wrap_live_response treats it
+    # as a no-op attachment (downstream consumers handle gracefully).
+    local vq_envelope="null"
+    if [[ -s "$vq_sidecar" ]] && jq empty < "$vq_sidecar" 2>/dev/null; then
+        vq_envelope=$(cat "$vq_sidecar")
+    fi
+    rm -f "$vq_sidecar" 2>/dev/null || true
+
+    if ! wrap_live_response "$role" "$model" "$content" "$tokens_input" "$tokens_output" "$output_file" "$vq_envelope"; then
+        rm -f "$response_file" "$stderr_file"
+        return 5
+    fi
 
     # Budget check
     local total_tokens=$((tokens_input + tokens_output))
@@ -585,4 +680,11 @@ main() {
     esac
 }
 
-main "$@"
+# Cycle-094 G-5 + sprint-2 BB iter-1 F3 fix: only run main when invoked
+# directly. Tests source this file to introspect MODEL_TO_PROVIDER_ID
+# natively (bash is the only robust parser of bash data); without this
+# guard the sourced load runs main and exits on missing required args,
+# leaving the test unable to read the array.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

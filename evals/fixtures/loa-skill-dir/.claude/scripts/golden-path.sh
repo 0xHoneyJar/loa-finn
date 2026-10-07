@@ -22,12 +22,26 @@
 set -euo pipefail
 
 # Source bootstrap for PROJECT_ROOT and path-lib
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# perf(pass-5): dirname → parameter expansion (fork+exec eliminated).
+_gp_src="${BASH_SOURCE[0]}"
+case "${_gp_src}" in
+    */*) _gp_dir="${_gp_src%/*}"; [[ -n "${_gp_dir}" ]] || _gp_dir="/" ;;
+    *)   _gp_dir="." ;;
+esac
+SCRIPT_DIR="$(cd "${_gp_dir}" && pwd)"
+unset _gp_src _gp_dir
 source "${SCRIPT_DIR}/bootstrap.sh"
 source "${SCRIPT_DIR}/compat-lib.sh"
 
-# Resolve paths using path-lib getters
-_GP_GRIMOIRE_DIR=$(get_grimoire_dir)
+# Resolve paths using path-lib getters.
+# bug-980: errexit is disabled when this file is sourced from a suppressed
+# context (the normal skill-invocation shape), so a failing substitution
+# does NOT abort — guard explicitly and return (sourced) or exit loud.
+_GP_GRIMOIRE_DIR=$(get_grimoire_dir) || _GP_GRIMOIRE_DIR=""
+if [[ -z "${_GP_GRIMOIRE_DIR}" ]]; then
+  echo "[golden-path] ERROR: grimoire dir unresolved (path-lib init failed) — refusing phase detection against root-anchored paths" >&2
+  return 1 2>/dev/null || exit 1
+fi
 _GP_PRD_FILE="${_GP_GRIMOIRE_DIR}/prd.md"
 _GP_SDD_FILE="${_GP_GRIMOIRE_DIR}/sdd.md"
 _GP_SPRINT_FILE="${_GP_GRIMOIRE_DIR}/sprint.md"
@@ -71,9 +85,69 @@ _gp_sprint_is_complete() {
     [[ -f "${sprint_dir}/COMPLETED" ]]
 }
 
+# FR-5 (cycle-124): the one verdict gate behind both call sites below. Every
+# caller has already confirmed the file carries a LOA-VERDICT marker, so a
+# verdict-derive.sh exit 2 here can only be a present-but-unparseable trailer
+# or a usage error (it exits 2 BEFORE emit_json) — any rc != 0 denies, as
+# does missing/broken jq. Passes only on rc 0 AND .consistent AND APPROVED.
+# Returns 0 pass / 1 deny; diagnostics go to stderr, never stdout.
+# Trailer DETECTION is deliberately loose — any HTML comment whose text reads
+# LOA…VERDICT with up to four arbitrary bytes before LOA and between the words (tab, NBSP,
+# U+2010, two spaces…) routes the file to verdict-derive.sh, which then accepts
+# ONLY the exact `<!-- LOA-VERDICT {json} -->` form. A malformed marker must
+# never fall through to the legacy prose heuristic, whose `grep -q APPROVED`
+# matches "NOT APPROVED" (Sprint 1 audit, slice C — reproduced).
+_GP_TRAILER_DETECT='<!--[^A-Za-z0-9]{0,4}LOA[^A-Za-z0-9]{0,4}VERDICT'
+# Matched case-insensitively (grep -i) everywhere below: a lowercase marker
+# must reach verdict-derive.sh and fail as malformed, not fall through to the
+# legacy prose heuristic (late Sprint 2 review, slice B).
+
+_gp_verdict_gate() {
+    local file="$1" gate="$2"
+    local verdict_json rc consistent verdict
+    verdict_json=$(bash "${SCRIPT_DIR}/verdict-derive.sh" --file "${file}" --gate "${gate}" --json 2>/dev/null) && rc=0 || rc=$?
+    consistent=$(printf '%s' "${verdict_json}" | jq -r '.consistent // false' 2>/dev/null) || consistent="false"
+    if [[ "${rc}" -ne 0 || "${consistent}" != "true" ]]; then
+        echo "golden-path: inconsistent LOA-VERDICT trailer in ${file}" >&2
+        printf '%s' "${verdict_json}" | jq -r '.violations[]? // empty' >&2 2>/dev/null || true
+        return 1
+    fi
+    verdict=$(printf '%s' "${verdict_json}" | jq -r '.verdict // empty' 2>/dev/null) || verdict=""
+    [[ "${verdict}" == "APPROVED" ]] && return 0
+    return 1
+}
+
+# Read one integer field straight off a file's LOA-VERDICT trailer line.
+# Absent file/trailer/field reads as 0; a PRESENT field that is not a
+# non-negative integer (1.0, "1", null) prints "invalid" so the caller fails
+# closed instead of treating it as 0 (review round-1 high #4). The trailer is
+# located with the same loose detection as the guards above (LAST occurrence);
+# a value longer than six digits is `invalid` too — bash `-gt`/`-ne` wrap at
+# 2^64, so 18446744073709551616 would read as 0 (Sprint 1 audit, slice C).
+# verdict-derive.sh does not know the FR-8 exclusion fields yet (Sprint 3),
+# hence the direct parse.
+_gp_trailer_int() {
+    local file="$1" field="$2" payload val
+    payload=$(grep -oiE "${_GP_TRAILER_DETECT}"'[[:space:]]*\{.*\}[[:space:]]*-->' "${file}" 2>/dev/null | tail -1 \
+              | sed -E 's/^<!--[^A-Za-z0-9]{0,4}LOA[^A-Za-z0-9]{0,4}VERDICT[[:space:]]*//; s/[[:space:]]*-->$//')
+    if [[ -z "${payload}" ]]; then
+        echo 0
+        return 0
+    fi
+    val=$(printf '%s' "${payload}" | jq -r --arg f "${field}" \
+          'if has($f) then (if (.[$f] | type) == "number" and (.[$f] | floor) == .[$f] and .[$f] >= 0 and ((.[$f] | tostring | length) <= 6) then (.[$f] | tostring) else "invalid" end) else "0" end' 2>/dev/null) || val="invalid"
+    [[ "${val}" =~ ^[0-9]{1,6}$ ]] && echo "${val}" || echo invalid
+}
+
 # Check if a sprint has been reviewed (no findings or no required changes).
 # Detection: feedback file exists AND contains no "## Changes Required" or "## Findings" sections,
 # OR the sprint has already passed audit (which implies review was acceptable).
+#
+# C8 (cycle-119): structured-first. If the feedback file carries a LOA-VERDICT
+# machine trailer (C6), trust verdict-derive.sh's derived verdict instead of
+# the prose heuristic below. Legacy files (no trailer) are byte-identical to
+# pre-cycle-119 behavior — the trailer check is a no-op grep that falls
+# straight through when no trailer is present.
 _gp_sprint_is_reviewed() {
     local sprint_id="$1"
     local sprint_dir="${_GP_A2A_DIR}/${sprint_id}"
@@ -84,7 +158,16 @@ _gp_sprint_is_reviewed() {
     fi
 
     if [[ -f "${sprint_dir}/engineer-feedback.md" ]]; then
-        # If feedback file has no actionable findings, review passed
+        # R2 review (cycle-119): gate on -f + `bash <script>` (not -x) so a
+        # chmod-lost executable bit cannot silently drop a present trailer
+        # back to the legacy prose heuristic (which could reverse the verdict).
+        if [[ -f "${SCRIPT_DIR}/verdict-derive.sh" ]] && \
+           grep -qiE "${_GP_TRAILER_DETECT}" "${sprint_dir}/engineer-feedback.md" 2>/dev/null; then
+            _gp_verdict_gate "${sprint_dir}/engineer-feedback.md" review
+            return $?
+        fi
+
+        # Legacy prose logic (byte-identical to pre-cycle-119 behavior)
         if ! grep -qE "^## (Changes Required|Findings|Issues)" "${sprint_dir}/engineer-feedback.md" 2>/dev/null; then
             return 0
         fi
@@ -94,11 +177,48 @@ _gp_sprint_is_reviewed() {
 }
 
 # Check if a sprint has been audited
+#
+# C8 (cycle-119): structured-first, same shape as _gp_sprint_is_reviewed above.
 _gp_sprint_is_audited() {
     local sprint_id="$1"
     local sprint_dir="${_GP_A2A_DIR}/${sprint_id}"
 
     if [[ -f "${sprint_dir}/auditor-sprint-feedback.md" ]]; then
+        # R2 review (cycle-119): -f + bash invocation, same rationale as above.
+        if [[ -f "${SCRIPT_DIR}/verdict-derive.sh" ]] && \
+           grep -qiE "${_GP_TRAILER_DETECT}" "${sprint_dir}/auditor-sprint-feedback.md" 2>/dev/null; then
+            _gp_verdict_gate "${sprint_dir}/auditor-sprint-feedback.md" audit || return 1
+            # An audit implies review, so the review trailer would otherwise
+            # never meet verdict-derive.sh: when it exists, it must pass the
+            # same gate (review round-1 high #4 — fail closed).
+            if [[ -f "${sprint_dir}/engineer-feedback.md" ]] && \
+               grep -qiE "${_GP_TRAILER_DETECT}" "${sprint_dir}/engineer-feedback.md" 2>/dev/null; then
+                _gp_verdict_gate "${sprint_dir}/engineer-feedback.md" review || return 1
+            fi
+            # FR-5 cross-check: a reviewer-demoted high (review trailer
+            # `excluded`, FR-8) passes only when the auditor confirmed exactly
+            # that many (`excluded_confirmed`) — fail closed: absent reads as
+            # 0, a malformed value denies.
+            local excluded excluded_confirmed
+            excluded=$(_gp_trailer_int "${sprint_dir}/engineer-feedback.md" excluded)
+            if [[ "${excluded}" == "invalid" ]]; then
+                echo "golden-path: review trailer carries a non-integer excluded field in ${sprint_dir}/engineer-feedback.md" >&2
+                return 1
+            fi
+            if [[ "${excluded}" -gt 0 ]]; then
+                excluded_confirmed=$(_gp_trailer_int "${sprint_dir}/auditor-sprint-feedback.md" excluded_confirmed)
+                if [[ "${excluded_confirmed}" == "invalid" || "${excluded_confirmed}" -ne "${excluded}" ]]; then
+                    echo "golden-path: review trailer excluded=${excluded} but audit trailer excluded_confirmed=${excluded_confirmed} in ${sprint_dir}/auditor-sprint-feedback.md" >&2
+                    return 1
+                fi
+                # FR-9: the demotion is visible, not silent — say how many highs
+                # the reviewer excluded and the auditor confirmed.
+                echo "golden-path: ${sprint_id} review excluded ${excluded} speculative low-confidence high finding(s); audit confirmed ${excluded_confirmed}" >&2
+            fi
+            return 0
+        fi
+
+        # Legacy prose logic (byte-identical to pre-cycle-119 behavior)
         grep -q "APPROVED" "${sprint_dir}/auditor-sprint-feedback.md" 2>/dev/null
         return $?
     fi
@@ -974,3 +1094,20 @@ golden_resolve_truename() {
             ;;
     esac
 }
+
+# R-013 (bd-m1o6, agent-ergonomics pass 1): this file is a sourced function
+# library — direct execution used to silently no-op with exit 0, which an
+# agent probing it like any other script could not distinguish from success.
+# Executed (not sourced) → teach the correct invocation instead.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    {
+        echo "golden-path.sh is a sourced function library, not an executable command."
+        echo "Usage:   source .claude/scripts/golden-path.sh"
+        echo "Then:    golden_detect_workflow_state | golden_suggest_command [--json] |"
+        echo "         golden_resolve_truename <plan|build|review|ship> [override] |"
+        echo "         golden_format_journey | golden_check_ship_ready | golden_menu_options [--json]"
+        echo "Machine-readable status: .claude/scripts/loa-status.sh --triage --json  (state + health + next, one call)"
+        echo "Script contract surface: .claude/scripts/loa-capabilities.sh --json"
+    } >&2
+    exit 2
+fi

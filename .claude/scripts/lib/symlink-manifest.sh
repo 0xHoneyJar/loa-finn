@@ -11,7 +11,13 @@
 #
 # Output format: Each entry is "link_path:target_path" where target is relative from link parent.
 # Populates global arrays: MANIFEST_DIR_SYMLINKS, MANIFEST_FILE_SYMLINKS,
-#   MANIFEST_SKILL_SYMLINKS, MANIFEST_CMD_SYMLINKS, MANIFEST_CONSTRUCT_SYMLINKS
+#   MANIFEST_SKILL_SYMLINKS, MANIFEST_CMD_SYMLINKS, MANIFEST_AGENT_SYMLINKS,
+#   MANIFEST_CONSTRUCT_SYMLINKS.
+#
+# `loa-aleph` is intentionally absent from the dynamic skill and command arrays.
+# Its offline installer owns the command, skill, launcher, runtime, and receipt as
+# one verified installation. Symlinking either exposure would make the installed
+# receipt fail closed and would split ownership across two update mechanisms.
 #
 # Construct Extension (Sprint 50, vision-008):
 #   Construct packs can declare their own symlink requirements via .loa-construct-manifest.json
@@ -24,12 +30,44 @@ get_symlink_manifest() {
   local repo_root="${2:-$(pwd)}"
 
   # Phase 1: Directory symlinks (top-level .claude/ dirs that map 1:1 to submodule)
+  # Issue #755 fix: cycle-099 introduced the cheval Python adapter at
+  # .claude/adapters/cheval.py and the canonical model registry at
+  # .claude/defaults/model-config.yaml. Both are required by model-invoke +
+  # any Flatline-routed call. Without them, fresh-clone consumer repos see:
+  #   - "cheval.py not found at .claude/adapters/cheval.py"
+  #   - "Available agents: []" (cheval loader's Layer 1 System Zone defaults
+  #     can't read .claude/defaults/model-config.yaml)
+  # Both are framework-managed (System Zone) directories that map 1:1 to
+  # the submodule, same as scripts / protocols / data / schemas.
+  #
+  # #842: `.claude/hooks` is DELIBERATELY excluded from the symlink set and
+  # listed in MANIFEST_COPY_DIRS instead. Claude Code's hook executor on
+  # macOS cannot follow relative symlinks like `.claude/hooks ->
+  # ../.loa/.claude/hooks` from a subprocess context — every hook fails
+  # silently with "No such file or directory". Copying is the only fix
+  # that doesn't require changes to Claude Code itself.
   MANIFEST_DIR_SYMLINKS=(
     ".claude/scripts:../${submodule}/.claude/scripts"
     ".claude/protocols:../${submodule}/.claude/protocols"
-    ".claude/hooks:../${submodule}/.claude/hooks"
     ".claude/data:../${submodule}/.claude/data"
     ".claude/schemas:../${submodule}/.claude/schemas"
+    ".claude/adapters:../${submodule}/.claude/adapters"
+    ".claude/defaults:../${submodule}/.claude/defaults"
+  )
+
+  # #842: items COPIED into the consumer tree instead of symlinked.
+  # Required for files/dirs that Claude Code (or other subprocess-spawned
+  # executors) reads/exec'd at runtime, where relative-symlink resolution
+  # through `..` traversal fails on macOS. Tradeoff: after `git submodule
+  # update --remote`, operators must re-run `mount-submodule.sh --force`
+  # to pick up changes in these paths. The cost is small (~20 files) and
+  # explicit (mount has to run on every submodule bump anyway).
+  MANIFEST_COPY_DIRS=(
+    ".claude/hooks:${submodule}/.claude/hooks"
+  )
+
+  MANIFEST_COPY_FILES=(
+    ".claude/settings.json:${submodule}/.claude/settings.json"
   )
 
   # Phase 2: File and nested symlinks (deeper paths with 2-level relative targets)
@@ -38,7 +76,6 @@ get_symlink_manifest() {
     ".claude/loa/reference:../../${submodule}/.claude/loa/reference"
     ".claude/loa/learnings:../../${submodule}/.claude/loa/learnings"
     ".claude/loa/feedback-ontology.yaml:../../${submodule}/.claude/loa/feedback-ontology.yaml"
-    ".claude/settings.json:../${submodule}/.claude/settings.json"
     ".claude/checksums.json:../${submodule}/.claude/checksums.json"
   )
 
@@ -49,6 +86,9 @@ get_symlink_manifest() {
       if [[ -d "$skill_dir" ]]; then
         local skill_name
         skill_name=$(basename "$skill_dir")
+        # cycle-115: receipt-managed by the pinned Aleph installer. This must be
+        # a real directory in the consumer tree, never a submodule symlink.
+        [[ "$skill_name" == "loa-aleph" ]] && continue
         MANIFEST_SKILL_SYMLINKS+=(".claude/skills/${skill_name}:../../${submodule}/.claude/skills/${skill_name}")
       fi
     done
@@ -61,7 +101,24 @@ get_symlink_manifest() {
       if [[ -f "$cmd_file" ]]; then
         local cmd_name
         cmd_name=$(basename "$cmd_file")
+        # cycle-115: receipt-managed by the pinned Aleph installer. This must be
+        # a real file in the consumer tree, never a submodule symlink.
+        [[ "$cmd_name" == "loa-aleph.md" ]] && continue
         MANIFEST_CMD_SYMLINKS+=(".claude/commands/${cmd_name}:../../${submodule}/.claude/commands/${cmd_name}")
+      fi
+    done
+  fi
+
+  # Phase 4.5: Per-agent symlinks (dynamic — discovered from submodule content)
+  # Mirrors Phase 4 (commands). C12/A6, cycle-119: .claude/agents/ (e.g. loa-scout.md)
+  # must be manifest-covered like skills/commands so mount/verify/eject stay in sync.
+  MANIFEST_AGENT_SYMLINKS=()
+  if [[ -d "${repo_root}/${submodule}/.claude/agents" ]]; then
+    for agent_file in "${repo_root}/${submodule}"/.claude/agents/*.md; do
+      if [[ -f "$agent_file" ]]; then
+        local agent_name
+        agent_name=$(basename "$agent_file")
+        MANIFEST_AGENT_SYMLINKS+=(".claude/agents/${agent_name}:../../${submodule}/.claude/agents/${agent_name}")
       fi
     done
   fi
@@ -77,7 +134,7 @@ get_symlink_manifest() {
 # Returns all entries combined for iteration
 get_all_manifest_entries() {
   get_symlink_manifest "$@"
-  ALL_MANIFEST_ENTRIES=("${MANIFEST_DIR_SYMLINKS[@]}" "${MANIFEST_FILE_SYMLINKS[@]}" "${MANIFEST_SKILL_SYMLINKS[@]}" "${MANIFEST_CMD_SYMLINKS[@]}" "${MANIFEST_CONSTRUCT_SYMLINKS[@]}")
+  ALL_MANIFEST_ENTRIES=("${MANIFEST_DIR_SYMLINKS[@]}" "${MANIFEST_FILE_SYMLINKS[@]}" "${MANIFEST_SKILL_SYMLINKS[@]}" "${MANIFEST_CMD_SYMLINKS[@]}" "${MANIFEST_AGENT_SYMLINKS[@]}" "${MANIFEST_CONSTRUCT_SYMLINKS[@]}")
 }
 
 # =============================================================================
@@ -98,7 +155,7 @@ _discover_construct_manifests() {
   # Build core link set for conflict detection (O(n) lookup via associative array)
   local -A _core_links=()
   local entry
-  for entry in "${MANIFEST_DIR_SYMLINKS[@]}" "${MANIFEST_FILE_SYMLINKS[@]}" "${MANIFEST_SKILL_SYMLINKS[@]}" "${MANIFEST_CMD_SYMLINKS[@]}"; do
+  for entry in "${MANIFEST_DIR_SYMLINKS[@]}" "${MANIFEST_FILE_SYMLINKS[@]}" "${MANIFEST_SKILL_SYMLINKS[@]}" "${MANIFEST_CMD_SYMLINKS[@]}" "${MANIFEST_AGENT_SYMLINKS[@]}"; do
     local link_path="${entry%%:*}"
     _core_links["$link_path"]=1
   done
@@ -174,6 +231,37 @@ _parse_construct_manifest() {
   done
 }
 
+_path_has_traversal() {
+  local path="$1"
+  [[ "$path" == ".." || "$path" == ../* || "$path" == */../* || "$path" == */.. ]]
+}
+
+# Lexically resolve `.` / `..` segments without touching the filesystem —
+# targets may not exist at validation time, and raw `realpath -m` is broken
+# on macOS (#1197). Escaping `..` segments survive at the front so callers
+# can test for them.
+_normalize_rel_path() {
+  local path="$1"
+  local -a out=()
+  local seg
+  local IFS='/'
+  # shellcheck disable=SC2086
+  for seg in $path; do
+    case "$seg" in
+      ''|'.') continue ;;
+      '..')
+        if [[ ${#out[@]} -gt 0 && "${out[${#out[@]}-1]}" != ".." ]]; then
+          out=(${out[@]+"${out[@]:0:${#out[@]}-1}"})
+        else
+          out+=("..")
+        fi
+        ;;
+      *) out+=("$seg") ;;
+    esac
+  done
+  printf '%s\n' "${out[*]:-.}"
+}
+
 # Validate a single construct symlink entry and add if valid
 _validate_and_add_construct_entry() {
   local link="$1"
@@ -181,17 +269,36 @@ _validate_and_add_construct_entry() {
   local pack_name="$3"
   local repo_root="$4"
 
+  # Validation 0: Require explicit link and target values.
+  if [[ -z "$link" || -z "$target" || "$link" == "null" || "$target" == "null" ]]; then
+    echo "[symlink-manifest] REJECTED: Construct '$pack_name' declares an empty link or target" >&2
+    return 0
+  fi
+
   # Validation 1: Boundary enforcement — link must be under .claude/
   if [[ "$link" != .claude/* ]]; then
     echo "[symlink-manifest] REJECTED: Construct '$pack_name' declares link '$link' outside .claude/ boundary" >&2
     return 0
   fi
 
-  # Validation 2: Path sanitization — reject .. traversals in link path
-  # Covers: leading ../, mid-path /../, and trailing /.. (F-001)
-  if [[ "$link" == *../* ]] || [[ "$link" == */../* ]] || [[ "$link" == *.. ]]; then
+  # Validation 2a: link must be a clean, traversal-free .claude/ path (F-001).
+  if _path_has_traversal "$link"; then
     echo "[symlink-manifest] REJECTED: Construct '$pack_name' link '$link' contains path traversal" >&2
     return 0
+  fi
+
+  # Validation 2b: target resolves relative to the link's parent directory.
+  # Bounded '..' segments are legitimate (installed constructs point back
+  # into .loa/, e.g. '../../.loa/.claude/constructs/<pack>/data'); what is
+  # forbidden is ESCAPING the repo root after lexical normalization.
+  if [[ "$target" != /* ]]; then
+    local _link_parent _resolved
+    _link_parent=$(dirname "$link")
+    _resolved=$(_normalize_rel_path "$_link_parent/$target")
+    if [[ "$_resolved" == ".." || "$_resolved" == ../* ]]; then
+      echo "[symlink-manifest] REJECTED: Construct '$pack_name' target '$target' escapes the repo root (resolves to '$_resolved')" >&2
+      return 0
+    fi
   fi
 
   # Validation 3: Reject absolute paths

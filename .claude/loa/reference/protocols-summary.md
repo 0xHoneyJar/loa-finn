@@ -1,134 +1,33 @@
 # Protocols Summary
 
-Quick reference for Loa's key protocols. See individual files in `.claude/protocols/` for full documentation.
+Complete index of `.claude/protocols/` (one row per file — regenerate this table when adding/removing protocols; cycle-121 replaced the old partial table + prose restatements, which covered 20 of 57 files and had drifted).
 
-## Structured Agentic Memory
-
-Agents maintain persistent working memory in `grimoires/loa/NOTES.md`:
-
-| Section | Purpose |
-|---------|---------|
-| Current Focus | Active task, status, blocked by, next action |
-| Session Log | Append-only event history table |
-| Decisions | Architecture/implementation decisions table |
-| Blockers | Checkbox list with [RESOLVED] marking |
-| Technical Debt | Issues for future attention |
-| Goal Status | PRD goal achievement tracking |
-| Learnings | Project-specific knowledge |
-| Session Continuity | Recovery anchor |
-
-**Protocol**: `.claude/protocols/structured-memory.md`
-
----
-
-## Lossless Ledger Protocol
-
-The "Clear, Don't Compact" paradigm for context management.
-
-### Truth Hierarchy
-
-1. CODE (src/) - Absolute truth
-2. BEADS (.beads/) - Lossless task graph
-3. NOTES.md - Decision log, session continuity
-4. TRAJECTORY - Audit trail, handoffs
-5. PRD/SDD - Design intent
-
-### Key Protocols
-
-| Protocol | Purpose |
-|----------|---------|
-| `session-continuity.md` | Tiered recovery, fork detection |
-| `grounding-enforcement.md` | Citation requirements (>=0.95 ratio) |
-| `synthesis-checkpoint.md` | Pre-clear validation |
-| `jit-retrieval.md` | Lightweight identifiers + cache integration |
-
----
-
-## Feedback Loops
-
-Three quality gates:
-
-1. **Implementation Loop** (Phase 4-5): Engineer <-> Senior Lead until "All good"
-2. **Security Audit Loop** (Phase 5.5): After approval -> Auditor review -> "APPROVED"
-3. **Deployment Loop**: DevOps <-> Auditor until infrastructure approved
-
-**Priority**: Audit feedback checked FIRST on `/implement`, then engineer feedback.
-
-**Protocol**: `.claude/protocols/feedback-loops.md`
-
----
-
-## Karpathy Principles (v1.8.0)
-
-Four behavioral principles to counter common LLM coding pitfalls:
-
-| Principle | Problem Addressed | Implementation |
-|-----------|-------------------|----------------|
-| **Think Before Coding** | Silent assumptions | Surface assumptions, ask clarifying questions |
-| **Simplicity First** | Overcomplicated code | No speculative features, minimal abstractions |
-| **Surgical Changes** | Unrelated modifications | Only touch necessary lines, preserve style |
-| **Goal-Driven** | Vague success criteria | Define testable outcomes before starting |
-
-### Pre-Implementation Checklist
-
-- [ ] Assumptions listed
-- [ ] Scope minimal (no extras)
-- [ ] Success criteria defined
-- [ ] Style will match existing
-
-**Protocol**: `.claude/protocols/karpathy-principles.md`
-
----
-
-## Git Safety
-
-Prevents accidental pushes to upstream template:
-
-- 4-layer detection (cached -> origin URL -> upstream remote -> GitHub API)
-- Soft block with user confirmation via AskUserQuestion
-- `/contribute` command bypasses (has own safeguards)
-
-**Protocol**: `.claude/protocols/git-safety.md`
-
----
-
-## beads_rust Integration
-
-Optional task graph management using beads_rust (`br` CLI). Non-invasive by design:
-
-- Never touches git (no daemon, no auto-commit)
-- Explicit sync protocol
-- SQLite for fast queries, JSONL for git-friendly diffs
-
-**Sync Protocol**:
-```bash
-br sync --import-only    # Session start
-br sync --flush-only     # Session end
-```
-
----
-
-## All Protocol Files
-
-| File | Description |
-|------|-------------|
-| `structured-memory.md` | NOTES.md protocol |
-| `trajectory-evaluation.md` | ADK-style evaluation |
-| `feedback-loops.md` | Quality gates |
-| `git-safety.md` | Template protection |
-| `constructs-integration.md` | Loa Constructs skill loading |
-| `helper-scripts.md` | Full script documentation |
-| `upgrade-process.md` | Framework upgrade workflow |
-| `context-compaction.md` | Compaction preservation rules |
-| `run-mode.md` | Run Mode protocol |
-| `recursive-context.md` | Recursive JIT Context system |
-| `semantic-cache.md` | Cache operations and invalidation |
-| `jit-retrieval.md` | JIT retrieval with cache integration |
-| `continuous-learning.md` | Skill extraction quality gates |
-| `context-editing.md` | Context editing policies |
-| `memory.md` | Memory schema and lifecycle |
-| `karpathy-principles.md` | LLM coding principles |
-| `recommended-hooks.md` | Claude Code hooks |
-| `skill-forking.md` | Skill isolation |
-| `url-registry.md` | Canonical URL management |
-| `visual-communication.md` | Mermaid integration |
+| File | Purpose | Loaded by |
+|------|---------|-----------|
+| `agent-ergonomics.md` | Mechanical agent hygiene: wait-loops, cd discipline, fan-out budgets | CLAUDE.loa.md Karpathy section pointer |
+| `beads-integration.md` | br task lifecycle command reference | implementing-tasks / reviewing-code beads_workflow blocks |
+| `beads-preflight.md` | Beads health statuses, opt-out, MIGRATION_NEEDED repair (KF-005/014/022 recovery) | CLAUDE.loa.md Beads-First section |
+| `change-validation.md` | Post-change validation sweeps | validate command flow |
+| `citations.md` | Word-for-word citation format; self-audit (≥0.95 ratio); negative grounding (two-query absence); EDD scenarios | implementing-tasks + reviewing-code resources |
+| `constructs-integration.md` | Loa Constructs skill loading | constructs command flow |
+| `continuous-learning.md` | Learning-signal quality gates | continuous-learning skill; retrospective postludes |
+| `cross-platform-shell.md` | bash/zsh/BSD portability rules (KF-012 class) | CI shell-compat-lint; shell authors |
+| `danger-level.md` | Skill danger-level taxonomy | danger-level-enforcer.sh documentation |
+| `feedback-loops.md` | Review/audit quality-gate loop semantics | review/audit flows |
+| `flatline-protocol.md` | Multi-model adversarial review pipeline | flatline skills + orchestrator docs |
+| `git-safety.md` | Upstream-detection layers, template protection | git-safety.sh; mounting flows |
+| `grounding-enforcement.md` | Grounding-ratio enforcement detail (gated deletion — see cycle-121 Scope Contract) | ck-family survivors; review skills |
+| `helper-scripts.md` | Comprehensive script documentation | scripts-reference.md pointer |
+| `implementation-compliance.md` | C-PROC enforcement checklist (generated from constraints.json) | CLAUDE.loa.md Process Compliance pointer |
+| `input-guardrails.md` | Guardrails orchestrator detail (PII/injection/danger) | guardrails-reference.md; skill preludes |
+| `karpathy-principles.md` | Enforcement map + config keys (canonical TEXT lives in CLAUDE.loa.md) | implementing-tasks pointer; CLAUDE.loa.md pointer |
+| `recommended-hooks.md` | Optional Claude Code hook patterns | hooks-reference.md; operators |
+| `ride-translation.md` | /ride codebase-translation flow | riding-codebase skill |
+| `safe-file-creation.md` | Write-tool-vs-heredoc decision tree | shell-conventions.md pointer; implementing-tasks |
+| `session-continuity.md` | Tiered recovery (L1/L2/L3), fork detection | structured-memory.md pointer; skills' context_discipline |
+| `structured-memory.md` | NOTES.md contract: where durable knowledge goes, required sections, write discipline | notes-template tests; NOTES.md.template pointer |
+| `subagent-invocation.md` | Subagent dispatch patterns | parallel-execution sections of skills |
+| `synthesis-checkpoint.md` | Pre-clear validation (BLOCKING, 7-step) | check-loa v0.9.0 required; context_discipline |
+| `tool-result-clearing.md` | Clearing thresholds + 4-step synthesis + edge cases | 10 skills' context_discipline blocks; validate-ck-integration required |
+| `trajectory-evaluation.md` | ADK-style reasoning audit trail | implementing-tasks + reviewing-code resources |
+| `visual-communication.md` | Mermaid diagram standards | review feedback authoring |

@@ -76,14 +76,6 @@ outputs:
   - "grimoires/loa/translations/quality-assurance.md"
   - "grimoires/loa/translations/translation-audit.md"
 
-protocols:
-  - integrity_precheck: "SHA-256 verification of .claude/"
-  - structured_memory: "NOTES.md + Beads integration"
-  - factual_grounding: "All claims cite (file:L##)"
-  - truth_hierarchy: "CODE > Artifacts > Docs > Context"
-  - context_engineering: "Progressive disclosure + tool result clearing"
-  - trajectory_audit: "Self-audit before completion"
-
 resources:
   bibliography: resources/BIBLIOGRAPHY.md
   reference: resources/REFERENCE.md

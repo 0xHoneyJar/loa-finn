@@ -190,4 +190,3 @@ integrations:
 
 - [MCP Protocol Specification](https://modelcontextprotocol.io/)
 - [Claude Code MCP Documentation](https://docs.anthropic.com/claude-code/mcp)
-- [Loa Integrations Protocol](./../protocols/integrations.md)

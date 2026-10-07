@@ -70,7 +70,6 @@ required_scripts=(
     ".claude/scripts/search-api.sh"
     ".claude/scripts/filter-search-results.sh"
     ".claude/scripts/compact-trajectory.sh"
-    ".claude/scripts/validate-protocols.sh"
 )
 
 for script in "${required_scripts[@]}"; do
@@ -93,14 +92,9 @@ done
 log_section "Protocol Documentation"
 
 required_protocols=(
-    ".claude/protocols/preflight-integrity.md"
     ".claude/protocols/tool-result-clearing.md"
     ".claude/protocols/trajectory-evaluation.md"
-    ".claude/protocols/negative-grounding.md"
-    ".claude/protocols/search-fallback.md"
     ".claude/protocols/citations.md"
-    ".claude/protocols/self-audit-checkpoint.md"
-    ".claude/protocols/edd-verification.md"
 )
 
 for protocol in "${required_protocols[@]}"; do

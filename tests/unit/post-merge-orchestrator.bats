@@ -18,6 +18,7 @@ setup() {
     git -C "$TEST_REPO" init --quiet
     git -C "$TEST_REPO" config user.email "test@test.com"
     git -C "$TEST_REPO" config user.name "Test"
+    git -C "$TEST_REPO" remote add origin "$TEST_TMPDIR/remote.git"
 
     # Create initial commit so HEAD exists
     echo "init" > "$TEST_REPO/README.md"
@@ -184,14 +185,14 @@ skip_if_deps_missing() {
     [ "$matrix_skipped" = "0" ]
 }
 
-@test "post-merge: bugfix type skips changelog, gt_regen, rtfm, release" {
+@test "post-merge: bugfix type skips gt_regen, rtfm" {
     skip_if_deps_missing
     run "$TEST_SCRIPT" --pr 42 --type bugfix --sha "$MERGE_SHA" --dry-run
     [ "$status" -eq 0 ]
 
-    # Bugfix only runs: classify, semver, tag, notify
-    # So changelog, gt_regen, rtfm, release should be matrix-skipped
-    for phase in changelog gt_regen rtfm release; do
+    # Bugfix runs: classify, semver, changelog, tag, release, lore_promote, notify
+    # Only gt_regen and rtfm are matrix-skipped
+    for phase in gt_regen rtfm; do
         local reason
         reason=$(jq -r ".phases.${phase}.result.reason // empty" "$TEST_REPO/.run/post-merge-state.json")
         [[ "$reason" == "not in phase matrix for this PR type" ]]
@@ -323,10 +324,10 @@ skip_if_deps_missing() {
     run "$TEST_SCRIPT" --pr 55 --type bugfix --sha "$MERGE_SHA" --dry-run
     [ "$status" -eq 0 ]
 
-    # changelog, gt_regen, rtfm, release should be matrix-skipped
+    # gt_regen, rtfm should be matrix-skipped (bugfix includes changelog, tag, release, lore_promote)
     local skipped_count
     skipped_count=$(jq '[.phases[] | select(.result.reason == "not in phase matrix for this PR type")] | length' "$TEST_REPO/.run/post-merge-state.json")
-    [ "$skipped_count" -eq 4 ]
+    [ "$skipped_count" -eq 2 ]
 }
 
 @test "post-merge-int: semver computes correct version from tags" {
@@ -383,7 +384,7 @@ CLEOF
     grep -q "\[Unreleased\]" "$TEST_REPO/CHANGELOG.md"
 }
 
-@test "post-merge-int: idempotent tag creation (run twice, second skips)" {
+@test "post-merge-int: repeated generation retains the same candidate without a tag" {
     skip_if_deps_missing
 
     echo "v" > "$TEST_REPO/v.txt"
@@ -395,21 +396,21 @@ CLEOF
     git -C "$TEST_REPO" commit -m "feat: feature" --quiet
     MERGE_SHA=$(git -C "$TEST_REPO" rev-parse HEAD)
 
-    # First run creates the tag
+    # Generation produces the reviewable candidate; publication is separate.
     run "$TEST_SCRIPT" --pr 42 --type bugfix --sha "$MERGE_SHA"
     [ "$status" -eq 0 ]
 
-    # Verify tag was created
-    git -C "$TEST_REPO" tag -l v1.1.0 | grep -q v1.1.0
+    [ -z "$(git -C "$TEST_REPO" tag -l v1.1.0)" ]
+    cp "$TEST_REPO/.run/post-merge-candidate.json" "$TEST_TMPDIR/candidate-before.json"
 
-    # Second run should skip the tag (idempotent) — but semver now finds no commits since v1.1.0
-    # So the tag phase skips due to "no version" (which is correct idempotent behavior)
+    # A repeated generation must not rewrite the approved candidate.
     run "$TEST_SCRIPT" --pr 42 --type bugfix --sha "$MERGE_SHA"
     [ "$status" -eq 0 ]
 
     local tag_status
     tag_status=$(jq -r '.phases.tag.status' "$TEST_REPO/.run/post-merge-state.json")
-    [ "$tag_status" = "skipped" ]
+    [ "$tag_status" = "pending" ]
+    cmp "$TEST_REPO/.run/post-merge-candidate.json" "$TEST_TMPDIR/candidate-before.json"
 }
 
 @test "post-merge-int: CHANGELOG idempotent (version already exists)" {
@@ -471,7 +472,7 @@ CLEOF
     [ "$failed" -gt 0 ]
 }
 
-@test "post-merge-int: metrics tracking (completed + skipped + failed = 8)" {
+@test "post-merge-int: metrics tracking (completed + skipped + failed = 10)" {
     skip_if_deps_missing
 
     run "$TEST_SCRIPT" --pr 42 --type cycle --sha "$MERGE_SHA" --dry-run
@@ -482,7 +483,8 @@ CLEOF
     skipped=$(jq -r '.metrics.phases_skipped // 0' "$TEST_REPO/.run/post-merge-state.json")
     failed=$(jq -r '.metrics.phases_failed // 0' "$TEST_REPO/.run/post-merge-state.json")
     total=$((completed + skipped + failed))
-    [ "$total" -eq 8 ]
+    # PHASE_ORDER has 10 phases: classify, semver, version_bump, changelog, gt_regen, rtfm, tag, release, lore_promote, notify
+    [ "$total" -eq 10 ]
 }
 
 @test "post-merge-int: all flags combined" {

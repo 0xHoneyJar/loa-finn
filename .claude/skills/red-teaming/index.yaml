@@ -81,12 +81,3 @@ safety:
   requires_opt_in: true
   opt_in_config: "red_team.enabled"
 
-protocols:
-  required:
-    - name: "input-guardrails"
-      path: ".claude/protocols/input-guardrails.md"
-      purpose: "Pre-execution input validation and sanitization"
-  recommended:
-    - name: "danger-level"
-      path: ".claude/protocols/danger-level.md"
-      purpose: "High danger level enforcement"

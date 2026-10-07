@@ -1,46 +1,17 @@
 # Git Stash Safety
 
-`git stash push / pop` wraps are risky inside Loa skill execution. Pre-commit hooks and other auto-triggered operations run their own internal `git stash --keep-index` — when an outer Loa stash overlaps, the stash indexes shift and `pop` can land on the wrong entry. Combined with output-swallowing patterns (`| tail -N`, `|| true`), this produces silent data loss that looks like success.
+`git stash push / pop` wraps are risky inside Loa skill execution: pre-commit hooks run their own internal `git stash --keep-index`, an overlapping outer stash shifts the indexes, and `pop` can land on the wrong entry. Combined with output-swallowing (`| tail -N`, `|| true`, `2>/dev/null`) this produces silent data loss that looks like success.
 
-## The rules
+**Mechanically enforced since cycle-122**: `block-destructive-bash.sh` pattern `FR-1.2b` BLOCKS `git stash push/pop/apply` combined with `| tail`/`| head`, `|| true`, or `2>/dev/null` in the same statement — the block message is the repair prompt. This file keeps only the interface and the judgment rules a fence cannot express.
 
-| # | Rule | Why |
-|---|------|-----|
-| MUST | Never pipe `git stash push` or `git stash pop` output through `tail`, `head`, or any truncating filter | Stash output contains load-bearing CONFLICT markers and file lists. Truncation hides them. |
-| MUST | Never append `|| true` to a `git stash` command | `|| true` masks non-zero exits that indicate conflicted, partially-applied, or wrong-slot pops. |
-| MUST | Never use `2>/dev/null` on a `git stash` command | Stash's error stream is its primary diagnostic channel. Suppressing it is equivalent to removing the fuse on a breaker. |
-| MUST | Use `stash_with_guard` from `.claude/scripts/stash-safety.sh` when a Loa script needs stash semantics | The helper enforces count-delta invariants (N → N+1 on push, N+1 → N on pop) and surfaces all output. |
-| MUST NOT | Combine `git stash -k` with pre-commit-wrapped operations | Pre-commit's internal `git stash --keep-index` collides with the outer stash. Use `git worktree add` for hermetic analysis instead. |
-| SHOULD | Prefer `git worktree add <path> <rev>` for pre-commit-adjacent work | A worktree is isolated. No stash interaction, no shift, no data-loss window. |
-| SHOULD | If recovery is needed, reach for `git fsck --unreachable \| grep commit` before `git gc` runs | Orphaned stashes are still in the object DB until the next `git gc --prune`. |
-
-## The hazard pattern (forbidden)
-
-```bash
-# DO NOT DO THIS — silent data loss
-git stash push -k -m "pre-check" 2>&1 | tail -3 && \
-  <op triggering pre-commit> && \
-  git stash pop 2>&1 | tail -3 || true
-```
-
-Three compounding defects:
-
-1. `-k` (keep-index) stashes only unstaged edits — your Edit-tool updates go into the stash.
-2. `| tail -3` swallows any CONFLICT lines from `pop`.
-3. `|| true` at the chain end makes the whole sequence report success even on catastrophic failure.
-
-If pre-commit's internal stash shifts the index, the outer `pop` lands on the wrong entry. "Dropped refs/stash@{0}" appears in output — but the content never reaches your worktree. No error is surfaced.
-
-## The safer pattern
+## The safe interface
 
 ```bash
 source .claude/scripts/stash-safety.sh
-
-# Full output preserved, count-delta enforced, exit propagated
-stash_with_guard "pre-check" -- run_linter src/
+stash_with_guard "pre-check" -- run_linter src/   # count-delta enforced, full output surfaced, exit propagated
 ```
 
-Or use a worktree to sidestep the hazard entirely:
+Or sidestep stashing entirely with a worktree (no index-shift window):
 
 ```bash
 worktree_path="$(mktemp -d)/loa-check"
@@ -49,12 +20,17 @@ git worktree add "$worktree_path" HEAD
 git worktree remove "$worktree_path"
 ```
 
+## Judgment rules the fence cannot express
+
+- MUST NOT combine `git stash -k` with pre-commit-wrapped operations (the internal `--keep-index` collision is invisible to a command-string fence) — use a worktree.
+- SHOULD reach for `git fsck --unreachable | grep commit` BEFORE any `git gc` when recovery is needed — orphaned stashes survive in the object DB only until the next prune.
+
 ## Origin
 
-- Defect: [#555](https://github.com/0xHoneyJar/loa/issues/555) — downstream operator lost 4 Edit-tool updates to NOTES.md when a skill ran the hazard pattern around a pre-commit-triggering operation. Recovery was possible only because the orphaned stash commit was still in git's unreachable-object set; a `git gc --prune=now` would have destroyed it.
-- Tracker: [#557](https://github.com/0xHoneyJar/loa/issues/557) — meta-issue Tier 2 cycle-086.
+- Defect: [#555](https://github.com/0xHoneyJar/loa/issues/555) — 4 Edit-tool NOTES.md updates lost to the hazard pattern; recovered only because `git gc --prune=now` hadn't run. Tracker: [#557](https://github.com/0xHoneyJar/loa/issues/557).
+- The hazard shape recurred live during cycle-122 itself (a `git stash pop >/dev/null 2>&1` during a baseline check — caught, verified lossless, and turned into the FR-1.2b fence the same day).
 
 ## Related rules
 
-- [shell-conventions.md](shell-conventions.md) — heredoc safety, bash strict mode, JSON construction patterns.
-- [zone-system.md](zone-system.md) — `.claude/` framework boundary.
+- [shell-conventions.md](shell-conventions.md) — heredoc safety, strict-mode patterns.
+- [zone-system.md](zone-system.md) — `.claude/` framework boundary (Bash writes now fenced by FR-SZ2).

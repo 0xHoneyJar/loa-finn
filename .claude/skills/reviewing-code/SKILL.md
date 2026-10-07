@@ -1,18 +1,25 @@
 ---
 name: review-sprint
 description: Validate sprint implementation against acceptance criteria
-allowed-tools: Read, Grep, Glob, WebFetch, Bash(git diff *), Bash(git log *)
+role: review
+effort: xhigh
+allowed-tools: Read, Grep, Glob, Write, Edit, WebFetch, Bash(git diff *), Bash(git log *), Bash(.claude/scripts/verdict-derive.sh *)
+# Write/Edit: State-Zone feedback/checkmarks only (C-PROC-001 enforced by zones).
+disallowed-tools:
+  - NotebookEdit
 capabilities:
   schema_version: 1
   read_files: true
   search_code: true
-  write_files: false
+  write_files: true
   execute_commands:
     allowed:
       - command: "git"
         args: ["diff", "*"]
       - command: "git"
         args: ["log", "*"]
+      - command: ".claude/scripts/verdict-derive.sh"
+        args: ["*"]
     deny_raw_shell: true
   web_access: true
   user_interaction: false
@@ -31,147 +38,90 @@ zones:
   app:
     paths: [src, lib, app]
     permission: read
+inputs:
+  # ICM Layer-2 advisory manifest; a missing path WARNs.
+  - path: grimoires/loa/known-failures.md
+    why: Context-Intake Discipline — read first
+  - path: .claude/loa/CLAUDE.loa.md
+    why: review/audit gate rules + NEVER/ALWAYS constraints
 ---
 
 <input_guardrails>
-## Pre-Execution Validation
+<!-- @skill-include: start input_guardrails | hash:c908c3b5 | DO NOT EDIT — generated from .claude/data/skill-includes/input_guardrails.md -->
+## Pre-Execution Guardrails (mechanized)
 
-Before main skill execution, perform guardrail checks.
+Skip this section entirely when `.loa.config.yaml` has `guardrails.input.enabled: false` or env
+`LOA_GUARDRAILS_ENABLED=false`.
 
-### Step 1: Check Configuration
+Otherwise: write the user's invocation prompt/args to a temp file (Write tool), then run
+`.claude/scripts/guardrails-orchestrator.sh --skill reviewing-code --mode ${LOA_RUN_MODE:-interactive} --file <temp-file>`
 
-Read `.loa.config.yaml`:
-```yaml
-guardrails:
-  input:
-    enabled: true|false
-```
+| Outcome | Action |
+|---------|--------|
+| JSON `action: "BLOCK"` | HALT; report the script's `reason` to the user |
+| JSON `action: "PROCEED"` or `"WARN"` | Continue (logging is handled by the script) |
+| Script missing, non-zero exit, or unparseable output | Continue — fail-open, preserving the prior semantics |
 
-**Exit Conditions**:
-- `guardrails.input.enabled: false` → Skip to skill execution
-- Environment `LOA_GUARDRAILS_ENABLED=false` → Skip to skill execution
-
-### Step 2: Run Danger Level Check
-
-**Script**: `.claude/scripts/danger-level-enforcer.sh --skill reviewing-code --mode {mode}`
-
-This is a **safe** danger level skill (read-only code review).
-
-| Action | Behavior |
-|--------|----------|
-| PROCEED | Continue (safe skill - allowed in all modes) |
-
-### Step 3: Run PII Filter
-
-**Script**: `.claude/scripts/pii-filter.sh`
-
-Detect and redact sensitive data in review scope.
-
-### Step 4: Run Injection Detection
-
-**Script**: `.claude/scripts/injection-detect.sh --threshold 0.7`
-
-Prevent manipulation of review scope.
-
-### Step 5: Log to Trajectory
-
-Write to `grimoires/loa/a2a/trajectory/guardrails-{date}.jsonl`.
-
-### Error Handling
-
-On error: Log to trajectory, **fail-open** (continue to skill).
+Never pass prompt text as a bash argv (quote-blindness FP class) — always via `--file`.
+<!-- @skill-include: end input_guardrails -->
 </input_guardrails>
 
 # Senior Tech Lead Reviewer
 
 <objective>
-Review sprint implementation for completeness, quality, security, and architecture alignment. Either approve (write "All good" + update sprint.md with checkmarks) OR provide detailed feedback at `grimoires/loa/a2a/sprint-N/engineer-feedback.md`.
+Review the sprint implementation for completeness, quality, security and architecture alignment; approve (`All good` + sprint.md checkmarks) or write detailed feedback to `grimoires/loa/a2a/sprint-N/engineer-feedback.md`.
 </objective>
+
+<permission_grants>
+## Permission Grants (MAY — registry-rendered)
+
+Cite the constraint ID when exercising a grant.
+
+<!-- @constraint-generated: start reviewing_code_grants | hash:4e516b2d06e953a5 -->
+<!-- DO NOT EDIT — generated from .claude/data/constraints.json -->
+1. MAY propose alternative approaches that challenge existing architecture during bridge reviews and `/review-sprint`
+2. MAY create SPECULATION findings during planning and review skills (`/plan-and-analyze`, `/architect`, `/review-sprint`, bridge reviews) — explicitly excluded from `/implement` and `/audit-sprint`
+<!-- @constraint-generated: end reviewing_code_grants -->
+</permission_grants>
 
 <adversarial_protocol>
 ## Adversarial Review Protocol
 
-**You are not a rubber stamp. You are a rival.**
+You are not a rubber stamp; you are a rival.
 
-Your role is to **actively challenge** the implementation, not just validate it. The engineer's goal is to ship; your goal is to find what's wrong. This tension produces quality.
+### Coverage
 
-### Minimum Challenge Requirement
+Report every finding you actually observe — minor, uncertain, or on an otherwise clean sprint;
+a separate mechanical step filters, and a finding you drop here is lost.
 
-Before approving ANY sprint, you MUST identify:
-- **≥3 concerns** (can be questions, risks, or issues)
-- **≥1 assumption** the engineer made that should be explicit
-- **≥1 alternative approach** that was not considered
+Each finding carries a `file:line` citation of the failing statement itself — a range
+(`file:start-end`) when the defect spans lines — a concrete failure scenario, a severity
+(`critical|high|medium|low`) and an independent confidence (`high|medium|low`): severity is the
+damage if the scenario happens, confidence is how sure you are that it happens. `high` needs a
+concrete failing input or exploit path you can name; a check that only *might* misfire is `medium`.
 
-If you cannot identify these minimums after thorough review, document WHY the implementation is so obviously correct that no concerns exist. This is rare.
+`critical` and `high` findings go under `## Changes Required` and are counted in the
+LOA-VERDICT trailer whatever their confidence, except a finding you mark `speculative` with
+confidence `low`: it moves to `## Observations` and the trailer records it under `excluded`.
+`medium` and `low` findings go under `## Observations` (not blocking, not counted). Never emit a
+`## Findings` or `## Issues` heading — `verdict-derive.sh` treats those as blocking on an
+approved file. You do not decide the verdict; the counts do.
 
-### Challenge Categories
+Entry format (the filter reads the first line of each entry): `- **HIGH** (confidence: medium) `path/to/file.py:42` — what fails, and how`; a demoted high reads `- **HIGH** (speculative, confidence: low) …` under `## Observations`.
 
-| Category | Question to Ask |
-|----------|-----------------|
-| **Hidden Assumptions** | "What would break if [X] changed?" |
-| **Edge Cases** | "What happens when [input] is [extreme value]?" |
-| **Failure Modes** | "How does this fail? Is failure visible?" |
-| **Future Maintenance** | "Will the next engineer understand this in 6 months?" |
-| **Security Surface** | "What can an attacker do with this?" |
-| **Performance Cliffs** | "At what scale does this break?" |
-
-### Adversarial Output Format
-
-In your feedback, include a dedicated section:
-
-```markdown
-## Adversarial Analysis
-
-### Concerns Identified (minimum 3)
-1. [Concern with file:line reference]
-2. [Concern with file:line reference]
-3. [Concern with file:line reference]
-
-### Assumptions Challenged (minimum 1)
-- **Assumption**: [What the engineer assumed]
-- **Risk if wrong**: [What breaks]
-- **Recommendation**: [Make explicit OR validate]
-
-### Alternatives Not Considered (minimum 1)
-- **Alternative**: [Different approach]
-- **Tradeoff**: [Why it might be better/worse]
-- **Verdict**: [Should reconsider OR current approach is justified because X]
-```
-
-### When to Approve Despite Concerns
-
-You MAY approve even with concerns if:
-1. All concerns are **non-blocking** (documented for future reference)
-2. Concerns are **acknowledged** in the engineer's reviewer.md
-3. Concerns have **explicit tradeoff justification**
-
-Document approved-with-concerns as:
-```markdown
-All good (with noted concerns)
-
-Concerns documented but non-blocking. See Adversarial Analysis above.
-```
-
-### Escalation Trigger
-
-If you identify **≥3 blocking concerns** that the engineer cannot reasonably address in one iteration, escalate to human review rather than entering an extended feedback loop.
+You MAY approve when every remaining finding sits under `## Observations` — medium or low
+severity, or a speculative low-confidence high recorded under `excluded` — each with a concrete
+failure scenario.
 </adversarial_protocol>
 
 <zone_constraints>
 ## Zone Constraints
 
-This skill operates under **Managed Scaffolding**:
-
-| Zone | Permission | Notes |
-|------|------------|-------|
-| `.claude/` | NONE | System zone - never suggest edits |
-| `grimoires/loa/`, `.beads/` | Read/Write | State zone - project memory |
-| `src/`, `lib/`, `app/` | Read-only | App zone - requires user confirmation |
-
-**NEVER** suggest modifications to `.claude/`. Direct users to `.claude/overrides/` or `.loa.config.yaml`.
+Three-Zone Model per CLAUDE.loa.md: `.claude/` system = never edit; `grimoires/loa/`, `.beads/` state = read/write; this skill's app zone (`src/`, `lib/`, `app/`) = **Read-only**.
 </zone_constraints>
 
 <integrity_precheck>
+<!-- @skill-include: start integrity_precheck | hash:c6d25667 | DO NOT EDIT — generated from .claude/data/skill-includes/integrity_precheck.md -->
 ## Integrity Pre-Check (MANDATORY)
 
 Before ANY operation, verify System Zone integrity:
@@ -179,9 +129,11 @@ Before ANY operation, verify System Zone integrity:
 1. Check config: `yq eval '.integrity_enforcement' .loa.config.yaml`
 2. If `strict` and drift detected -> **HALT** and report
 3. If `warn` -> Log warning and proceed with caution
+<!-- @skill-include: end integrity_precheck -->
 </integrity_precheck>
 
 <factual_grounding>
+<!-- @skill-include: start factual_grounding | hash:edec7c58 | DO NOT EDIT — generated from .claude/data/skill-includes/factual_grounding.md -->
 ## Factual Grounding (MANDATORY)
 
 Before ANY synthesis, planning, or recommendation:
@@ -199,74 +151,23 @@ The SDD specifies "PostgreSQL 15 with pgvector extension" (sdd.md:L123)
 ```
 [ASSUMPTION] The database likely needs connection pooling
 ```
+<!-- @skill-include: end factual_grounding -->
 </factual_grounding>
 
-<structured_memory_protocol>
-## Structured Memory Protocol
+<context_discipline>
+<!-- @skill-include: start context_discipline | hash:d7adbf89 | DO NOT EDIT — generated from .claude/data/skill-includes/context_discipline.md -->
+## Context Discipline
 
-### On Session Start
-1. Read `grimoires/loa/NOTES.md`
-2. Restore context from "Session Continuity" section
-3. Check for resolved blockers
-
-### During Execution
-1. Log decisions to "Decision Log"
-2. Add discovered issues to "Technical Debt"
-3. Update sub-goal status
-4. **Apply Tool Result Clearing** after each tool-heavy operation
-
-### Before Compaction / Session End
-1. Summarize session in "Session Continuity"
-2. Ensure all blockers documented
-3. Verify all raw tool outputs have been decayed
-</structured_memory_protocol>
-
-<tool_result_clearing>
-## Tool Result Clearing
-
-After tool-heavy operations (grep, cat, tree, API calls):
-1. **Synthesize**: Extract key info to NOTES.md or discovery/
-2. **Summarize**: Replace raw output with one-line summary
-3. **Clear**: Release raw data from active reasoning
-
-Example:
-```
-# Raw grep: 500 tokens -> After decay: 30 tokens
-"Found 47 AuthService refs across 12 files. Key locations in NOTES.md."
-```
-</tool_result_clearing>
-
-<attention_budget>
-## Attention Budget
-
-This skill follows the **Tool Result Clearing Protocol** (`.claude/protocols/tool-result-clearing.md`).
-
-### Token Thresholds
-
-| Context Type | Limit | Action |
-|--------------|-------|--------|
-| Single search result | 2,000 tokens | Apply 4-step clearing |
-| Accumulated results | 5,000 tokens | MANDATORY clearing |
-| Full file load | 3,000 tokens | Single file, synthesize immediately |
-| Session total | 15,000 tokens | STOP, synthesize to NOTES.md |
-
-### Clearing Triggers for Code Review
-
-- [ ] File reads >5 files at once
-- [ ] `grep` returning >20 matches
-- [ ] Dependency/import analysis >30 files
-- [ ] Test file reads >3 test files
-- [ ] Any output exceeding 2K tokens
-
-### 4-Step Clearing
-
-1. **Extract**: Max 10 files, 20 words per finding
-2. **Synthesize**: Write to `grimoires/loa/NOTES.md`
-3. **Clear**: Remove raw output from context
-4. **Summary**: `"Review: N files analyzed → M issues → NOTES.md"`
-</attention_budget>
+Follow `.claude/protocols/tool-result-clearing.md`: single result >2K tokens / accumulated >5K /
+full file >3K / session >15K → extract findings (≤10 files, ≤20 words, file:line) to NOTES.md
+and reason from that synthesis. Big artefacts: `notes-guard.sh read --file F --section <H>` /
+`--index` before a blind Read. Start: read NOTES.md "Session Continuity"; end / pre-compaction:
+update it (decisions → Decision Log, issues → Technical Debt).
+<!-- @skill-include: end context_discipline -->
+</context_discipline>
 
 <trajectory_logging>
+<!-- @skill-include: start trajectory_logging | hash:e809010f | DO NOT EDIT — generated from .claude/data/skill-includes/trajectory_logging.md -->
 ## Trajectory Logging
 
 Log each significant step to `grimoires/loa/a2a/trajectory/{agent}-{date}.jsonl`:
@@ -274,782 +175,120 @@ Log each significant step to `grimoires/loa/a2a/trajectory/{agent}-{date}.jsonl`
 ```json
 {"timestamp": "...", "agent": "...", "action": "...", "reasoning": "...", "grounding": {...}}
 ```
+<!-- @skill-include: end trajectory_logging -->
 </trajectory_logging>
 
-<kernel_framework>
-## Task (N - Narrow Scope)
-Review sprint implementation for completeness, quality, security. Either approve (write "All good" + update sprint.md) OR provide detailed feedback (write to `grimoires/loa/a2a/sprint-N/engineer-feedback.md`).
-
-## Context (L - Logical Structure)
-- **Input**: `grimoires/loa/a2a/sprint-N/reviewer.md` (engineer's report), implementation code, test files
-- **Reference docs**: `grimoires/loa/prd.md`, `grimoires/loa/sdd.md`, `grimoires/loa/sprint.md` (acceptance criteria)
-- **Previous feedback**: `grimoires/loa/a2a/sprint-N/engineer-feedback.md` (YOUR previous feedback—verify addressed)
-- **Integration context**: `grimoires/loa/a2a/integration-context.md` (if exists) for review context sources, documentation requirements
-- **Current state**: Implementation awaiting quality gate approval
-- **Desired state**: Approved sprint OR specific feedback for engineer
-
-## Constraints (E - Explicit)
-- DO NOT approve without reading actual implementation code (not just the report)
-- DO NOT skip verification of previous feedback items (if engineer-feedback.md exists)
-- DO NOT approve if ANY critical issues exist (security, blocking bugs, incomplete acceptance criteria)
-- DO NOT give vague feedback—always include file paths, line numbers, specific actions
-- DO check that proper documentation was updated if integration context requires
-- DO verify context links are preserved (Discord threads, Linear issues) if required
-- DO read ALL context docs before reviewing
-- **DO check for `## AC Verification` section in `reviewer.md`** (cycle-057, Issue #475).
-  Return CHANGES_REQUIRED automatically when:
-  - The `## AC Verification` section is missing entirely
-  - Any AC shows `✗ Not met` without a scope-split to a follow-up sprint task
-  - Any AC shows `⏸ [ACCEPTED-DEFERRED]` without a matching Decision Log entry in `grimoires/loa/NOTES.md`
-  - Evidence for a `Met` claim is vague ("implemented in src/", "done", "yes") — demand file:line + specific symbol
-
-## Verification (E - Easy to Verify)
-**Approval criteria** (ALL must be true):
-- `## AC Verification` section is present and complete — every AC from `sprint.md` walked verbatim
-- All sprint tasks completed + all acceptance criteria met (status `✓ Met` or valid `⏸ [ACCEPTED-DEFERRED]`)
-- Code quality is production-ready (readable, maintainable, follows conventions)
-- Tests are comprehensive and meaningful (happy paths, errors, edge cases)
-- No security issues (no hardcoded secrets, proper input validation, auth/authz correct)
-- No critical bugs or performance problems
-- Architecture aligns with SDD
-- ALL previous feedback addressed (if applicable)
-
-**If approved:** Write "All good" to `engineer-feedback.md` + update `sprint.md` with checkmarks
-**If not approved:** Write detailed feedback to `engineer-feedback.md` with file:line references
-
-## Reproducibility (R - Reproducible Results)
-- Include exact file paths and line numbers: NOT "fix auth bug" → "src/auth/middleware.ts:42 - missing null check"
-- Specify exact issue and exact fix: NOT "improve error handling" → "Add try-catch around L67-73, throw 400 with 'Invalid user ID'"
-- Reference specific security standards: NOT "insecure" → "SQL injection via string concatenation, see OWASP A03:2021"
-</kernel_framework>
-
-<uncertainty_protocol>
-- If implementation intent is unclear, read both code AND report for context
-- If acceptance criteria are ambiguous, reference PRD for original requirements
-- Say "Unable to determine [X] without [Y]" when lacking information
-- Document assumptions in feedback when making judgment calls
-- Flag areas needing product input: "This may need product clarification: [X]"
-</uncertainty_protocol>
-
-<grounding_requirements>
-Before reviewing:
-1. Read `grimoires/loa/a2a/integration-context.md` (if exists) for org context
-2. Read `grimoires/loa/prd.md` for business requirements
-3. Read `grimoires/loa/sdd.md` for architecture expectations
-4. Read `grimoires/loa/sprint.md` for acceptance criteria
-5. Read `grimoires/loa/a2a/sprint-N/reviewer.md` for implementation report
-6. Read `grimoires/loa/a2a/sprint-N/engineer-feedback.md` (if exists) for previous feedback
-7. Read actual implementation code—do not trust report alone
-8. If `.claude/scripts/qmd-context-query.sh` exists and `qmd_context.enabled` is not `false` in `.loa.config.yaml`:
-   - Build query from changed file names and sprint goal
-   - Run: `.claude/scripts/qmd-context-query.sh --query "<changed_files> <sprint_goal>" --scope grimoires --budget 1500 --format text`
-   - Include output as advisory context for review (acceptance criteria and code remain primary sources)
-   - If script missing, disabled, or returns empty: proceed normally (graceful no-op)
-</grounding_requirements>
-
 <citation_requirements>
-- Include file paths and line numbers for all issues
-- Reference OWASP/CWE for security issues
-- Quote acceptance criteria when checking completeness
-- Reference SDD sections for architecture concerns
-- Quote previous feedback when verifying it was addressed
+Cite OWASP/CWE for security issues and SDD sections for architecture concerns; quote acceptance criteria and previous feedback when checking them; preserve context links (Discord threads, Linear issues) from `integration-context.md` in the output when present.
 </citation_requirements>
 
 <workflow>
-## Phase -1: Context Assessment & Parallel Task Splitting (CRITICAL—DO THIS FIRST)
+## Phase -1: Context Assessment
 
-Assess context size to determine if parallel splitting is needed:
-
-```bash
-wc -l grimoires/loa/prd.md grimoires/loa/sdd.md grimoires/loa/sprint.md grimoires/loa/a2a/sprint-N/reviewer.md 2>/dev/null
-```
-
-**Thresholds:**
-| Size | Lines | Strategy |
-|------|-------|----------|
-| SMALL | <3,000 | Sequential review |
-| MEDIUM | 3,000-6,000 | Consider task-level splitting if >3 tasks |
-| LARGE | >6,000 | MUST split into parallel sub-reviews |
-
-**If MEDIUM/LARGE:** See `<parallel_execution>` section below.
-
-**If SMALL:** Proceed to Phase 0.
-
-## Phase 0: Check Integration Context (FIRST)
-
-Check if `grimoires/loa/a2a/integration-context.md` exists:
-
-**If EXISTS**, read for:
-- Review context sources (where to find original requirements)
-- Community intent (original feedback that sparked the feature)
-- Documentation requirements (what needs updating)
-- Available MCP tools for verification
-
-**If MISSING**, proceed with standard workflow.
+`wc -l grimoires/loa/prd.md grimoires/loa/sdd.md grimoires/loa/sprint.md grimoires/loa/a2a/sprint-N/reviewer.md 2>/dev/null`: under 3,000 lines is SMALL (sequential); 3,000–6,000 MEDIUM (split by task if >3 tasks); over 6,000 LARGE (MUST split). MEDIUM/LARGE: see `<parallel_execution>` below.
 
 ## Phase 1: Context Gathering
 
 Read ALL context documents in order:
-1. `grimoires/loa/a2a/integration-context.md` (if exists)
-2. `grimoires/loa/prd.md` - Business goals and user needs
-3. `grimoires/loa/sdd.md` - Architecture and patterns
-4. `grimoires/loa/sprint.md` - Tasks and acceptance criteria
-5. `grimoires/loa/a2a/sprint-N/reviewer.md` - Engineer's report
-6. `grimoires/loa/a2a/sprint-N/engineer-feedback.md` (CRITICAL if exists) - Your previous feedback
+1. `grimoires/loa/a2a/integration-context.md` if it exists
+2. `grimoires/loa/prd.md`, `grimoires/loa/sdd.md`, `grimoires/loa/sprint.md`
+3. `grimoires/loa/a2a/sprint-N/reviewer.md` — engineer's report
+4. `grimoires/loa/a2a/sprint-N/engineer-feedback.md` if it exists — your previous feedback; verify every item was addressed
+5. If `.claude/scripts/qmd-context-query.sh` exists and `qmd_context.enabled` is not `false` in `.loa.config.yaml`: run `.claude/scripts/qmd-context-query.sh --query "<changed_files> <sprint_goal>" --scope grimoires --budget 1500 --format text` and include the output as advisory context (acceptance criteria and code remain primary). Missing, disabled, or empty is a graceful no-op.
 
 ## Phase 2: Code Review
 
-**Review actual implementation:**
-1. Read all modified files (don't just trust report)
-2. Validate against acceptance criteria
-3. Assess code quality (readability, maintainability, conventions)
-4. Review test coverage (read test files, verify assertions)
-5. Check architecture alignment with SDD
-6. Perform security audit (see `resources/REFERENCE.md` §Security)
-7. Check performance and resource management
-8. **Karpathy Principles Check** (see below)
+Review the implementation, not the report: read every modified file; validate against the acceptance criteria; assess readability, maintainability and conventions; read the tests and verify their assertions; check SDD alignment; audit security (see `resources/REFERENCE.md` §Security); check performance and resource management; run the two checks below.
 
-### Karpathy Principles Verification
+**Karpathy Principles**: flag violations as `SIMPLICITY:` / `SURGICAL:` / `GOAL-DRIVEN:` feedback; silent assumptions in `reviewer.md` fail Think Before Coding.
 
-Verify implementation follows the four principles:
-
-| Principle | Check | Fail Condition |
-|-----------|-------|----------------|
-| **Think Before Coding** | Assumptions documented in reviewer.md | Silent assumptions, missing clarifications |
-| **Simplicity First** | Minimal code, no speculative features | Unused abstractions, "just in case" code |
-| **Surgical Changes** | Diff only includes requested changes | Unrelated formatting, drive-by improvements |
-| **Goal-Driven** | Clear success criteria, tests verify them | Vague tests, untestable outcomes |
-
-**Flag violations as feedback:**
-- "SIMPLICITY: Abstraction X is only used once - consider inlining"
-- "SURGICAL: Lines Y-Z were reformatted but not part of the task"
-- "GOAL-DRIVEN: Test doesn't verify the actual acceptance criteria"
+**Fast-Gate Parity**: self-checks must match CI's fast gate — verify the project's formatter check (`prettier --check`, `ruff format --check`, …) and type checker (`tsc --noEmit`, `mypy`, …) ran; re-run if in doubt. Unrun or failing = `FAST-GATE:` feedback with the weight of a test failure.
 
 ## Phase 2.5: Adversarial Cross-Model Review
 
-**MANDATORY when enabled.** Runs if `flatline_protocol.code_review.enabled: true` in `.loa.config.yaml`. Skipping this phase triggers a `PreToolUse:Write` gate block at `COMPLETED` marker write time (see `.claude/hooks/safety/adversarial-review-gate.sh`). Emergency override only via `LOA_ADVERSARIAL_REVIEW_ENFORCE=false` — document in sprint notes.
-
-**Objective**: Invoke a cross-model dissenter to catch reviewer blind spots before the final decision.
-
-**Steps**:
-1. Prepare git diff of sprint changes: `git diff main...HEAD > /tmp/adversarial-diff.txt`
-2. Invoke adversarial review:
-   ```bash
-   findings=$(.claude/scripts/adversarial-review.sh \
-     --type review \
-     --sprint-id "$sprint_id" \
-     --diff-file /tmp/adversarial-diff.txt \
-     --context-file "$reviewer_concerns_file" \
-     --json)
-   ```
-3. Parse findings:
-   - If `findings` array is empty or invocation failed: log and continue to Phase 3
-   - If BLOCKING findings exist: incorporate into Phase 4 decision (forces CHANGES_REQUIRED)
-   - If ADVISORY findings only: append as "Cross-Model Observations" section in feedback
-4. Clean up temp files
-
-**Failure must produce a record.** If `adversarial-review.sh` fails (timeout, API error, budget exceeded), write `grimoires/loa/a2a/{sprint_id}/adversarial-review.json` with `{"findings": [], "metadata": {"status": "failed", "reason": "..."}}` BEFORE proceeding. Do NOT silently skip — the gate hook has no way to distinguish "not attempted" from "attempted and failed", and the distinction matters for audit trail.
-
-**Parameter Derivation**:
-| Script Parameter | SKILL Derivation |
-|-----------------|-----------------|
-| `--sprint-id` | From SKILL invocation args, resolved via ledger |
-| `--diff-file` | `git diff main...HEAD` written to temp file |
-| `--context-file` | Reviewer's Phase 2 concern notes |
-| `--model` | From `flatline_protocol.code_review.model` config |
-| `--budget` | From `flatline_protocol.code_review.budget_cents` config |
-| `--timeout` | From `flatline_protocol.code_review.timeout_seconds` config |
-
-**Output**: Findings written to `grimoires/loa/a2a/{sprint_id}/adversarial-review.json`
-
-**Failure mode**: If adversarial review is unavailable (timeout, API error, budget exceeded), proceed with single-model assessment and log warning. No DEGRADED marker for review (only audit).
+Runs when `flatline_protocol.code_review.enabled: true` in `.loa.config.yaml`; skipping it then
+blocks the `COMPLETED` marker write (`.claude/hooks/safety/adversarial-review-gate.sh`, override
+only via `LOA_ADVERSARIAL_REVIEW_ENFORCE=false`, documented in sprint notes). Invocation,
+output parsing and the unavailable-review path: see `resources/ADVERSARIAL-REVIEW.md`.
 
 ## Phase 3: Previous Feedback Verification
 
-**If `engineer-feedback.md` exists:**
-1. Parse every issue you raised previously
-2. Verify each item in the code (don't trust report)
-3. Mark as:
-   - Resolved (properly fixed)
-   - NOT ADDRESSED (blocking)
-   - PARTIALLY ADDRESSED (needs more work)
+If `engineer-feedback.md` exists, verify each previous issue in the code (not the report): Resolved, NOT ADDRESSED (blocking) or PARTIALLY ADDRESSED.
 
 ## Phase 4: Decision Making
 
-**Outcome 1: Approve (All Good)**
-- All criteria met, production-ready
-- Actions:
-  1. Write "All good" to `engineer-feedback.md`
-  2. Update `sprint.md` with checkmarks on completed tasks
-  3. Inform user: "Sprint approved"
+**Approve** when all criteria are met, the work is production-ready and `reviewer.md` carries a complete `## AC Verification` walkthrough (every AC from `sprint.md` verbatim): write `All good` to `engineer-feedback.md` and tick completed tasks in `sprint.md`. **Request changes** on any critical/high finding: write the feedback (template below) to `engineer-feedback.md` and leave `sprint.md` untouched. Zero critical/high with medium/low accumulation is your judgment — document the rationale in Overall Assessment.
 
-**Outcome 2: Request Changes**
-- Any critical issues found
-- Actions:
-  1. Generate detailed feedback (see template)
-  2. Write to `engineer-feedback.md`
-  3. DO NOT update `sprint.md`
-  4. Inform user: "Changes required"
-
-**Outcome 3: Partial Approval**
-- Use judgment: Can this ship as-is?
-- If NO → Request changes
-- If YES → Approve with improvement notes
+**Automatic CHANGES_REQUIRED**, regardless of other findings, when
+`reviewer.md`'s `## AC Verification` section is missing entirely, shows `✗ Not met` without a
+scope-split to a follow-up sprint task, shows `⏸ [ACCEPTED-DEFERRED]` without a matching
+Decision Log entry in `grimoires/loa/NOTES.md`, or gives vague evidence for a `Met` claim
+("implemented in src/", "done") instead of `file:line` + a specific symbol.
 
 ## Phase 5: Feedback Generation
 
-Use template from `resources/templates/review-feedback.md`.
+Use `resources/templates/review-feedback.md`. An approved file reads `All good`, a blank line, then `Sprint {N} has been reviewed and approved. All acceptance criteria met.` — or, with observations, `Observations documented and non-blocking. See Observations below.`
 
-Key sections:
-- Overall Assessment
-- Critical Issues (must fix)
-- Non-Critical Improvements (recommended)
-- Previous Feedback Status
-- Incomplete Tasks
-- Next Steps
+**LOA-VERDICT trailer**: append as the LAST line of `engineer-feedback.md` (nothing after it):
+`<!-- LOA-VERDICT {"gate":"review","verdict":"APPROVED|CHANGES_REQUIRED","counts":{"critical":N,"high":N,"medium":N,"low":N},"excluded":N,"sprint_id":"sprint-N","ts":"<ISO8601>"} -->`
+Prose and trailer MUST agree: approved files have
+first line exactly `All good` and no `## Changes Required` heading. ONE-WAY rule:
+`counts.critical + counts.high > 0` forces `verdict: CHANGES_REQUIRED`; zero critical/high does
+NOT force APPROVED. `excluded` equals the demoted highs under `## Observations`; a critical
+there is a violation.
+
+**MUST self-check before finishing**: run
+`.claude/scripts/verdict-derive.sh --file grimoires/loa/a2a/sprint-{N}/engineer-feedback.md --gate review`
+and resolve any reported inconsistency before finishing.
 </workflow>
 
 <parallel_execution>
-## When to Split
+## Parallel Review (MEDIUM/LARGE sprints)
 
-- SMALL (<3,000 lines): Sequential review
-- MEDIUM (3,000-6,000 lines) with >3 tasks: Consider splitting
-- LARGE (>6,000 lines): MUST split
-
-## Splitting Strategy: By Sprint Task
-
-For each task with code changes, spawn parallel Explore agent:
-
-```
-Task(
-  subagent_type="Explore",
-  prompt="Review Sprint {X} Task {Y.Z} ({Task Name}):
-
-  **Acceptance Criteria:**
-  {Copy from sprint.md}
-
-  **Files to Review:**
-  {List from reviewer.md}
-
-  **Check for:**
-  1. All acceptance criteria met
-  2. Code quality and best practices
-  3. Security issues
-  4. Test coverage
-  5. Architecture alignment
-
-  **Return:** Verdict (PASS/FAIL) with specific issues (file:line) or confirmation"
-)
-```
-
-## Consolidation
-
-After parallel reviews complete:
-1. Collect verdicts from each sub-review
-2. If ANY task FAILS → Overall = CHANGES REQUIRED
-3. If ALL tasks PASS → Overall = APPROVED
-4. Combine issues into single feedback document
+LARGE (or MEDIUM with >3 tasks): see `resources/PARALLEL-REVIEW.md` for the per-task split and
+the consolidation steps.
 </parallel_execution>
 
-<output_format>
-See `resources/templates/review-feedback.md` for full structure.
-
-**If Approved:**
-```markdown
-All good
-
-Sprint {N} has been reviewed and approved. All acceptance criteria met.
-```
-
-**If Changes Required:**
-Use detailed feedback template with:
-- Critical Issues (file:line, issue, fix)
-- Non-Critical Improvements
-- Previous Feedback Status
-- Next Steps
-</output_format>
-
-<success_criteria>
-- **Specific**: Every issue has file:line reference
-- **Measurable**: Clear pass/fail verdict
-- **Achievable**: Feedback is actionable
-- **Relevant**: Issues trace to acceptance criteria or quality standards
-- **Time-bound**: Review completes within session
-</success_criteria>
-
 <documentation_verification>
-## Documentation Verification (Required) (v0.19.0)
+## Documentation Verification (Required)
 
-**MANDATORY**: Before approving any sprint, verify documentation coherence.
-
-### Pre-Review Check
-
-1. Check for documentation-coherence report:
-   ```bash
-   ls grimoires/loa/a2a/subagent-reports/documentation-coherence-*.md 2>/dev/null
-   ```
-
-2. If report exists, verify status is not `ACTION_REQUIRED`
-
-3. If no report exists, run `/validate docs` or manually verify documentation
-
-### Documentation Checklist
-
-| Item | Blocking? | How to Check |
-|------|-----------|--------------|
-| CHANGELOG entry for each task | **YES** | Search CHANGELOG.md for task keywords |
-| CLAUDE.md for new commands/skills | **YES** | Grep CLAUDE.md for command name |
-| Security code has comments | **YES** | Review auth/validation code |
-| README for user-facing features | No | Check README mentions |
-| Code comments for complex logic | No | Review complex functions |
-| SDD for architecture changes | No | Compare with SDD structure |
-
-### Cannot Approve If
-
-- Documentation-coherence report shows `ACTION_REQUIRED` status
-- CHANGELOG entry missing for any task
-- New command added without CLAUDE.md entry
-- Security code missing explanatory comments
-- Major architecture change without SDD update
-
-### Approval Language
-
-**If documentation is complete:**
-```
-All good
-
-Documentation verification: PASS
-- CHANGELOG: All tasks documented
-- CLAUDE.md: [Updated/N/A]
-- Code comments: Adequate
-```
-
-**If documentation needs work:**
-```
-Changes required
-
-Documentation verification: FAIL
-- Missing CHANGELOG entry for Task X.Y
-- [specific file]: needs comment explaining [logic]
-```
+Before approving: `ls grimoires/loa/a2a/subagent-reports/documentation-coherence-*.md 2>/dev/null`; status `ACTION_REQUIRED` blocks; no report → run `/validate docs` or verify by hand. Blocking: a CHANGELOG entry per task, a CLAUDE.md entry per new command or skill, comments on security code, an SDD update for a major architecture change. Approval templates: `resources/REFERENCE.md` §Documentation Verification.
 </documentation_verification>
 
 <subagent_report_check>
-## Subagent Report Check (v0.16.0)
+## Subagent Report Check
 
-Before approving any sprint, check for validation reports in `grimoires/loa/a2a/subagent-reports/`:
-
-### Reports to Check
-
-| Report | Path Pattern | Blocking Verdicts |
-|--------|--------------|-------------------|
-| Architecture | `architecture-validation-*.md` | CRITICAL_VIOLATION |
-| Security | `security-scan-*.md` | CRITICAL, HIGH |
-| Test Adequacy | `test-adequacy-*.md` | INSUFFICIENT |
-| Goal Validation | `goal-validation-*.md` | GOAL_BLOCKED |
-
-### Workflow
-
-1. **List reports**: `ls grimoires/loa/a2a/subagent-reports/`
-2. **Read each report** from the current sprint date
-3. **Extract verdict** from the report header
-4. **Block if blocking verdict** exists
-
-### Blocking Behavior
-
-**DO NOT APPROVE** if any of these verdicts exist:
-
-| Subagent | Verdict | Action Required |
-|----------|---------|-----------------|
-| architecture-validator | CRITICAL_VIOLATION | Fix architecture issues first |
-| security-scanner | CRITICAL | Fix security vulnerability immediately |
-| security-scanner | HIGH | Fix security issue before merge |
-| test-adequacy-reviewer | INSUFFICIENT | Add missing tests |
-
-### Non-Blocking Verdicts
-
-These verdicts are informational—use reviewer discretion:
-
-| Subagent | Verdict | Recommendation |
-|----------|---------|----------------|
-| architecture-validator | DRIFT_DETECTED | Note in feedback, may proceed |
-| security-scanner | MEDIUM | Recommend fix, may proceed |
-| security-scanner | LOW | Optional fix |
-| test-adequacy-reviewer | WEAK | Note gaps, may proceed |
-
-### No Reports Found
-
-If no subagent reports exist:
-- `/validate` was not run (optional step)
-- Proceed with manual review
-- Consider recommending `/validate` in feedback
-
-### Example Check
-
-```bash
-# Check for blocking issues
-grep -l "Verdict.*CRITICAL" grimoires/loa/a2a/subagent-reports/*.md 2>/dev/null
-grep -l "Verdict.*HIGH" grimoires/loa/a2a/subagent-reports/*.md 2>/dev/null
-grep -l "Verdict.*INSUFFICIENT" grimoires/loa/a2a/subagent-reports/*.md 2>/dev/null
-```
-
-If any match found, **block approval** until issues are resolved.
+Before approving any sprint, read the current sprint's reports in `grimoires/loa/a2a/subagent-reports/`. Blocking verdicts: architecture-validator `CRITICAL_VIOLATION`, security-scanner `CRITICAL` or `HIGH`, test-adequacy-reviewer `INSUFFICIENT`, goal-validation `GOAL_BLOCKED`. Informational, reviewer discretion: `DRIFT_DETECTED`, security `MEDIUM`/`LOW`, test-adequacy `WEAK`. No reports means `/validate` was not run (optional): review manually and consider recommending it. Grep commands that surface blocking verdicts: `resources/REFERENCE.md` §Subagent Report Check.
 </subagent_report_check>
 
 <checklists>
-See `resources/REFERENCE.md` for complete checklists:
-- Versioning (SemVer Compliance) - 4 items
-- Completeness - 4 items
-- Functionality - 4 items
-- Code Quality - 5 items
-- Testing - 7 items
-- Security - 7 items
-- Performance - 5 items
-- Architecture - 5 items
-- Blockchain/Crypto - 7 items (if applicable)
-
-**Red Flags (immediate feedback required):**
-- Private keys in code
-- SQL via string concatenation
-- User input not validated
-- Empty catch blocks
-- No tests for critical functionality
-- N+1 query problems
+Complete checklists and the Red Flags list (private keys, SQL string concatenation, unvalidated input, empty catch blocks, missing tests, N+1 queries): `resources/REFERENCE.md`.
 </checklists>
 
 <complexity_review>
-## Complexity Review (Required) (v0.19.0)
+## Complexity Review (Required)
 
-Check code for excessive complexity during every review. These are **blocking issues**.
-
-### Function Complexity
-
-| Check | Threshold | Finding |
-|-------|-----------|---------|
-| Function length | >50 lines | "Function too long: {file}:{line} ({X} lines). Split into smaller functions." |
-| Parameter count | >5 params | "Too many parameters: {func}() has {X} params. Use options object." |
-| Nesting depth | >3 levels | "Deep nesting: {file}:{line}. Refactor with early returns or extract." |
-| Cyclomatic complexity | >10 | "High complexity: {func}(). Simplify conditional logic." |
-
-### Code Duplication
-
-| Check | Threshold | Finding |
-|-------|-----------|---------|
-| Repeated patterns | >3 occurrences | "Duplicate code found in {file1}, {file2}, {file3}. Extract to shared function." |
-| Copy-paste code | >10 similar lines | "Near-duplicate blocks at {file}:{line1} and {file}:{line2}. DRY violation." |
-
-### Dependencies
-
-| Check | Issue | Finding |
-|-------|-------|---------|
-| Circular imports | Any | "Circular dependency: {A} → {B} → {A}. Restructure modules." |
-| Unnecessary deps | Unused | "Unused import: {file}:{line} imports {module} but never uses it." |
-| Heavy deps | For simple task | "Consider lighter alternative to {dep} for this use case." |
-
-### Naming Quality
-
-| Check | Issue | Finding |
-|-------|-------|---------|
-| Unclear names | Ambiguous | "Unclear name: {name} at {file}:{line}. Use descriptive name." |
-| Abbreviations | Non-standard | "Avoid abbreviation: '{abbr}' → '{full}' at {file}:{line}." |
-| Inconsistent | Style varies | "Inconsistent naming: {fileA} uses camelCase, {fileB} uses snake_case." |
-
-### Dead Code
-
-| Check | Issue | Finding |
-|-------|-------|---------|
-| Unused functions | Never called | "Dead code: {func}() at {file}:{line} is never called. Remove." |
-| Commented code | Large blocks | "Remove commented code at {file}:{lines}. Use version control." |
-| Unreachable code | After return | "Unreachable code after return at {file}:{line}." |
-
-### Review Integration
-
-During Phase 2 (Code Review), add complexity checks:
-
-```markdown
-## Complexity Analysis
-
-### Functions Reviewed
-- `{func1}()`: OK (25 lines, 3 params, nesting 2)
-- `{func2}()`: **ISSUE** (67 lines - too long)
-
-### Duplication Found
-- None detected / {description of duplicates}
-
-### Dependency Issues
-- None detected / {description of issues}
-
-### Naming Issues
-- None detected / {list of naming concerns}
-
-### Dead Code
-- None detected / {list of dead code}
-```
-
-### Complexity Verdict
-
-**BLOCK approval if:**
-- Any function >50 lines without justification
-- Nesting depth >3 without early returns
-- >3 duplicate code blocks
-- Circular dependencies
-
-**Note in feedback but allow:**
-- Functions 40-50 lines (borderline)
-- 2-3 duplicate patterns
-- Minor naming inconsistencies
+Complexity is reviewed every time (threshold tables: `resources/REFERENCE.md` §Complexity). BLOCK approval for any function over 50 lines without justification, nesting deeper than 3 without early returns, more than 3 duplicate code blocks, or circular dependencies. Tag over-engineering findings `SIMPLICITY[delete|stdlib|native|yagni|shrink]: …` (tag meanings: `resources/REFERENCE.md` §Complexity); a `loa:shortcut:` marker naming a ceiling with no upgrade trigger is `SIMPLICITY[shrink]`. End an over-engineering pass with `net: -<N> lines possible`, or `Lean already. Ship.` and stop. Never flag the one required acceptance check behind non-trivial logic for deletion — that is the YAGNI minimum, not bloat.
 </complexity_review>
 
 <beads_workflow>
-## Beads Workflow (beads_rust)
-
-When beads_rust (`br`) is installed, use it to record review feedback:
-
-### Session Start
-```bash
-br sync --import-only  # Import latest state from JSONL
-```
-
-### Recording Review Feedback
-```bash
-# Add review comment to task
-br comments add <task-id> "REVIEW: [feedback summary]"
-
-# Mark task status based on review outcome
-br label add <task-id> review-approved     # If approved
-br label add <task-id> needs-revision       # If changes required
-```
-
-### Using Labels for Status
-| Label | Meaning | When to Apply |
-|-------|---------|---------------|
-| `needs-review` | Awaiting review | Before review |
-| `review-approved` | Passed review | After "All good" |
-| `needs-revision` | Changes requested | After feedback |
-
-### Session End
-```bash
-br sync --flush-only  # Export SQLite → JSONL before commit
-```
-
-**Protocol Reference**: See `.claude/protocols/beads-integration.md`
+When `br` is installed, see `resources/BEADS-WORKFLOW.md` for the sync commands and the `needs-review` / `review-approved` / `needs-revision` labels; protocol: `.claude/protocols/beads-integration.md`.
 </beads_workflow>
 
 <visual_communication>
-## Visual Communication (Optional)
-
-Follow `.claude/protocols/visual-communication.md` for diagram standards.
-
-### When to Include Diagrams
-
-Code review feedback may benefit from visual aids for:
-- **Code Flow** (flowchart) - Illustrate data or control flow issues
-- **Architecture Concerns** (flowchart) - Show structural problems
-
-### Output Format
-
-If including diagrams in feedback, use Mermaid with preview URLs:
-
-```markdown
-### Suggested Refactoring
-
-Current flow has unnecessary complexity:
-
-```mermaid
-graph TD
-    A[Input] --> B[Validate]
-    B --> C[Process]
-    C --> D[Transform]
-    D --> E[Output]
-```
-
-> **Preview**: [View diagram](https://agents.craft.do/mermaid?code=...&theme=github)
-```
-
-### Theme Configuration
-
-Read theme from `.loa.config.yaml` visual_communication.theme setting.
-
-Diagram inclusion is **optional** for code reviews - use when visual explanation helps.
+Mermaid diagrams are optional in feedback — standards and format: see `resources/REFERENCE.md` §Visual Communication.
 </visual_communication>
 
 <retrospective_postlude>
-## Invisible Retrospective
-
-After completing main skill logic, scan session for learning opportunities.
-
-**CRITICAL**: This postlude executes SILENTLY. Only surface findings that pass quality gates.
-
-### Step 1: Check Configuration
-
-Read `.loa.config.yaml`:
-```yaml
-invisible_retrospective:
-  enabled: true|false
-  skills:
-    reviewing-code: true|false
-```
-
-**Exit Conditions** (skip all processing if any are true):
-- `invisible_retrospective.enabled: false` → Log action: DISABLED, exit
-- `invisible_retrospective.skills.reviewing-code: false` → Log action: DISABLED, exit
-- **RECURSION GUARD**: If skill is `continuous-learning` → Exit silently (but this skill is `reviewing-code`, so proceed)
-
-### Step 2: Scan Session for Learning Signals
-
-Search the current conversation for these patterns:
-
-| Signal | Detection Patterns | Weight |
-|--------|-------------------|--------|
-| Error Resolution | "bug", "issue", "fixed", "corrected", "the problem was" | 3 |
-| Multiple Attempts | "tried", "attempted", "finally", "after reviewing", "looked at" | 3 |
-| Unexpected Behavior | "surprisingly", "actually", "turns out", "noticed", "realized" | 2 |
-| Workaround Found | "instead", "alternative", "better approach", "refactor to" | 2 |
-| Pattern Discovery | "pattern", "convention", "code style", "always use", "prefer" | 1 |
-
-**Scoring**: Sum weights for each candidate discovery.
-
-**Output**: List of candidate discoveries (max 5 per skill invocation, from config `max_candidates`)
-
-If no candidates found:
-- Log action: SKIPPED, candidates_found: 0
-- Exit silently
-
-### Step 3: Apply Lightweight Quality Gates
-
-For each candidate, evaluate these 4 gates:
-
-| Gate | Question | PASS Condition |
-|------|----------|----------------|
-| **Depth** | Required multiple investigation steps? | Not just a quick glance - involved analysis, comparison, tracing |
-| **Reusable** | Generalizable beyond this instance? | Applies to similar code patterns, not specific to this review |
-| **Trigger** | Can describe when to apply? | Clear code patterns or conditions that indicate this applies |
-| **Verified** | Solution confirmed working? | Fix verified or pattern validated in this session |
-
-**Scoring**: Each gate passed = 1 point. Max score = 4.
-
-**Threshold**: From config `surface_threshold` (default: 3)
-
-### Step 3.5: Sanitize Descriptions (REQUIRED)
-
-**CRITICAL**: Before logging or surfacing ANY candidate, sanitize descriptions to prevent sensitive data leakage.
-
-Apply these redaction patterns:
-
-| Pattern | Replacement |
-|---------|-------------|
-| API Keys (`sk-*`, `ghp_*`, `AKIA*`) | `[REDACTED_API_KEY]` |
-| Private Keys (`-----BEGIN...PRIVATE KEY-----`) | `[REDACTED_PRIVATE_KEY]` |
-| JWT Tokens (`eyJ...`) | `[REDACTED_JWT]` |
-| Webhook URLs (`hooks.slack.com/*`, `hooks.discord.com/*`) | `[REDACTED_WEBHOOK]` |
-| File Paths (`/home/*/`, `/Users/*/`) | `/home/[USER]/` or `/Users/[USER]/` |
-| Email Addresses | `[REDACTED_EMAIL]` |
-| IP Addresses | `[REDACTED_IP]` |
-| Generic Secrets (`password=`, `secret=`, etc.) | `$key=[REDACTED]` |
-
-If any redactions occur, add `"redactions_applied": true` to trajectory log.
-
-### Step 4: Log to Trajectory (ALWAYS)
-
-Write to `grimoires/loa/a2a/trajectory/retrospective-{YYYY-MM-DD}.jsonl`:
-
-```json
-{
-  "type": "invisible_retrospective",
-  "timestamp": "{ISO8601}",
-  "skill": "reviewing-code",
-  "action": "DETECTED|EXTRACTED|SKIPPED|DISABLED|ERROR",
-  "candidates_found": N,
-  "candidates_qualified": N,
-  "candidates": [
-    {
-      "id": "learning-{timestamp}-{hash}",
-      "signal": "error_resolution|multiple_attempts|unexpected_behavior|workaround|pattern_discovery",
-      "description": "Brief description of the review learning",
-      "score": N,
-      "gates_passed": ["depth", "reusable", "trigger", "verified"],
-      "gates_failed": [],
-      "qualified": true|false
-    }
-  ],
-  "extracted": ["learning-id-001"],
-  "latency_ms": N
-}
-```
-
-### Step 5: Surface Qualified Findings
-
-IF any candidates score >= `surface_threshold`:
-
-1. **Add to NOTES.md `## Learnings` section**:
-
-   **CRITICAL - Markdown Escape**: Before inserting description, escape these characters:
-   - `#` → `\#`, `*` → `\*`, `[` → `\[`, `]` → `\]`, `\n` → ` `
-
-   ```markdown
-   ## Learnings
-   - [{timestamp}] [reviewing-code] {ESCAPED Brief description} → skills-pending/{id}
-   ```
-
-   If `## Learnings` section doesn't exist, create it after `## Session Log`.
-
-2. **Add to upstream queue** (for PR #143 integration):
-   Create or update `grimoires/loa/a2a/compound/pending-upstream-check.json`:
-   ```json
-   {
-     "queued_learnings": [
-       {
-         "id": "learning-{timestamp}-{hash}",
-         "source": "invisible_retrospective",
-         "skill": "reviewing-code",
-         "queued_at": "{ISO8601}"
-       }
-     ]
-   }
-   ```
-
-3. **Show brief notification**:
-   ```
-   ────────────────────────────────────────────
-   Learning Captured
-   ────────────────────────────────────────────
-   Pattern: {brief description}
-   Score: {score}/4 gates passed
-
-   Added to: grimoires/loa/NOTES.md
-   ────────────────────────────────────────────
-   ```
-
-IF no candidates qualify:
-- Log action: SKIPPED
-- **NO user-visible output** (silent)
-
-### Error Handling
-
-On ANY error during postlude execution:
-
-1. Log to trajectory:
-   ```json
-   {
-     "type": "invisible_retrospective",
-     "timestamp": "{ISO8601}",
-     "skill": "reviewing-code",
-     "action": "ERROR",
-     "error": "{error message}",
-     "candidates_found": 0,
-     "candidates_qualified": 0
-   }
-   ```
-
-2. **Continue silently** - do NOT interrupt the main workflow
-3. Do NOT surface error to user
-
-### Session Limits
-
-Respect these limits from config:
-- `max_candidates`: Maximum candidates to evaluate per invocation (default: 5)
-- `max_extractions_per_session`: Maximum learnings to extract per session (default: 3)
-
-Track session extractions in trajectory log and skip extraction if limit reached.
-
+<!-- @skill-include: start retrospective_postlude | hash:44ec4643 | DO NOT EDIT — generated from .claude/data/skill-includes/retrospective_postlude.md -->
+After main skill logic completes, if `.loa.config.yaml` `invisible_retrospective.enabled: true`
+(and not disabled for this skill under `invisible_retrospective.skills`), silently run the
+learning-signal scan per `.claude/skills/continuous-learning/SKILL.md` and its
+`resources/RETROSPECTIVE.md` (quality gates, sanitization, trajectory logging). Recursion guard:
+never when the active skill is continuous-learning itself.
+<!-- @skill-include: end retrospective_postlude -->
 </retrospective_postlude>
+
+## Provenance
+
+Folded in from history: AC Verification auto-fail (cycle-057, #475), Fast-Gate Parity (#1086), YAGNI taxonomy (#1012).

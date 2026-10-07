@@ -47,16 +47,3 @@ phase_activation:
     - "/architect"
     - "/sprint-plan"
 
-# Protocol dependencies
-protocols:
-  required:
-    - name: "continuous-learning"
-      path: ".claude/protocols/continuous-learning.md"
-      purpose: "Quality gates, extraction flow, zone compliance"
-    - name: "structured-memory"
-      path: ".claude/protocols/structured-memory.md"
-      purpose: "NOTES.md cross-reference, session continuity"
-  recommended:
-    - name: "trajectory-evaluation"
-      path: ".claude/protocols/trajectory-evaluation.md"
-      purpose: "Extraction logging, audit trail"

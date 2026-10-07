@@ -2,7 +2,7 @@
 # test_lore_lifecycle.sh - Tests for FR-5 (Temporal Lore Depth) and FR-3 (Vision Activation)
 #
 # Tests: lore lifecycle reference tracking, significance classification,
-# idempotency, vision relevance checking, and memory-query --lore extension.
+# idempotency and vision relevance checking.
 
 set -euo pipefail
 
@@ -323,27 +323,7 @@ test_vision_empty_registry() {
 echo ""
 echo "=== Memory Query --lore Extension ==="
 
-test_memory_query_lore() {
-    setup_lore_fixture
-
-    local script="$SCRIPT_DIR/../.claude/scripts/memory-query.sh"
-
-    # Test basic --lore query
-    local result
-    result=$(PROJECT_ROOT="$TEST_DIR" DISCOVERED_DIR="$TEST_DIR/lore/discovered" "$script" --lore --limit 5 2>/dev/null) || true
-
-    if echo "$result" | grep -q "graceful-degradation-cascade"; then
-        pass "memory-query --lore returns lore entries"
-    else
-        fail "memory-query --lore did not return expected entries (got: '$result')"
-    fi
-
-    if echo "$result" | grep -q "convergence-engine"; then
-        pass "memory-query --lore returns multiple entries"
-    else
-        fail "memory-query --lore missing convergence-engine entry"
-    fi
-}
+# test_memory_query_lore removed cycle-121 (memory-query.sh deleted; lore lives in grimoires/loa/lore/)
 
 # ─────────────────────────────────────────────────────────
 # Run all tests
@@ -356,7 +336,6 @@ test_reference_idempotency
 test_significance_classification
 test_vision_relevance
 test_vision_empty_registry
-test_memory_query_lore
 
 echo ""
 echo "─────────────────────────────────────"

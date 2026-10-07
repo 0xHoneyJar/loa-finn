@@ -143,6 +143,28 @@ function buildPipeline(opts?: {
 }
 
 describe("ReviewPipeline", () => {
+  it("preserves an explicit REQUEST_CHANGES verdict and HIGH severity in handoff (#1171)", async () => {
+    let event = "";
+    const content = '## Summary\nVerdict: REQUEST_CHANGES\n\n## Findings\n' +
+      '<!-- bridge-findings-start -->\n```json\n' + JSON.stringify({ schema_version: 1,
+        findings: [{ id: "INV2-001", title: "Fixture ownership", severity: "HIGH", category: "correctness" }] }) +
+      '\n```\n<!-- bridge-findings-end -->';
+    const summary = await buildPipeline({
+      llm: { generateReview: async () => ({ content, inputTokens: 1, outputTokens: 1, model: "mock" }) },
+      poster: { postReview: async (review) => { event = review.event; return true; } },
+    }).run("verdict-handoff");
+    assert.equal(event, "REQUEST_CHANGES");
+    assert.equal(summary.results[0].verdict, "REQUEST_CHANGES");
+    assert.equal(summary.results[0].highestSeverity, "HIGH");
+    assert.equal(summary.results[0].mergeBlocked, true);
+  });
+
+  it("an unparsed verdict never grants merge clearance (#1171)", async () => {
+    const summary = await buildPipeline().run("ambiguous-handoff");
+    assert.equal(summary.results[0].verdict, "UNKNOWN");
+    assert.equal(summary.results[0].mergeBlocked, true);
+  });
+
   describe("skip on existing review", () => {
     it("skips when poster reports existing review", async () => {
       const pipeline = buildPipeline({
@@ -939,6 +961,58 @@ describe("ReviewPipeline", () => {
       const summary = await pipeline.run("run-loa");
       assert.equal(summary.skipped, 1);
       assert.equal(summary.results[0].skipReason, "all_files_excluded");
+    });
+
+    // bug-1004: a skip notice is NOT a review — it must not stamp the
+    // genuine reviewed-marker (which made bridgebuilder:self-review
+    // unreachable for that sha without API surgery).
+    it("two-pass all-excluded skip posts with markerKind 'skip'", async () => {
+      let postedKind: string | undefined = "unset";
+      const pipeline = buildPipeline({
+        config: { reviewMode: "two-pass", loaAware: true },
+        git: {
+          listOpenPRs: async () => [
+            { number: 1, title: "PR", headSha: "sha1", baseBranch: "main", labels: [], author: "dev" },
+          ],
+          getPRFiles: async () => [
+            { filename: ".claude/loa/something.md", status: "modified" as const, additions: 5, deletions: 3, patch: "+code" },
+          ],
+          getPRReviews: async () => [],
+          preflight: async () => ({ remaining: 5000, scopes: ["repo"] }),
+          preflightRepo: async () => ({ owner: "test", repo: "repo", accessible: true }),
+        },
+        poster: {
+          postReview: async (input) => { postedKind = input.markerKind; return true; },
+        },
+      });
+      await pipeline.run("run-loa");
+      assert.equal(postedKind, "skip");
+    });
+
+    it("two-pass all-excluded skip notice is deduped via the skip marker, not the review marker", async () => {
+      let posted = 0;
+      const pipeline = buildPipeline({
+        config: { reviewMode: "two-pass", loaAware: true },
+        git: {
+          listOpenPRs: async () => [
+            { number: 1, title: "PR", headSha: "sha1", baseBranch: "main", labels: [], author: "dev" },
+          ],
+          getPRFiles: async () => [
+            { filename: ".claude/loa/something.md", status: "modified" as const, additions: 5, deletions: 3, patch: "+code" },
+          ],
+          getPRReviews: async () => [],
+          preflight: async () => ({ remaining: 5000, scopes: ["repo"] }),
+          preflightRepo: async () => ({ owner: "test", repo: "repo", accessible: true }),
+        },
+        poster: {
+          postReview: async () => { posted++; return true; },
+          hasExistingReview: async (_o: string, _r: string, _n: number, _sha: string, kind?: string) =>
+            kind === "skip", // skip notice already present; genuine review absent
+        },
+      });
+      const summary = await pipeline.run("run-loa");
+      assert.equal(summary.results[0].skipReason, "all_files_excluded");
+      assert.equal(posted, 0, "skip notice must not be re-posted when the skip marker already exists");
     });
 
     it("two-pass falls back to unenriched when enrichment-only fields preserved but pass2 valid", async () => {

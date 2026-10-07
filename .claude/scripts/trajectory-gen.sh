@@ -29,8 +29,8 @@ PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
 # ─────────────────────────────────────────────────────────
 
 LEDGER_FILE="${PROJECT_ROOT}/grimoires/loa/ledger.json"
-MEMORY_DIR="${PROJECT_ROOT}/grimoires/loa/memory"
-OBSERVATIONS_FILE="${MEMORY_DIR}/observations.jsonl"
+# grimoire observation store retired cycle-121; extractor below returns the empty shape
+OBSERVATIONS_FILE="/nonexistent-observations-retired-cycle-121"
 VISIONS_INDEX="${PROJECT_ROOT}/grimoires/loa/visions/index.md"
 GT_INDEX="${PROJECT_ROOT}/grimoires/loa/ground-truth/index.md"
 DISCOVERED_PATTERNS="${PROJECT_ROOT}/.claude/data/lore/discovered/patterns.yaml"

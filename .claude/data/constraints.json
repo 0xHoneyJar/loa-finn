@@ -9,14 +9,16 @@
       "rule_type": "NEVER",
       "text": "write application code outside of `/implement` skill invocation",
       "text_variants": {
-        "claude-loa-md": "NEVER write application code outside of `/implement` skill invocation"
+        "claude-loa-md": "NEVER write application code outside `/implement` (OR a construct with declared `workflow.gates`), and NEVER reach implementation except via `/run sprint-plan`, `/run sprint-N`, or `/bug` against an existing sprint plan"
       },
-      "why": "Code written outside `/implement` bypasses review and audit gates",
+      "why": "Code outside /implement bypasses review+audit; /run wraps the cycle with a circuit breaker. Mechanical stack: implement-gate.sh fail-asks Write/Edit-tool App-Zone writes outside /implement//bug; disallowed-tools strips write tools from pure-review skills; the adversarial gates catch the rest. Bash-path App-Zone writes remain review-territory (accepted fence gap, same class as the spiral guard's).",
       "construct_yield": {
         "enabled": true,
         "condition": "construct with workflow.gates is active",
         "yield_text": "OR when a construct with declared `workflow.gates` owns the current workflow",
-        "yield_on_gates": ["implement"]
+        "yield_on_gates": [
+          "implement"
+        ]
       },
       "order": 0,
       "layers": [
@@ -59,7 +61,10 @@
         },
         {
           "target": "skill-md",
-          "skills": ["autonomous-agent", "simstim-workflow"],
+          "skills": [
+            "autonomous-agent",
+            "simstim-workflow"
+          ],
           "render_as": "constraint_rule"
         },
         {
@@ -85,18 +90,18 @@
         "enabled": true,
         "condition": "construct with workflow.gates is active",
         "yield_text": "OR when a construct with `workflow.gates` declares pipeline composition",
-        "yield_on_gates": ["implement"]
+        "yield_on_gates": [
+          "implement"
+        ]
       },
       "order": 2,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "process_compliance_never",
-          "render_as": "table_row"
-        },
-        {
           "target": "skill-md",
-          "skills": ["autonomous-agent", "simstim-workflow"],
+          "skills": [
+            "autonomous-agent",
+            "simstim-workflow"
+          ],
           "render_as": "constraint_rule"
         },
         {
@@ -123,7 +128,10 @@
         "enabled": true,
         "condition": "construct declares review: skip or audit: skip",
         "yield_text": "Yield when construct declares `review: skip` or `audit: skip`",
-        "yield_on_gates": ["review", "audit"]
+        "yield_on_gates": [
+          "review",
+          "audit"
+        ]
       },
       "order": 3,
       "layers": [
@@ -134,7 +142,9 @@
         },
         {
           "target": "skill-md",
-          "skills": ["autonomous-agent"],
+          "skills": [
+            "autonomous-agent"
+          ],
           "render_as": "constraint_rule"
         },
         {
@@ -152,11 +162,11 @@
       "rule_type": "ALWAYS",
       "text": "use `/run sprint-plan`, `/run sprint-N`, or `/bug` for implementation",
       "text_variants": {
-        "claude-loa-md": "ALWAYS use `/run sprint-plan`, `/run sprint-N`, or `/bug` for implementation",
+        "claude-loa-md": "ALWAYS route implementation through `/run sprint-plan`, `/run sprint-N`, or `/bug`, checking for the existing sprint plan first",
         "skill-md": "Phase 7 MUST invoke `/run sprint-plan` — NEVER implement code directly",
         "protocol": "Using /run or /bug (not direct /implement) ||| For autonomous/simstim ||| /run wraps implement+review+audit"
       },
-      "why": "Ensures review+audit cycle with circuit breaker protection. `/bug` enforces the same cycle for bug fixes.",
+      "why": "Ensures the implement→review→audit cycle with circuit-breaker protection and requirements traceability (absorbs the former separate check-sprint-plan row; implement-gate.sh asks on ungated App-Zone writes).",
       "order": 0,
       "layers": [
         {
@@ -166,7 +176,9 @@
         },
         {
           "target": "skill-md",
-          "skills": ["simstim-workflow"],
+          "skills": [
+            "simstim-workflow"
+          ],
           "render_as": "constraint_rule"
         },
         {
@@ -198,7 +210,10 @@
         },
         {
           "target": "skill-md",
-          "skills": ["autonomous-agent", "simstim-workflow"],
+          "skills": [
+            "autonomous-agent",
+            "simstim-workflow"
+          ],
           "render_as": "constraint_rule"
         },
         {
@@ -254,15 +269,12 @@
         "enabled": true,
         "condition": "construct declares sprint: skip",
         "yield_text": "Yield when construct declares `sprint: skip`",
-        "yield_on_gates": ["sprint"]
+        "yield_on_gates": [
+          "sprint"
+        ]
       },
       "order": 3,
       "layers": [
-        {
-          "target": "claude-loa-md",
-          "section": "process_compliance_always",
-          "render_as": "table_row"
-        },
         {
           "target": "protocol",
           "file": ".claude/protocols/implementation-compliance.md",
@@ -410,7 +422,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["autonomous-agent"],
+          "skills": [
+            "autonomous-agent"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -431,7 +445,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["simstim-workflow"],
+          "skills": [
+            "simstim-workflow"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -452,7 +468,10 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["autonomous-agent", "simstim-workflow"],
+          "skills": [
+            "autonomous-agent",
+            "simstim-workflow"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -472,7 +491,10 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["autonomous-agent", "simstim-workflow"],
+          "skills": [
+            "autonomous-agent",
+            "simstim-workflow"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -492,7 +514,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["autonomous-agent"],
+          "skills": [
+            "autonomous-agent"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -512,7 +536,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["simstim-workflow"],
+          "skills": [
+            "simstim-workflow"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -532,7 +558,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["simstim-workflow"],
+          "skills": [
+            "simstim-workflow"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -552,7 +580,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["simstim-workflow"],
+          "skills": [
+            "simstim-workflow"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -579,11 +609,34 @@
         },
         {
           "target": "skill-md",
-          "skills": ["bug-triaging"],
+          "skills": [
+            "bug-triaging"
+          ],
           "render_as": "constraint_rule"
         }
       ],
       "severity": "high"
+    },
+    {
+      "id": "C-PROC-018",
+      "name": "always_read_before_write",
+      "category": "process",
+      "rule_type": "ALWAYS",
+      "text": "Read a state artifact (NOTES.md, a2a/ docs, MEMORY.md, contracts/*.yaml — any existing file) before Write/Edit",
+      "text_variants": {
+        "claude-loa-md": "ALWAYS Read a state artifact (NOTES.md, a2a/ docs, MEMORY.md, contracts/*.yaml — any existing file) before Write/Edit"
+      },
+      "why": "The Write tool rejects writes to un-Read existing files (hundreds of failed writes a month across mounts) and blind writes clobber cross-session state.",
+      "order": 11,
+      "layers": [
+        {
+          "target": "claude-loa-md",
+          "section": "process_compliance_always",
+          "render_as": "table_row"
+        }
+      ],
+      "severity": "high",
+      "source_incident": "#1177"
     },
     {
       "id": "C-PROC-016",
@@ -605,7 +658,9 @@
         },
         {
           "target": "skill-md",
-          "skills": ["bug-triaging"],
+          "skills": [
+            "bug-triaging"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -626,7 +681,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["eval-running"],
+          "skills": [
+            "eval-running"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -647,7 +704,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["eval-running"],
+          "skills": [
+            "eval-running"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -667,7 +726,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["implementing-tasks"],
+          "skills": [
+            "implementing-tasks"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -687,7 +748,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["implementing-tasks"],
+          "skills": [
+            "implementing-tasks"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -707,7 +770,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["implementing-tasks"],
+          "skills": [
+            "implementing-tasks"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -727,7 +792,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["implementing-tasks"],
+          "skills": [
+            "implementing-tasks"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -747,7 +814,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["implementing-tasks"],
+          "skills": [
+            "implementing-tasks"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -767,7 +836,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["implementing-tasks"],
+          "skills": [
+            "implementing-tasks"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -787,7 +858,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["implementing-tasks"],
+          "skills": [
+            "implementing-tasks"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -807,7 +880,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["implementing-tasks"],
+          "skills": [
+            "implementing-tasks"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -827,7 +902,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["implementing-tasks"],
+          "skills": [
+            "implementing-tasks"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -847,7 +924,9 @@
       "layers": [
         {
           "target": "skill-md",
-          "skills": ["implementing-tasks"],
+          "skills": [
+            "implementing-tasks"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -867,13 +946,10 @@
       "order": 0,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "bridge_constraints",
-          "render_as": "table_row"
-        },
-        {
           "target": "skill-md",
-          "skills": ["run-bridge"],
+          "skills": [
+            "run-bridge"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -893,13 +969,10 @@
       "order": 1,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "bridge_constraints",
-          "render_as": "table_row"
-        },
-        {
           "target": "skill-md",
-          "skills": ["run-bridge"],
+          "skills": [
+            "run-bridge"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -919,13 +992,11 @@
       "order": 2,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "bridge_constraints",
-          "render_as": "table_row"
-        },
-        {
           "target": "skill-md",
-          "skills": ["run-bridge", "riding-codebase"],
+          "skills": [
+            "riding-codebase",
+            "run-bridge"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -945,9 +1016,11 @@
       "order": 3,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "bridge_constraints",
-          "render_as": "table_row"
+          "target": "skill-md",
+          "skills": [
+            "run-bridge"
+          ],
+          "render_as": "constraint_rule"
         }
       ],
       "severity": "medium"
@@ -966,13 +1039,10 @@
       "order": 4,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "bridge_constraints",
-          "render_as": "table_row"
-        },
-        {
           "target": "skill-md",
-          "skills": ["run-bridge"],
+          "skills": [
+            "run-bridge"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -992,13 +1062,10 @@
       "order": 5,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "bridge_constraints",
-          "render_as": "table_row"
-        },
-        {
           "target": "skill-md",
-          "skills": ["run-bridge"],
+          "skills": [
+            "run-bridge"
+          ],
           "render_as": "constraint_rule"
         }
       ],
@@ -1018,9 +1085,11 @@
       "order": 6,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "bridge_constraints",
-          "render_as": "table_row"
+          "target": "skill-md",
+          "skills": [
+            "run-bridge"
+          ],
+          "render_as": "constraint_rule"
         }
       ],
       "severity": "low"
@@ -1039,9 +1108,11 @@
       "order": 7,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "bridge_constraints",
-          "render_as": "table_row"
+          "target": "skill-md",
+          "skills": [
+            "run-bridge"
+          ],
+          "render_as": "constraint_rule"
         }
       ],
       "severity": "low"
@@ -1099,9 +1170,11 @@
       "order": 2,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "merge_constraints",
-          "render_as": "table_row"
+          "target": "skill-md",
+          "skills": [
+            "deploying-infrastructure"
+          ],
+          "render_as": "constraint_rule"
         }
       ],
       "severity": "medium"
@@ -1119,9 +1192,11 @@
       "order": 3,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "merge_constraints",
-          "render_as": "table_row"
+          "target": "skill-md",
+          "skills": [
+            "deploying-infrastructure"
+          ],
+          "render_as": "constraint_rule"
         }
       ],
       "severity": "high"
@@ -1139,9 +1214,11 @@
       "order": 4,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "merge_constraints",
-          "render_as": "table_row"
+          "target": "skill-md",
+          "skills": [
+            "deploying-infrastructure"
+          ],
+          "render_as": "constraint_rule"
         }
       ],
       "severity": "medium"
@@ -1264,9 +1341,12 @@
       "order": 0,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "permission_grants",
-          "render_as": "table_row"
+          "target": "skill-md",
+          "skills": [
+            "discovering-requirements",
+            "bridgebuilder-review"
+          ],
+          "render_as": "constraint_rule"
         }
       ],
       "severity": "low"
@@ -1284,9 +1364,11 @@
       "order": 1,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "permission_grants",
-          "render_as": "table_row"
+          "target": "skill-md",
+          "skills": [
+            "implementing-tasks"
+          ],
+          "render_as": "constraint_rule"
         }
       ],
       "severity": "low"
@@ -1304,9 +1386,12 @@
       "order": 2,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "permission_grants",
-          "render_as": "table_row"
+          "target": "skill-md",
+          "skills": [
+            "reviewing-code",
+            "bridgebuilder-review"
+          ],
+          "render_as": "constraint_rule"
         }
       ],
       "severity": "low"
@@ -1324,9 +1409,13 @@
       "order": 3,
       "layers": [
         {
-          "target": "claude-loa-md",
-          "section": "permission_grants",
-          "render_as": "table_row"
+          "target": "skill-md",
+          "skills": [
+            "discovering-requirements",
+            "reviewing-code",
+            "bridgebuilder-review"
+          ],
+          "render_as": "constraint_rule"
         }
       ],
       "severity": "low"
@@ -1350,12 +1439,36 @@
         },
         {
           "target": "skill-md",
-          "skills": ["spiraling"],
+          "skills": [
+            "spiraling"
+          ],
           "render_as": "constraint_rule"
         }
       ],
       "severity": "critical",
       "source_incident": "#506"
+    },
+    {
+      "id": "C-PROC-011",
+      "name": "yagni_ladder",
+      "category": "process",
+      "rule_type": "ALWAYS",
+      "text": "walk the YAGNI ladder before writing code — stop at the first rung that holds (need it? → stdlib → native → installed dependency → one line → minimum code)",
+      "text_variants": {
+        "skill-md": "DO walk the YAGNI ladder before writing code — stop at the first rung that holds (need it? → stdlib → native → installed dependency → one line → minimum code); reinventing stdlib/native features is a dominant over-engineering class"
+      },
+      "why": "Speculative code and reinvented stdlib/native features are dominant over-engineering classes; the ladder is the reflex that prevents them (adapted from ponytail, MIT)",
+      "severity": "medium",
+      "order": 13,
+      "layers": [
+        {
+          "target": "skill-md",
+          "skills": [
+            "implementing-tasks"
+          ],
+          "render_as": "constraint_rule"
+        }
+      ]
     }
   ]
 }

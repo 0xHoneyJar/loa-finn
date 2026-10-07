@@ -3,6 +3,10 @@
 # Part of the Loa framework's Recursive JIT Context System
 set -euo pipefail
 
+
+# sprint-bug-172 / bug-911: sha256_portable from compat-lib
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compat-lib.sh"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=lib/normalize-json.sh
@@ -122,8 +126,11 @@ check_dependencies() {
         missing+=("jq")
     fi
 
-    if ! command -v sha256sum &>/dev/null && ! command -v shasum &>/dev/null; then
-        missing+=("sha256sum or shasum")
+    # sprint-bug-172: sha256_portable is a compat-lib function; the underlying
+    # tool (GNU sha256sum or BSD shasum) availability is tracked in
+    # _COMPAT_SHA256_CMD at compat-lib source time.
+    if [[ -z "${_COMPAT_SHA256_CMD:-}" ]]; then
+        missing+=("GNU coreutils or BSD shasum (sha-256 tool)")
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
@@ -143,11 +150,8 @@ check_dependencies() {
 #######################################
 sha256_hash() {
     local input="$1"
-    if command -v sha256sum &>/dev/null; then
-        echo -n "$input" | sha256sum | cut -d' ' -f1
-    else
-        echo -n "$input" | shasum -a 256 | cut -d' ' -f1
-    fi
+    # sprint-bug-172: sha256_portable handles GNU/BSD/fail-loud dispatch.
+    echo -n "$input" | sha256_portable | cut -d' ' -f1
 }
 
 #######################################
@@ -599,15 +603,25 @@ cmd_set() {
 
 #######################################
 # Check if auto-synthesize is enabled
+# cycle-121: default flipped true -> false. The default-ON writer appended a
+# "Cache: result stored" Decisions row on EVERY cache set (including bats
+# runs), polluting NOTES.md's decision surface with 127 junk rows. Explicit
+# --message synthesis (a caller with a real decision) is unaffected. Test
+# runs never write NOTES.md regardless of config (BATS guard below).
 #######################################
 is_auto_synthesize_enabled() {
+    # Never auto-write NOTES.md from test harnesses
+    if [[ -n "${BATS_TEST_FILENAME:-}" || "${LOA_TEST_MODE:-}" == "1" ]]; then
+        return 1
+    fi
+
     if [[ ! -f "$CONFIG_FILE" ]]; then
         return 1
     fi
 
     if command -v yq &>/dev/null; then
         local enabled
-        enabled=$(yq '.recursive_jit.continuous_synthesis.on_cache_set // true' "$CONFIG_FILE" 2>/dev/null)
+        enabled=$(yq '.recursive_jit.continuous_synthesis.on_cache_set // false' "$CONFIG_FILE" 2>/dev/null)
         [[ "$enabled" == "true" ]]
     else
         return 1
