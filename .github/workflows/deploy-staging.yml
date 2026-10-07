@@ -1,7 +1,8 @@
-name: Build & Push to ECR (Staging)
+name: Deploy Staging
 
 # Build + test + push Docker image to ECR for Freeside-managed deployment.
-# Deployment is handled by Freeside's deploy-ring.sh (issue #114).
+# Runs on every push to main and on manual dispatch.
+# Deployment is handled by Freeside's deploy-ring.sh.
 # Optionally triggers ECS force-new-deployment after push.
 # T-6.3: All actions pinned to commit SHA. T-6.7: pnpm instead of npm.
 
@@ -10,6 +11,8 @@ permissions:
   id-token: write
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       image_tag:
@@ -143,7 +146,7 @@ jobs:
   force-deploy:
     name: Trigger ECS Redeployment
     needs: build-and-push
-    if: ${{ inputs.force_deploy }}
+    if: ${{ inputs.force_deploy != 'false' }}
     runs-on: ubuntu-latest
 
     steps:
