@@ -45,3 +45,23 @@ When `.run/construct-index.yaml` exists, constructs are installed and available:
 - Scope to the construct's skill set and grimoire paths
 - Use `construct-resolve.sh resolve <name>` for programmatic resolution
 - Use `construct-resolve.sh compose <source> <target>` to check composition paths
+
+## Model setup (operator directive 2026-10-05)
+
+Main thread **Fable 5.1**, subagents **Opus 5.5**, both on Bedrock. Launch with `claude-bedrock -c`,
+never plain `claude` (subscription Fable is out of credits; a plain session fails every turn).
+
+- `.claude/settings.local.json` (gitignored, recreate per machine) carries
+  `"model": "fable"` plus env `CLAUDE_CODE_SUBAGENT_MODEL=opus` and
+  `ANTHROPIC_DEFAULT_OPUS_MODEL=global.anthropic.claude-opus-5-5`.
+- `opus` MUST resolve to Opus 5.5: verify the id, never trust the alias. Both checks must name
+  `global.anthropic.claude-opus-5-5`:
+  1. `cd ~ && claude-bedrock -p --model opus --output-format json 'Reply with only the exact model ID named in your system prompt.' | jq '{result, models:(.modelUsage|keys)}'`
+  2. In-session: spawn one Agent with `model: "opus"` and the same prompt.
+- Subagent precedence: explicit `model` on the Agent call, then agent-definition frontmatter
+  (`.claude/agents/*.md`, framework files, do not edit), then `CLAUDE_CODE_SUBAGENT_MODEL`, then inherit.
+  `env` is read at launch; in a session started before the change, pass `model: "opus"` per Agent call.
+- Headless Claude hops (Flatline primary, Bridgebuilder voice, chain-walk) use `claude-headless`, cheval's
+  CLI adapter pinned to `cli_model: fable` and routed by `CLAUDE_HEADLESS_BIN` onto Bedrock. http_api ids
+  (`opus`, `fable`) fail INVALID_CONFIG here: no `ANTHROPIC_API_KEY`. Secondary/tertiary Flatline voices stay
+  non-Anthropic. Verified 2026-10-07.

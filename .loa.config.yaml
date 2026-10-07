@@ -1261,68 +1261,6 @@ update_loa:
     state_file: ".loa/branch-testing.json"
 
 # =============================================================================
-# Effort Parameter (v1.13.0 - Issue #94)
-# =============================================================================
-# Control reasoning depth vs token efficiency for extended thinking
-# Based on Anthropic's effort parameter: https://www.anthropic.com/news/claude-opus-4-6
-#
-# IMPORTANT: The actual API uses `thinking.budget_tokens` (integer), not named effort levels.
-# These conceptual levels map to budget_tokens ranges that runtimes should use.
-# Loa defines the WHAT (conceptual levels, skill hints); runtime executes the HOW (API calls).
-#
-# Performance claims (Anthropic benchmarks):
-# - Medium effort: 76% fewer output tokens with equivalent quality on SWE-bench
-# - High effort: 48% fewer tokens while exceeding Sonnet 4.5 by 4.3 percentage points
-effort:
-  # Default effort level for all skills
-  # Options: low | medium | high
-  # - low: Minimal reasoning, fastest response (~1,024-4,000 budget_tokens)
-  # - medium: Balanced quality/cost (~8,000-16,000 budget_tokens) [RECOMMENDED]
-  # - high: Maximum reasoning depth (~24,000-32,000 budget_tokens)
-  default_level: medium
-
-  # Budget token ranges for each effort level (runtime uses these)
-  # NOTE: Gaps between ranges (4K-8K, 16K-24K) are intentional separation zones.
-  # Skills wanting intermediate budgets should use the higher level.
-  # Example: 6K tokens → use "medium" (min 8K)
-  budget_ranges:
-    low:
-      min: 1024
-      max: 4000
-    medium:
-      min: 8000
-      max: 16000
-    high:
-      min: 24000
-      max: 32000
-
-  # Per-skill effort overrides
-  # Skills can declare their recommended effort in SKILL.md frontmatter
-  per_skill:
-    # Security audits need deep reasoning for vulnerability analysis
-    auditing-security: high
-    # Architecture decisions benefit from thorough analysis
-    designing-architecture: high
-    # Code review should be thorough but not exhaustive
-    reviewing-code: medium
-    # Implementation is balanced
-    implementing-tasks: medium
-    # Sprint planning needs good analysis
-    planning-sprints: medium
-    # PRD discovery benefits from depth
-    discovering-requirements: medium
-    # Executive translation is simpler summarization
-    translating-for-executives: low
-
-  # AI operator adjustment (when autonomous_agent.operator.type = ai)
-  # AI operators may use lower effort by default to conserve tokens
-  ai_operator_adjustment:
-    enabled: true
-    # Reduce effort level by this amount for AI operators
-    # 0 = no reduction, 1 = reduce by one level, 2 = always use low
-    reduction: 0
-
-# =============================================================================
 # Context Editing Protocol (v1.13.0 - Issue #95)
 # =============================================================================
 # Auto-compaction protocol for long-running agentic workflows
@@ -1555,8 +1493,8 @@ flatline_protocol:
 
   # Models for adversarial review
   models:
-    # Primary model (default: Claude Opus 4.6)
-    primary: "opus"
+    # Primary Claude voice: cheval claude-headless (cli_model fable via CLAUDE_HEADLESS_BIN, lands on Bedrock). http_api ids (opus, fable) fail INVALID_CONFIG here: no ANTHROPIC_API_KEY.
+    primary: "claude-headless"
     # Secondary model (default: GPT-5.2)
     secondary: "gpt-5.2"
     # Tertiary model
